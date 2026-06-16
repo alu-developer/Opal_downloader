@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opal-downloader"
+version = "0.1.0"
+description = "Download and sync course files from OPAL (Bildungsportal Sachsen) via WebDAV"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "webdavclient3>=3.14.6",
+    "PyYAML>=6.0",
+    "click>=8.1.0",
+]
+
+[project.scripts]
+opal-downloader = "opal_downloader.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["opal_downloader*"]

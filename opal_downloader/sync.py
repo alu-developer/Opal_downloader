@@ -1,25 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from opal_downloader.config import AppConfig, course_matches
-from opal_downloader.webdav import OpalWebDavClient, RemoteEntry
+from opal_downloader.scraper import OpalScraper, RemoteFile
 
 
 @dataclass
 class SyncStats:
     downloaded: int = 0
     skipped: int = 0
-    deleted: int = 0
     errors: int = 0
 
 
 @dataclass(frozen=True)
 class FileRecord:
-    etag: str | None
     size: int | None
     modified: str | None
 
@@ -42,7 +41,6 @@ class Manifest:
             if not isinstance(record, dict):
                 continue
             self.files[remote_path] = FileRecord(
-                etag=record.get("etag"),
                 size=record.get("size"),
                 modified=record.get("modified"),
             )
@@ -53,7 +51,6 @@ class Manifest:
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "files": {
                 path: {
-                    "etag": record.etag,
                     "size": record.size,
                     "modified": record.modified,
                 }
@@ -64,8 +61,8 @@ class Manifest:
             json.dump(payload, handle, indent=2)
 
 
-def sync_courses(
-    client: OpalWebDavClient,
+async def sync_courses(
+    scraper: OpalScraper,
     config: AppConfig,
     *,
     force: bool = False,
@@ -75,14 +72,15 @@ def sync_courses(
     manifest = Manifest(manifest_path)
     config.download_path.mkdir(parents=True, exist_ok=True)
 
-    remote_files = _collect_remote_files(client, config)
+    # Scrape OPAL for files
+    remote_files = await scraper.login_and_get_courses(config.courses)
     seen_paths: set[str] = set()
 
-    for remote_path, entry in sorted(remote_files.items()):
-        seen_paths.add(remote_path)
-        local_path = config.download_path / Path(*remote_path.split("/"))
-        previous = manifest.files.get(remote_path)
-        changed = force or _entry_changed(entry, previous)
+    for remote_file in sorted(remote_files, key=lambda f: f.path):
+        seen_paths.add(remote_file.path)
+        local_path = config.download_path / remote_file.path
+        previous = manifest.files.get(remote_file.path)
+        changed = force or _file_changed(remote_file, previous)
 
         if local_path.exists() and not changed:
             stats.skipped += 1
@@ -90,85 +88,48 @@ def sync_courses(
 
         try:
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            client.download_file(remote_path, str(local_path))
-            manifest.files[remote_path] = FileRecord(
-                etag=entry.etag,
-                size=entry.size,
-                modified=entry.modified,
+            await scraper.download_file(remote_file.url, str(local_path))
+            manifest.files[remote_file.path] = FileRecord(
+                size=remote_file.size,
+                modified=remote_file.modified,
             )
             stats.downloaded += 1
-            print(f"  downloaded: {remote_path}")
+            print(f"  downloaded: {remote_file.path}")
         except Exception as exc:
             stats.errors += 1
-            print(f"  error: {remote_path} ({exc})")
-
-    if config.delete_removed:
-        for remote_path in list(manifest.files):
-            if remote_path in seen_paths:
-                continue
-            local_path = config.download_path / Path(*remote_path.split("/"))
-            if local_path.exists():
-                local_path.unlink()
-            del manifest.files[remote_path]
-            stats.deleted += 1
-            print(f"  deleted local: {remote_path}")
+            print(f"  error: {remote_file.path} ({exc})")
 
     manifest.save()
     return stats
 
 
-def list_available_courses(client: OpalWebDavClient, roots: list[str]) -> None:
-    for root in roots:
-        print(f"\n[{root}]")
-        try:
-            entries = client.list_dir(root)
-        except Exception as exc:
-            print(f"  unavailable: {exc}")
-            continue
-        if not entries:
-            print("  (empty or no access)")
-            continue
-        for entry in sorted(entries, key=lambda item: item.path.casefold()):
-            suffix = "/" if entry.is_dir else ""
-            print(f"  {entry.path}{suffix}")
+async def list_available_courses(scraper: OpalScraper, config: AppConfig) -> None:
+    """
+    List available courses by scraping OPAL.
+    Requires manual login.
+    """
+    print("Logging in to OPAL to fetch available courses...")
+    files = await scraper.login_and_get_courses(["*"])
+    
+    # Group files by course
+    courses: dict[str, list[RemoteFile]] = {}
+    for file in files:
+        if file.course not in courses:
+            courses[file.course] = []
+        courses[file.course].append(file)
+    
+    print(f"\nFound {len(courses)} courses:\n")
+    for course in sorted(courses.keys()):
+        file_count = len(courses[course])
+        print(f"  [{course}] ({file_count} files)")
 
 
-def _collect_remote_files(
-    client: OpalWebDavClient,
-    config: AppConfig,
-) -> dict[str, RemoteEntry]:
-    selected: dict[str, RemoteEntry] = {}
-    filter_roots = {"coursefolders", "groupfolders"}
-
-    for root in config.roots:
-        try:
-            top_level = client.list_dir(root)
-        except Exception:
-            continue
-
-        for entry in top_level:
-            if not entry.is_dir:
-                selected[entry.path] = entry
-                continue
-
-            folder_name = entry.path.split("/")[-1]
-            if root in filter_roots and not course_matches(folder_name, config.courses):
-                continue
-
-            for file_entry in client.walk_files([entry.path]):
-                if not file_entry.is_dir:
-                    selected[file_entry.path] = file_entry
-
-    return selected
-
-
-def _entry_changed(entry: RemoteEntry, previous: FileRecord | None) -> bool:
+def _file_changed(remote_file: RemoteFile, previous: FileRecord | None) -> bool:
+    """Check if a remote file has changed since last sync."""
     if previous is None:
         return True
-    if entry.etag and previous.etag and entry.etag != previous.etag:
+    if remote_file.size is not None and previous.size is not None and remote_file.size != previous.size:
         return True
-    if entry.size is not None and previous.size is not None and entry.size != previous.size:
-        return True
-    if entry.modified and previous.modified and entry.modified != previous.modified:
+    if remote_file.modified and previous.modified and remote_file.modified != previous.modified:
         return True
     return False

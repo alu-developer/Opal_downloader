@@ -8,30 +8,25 @@ from typing import Any
 import yaml
 
 
-DEFAULT_WEBDAV_URL = "https://bildungsportal.sachsen.de/opal/webdav"
-DEFAULT_ROOTS = ("coursefolders", "groupfolders", "home")
+DEFAULT_OPAL_URL = "https://bildungsportal.sachsen.de/opal/"
 
 
 @dataclass
-class WebDavCredentials:
+class OpalCredentials:
     url: str
-    username: str
-    password: str
 
 
 @dataclass
 class AppConfig:
     download_path: Path
     courses: list[str]
-    roots: list[str]
     sync: bool
-    delete_removed: bool
 
 
 @dataclass
 class LoadedConfig:
     app: AppConfig
-    credentials: WebDavCredentials
+    credentials: OpalCredentials
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -51,38 +46,21 @@ def load_config(
     config_data = _load_yaml(config_path)
     secrets_data = _load_yaml(secrets_path)
 
-    webdav = secrets_data.get("webdav", {})
-    if not isinstance(webdav, dict):
-        raise ValueError("secrets.yaml: 'webdav' must be a mapping")
-
-    username = webdav.get("username", "").strip()
-    password = webdav.get("password", "")
-    if not username or not password:
-        raise ValueError(
-            "secrets.yaml must define webdav.username and webdav.password"
-        )
-
+    opal_url = str(secrets_data.get("opal_url", DEFAULT_OPAL_URL)).rstrip("/") + "/"
+    
     download_path = Path(config_data.get("download_path", "./downloads")).expanduser()
     courses = config_data.get("courses", ["*"])
     if not isinstance(courses, list):
         raise ValueError("config.yaml: 'courses' must be a list of patterns")
 
-    roots = config_data.get("roots", list(DEFAULT_ROOTS))
-    if not isinstance(roots, list) or not roots:
-        raise ValueError("config.yaml: 'roots' must be a non-empty list")
-
     return LoadedConfig(
         app=AppConfig(
             download_path=download_path,
             courses=[str(item) for item in courses],
-            roots=[str(item).strip("/") for item in roots],
             sync=bool(config_data.get("sync", True)),
-            delete_removed=bool(config_data.get("delete_removed", False)),
         ),
-        credentials=WebDavCredentials(
-            url=str(webdav.get("url", DEFAULT_WEBDAV_URL)).rstrip("/"),
-            username=username,
-            password=password,
+        credentials=OpalCredentials(
+            url=opal_url,
         ),
     )
 

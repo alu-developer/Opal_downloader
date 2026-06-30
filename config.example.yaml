@@ -2,21 +2,13 @@
 download_path: "D:/Uni/OPAL"
 
 # Course folder name patterns (fnmatch, case-insensitive).
-# Use "*" to include every course/group folder.
+# Use "*" to include every course/group folder found during login.
+# Examples:
+#   - "*"                    (all courses)
+#   - "*Analysis*"          (courses containing "Analysis")
+#   - "*SS2026*"            (semester filter)
 courses:
   - "*"
 
-# WebDAV roots to scan. Common OPAL folders:
-#   coursefolders  — course storage and folder elements
-#   groupfolders   — learning/working group folders
-#   home           — your personal OPAL folder
-roots:
-  - coursefolders
-  - groupfolders
-  - home
-
-# On re-run, skip unchanged files (uses etag/size/modified metadata)
+# On re-run, skip unchanged files (uses size/modified metadata)
 sync: true
-
-# Remove local files that disappeared on OPAL (default: false)
-delete_removed: false

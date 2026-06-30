@@ -4,6 +4,10 @@ Download and sync course files from [OPAL](https://tu-dresden.de/opal) (Bildungs
 
 Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL instance.
 
+## Work in Progress
+
+This project is still work in progress and may not work. 
+
 ## Features
 
 - Download files from enrolled courses and groups

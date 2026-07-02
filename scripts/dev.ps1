@@ -33,7 +33,7 @@ try {
             & $go build ./...
         }
         "playwright" {
-            & $go run github.com/playwright-community/playwright-go/cmd/playwright@latest install
+            & $go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
         }
         "all" {
             & $go mod tidy

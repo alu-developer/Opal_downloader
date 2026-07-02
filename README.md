@@ -16,7 +16,7 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 
 ## Prerequisites
 
-1. Python 3.10+
+1. Go 1.23+
 2. Chromium/Chrome (installed via Playwright)
 
 ## Installation
@@ -24,40 +24,36 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 ```bash
 git clone https://github.com/alu-developer/opal-downloader.git
 cd opal-downloader
-python -m venv .venv
 
-# Windows
-.venv\Scripts\activate
+# Install browser binaries used by playwright-go
+go run github.com/playwright-community/playwright-go/cmd/playwright@latest install
 
-# Linux / macOS
-source .venv/bin/activate
-
-pip install -e .
-playwright install
+# Build the binary
+go build -o opal-downloader .
 ```
 
 ## Quick Start
 
 ```bash
 # Create config.yaml and secrets.yaml from examples
-opal-downloader init
+./opal-downloader init
 
 # Interactive one-time login (opens browser)
-opal-downloader login
+./opal-downloader login
 
 # Sync files (reuses saved session state if valid)
-opal-downloader sync
+./opal-downloader sync
 ```
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `opal-downloader init` | Create `config.yaml` and `secrets.yaml` from examples |
-| `opal-downloader login` | Open browser, complete login, persist session state |
-| `opal-downloader list` | List detected courses and file counts |
-| `opal-downloader sync` | Download new/changed files |
-| `opal-downloader sync --force` | Re-download matched files |
+| `./opal-downloader init` | Create `config.yaml` and `secrets.yaml` from examples |
+| `./opal-downloader login` | Open browser, complete login, persist session state |
+| `./opal-downloader list` | List detected courses and file counts |
+| `./opal-downloader sync` | Download new/changed files |
+| `./opal-downloader sync --force` | Re-download matched files |
 
 ## Configuration
 
@@ -104,7 +100,7 @@ browser_user_data_dir: "C:/Users/<YOU>/AppData/Local/BraveSoftware/Brave-Browser
 If TU-Fast is only installed in Brave, configure `browser_executable` and `browser_user_data_dir` in `secrets.yaml` and run:
 
 ```bash
-opal-downloader login
+./opal-downloader login
 ```
 
 This starts with your real Brave profile so existing extensions can be used.
@@ -114,6 +110,17 @@ This starts with your real Brave profile so existing extensions can be used.
 - The project is still evolving; selectors may require small adjustments if OPAL UI changes.
 - Only files visible through your OPAL web interface can be discovered.
 - Session state is sensitive data; keep the state file private.
+
+## Long-Term Maintenance
+
+- CI runs on every push and pull request via [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- Use local quality checks with [scripts/dev.ps1](scripts/dev.ps1):
+
+```powershell
+./scripts/dev.ps1 all
+```
+
+- Operational checklist and incident steps are documented in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## License
 

@@ -1,0 +1,34 @@
+# Normalize text files by default and store with LF in the repository.
+* text=auto eol=lf
+
+# Source and config files should always use LF.
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+
+# Windows script files typically use CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Common binary formats: never modify line endings and do not diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.7z binary
+*.exe binary
+*.dll binary

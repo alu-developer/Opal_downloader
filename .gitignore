@@ -18,6 +18,14 @@ build/
 venv/
 env/
 
+# Go
+opal-downloader
+*.exe
+*.test
+*.out
+go.work
+go.work.sum
+
 # IDE / OS
 .idea/
 .vscode/

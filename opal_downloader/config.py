@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+import re
 from typing import Any
 import unicodedata
 
@@ -26,6 +27,8 @@ class AppConfig:
     download_path: Path
     courses: list[str]
     sync: bool
+    default_course_folder: str
+    course_folders: dict[str, str]
 
 
 @dataclass
@@ -73,14 +76,33 @@ def load_config(
     if not isinstance(courses, list):
         raise ValueError("config.yaml: 'courses' must be a list of patterns")
 
+    default_course_folder = str(config_data.get("default_course_folder", "")).strip()
+    course_folders = config_data.get("course_folders", {})
+    if not isinstance(course_folders, dict):
+        raise ValueError("config.yaml: 'course_folders' must be a mapping of patterns to folder names")
+
     return LoadedConfig(
         app=AppConfig(
             download_path=download_path,
             courses=[str(item) for item in courses],
             sync=bool(config_data.get("sync", True)),
+            default_course_folder=default_course_folder,
+            course_folders={str(pattern): str(folder).strip() for pattern, folder in course_folders.items()},
         ),
         credentials=credentials,
     )
+
+
+def resolve_course_folder(config: AppConfig, course_name: str) -> tuple[str, bool]:
+    """Return the folder for a course and whether it came from an explicit rule."""
+    for pattern, folder in config.course_folders.items():
+        if course_matches(course_name, [pattern]):
+            return folder, True
+
+    if config.default_course_folder:
+        return config.default_course_folder, False
+
+    return _sanitize_path_component(course_name), False
 
 
 def course_matches(name: str, patterns: list[str]) -> bool:
@@ -111,3 +133,14 @@ def _pattern_matches_course(normalized_course: str, raw_pattern: str) -> bool:
         return fnmatch(normalized_course, normalized_pattern)
 
     return normalized_pattern in normalized_course
+
+
+def _sanitize_path_component(value: str) -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", value.strip())
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.rstrip(". ")
+    if not cleaned:
+        return "unnamed"
+    if cleaned.upper() in {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}:
+        return f"_{cleaned}"
+    return cleaned

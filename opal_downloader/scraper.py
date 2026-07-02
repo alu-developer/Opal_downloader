@@ -264,10 +264,12 @@ class OpalScraper:
             urljoin(self.opal_url, "auth/repository/catalog"),
             urljoin(self.opal_url, "auth/repository/catalog/3571713"),  # TU Dresden
         ]
+        queued: set[str] = {self._normalize_url_for_crawl(item) for item in queue}
 
         while queue and len(visited) < max_pages:
             current_url = queue.pop(0)
             key = self._normalize_url_for_crawl(current_url)
+            queued.discard(key)
             if key in visited:
                 continue
             visited.add(key)
@@ -316,12 +318,12 @@ class OpalScraper:
                     .filter(href => href.includes('/auth/repository/catalog/'))
                 """
             )
-            queued_keys = {self._normalize_url_for_crawl(item) for item in queue}
             for href in catalog_links:
                 abs_url = urljoin(self.opal_url, str(href))
                 abs_key = self._normalize_url_for_crawl(abs_url)
-                if abs_key not in visited and abs_key not in queued_keys:
+                if abs_key not in visited and abs_key not in queued:
                     queue.append(abs_url)
+                    queued.add(abs_key)
 
             still_missing = self._get_unmatched_patterns(missing_patterns, list(discovered.values()))
             if not still_missing:
@@ -402,12 +404,14 @@ class OpalScraper:
         file_seen: set[str] = set()
         visited_pages: set[str] = set()
         queue: list[str] = [start_url]
+        queued: set[str] = {self._normalize_url_for_crawl(start_url)}
         max_pages = 12
         start_repo_id = self._extract_repository_entry_id(start_url)
 
         while queue and len(visited_pages) < max_pages:
             current_url = queue.pop(0)
             current_key = self._normalize_url_for_crawl(current_url)
+            queued.discard(current_key)
             if current_key in visited_pages:
                 continue
             visited_pages.add(current_key)
@@ -483,54 +487,11 @@ class OpalScraper:
 
                 if self._looks_like_browse_link(link_target, text):
                     abs_key = self._normalize_url_for_crawl(abs_url)
-                    queued_keys = {self._normalize_url_for_crawl(item) for item in queue}
-                    if abs_key not in visited_pages and abs_key not in queued_keys:
+                    if abs_key not in visited_pages and abs_key not in queued:
                         queue.append(abs_url)
+                        queued.add(abs_key)
 
         print(f"    Crawled {len(visited_pages)} pages, found {len(files)} files")
-        return files
-
-    async def _extract_files_browser(self, course_name: str) -> list[RemoteFile]:
-        """Extract files from current course page (browser)."""
-        if not self.page:
-            raise RuntimeError("No page available")
-
-        files: list[RemoteFile] = []
-
-        file_links = await self.page.locator("a[href]").all()
-
-        for link in file_links:
-            try:
-                file_name = await link.inner_text()
-                file_name = file_name.strip()
-
-                if not file_name:
-                    continue
-
-                href = await link.get_attribute("href")
-                if not href:
-                    continue
-                if not self._looks_like_download_link(href, file_name):
-                    continue
-
-                # Handle relative URLs
-                url = urljoin(self.opal_url, href)
-                cleaned_name = self._sanitize_filename(file_name)
-                cleaned_course = self._sanitize_filename(course_name)
-
-                files.append(
-                    RemoteFile(
-                        name=cleaned_name,
-                        url=url,
-                        course=cleaned_course,
-                        path=f"{cleaned_course}/{cleaned_name}",
-                    )
-                )
-                print(f"    Found file: {cleaned_name}")
-
-            except Exception as e:
-                print(f"    Error extracting file: {e}")
-
         return files
 
     @staticmethod
@@ -629,24 +590,6 @@ class OpalScraper:
         )):
             return True
         return False
-
-    @staticmethod
-    def _is_discovery_page(url: str) -> bool:
-        url_l = url.casefold()
-        if "/auth/repository/catalog" in url_l:
-            return False
-        if "/auth/repository/search" in url_l:
-            return False
-        return any(
-            token in url_l
-            for token in (
-                "/opal/",
-                "/auth/home",
-                "/auth/resource/resources",
-                "baseclass=ilmembershipoverviewgui",
-                "baseclass=ildashboardgui",
-            )
-        )
 
     @staticmethod
     def _is_course_label(text: str) -> bool:

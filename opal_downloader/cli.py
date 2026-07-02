@@ -164,6 +164,12 @@ def sync_cmd(config_path: Path, secrets_path: Path, force: bool) -> None:
 
     click.echo(f"Download path: {loaded.app.download_path}")
     click.echo(f"Course patterns: {', '.join(loaded.app.courses)}")
+    if loaded.app.default_course_folder:
+        click.echo(f"Default course folder: {loaded.app.default_course_folder}")
+    if loaded.app.course_folders:
+        click.echo("Course folder rules:")
+        for pattern, folder in loaded.app.course_folders.items():
+            click.echo(f"  {pattern} -> {folder}")
     click.echo()
     stats = asyncio.run(_run_sync(scraper, loaded.app, force))
 

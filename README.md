@@ -66,6 +66,8 @@ opal-downloader sync
 | Key | Description |
 |---|---|
 | `download_path` | Local destination path |
+| `default_course_folder` | Folder used when no course rule matches; if omitted, the course name is used as before |
+| `course_folders` | Mapping of course-name patterns to target folders; first match wins |
 | `courses` | List of fnmatch patterns matched against course names |
 | `sync` | Keep for compatibility (`true` by default) |
 
@@ -73,6 +75,10 @@ Example:
 
 ```yaml
 download_path: "D:/Uni/OPAL"
+default_course_folder: "default"
+course_folders:
+  "*Programmierung*": "Informatik/Programmierung"
+  "*Analysis*": "Mathematik/Analysis"
 courses:
   - "*Lineare Algebra*"
   - "*Programmierung*"

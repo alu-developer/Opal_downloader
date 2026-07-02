@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from opal_downloader.config import AppConfig, course_matches
+from opal_downloader.config import AppConfig, course_matches, resolve_course_folder
 from opal_downloader.scraper import OpalScraper, RemoteFile
 
 
@@ -76,12 +76,12 @@ async def sync_courses(
     remote_files = await scraper.scrape_with_saved_session(config.courses)
     print(f"Discovered {len(remote_files)} remote files. Comparing against local manifest...")
     _print_unmatched_course_patterns(remote_files, config.courses)
-    seen_paths: set[str] = set()
 
     for remote_file in sorted(remote_files, key=lambda f: f.path):
-        seen_paths.add(remote_file.path)
-        local_path = config.download_path / remote_file.path
-        previous = manifest.files.get(remote_file.path)
+        target_path = _resolve_remote_target_path(config, remote_file)
+        target_key = target_path.as_posix()
+        local_path = config.download_path / target_path if not target_path.is_absolute() else target_path
+        previous = manifest.files.get(target_key)
         changed = force or _file_changed(remote_file, previous)
 
         if local_path.exists() and not changed:
@@ -91,15 +91,15 @@ async def sync_courses(
         try:
             local_path.parent.mkdir(parents=True, exist_ok=True)
             await scraper.download_file(remote_file.url, str(local_path))
-            manifest.files[remote_file.path] = FileRecord(
+            manifest.files[target_key] = FileRecord(
                 size=remote_file.size,
                 modified=remote_file.modified,
             )
             stats.downloaded += 1
-            print(f"  downloaded: {remote_file.path}")
+            print(f"  downloaded: {target_key}")
         except Exception as exc:
             stats.errors += 1
-            print(f"  error: {remote_file.path} ({exc})")
+            print(f"  error: {target_key} ({exc})")
 
     manifest.save()
     return stats
@@ -157,3 +157,16 @@ def _print_unmatched_course_patterns(remote_files: list[RemoteFile], patterns: l
             print(f"  - {pattern} -> maybe: {', '.join(suggestions)}")
         else:
             print(f"  - {pattern}")
+
+
+def _resolve_remote_target_path(config: AppConfig, remote_file: RemoteFile) -> Path:
+    folder, is_explicit = resolve_course_folder(config, remote_file.course)
+    folder_path = Path(folder)
+
+    if is_explicit:
+        return folder_path / remote_file.name
+
+    if config.default_course_folder:
+        return folder_path / remote_file.course / remote_file.name
+
+    return folder_path / remote_file.name

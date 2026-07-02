@@ -1,6 +1,16 @@
 # Local download destination (absolute or relative path)
 download_path: "D:/Uni/OPAL"
 
+# Optional default folder for courses without an explicit rule.
+# If omitted, the course name is used as before.
+default_course_folder: "default"
+
+# Optional course-specific folder rules. Patterns use the same matching logic as
+# the courses list below. The first matching rule wins.
+course_folders:
+  "*Programmierung*": "Informatik/Programmierung"
+  "*Analysis*": "Mathematik/Analysis"
+
 # Course folder name patterns (fnmatch, case-insensitive).
 # Use "*" to include every course/group folder found during login.
 # Examples:

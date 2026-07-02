@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import difflib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -72,8 +72,10 @@ async def sync_courses(
     manifest = Manifest(manifest_path)
     config.download_path.mkdir(parents=True, exist_ok=True)
 
-    # Scrape OPAL for files
-    remote_files = await scraper.login_and_get_courses(config.courses)
+    # Scrape OPAL for files (saved session first, interactive fallback)
+    remote_files = await scraper.scrape_with_saved_session(config.courses)
+    print(f"Discovered {len(remote_files)} remote files. Comparing against local manifest...")
+    _print_unmatched_course_patterns(remote_files, config.courses)
     seen_paths: set[str] = set()
 
     for remote_file in sorted(remote_files, key=lambda f: f.path):
@@ -106,10 +108,10 @@ async def sync_courses(
 async def list_available_courses(scraper: OpalScraper, config: AppConfig) -> None:
     """
     List available courses by scraping OPAL.
-    Requires manual login.
+    Uses saved session state if available, otherwise requires manual browser login.
     """
-    print("Logging in to OPAL to fetch available courses...")
-    files = await scraper.login_and_get_courses(["*"])
+    print("Fetching courses from OPAL...")
+    files = await scraper.scrape_with_saved_session(["*"])
     
     # Group files by course
     courses: dict[str, list[RemoteFile]] = {}
@@ -133,3 +135,25 @@ def _file_changed(remote_file: RemoteFile, previous: FileRecord | None) -> bool:
     if remote_file.modified and previous.modified and remote_file.modified != previous.modified:
         return True
     return False
+
+
+def _print_unmatched_course_patterns(remote_files: list[RemoteFile], patterns: list[str]) -> None:
+    if not patterns or patterns == ["*"]:
+        return
+
+    discovered_courses = sorted({file.course for file in remote_files})
+    if not discovered_courses:
+        print("Warning: no courses discovered for the configured filters.")
+        return
+
+    unmatched = [pattern for pattern in patterns if not any(course_matches(name, [pattern]) for name in discovered_courses)]
+    if not unmatched:
+        return
+
+    print("Warning: some configured course patterns did not match discovered courses:")
+    for pattern in unmatched:
+        suggestions = difflib.get_close_matches(pattern, discovered_courses, n=3, cutoff=0.25)
+        if suggestions:
+            print(f"  - {pattern} -> maybe: {', '.join(suggestions)}")
+        else:
+            print(f"  - {pattern}")

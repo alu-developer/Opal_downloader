@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestCourseMatches(t *testing.T) {
 	tests := []struct {
@@ -60,5 +64,28 @@ func TestSanitizePathComponent(t *testing.T) {
 	}
 	if got := SanitizePathComponent("LPT1"); got != "_LPT1" {
 		t.Fatalf("sanitize reserved failed: got %q", got)
+	}
+}
+
+func TestLoadCredentialsBrowserProfileDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	content := `opal_url: "https://bildungsportal.sachsen.de/opal/"
+session_state_file: "~/.opal_storage_state.json"
+browser_executable: "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
+browser_user_data_dir: "C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data"
+browser_profile_directory: "Profile 1"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	credentials, err := LoadCredentials(configPath)
+	if err != nil {
+		t.Fatalf("LoadCredentials() error = %v", err)
+	}
+
+	if credentials.BrowserProfileDir != "Profile 1" {
+		t.Fatalf("BrowserProfileDir = %q, want %q", credentials.BrowserProfileDir, "Profile 1")
 	}
 }

@@ -1,5 +1,4 @@
 # Secrets and local config
-secrets.yaml
 config.yaml
 
 # Downloaded files and sync state

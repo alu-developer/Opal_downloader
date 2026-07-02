@@ -7,7 +7,7 @@ This project is browser-automation heavy and depends on external website structu
 - Keep Go and module dependencies updated regularly.
 - Run CI checks on every pull request.
 - Reinstall Playwright browser binaries after major updates.
-- Keep `secrets.yaml` and session-state files out of version control.
+- Keep `config.yaml` and session-state files out of version control.
 - Keep selectors in scraper code reviewed when OPAL UI changes.
 - Re-run login when the saved OPAL session expires.
 

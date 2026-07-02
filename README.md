@@ -25,8 +25,8 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 git clone https://github.com/alu-developer/opal-downloader.git
 cd opal-downloader
 
-# Install browser binaries used by playwright-go
-go run github.com/playwright-community/playwright-go/cmd/playwright@latest install
+# Install browser binaries used by Playwright for Go (mxschmitt binding)
+go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
 
 # Build the binary
 go build -o opal-downloader .
@@ -35,7 +35,7 @@ go build -o opal-downloader .
 ## Quick Start
 
 ```bash
-# Create config.yaml and secrets.yaml from examples
+# Create config.yaml from example
 ./opal-downloader init
 
 # Interactive one-time login (opens browser)
@@ -43,17 +43,23 @@ go build -o opal-downloader .
 
 # Sync files (reuses saved session state if valid)
 ./opal-downloader sync
+
+# Optional: visible browser to observe crawling/debug selectors
+./opal-downloader sync --dev
 ```
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `./opal-downloader init` | Create `config.yaml` and `secrets.yaml` from examples |
+| `./opal-downloader init` | Create `config.yaml` from example |
 | `./opal-downloader login` | Open browser, complete login, persist session state |
 | `./opal-downloader list` | List detected courses and file counts |
 | `./opal-downloader sync` | Download new/changed files |
 | `./opal-downloader sync --force` | Re-download matched files |
+| `./opal-downloader login --dev` | Developer mode (visible browser, useful for tracing) |
+| `./opal-downloader list --dev` | Developer mode for listing/discovery tracing |
+| `./opal-downloader sync --dev` | Developer mode for full crawl/download tracing |
 
 ## Configuration
 
@@ -66,6 +72,11 @@ go build -o opal-downloader .
 | `course_folders` | Mapping of course-name patterns to target folders; first match wins |
 | `courses` | List of fnmatch patterns matched against course names |
 | `sync` | Keep for compatibility (`true` by default) |
+| `opal_url` | Optional OPAL base URL override |
+| `session_state_file` | Optional path for persisted browser session state |
+| `browser_executable` | Optional browser executable path for real profile login |
+| `browser_user_data_dir` | Optional browser profile directory |
+| `browser_profile_directory` | Optional profile within user-data (e.g. `Default`, `Profile 1`) |
 
 Example:
 
@@ -79,34 +90,29 @@ courses:
   - "*Lineare Algebra*"
   - "*Programmierung*"
 sync: true
-```
 
-### `secrets.yaml`
-
-```yaml
-# Optional: Override OPAL URL
 opal_url: "https://bildungsportal.sachsen.de/opal/"
-
-# Optional: Session-state file location
 session_state_file: "~/.opal_storage_state.json"
-
-# Optional: use your installed browser + profile (needed for existing extensions like TU-Fast)
-browser_executable: "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
-browser_user_data_dir: "C:/Users/<YOU>/AppData/Local/BraveSoftware/Brave-Browser/User Data"
+browser_executable: ""
+browser_user_data_dir: ""
+browser_profile_directory: ""
 ```
 
 ### TU-Fast / Brave Setup
 
-If TU-Fast is only installed in Brave, configure `browser_executable` and `browser_user_data_dir` in `secrets.yaml` and run:
+If TU-Fast is only installed in Brave, configure `browser_executable` and `browser_user_data_dir` in `config.yaml` and run:
 
 ```bash
 ./opal-downloader login
 ```
 
 This starts with your real Brave profile so existing extensions can be used.
+If TU-Fast is installed in `Profile 1` (or another non-default profile), also set `browser_profile_directory`.
 
 ## Notes and Limitations
 
+- This project uses Playwright for Go via `github.com/mxschmitt/playwright-go`.
+- Microsoft Playwright does not provide a first-party Go SDK.
 - The project is still evolving; selectors may require small adjustments if OPAL UI changes.
 - Only files visible through your OPAL web interface can be discovered.
 - Session state is sensitive data; keep the state file private.

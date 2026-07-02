@@ -23,6 +23,7 @@ type Credentials struct {
 	StateFile          string
 	BrowserExecutable  string
 	BrowserUserDataDir string
+	BrowserProfileDir  string
 }
 
 type App struct {
@@ -44,28 +45,26 @@ type rawConfig struct {
 	Sync                *bool             `yaml:"sync"`
 	DefaultCourseFolder string            `yaml:"default_course_folder"`
 	CourseFolders       map[string]string `yaml:"course_folders"`
+	OPALURL             string            `yaml:"opal_url"`
+	SessionStateFile    string            `yaml:"session_state_file"`
+	BrowserExecutable   string            `yaml:"browser_executable"`
+	BrowserUserDataDir  string            `yaml:"browser_user_data_dir"`
+	BrowserProfileDir   string            `yaml:"browser_profile_directory"`
 }
 
-type rawSecrets struct {
-	OPALURL            string `yaml:"opal_url"`
-	SessionStateFile   string `yaml:"session_state_file"`
-	BrowserExecutable  string `yaml:"browser_executable"`
-	BrowserUserDataDir string `yaml:"browser_user_data_dir"`
-}
-
-func LoadCredentials(secretsPath string) (Credentials, error) {
-	var secrets rawSecrets
-	if err := loadYAML(secretsPath, &secrets); err != nil {
+func LoadCredentials(configPath string) (Credentials, error) {
+	var cfg rawConfig
+	if err := loadYAML(configPath, &cfg); err != nil {
 		return Credentials{}, err
 	}
 
-	opalURL := strings.TrimSpace(secrets.OPALURL)
+	opalURL := strings.TrimSpace(cfg.OPALURL)
 	if opalURL == "" {
 		opalURL = DefaultOPALURL
 	}
 	opalURL = strings.TrimRight(opalURL, "/") + "/"
 
-	stateFile := strings.TrimSpace(secrets.SessionStateFile)
+	stateFile := strings.TrimSpace(cfg.SessionStateFile)
 	if stateFile == "" {
 		stateFile = DefaultStateFile
 	}
@@ -73,18 +72,19 @@ func LoadCredentials(secretsPath string) (Credentials, error) {
 	return Credentials{
 		URL:                opalURL,
 		StateFile:          expandHome(stateFile),
-		BrowserExecutable:  expandHome(strings.TrimSpace(secrets.BrowserExecutable)),
-		BrowserUserDataDir: expandHome(strings.TrimSpace(secrets.BrowserUserDataDir)),
+		BrowserExecutable:  expandHome(strings.TrimSpace(cfg.BrowserExecutable)),
+		BrowserUserDataDir: expandHome(strings.TrimSpace(cfg.BrowserUserDataDir)),
+		BrowserProfileDir:  strings.TrimSpace(cfg.BrowserProfileDir),
 	}, nil
 }
 
-func Load(configPath, secretsPath string) (Loaded, error) {
+func Load(configPath string) (Loaded, error) {
 	var cfg rawConfig
 	if err := loadYAML(configPath, &cfg); err != nil {
 		return Loaded{}, err
 	}
 
-	credentials, err := LoadCredentials(secretsPath)
+	credentials, err := LoadCredentials(configPath)
 	if err != nil {
 		return Loaded{}, err
 	}

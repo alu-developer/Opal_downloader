@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -80,6 +81,44 @@ func normalizeURLForCrawl(rawURL string) string {
 	return u.String()
 }
 
+func sectionKeyV2(rawURL, repoID string) string {
+	normalized := normalizeURLForCrawl(rawURL)
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return normalized
+	}
+
+	targetRepoID := extractRepositoryEntryID(u.String())
+	if repoID != "" && targetRepoID != "" && targetRepoID != repoID {
+		return "foreign-repo|" + targetRepoID
+	}
+
+	query := u.Query()
+	target := strings.ToLower(strings.TrimSpace(query.Get("target")))
+	if repoID != "" && (targetRepoID == repoID || targetRepoID == "") {
+		if target != "" && (strings.HasPrefix(target, "fold_") || strings.HasPrefix(target, "grp_") || strings.HasPrefix(target, "crs_")) {
+			return "repo|" + repoID + "|target|" + target
+		}
+
+		nodeID := strings.TrimSpace(query.Get("node_id"))
+		if nodeID != "" {
+			return "repo|" + repoID + "|node|" + nodeID
+		}
+		cmdNode := strings.TrimSpace(query.Get("cmdNode"))
+		if cmdNode != "" {
+			return "repo|" + repoID + "|cmdnode|" + cmdNode
+		}
+
+		cmd := strings.ToLower(strings.TrimSpace(query.Get("cmd")))
+		if cmd == "" || cmd == "view" {
+			return "repo|" + repoID + "|root"
+		}
+		return "repo|" + repoID + "|cmd|" + cmd
+	}
+
+	return normalized
+}
+
 func resolveURL(baseURL, href string) string {
 	base, err := url.Parse(baseURL)
 	if err != nil {
@@ -144,6 +183,14 @@ func defaultString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseIntOrZero(value string) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0
+	}
+	return parsed
 }
 
 func containsAny(text string, needles []string) bool {

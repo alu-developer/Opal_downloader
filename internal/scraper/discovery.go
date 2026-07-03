@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -27,7 +26,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile,
 		courseName := course[0]
 		courseURL := course[1]
 
-		if !config.CourseMatches(courseName, courseFilter) {
+		if !strictCourseFilterMatches(courseName, courseFilter) {
 			fmt.Printf("  Skipping unmatched course: %s\n", courseName)
 			continue
 		}
@@ -54,8 +53,6 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string, maxPages int) (
 	sourcePages := []string{
 		resolveURL(s.opalURL, "auth/resource/courses"),
 		resolveURL(s.opalURL, "auth/RepositoryEntry/mycourses"),
-		resolveURL(s.opalURL, "auth/RepositoryEntry/resources"),
-		resolveURL(s.opalURL, "auth/resource/resources"),
 		resolveURL(s.opalURL, "auth/home#my-courses"),
 		resolveURL(s.opalURL, "auth/home"),
 	}
@@ -225,7 +222,7 @@ func (s *OpalScraper) waitForCourseEntries(pageURL string) {
 }
 
 func upsertDiscoveredCourse(discovered map[string][2]string, repoID, label, canonicalURL string, patterns []string) {
-	if !config.CourseMatches(label, patterns) {
+	if !strictCourseFilterMatches(label, patterns) {
 		return
 	}
 	previous, ok := discovered[repoID]
@@ -264,7 +261,7 @@ func getUnmatchedPatterns(patterns []string, courses [][2]string) []string {
 	for _, pattern := range patterns {
 		matched := false
 		for _, name := range courseNames {
-			if config.CourseMatches(name, []string{pattern}) {
+			if strictCourseFilterMatches(name, []string{pattern}) {
 				matched = true
 				break
 			}

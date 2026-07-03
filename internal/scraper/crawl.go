@@ -11,18 +11,159 @@ import (
 	"github.com/mxschmitt/playwright-go"
 )
 
+type courseSection struct {
+	Label string
+	URL   string
+}
+
 func (s *OpalScraper) crawlCourseFiles(courseName, startURL string) ([]RemoteFile, error) {
 	if s.page == nil {
 		return nil, errors.New("no page available")
 	}
 
+	sections, err := s.discoverCourseSections(startURL)
+	if err != nil {
+		return nil, err
+	}
+
 	files := make([]RemoteFile, 0)
 	fileSeen := map[string]struct{}{}
 	visitedPages := map[string]struct{}{}
+	startRepoID := extractRepositoryEntryID(defaultString(startURL, sections[0].URL))
+
+	for _, section := range sections {
+		fmt.Printf("    Section: %s\n", section.Label)
+		sectionFiles, crawlErr := s.crawlSectionFiles(courseName, section.URL, startRepoID, visitedPages, fileSeen)
+		if crawlErr != nil {
+			fmt.Printf("    Section error: %v\n", crawlErr)
+			continue
+		}
+		files = append(files, sectionFiles...)
+	}
+
+	fmt.Printf("    Crawled %d pages, found %d files\n", len(visitedPages), len(files))
+	return files, nil
+}
+
+func (s *OpalScraper) discoverCourseSections(startURL string) ([]courseSection, error) {
+	if s.page == nil {
+		return nil, errors.New("no page available")
+	}
+
+	if _, err := s.page.Goto(startURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+		return nil, err
+	}
+	if _, err := s.page.WaitForSelector("a[href], [onclick], [data-href], [data-url]", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(4000)}); err != nil {
+		s.page.WaitForTimeout(1200)
+	}
+
+	currentURL := defaultString(s.page.URL(), startURL)
+	repoID := extractRepositoryEntryID(currentURL)
+	if repoID == "" {
+		repoID = extractRepositoryEntryID(startURL)
+	}
+
+	sections := []courseSection{{Label: "Kursstart", URL: currentURL}}
+	if repoID == "" {
+		return sections, nil
+	}
+
+	value, err := s.page.Evaluate(`() => {
+			const selectors = [
+				'aside',
+				'nav',
+				'[role="navigation"]',
+				'#left_col',
+				'#il_left_col',
+				'#sidebar',
+				'.sidebar',
+				'.ilContainerSideBlock',
+				'.o_tree',
+				'.o_page_side',
+				'.o_page_sidebar',
+				'.il_VAccordionInnerContainer'
+			];
+			const roots = [];
+			const seenRoots = new Set();
+			for (const selector of selectors) {
+				for (const root of document.querySelectorAll(selector)) {
+					if (seenRoots.has(root)) {
+						continue;
+					}
+					seenRoots.add(root);
+					roots.push(root);
+				}
+			}
+			const out = [];
+			const seen = new Set();
+			for (const root of roots) {
+				for (const el of root.querySelectorAll('a[href], [onclick], [data-href], [data-url]')) {
+					const item = {
+						href: (el.getAttribute('href') || '').trim(),
+						text: (el.textContent || '').trim(),
+						title: (el.getAttribute('title') || '').trim(),
+						onclick: (el.getAttribute('onclick') || '').trim(),
+						dataHref: (el.getAttribute('data-href') || '').trim(),
+						dataUrl: (el.getAttribute('data-url') || '').trim(),
+					};
+					const key = JSON.stringify(item);
+					if (seen.has(key)) {
+						continue;
+					}
+					seen.add(key);
+					out.push(item);
+				}
+			}
+			return out;
+		}`)
+	if err != nil {
+		return sections, nil
+	}
+
+	return appendCourseSections(sections, toStringMapSlice(value), s.opalURL, repoID), nil
+}
+
+func appendCourseSections(existing []courseSection, candidates []map[string]string, opalURL, repoID string) []courseSection {
+	sections := append([]courseSection(nil), existing...)
+	seen := make(map[string]struct{}, len(sections))
+	for _, section := range sections {
+		seen[normalizeURLForCrawl(section.URL)] = struct{}{}
+	}
+
+	for _, item := range candidates {
+		linkTarget := extractLinkTarget(strings.TrimSpace(item["href"]), strings.TrimSpace(item["onclick"]), strings.TrimSpace(item["dataHref"]), strings.TrimSpace(item["dataUrl"]))
+		if linkTarget == "" {
+			continue
+		}
+		text := pickLabel(strings.TrimSpace(item["title"]), strings.TrimSpace(item["text"]))
+		if !looksLikeSectionLink(linkTarget, text) {
+			continue
+		}
+		absURL := resolveURL(opalURL, linkTarget)
+		candidateRepoID := extractRepositoryEntryID(absURL)
+		if candidateRepoID != "" && candidateRepoID != repoID {
+			continue
+		}
+		key := normalizeURLForCrawl(absURL)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		sections = append(sections, courseSection{Label: defaultString(text, "Bereich"), URL: absURL})
+	}
+
+	return sections
+}
+
+func (s *OpalScraper) crawlSectionFiles(courseName, startURL, startRepoID string, visitedPages, fileSeen map[string]struct{}) ([]RemoteFile, error) {
+	if s.page == nil {
+		return nil, errors.New("no page available")
+	}
+
+	files := make([]RemoteFile, 0)
 	queue := []string{startURL}
 	queued := map[string]struct{}{normalizeURLForCrawl(startURL): {}}
 	maxPages := 12
-	startRepoID := extractRepositoryEntryID(startURL)
 
 	for len(queue) > 0 && len(visitedPages) < maxPages {
 		currentURL := queue[0]
@@ -105,7 +246,7 @@ func (s *OpalScraper) crawlCourseFiles(courseName, startURL string) ([]RemoteFil
 				continue
 			}
 
-			if looksLikeBrowseLink(linkTarget, text) {
+			if looksLikeCourseBrowseLink(linkTarget, text) {
 				absKey := normalizeURLForCrawl(absURL)
 				if _, seen := visitedPages[absKey]; seen {
 					continue
@@ -119,7 +260,6 @@ func (s *OpalScraper) crawlCourseFiles(courseName, startURL string) ([]RemoteFil
 		}
 	}
 
-	fmt.Printf("    Crawled %d pages, found %d files\n", len(visitedPages), len(files))
 	return files, nil
 }
 
@@ -152,6 +292,30 @@ func looksLikeBrowseLink(href, text string) bool {
 		return false
 	}
 	return containsAny(hrefL, []string{"target=fold_", "target=grp_", "target=crs_", "goto.php?target=fold_", "goto.php?target=grp_", "goto.php?target=crs_", "/coursenode/", "/repositoryentry/", "baseclass=ilmembershipoverviewgui", "baseclass=ildashboardgui", "mycourses", "membership"})
+}
+
+func looksLikeCourseBrowseLink(href, text string) bool {
+	hrefL := strings.ToLower(href)
+	textL := strings.ToLower(text)
+	if containsAny(textL, []string{"neuigkeiten", "ankündigungen", "forum", "kalender", "gehe zu seite", "aktuelle seite", "vorherige seite", "nächste seite", "teilnehmer", "mitglieder"}) {
+		return false
+	}
+	if containsAny(hrefL, []string{"/login", "shibboleth", "logout", "cmd=edit", "cmd=delete", "target=file_", "downloadtablecontainer", "&anticache=", "-pager-", "mycourses", "membership", "/auth/home", "resource/courses", "resource/resources", "baseclass=ildashboardgui", "baseclass=ilmembershipoverviewgui"}) {
+		return false
+	}
+	return containsAny(hrefL, []string{"target=fold_", "target=grp_", "target=crs_", "goto.php?target=fold_", "goto.php?target=grp_", "goto.php?target=crs_", "/coursenode/", "/repositoryentry/"})
+}
+
+func looksLikeSectionLink(href, text string) bool {
+	hrefL := strings.ToLower(href)
+	textL := strings.ToLower(text)
+	if containsAny(textL, []string{"forum", "kalender", "neuigkeiten", "ankündigungen", "mitglieder", "teilnehmer", "bewertung", "statistik", "übersicht"}) {
+		return false
+	}
+	if containsAny(hrefL, []string{"/login", "shibboleth", "logout", "mycourses", "membership", "/auth/home", "resource/courses", "resource/resources", "cmd=edit", "cmd=delete", "baseclass=ildashboardgui", "baseclass=ilmembershipoverviewgui", "-pager-", "downloadtablecontainer"}) {
+		return false
+	}
+	return containsAny(hrefL, []string{"target=fold_", "target=grp_", "target=crs_", "goto.php?target=fold_", "goto.php?target=grp_", "goto.php?target=crs_", "/coursenode/", "/repositoryentry/"})
 }
 
 func looksLikeCourseLink(href, text string) bool {

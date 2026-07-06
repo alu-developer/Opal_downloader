@@ -178,6 +178,89 @@ func SanitizePathComponent(value string) string {
 	return cleaned
 }
 
+// Save validates cfg and writes it to path in the config.yaml on-disk format.
+// If a file already exists at path, it is copied to path+".bak" before being
+// overwritten. Save does not preserve comments or formatting from any
+// existing file - it always performs a plain struct marshal.
+func Save(path string, cfg Loaded) error {
+	if err := Validate(cfg); err != nil {
+		return err
+	}
+
+	raw := toRawConfig(cfg)
+
+	data, err := yaml.Marshal(&raw)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := backupExisting(path); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write config to %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// Validate performs minimal sanity checks on cfg before it is persisted.
+func Validate(cfg Loaded) error {
+	if strings.TrimSpace(cfg.App.DownloadPath) == "" {
+		return errors.New("download_path must not be empty")
+	}
+	if strings.TrimSpace(cfg.Credentials.URL) == "" {
+		return errors.New("opal_url must not be empty")
+	}
+	for pattern, folder := range cfg.App.CourseFolders {
+		if strings.TrimSpace(pattern) == "" {
+			return errors.New("course_folders contains an empty pattern")
+		}
+		if strings.TrimSpace(folder) == "" {
+			return fmt.Errorf("course_folders[%q] must not be empty", pattern)
+		}
+	}
+	return nil
+}
+
+// toRawConfig converts the normalized in-memory config shape back into the
+// on-disk rawConfig shape used for YAML marshaling.
+func toRawConfig(cfg Loaded) rawConfig {
+	sync := cfg.App.Sync
+	return rawConfig{
+		DownloadPath:        cfg.App.DownloadPath,
+		Courses:             cfg.App.Courses,
+		Sync:                &sync,
+		DefaultCourseFolder: cfg.App.DefaultCourseFolder,
+		CourseFolders:       cfg.App.CourseFolders,
+		OPALURL:             cfg.Credentials.URL,
+		SessionStateFile:    cfg.Credentials.StateFile,
+		BrowserExecutable:   cfg.Credentials.BrowserExecutable,
+		BrowserUserDataDir:  cfg.Credentials.BrowserUserDataDir,
+		BrowserProfileDir:   cfg.Credentials.BrowserProfileDir,
+	}
+}
+
+// backupExisting copies the file at path to path+".bak" if path exists.
+// If path does not exist, this is a no-op.
+func backupExisting(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("failed to read existing config for backup: %w", err)
+	}
+
+	backupPath := path + ".bak"
+	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write backup to %s: %w", backupPath, err)
+	}
+
+	return nil
+}
+
 func loadYAML(path string, out any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

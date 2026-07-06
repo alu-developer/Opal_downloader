@@ -54,6 +54,10 @@ func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, err
 			}
 		}
 
+		if expanded, ok := s.expandShowAllInSectionV3(currentURL, candidates); ok {
+			candidates = expanded
+		}
+
 		sectionTitle := deriveSectionTitleFromURLV3(course.Title, currentURL)
 		section := SectionRefV2{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
 		files = appendSectionFilesV2(files, fileSeen, candidates, course, section, currentURL, s.opalURL, s.downloadCandidates)
@@ -61,6 +65,92 @@ func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, err
 	}
 
 	return files, nil
+}
+
+// expandShowAllInSectionV3 looks for OPAL's "Alle anzeigen" ("show all") pagination
+// control among the already-extracted candidates for the current section/folder page
+// and, if found, expands the file list and re-extracts candidates so the caller sees
+// every file rather than just the first page (OPAL's table/folder views commonly cap
+// a page at ~20 items by default).
+//
+// This handles the expansion as part of the single visit to currentURL - clicking or
+// following the "show all" control does not change the page's canonical URL, so the
+// crawl loop's visited/queued dedupe (keyed by sectionKeyV3) is untouched and this
+// cannot cause a requeue or infinite loop.
+//
+// NOTE: the exact OPAL markup for this control could not be verified against a live
+// OPAL instance in this environment (no OPAL login available here). The detection in
+// looksLikeShowAllControlV2 is a best-effort guess based on common OPAL/ILIAS UI
+// patterns (German "Alle anzeigen"-style link text, or a length=-1/showAll-style URL
+// parameter). A human should manually verify this against a real OPAL course known to
+// have more than 20 files in one section once this lands.
+//
+// It returns the re-extracted candidate list and true when a "show all" control was
+// found and acted on; otherwise it returns (nil, false) and the caller keeps using the
+// candidates it already had.
+func (s *OpalScraper) expandShowAllInSectionV3(currentURL string, candidates []map[string]string) ([]map[string]string, bool) {
+	if s.page == nil {
+		return nil, false
+	}
+
+	linkTarget, found := findShowAllTargetV2(candidates)
+	if !found {
+		return nil, false
+	}
+
+	absURL := resolveURL(s.opalURL, linkTarget)
+	navigated := false
+	if looksLikeNavigableShowAllURLV3(linkTarget) {
+		// Prefer navigating directly to the "show all" URL over clicking: it's a
+		// plain link with a resolvable href, and direct navigation is more robust
+		// in headless mode than dispatching a click event.
+		if _, err := s.page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMsV2)}); err == nil {
+			navigated = true
+		}
+	}
+
+	if !navigated {
+		clicked := false
+		for _, needle := range showAllControlTextNeedlesV2 {
+			locator := s.page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
+			if err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)}); err == nil {
+				clicked = true
+				break
+			}
+		}
+		if !clicked {
+			// Could not click or navigate to the control; keep whatever candidates
+			// the caller already extracted rather than failing the whole section.
+			return nil, false
+		}
+	}
+
+	s.waitForInteractiveLinksV2(contentSelectorTimeoutMsV2, contentFallbackWaitMsV2)
+
+	expanded, err := s.extractSectionContentCandidatesV2()
+	if err != nil || len(expanded) == 0 {
+		return nil, false
+	}
+
+	// If we navigated to a dedicated "show all" URL, go back to the section's
+	// canonical URL afterwards so any further link resolution / folder discovery
+	// in the caller stays anchored to currentURL rather than the show-all variant.
+	if navigated && !strings.EqualFold(strings.TrimSpace(absURL), strings.TrimSpace(currentURL)) {
+		_, _ = s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMsV2)})
+	}
+
+	return expanded, true
+}
+
+// looksLikeNavigableShowAllURLV3 reports whether a "show all" control's link target is
+// a plain URL worth navigating to directly (as opposed to a javascript:/onclick-driven
+// control that only works via a real click).
+func looksLikeNavigableShowAllURLV3(linkTarget string) bool {
+	trimmed := strings.TrimSpace(linkTarget)
+	if trimmed == "" || trimmed == "#" {
+		return false
+	}
+	return !strings.HasPrefix(strings.ToLower(trimmed), "javascript:")
 }
 
 func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string) []string {

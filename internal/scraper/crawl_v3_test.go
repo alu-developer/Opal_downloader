@@ -2,6 +2,29 @@ package scraper
 
 import "testing"
 
+func TestLooksLikeNavigableShowAllURLV3(t *testing.T) {
+	tests := []struct {
+		name       string
+		linkTarget string
+		want       bool
+	}{
+		{name: "plain relative link", linkTarget: "/opal/coursenode/123?length=-1", want: true},
+		{name: "absolute link", linkTarget: "https://bildungsportal.sachsen.de/opal/coursenode/123?length=-1", want: true},
+		{name: "empty target", linkTarget: "", want: false},
+		{name: "bare hash", linkTarget: "#", want: false},
+		{name: "javascript pseudo url", linkTarget: "javascript:void(0)", want: false},
+		{name: "javascript pseudo url mixed case", linkTarget: "JavaScript:doShowAll()", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := looksLikeNavigableShowAllURLV3(tt.linkTarget); got != tt.want {
+				t.Fatalf("looksLikeNavigableShowAllURLV3(%q) = %v, want %v", tt.linkTarget, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAppendSectionFolderTargetsV3SkipsRootAndCurrentSection(t *testing.T) {
 	repoID := "53290106881"
 	currentURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1771558760922192006"

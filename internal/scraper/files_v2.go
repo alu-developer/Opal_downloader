@@ -163,6 +163,71 @@ func looksLikeSectionFolderLinkV2(href, title string) bool {
 	return containsAny(hrefL, []string{"target=fold_", "target=grp_", "target=crs_", "goto.php?target=fold_", "goto.php?target=grp_", "goto.php?target=crs_", "/coursenode/", "/repositoryentry/"})
 }
 
+// showAllControlTextNeedlesV2 lists case-insensitive substrings that identify an
+// OPAL/ILIAS "expand the paginated list" affordance by its visible link/button text.
+// This is a best-effort guess based on common OPAL/ILIAS UI copy (German and English
+// variants); it has not been verified against a live OPAL instance, since this
+// environment has no OPAL login available. A human should confirm the exact wording
+// against a real course with a paginated (>20 item) file list and extend this list if
+// needed.
+var showAllControlTextNeedlesV2 = []string{
+	"alle anzeigen",
+	"alle einträge anzeigen",
+	"alle elemente anzeigen",
+	"komplette liste anzeigen",
+	"show all",
+	"view all",
+	"display all",
+}
+
+// showAllControlHrefNeedlesV2 lists substrings in an href/onclick/data-* target that
+// indicate a direct link to a "show everything, no pagination" URL variant, as seen in
+// ILIAS/DataTables-style table pagination (e.g. a DataTables length selector wired to
+// length=-1, or a bespoke showAll flag). Also a best-effort guess pending live
+// verification.
+var showAllControlHrefNeedlesV2 = []string{
+	"length=-1",
+	"showall=true",
+	"showall=1",
+	"show_all=true",
+	"show_all=1",
+	"pagesize=-1",
+}
+
+// looksLikeShowAllControlV2 decides whether a candidate anchor/button found on a
+// section or folder page is OPAL's "Alle anzeigen" ("show all") pagination control,
+// which expands a truncated (commonly capped at ~20 items) file listing to show every
+// entry. The exact OPAL markup could not be verified live in this environment (no OPAL
+// login available here), so this matches on common OPAL/ILIAS UI text and known
+// "no pagination" URL parameter shapes; a human should verify against a real course
+// known to have more than 20 files in one section.
+func looksLikeShowAllControlV2(linkTarget, text, title string) bool {
+	textL := strings.ToLower(strings.TrimSpace(defaultString(text, title)))
+	hrefL := strings.ToLower(strings.TrimSpace(linkTarget))
+	if containsAny(textL, showAllControlTextNeedlesV2) {
+		return true
+	}
+	if hrefL != "" && containsAny(hrefL, showAllControlHrefNeedlesV2) {
+		return true
+	}
+	return false
+}
+
+// findShowAllTargetV2 scans extracted candidates (as produced by
+// extractSectionContentCandidatesV2) for a "show all" pagination control and returns
+// its raw (possibly relative) link target. It reports found=false when none matches,
+// which is the common case for sections that already show every file.
+func findShowAllTargetV2(candidates []map[string]string) (linkTarget string, found bool) {
+	for _, candidate := range candidates {
+		target := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
+		if !looksLikeShowAllControlV2(target, candidate["text"], candidate["title"]) {
+			continue
+		}
+		return target, true
+	}
+	return "", false
+}
+
 func isFileURLAllowedForCourseV2(absURL, repoID string) bool {
 	if strings.TrimSpace(absURL) == "" || strings.TrimSpace(repoID) == "" {
 		return false

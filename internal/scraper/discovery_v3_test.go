@@ -42,3 +42,51 @@ func TestAppendDiscoveredCoursesV3RequiresExactTitleNoPartialMatch(t *testing.T)
 		t.Fatalf("expected zero discovered courses for partial filter text, got %#v", discovered)
 	}
 }
+
+func TestAppendDiscoveredCoursesV3RejectsBoilerplateCourseTitles(t *testing.T) {
+	discovered := map[string]CourseRefV2{}
+	candidates := []map[string]string{
+		{
+			"openHref":    "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881",
+			"courseTitle": "Weitere Kursinhalte ansehen",
+		},
+		{
+			"openHref":    "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53324447746",
+			"courseTitle": "Kurs öffnen",
+		},
+	}
+
+	// No filter (nil) means "accept any title" as far as strictCourseFilterMatches
+	// is concerned, so only the boilerplate denylist should be rejecting these.
+	appendDiscoveredCoursesV3(discovered, candidates, "https://bildungsportal.sachsen.de/opal/", nil)
+	if len(discovered) != 0 {
+		t.Fatalf("expected boilerplate OPAL call-to-action text to never be stored as a course title, got %#v", discovered)
+	}
+}
+
+func TestIsBoilerplateCourseTitleV3(t *testing.T) {
+	boilerplate := []string{
+		"Weitere Kursinhalte ansehen",
+		"weitere kursinhalte ansehen",
+		"Kurs öffnen",
+		"  Kurs öffnen  ",
+		"Zum Kurs",
+		"Details anzeigen",
+	}
+	for _, title := range boilerplate {
+		if !isBoilerplateCourseTitleV3(title) {
+			t.Errorf("expected %q to be classified as boilerplate", title)
+		}
+	}
+
+	realTitles := []string{
+		"Algorithmen und Datenstrukturen",
+		"Mentorinnenprogramm Informatik",
+		"Analysis",
+	}
+	for _, title := range realTitles {
+		if isBoilerplateCourseTitleV3(title) {
+			t.Errorf("expected %q to NOT be classified as boilerplate", title)
+		}
+	}
+}

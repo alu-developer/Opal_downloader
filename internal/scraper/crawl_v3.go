@@ -3,12 +3,13 @@ package scraper
 import (
 	"errors"
 	"net/url"
-	"path"
 	"regexp"
 	"strings"
 
 	"github.com/mxschmitt/playwright-go"
 )
+
+var courseNodeSectionKeyRe = regexp.MustCompile(`(?i)/coursenode/(\d+)(/[^?#]*)?`)
 
 func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, error) {
 	if s.page == nil {
@@ -56,13 +57,13 @@ func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, err
 		sectionTitle := deriveSectionTitleFromURLV3(course.Title, currentURL)
 		section := SectionRefV2{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
 		files = appendSectionFilesV2(files, fileSeen, candidates, course, section, currentURL, s.opalURL, s.downloadCandidates)
-		queue = appendSectionFolderTargetsV3(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL)
+		queue = appendSectionFolderTargetsV3(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title)
 	}
 
 	return files, nil
 }
 
-func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL string) []string {
+func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string) []string {
 	currentKey := sectionKeyV3(currentURL, repoID)
 	rootKey := sectionKeyV3(courseRootURL, repoID)
 
@@ -80,7 +81,7 @@ func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]str
 		if !isSectionURLAllowedForCourseV2(absURL, repoID) {
 			continue
 		}
-		if !isAllowedFolderNavigationTargetV3(candidate, absURL) {
+		if !isAllowedFolderNavigationTargetV3(title, absURL, courseTitle) {
 			continue
 		}
 
@@ -102,64 +103,29 @@ func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]str
 	return queue
 }
 
-func isAllowedFolderNavigationTargetV3(candidate map[string]string, absURL string) bool {
-	allowlist := map[string]struct{}{
-		"materialien":     {},
-		"probeklausur":    {},
-		"ubungsblatter":   {},
-		"uebungsblaetter": {},
-		"uebungsblatter":  {},
-		"vorlesung":       {},
+// isAllowedFolderNavigationTargetV3 decides whether a folder-shaped link found in a
+// section's content area should be descended into, rather than relying on a fixed
+// list of known folder-name words. A link nested under a CourseNode's own path
+// (e.g. ".../CourseNode/123/Uebungen") or pointing at an explicit fold_/grp_ target
+// is structurally content belonging to the current section, regardless of its label.
+// A bare CourseNode/RepositoryEntry link with no such nesting is a sibling section of
+// the course tree; it's only excluded when its label is just a self-reference back to
+// the course itself (e.g. a breadcrumb link), since everything else administrative
+// (forum, calendar, members, ...) was already filtered out by looksLikeSectionFolderLinkV2.
+func isAllowedFolderNavigationTargetV3(title, absURL, courseTitle string) bool {
+	if hasNestedCourseContentPathV3(absURL) {
+		return true
 	}
-
-	for _, raw := range []string{
-		deriveSectionTitleV2(candidate["title"], candidate["text"], candidate["rootText"]),
-		candidate["title"],
-		candidate["text"],
-		decodePathBaseV3(absURL),
-	} {
-		token := normalizeFolderTokenV3(raw)
-		if token == "" {
-			continue
-		}
-		if _, ok := allowlist[token]; ok {
-			return true
-		}
-	}
-
-	return false
+	return !strings.EqualFold(strings.TrimSpace(title), strings.TrimSpace(courseTitle))
 }
 
-func decodePathBaseV3(absURL string) string {
-	parsed, err := url.Parse(strings.TrimSpace(absURL))
-	if err != nil {
-		return ""
+func hasNestedCourseContentPathV3(absURL string) bool {
+	lower := strings.ToLower(absURL)
+	if strings.Contains(lower, "target=fold_") || strings.Contains(lower, "target=grp_") {
+		return true
 	}
-	base := strings.TrimSpace(path.Base(parsed.Path))
-	if base == "" || strings.EqualFold(base, "coursenode") || regexp.MustCompile(`^\d+$`).MatchString(base) {
-		return ""
-	}
-	decoded, decodeErr := url.PathUnescape(base)
-	if decodeErr != nil {
-		return base
-	}
-	return decoded
-}
-
-func normalizeFolderTokenV3(raw string) string {
-	cleaned := strings.ToLower(strings.TrimSpace(raw))
-	if cleaned == "" {
-		return ""
-	}
-	replacements := strings.NewReplacer(
-		"ä", "ae",
-		"ö", "oe",
-		"ü", "ue",
-		"ß", "ss",
-	)
-	cleaned = replacements.Replace(cleaned)
-	cleaned = regexp.MustCompile(`[^\p{L}\p{N}]+`).ReplaceAllString(cleaned, "")
-	return strings.TrimSpace(cleaned)
+	match := courseNodeSectionKeyRe.FindStringSubmatch(absURL)
+	return len(match) > 2 && match[2] != ""
 }
 
 func deriveSectionTitleFromURLV3(courseTitle, currentURL string) string {
@@ -179,8 +145,7 @@ func sectionKeyV3(rawURL, repoID string) string {
 	}
 	lower := strings.ToLower(cleaned)
 	if strings.Contains(lower, "/coursenode/") {
-		re := regexp.MustCompile(`(?i)/coursenode/(\d+)(/[^?#]*)?`)
-		if match := re.FindStringSubmatch(cleaned); len(match) > 1 {
+		if match := courseNodeSectionKeyRe.FindStringSubmatch(cleaned); len(match) > 1 {
 			suffix := ""
 			if len(match) > 2 {
 				suffix = strings.TrimSpace(match[2])

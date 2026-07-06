@@ -35,11 +35,16 @@ func extractLinkTarget(href, onclick, dataHref, dataURL string) string {
 	return ""
 }
 
+var (
+	invalidFilenameCharsRe = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
+	filenameWhitespaceRe   = regexp.MustCompile(`\s+`)
+	repositoryEntryIDRe    = regexp.MustCompile(`(?i)/RepositoryEntry/(\d+)`)
+)
+
 func sanitizeFilename(name string) string {
 	cleaned := strings.TrimSpace(name)
-	invalid := regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
-	cleaned = invalid.ReplaceAllString(cleaned, "_")
-	cleaned = regexp.MustCompile(`\s+`).ReplaceAllString(cleaned, " ")
+	cleaned = invalidFilenameCharsRe.ReplaceAllString(cleaned, "_")
+	cleaned = filenameWhitespaceRe.ReplaceAllString(cleaned, " ")
 	cleaned = strings.TrimRight(cleaned, ". ")
 	if cleaned == "" {
 		cleaned = "unnamed"
@@ -53,8 +58,7 @@ func sanitizeFilename(name string) string {
 }
 
 func extractRepositoryEntryID(rawURL string) string {
-	re := regexp.MustCompile(`(?i)/RepositoryEntry/(\d+)`)
-	if match := re.FindStringSubmatch(rawURL); len(match) > 1 {
+	if match := repositoryEntryIDRe.FindStringSubmatch(rawURL); len(match) > 1 {
 		return match[1]
 	}
 	return ""

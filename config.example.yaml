@@ -11,12 +11,13 @@ course_folders:
   "*Programmierung*": "Informatik/Programmierung"
   "*Analysis*": "Mathematik/Analysis"
 
-# Course folder name patterns (fnmatch, case-insensitive).
-# Use "*" to include every course/group folder found during login.
+# Exact course names to sync (case-insensitive). Partial/glob patterns are NOT
+# matched here - unlike course_folders above, this list requires the full course
+# name as it appears in OPAL.
+# Use "*" to include every course found during login.
 # Examples:
-#   - "*"                    (all courses)
-#   - "*Analysis*"          (courses containing "Analysis")
-#   - "*SS2026*"            (semester filter)
+#   - "*"                          (all courses)
+#   - "Analysis 1"                 (exact course name)
 courses:
   - "*"
 

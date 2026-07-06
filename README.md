@@ -7,7 +7,7 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 ## Features
 
 - Download files from your visible course pages
-- Configurable course selection via glob patterns in `config.yaml`
+- Configurable course selection via exact course names in `config.yaml` (or `*` for all courses)
 - Incremental sync with local manifest (`.opal-sync.manifest.json`)
 - Hybrid auth flow with persisted session state:
   - First login: interactive browser (TU-Fast / 2FA supported)
@@ -70,7 +70,7 @@ go build -o opal-downloader .
 | `download_path` | Local destination path |
 | `default_course_folder` | Folder used when no course rule matches; if omitted, the course name is used as before |
 | `course_folders` | Mapping of course-name patterns to target folders; first match wins |
-| `courses` | List of fnmatch patterns matched against course names |
+| `courses` | List of exact course names to sync (case-insensitive); use `"*"` to match every course. Partial/glob patterns are not matched. |
 | `sync` | Keep for compatibility (`true` by default) |
 | `opal_url` | Optional OPAL base URL override |
 | `session_state_file` | Optional path for persisted browser session state |
@@ -87,8 +87,8 @@ course_folders:
   "*Programmierung*": "Informatik/Programmierung"
   "*Analysis*": "Mathematik/Analysis"
 courses:
-  - "*Lineare Algebra*"
-  - "*Programmierung*"
+  - "Lineare Algebra 2"
+  - "Grundlagen der Programmierung"
 sync: true
 
 opal_url: "https://bildungsportal.sachsen.de/opal/"

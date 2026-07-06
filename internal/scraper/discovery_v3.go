@@ -117,6 +117,39 @@ func (s *OpalScraper) extractCourseCardsFromCurrentPageV3() ([]map[string]string
 	return toStringMapSlice(value), nil
 }
 
+func (s *OpalScraper) waitForCourseEntries(pageURL string) {
+	if s.page == nil {
+		return
+	}
+	selectors := []string{
+		"a[href*='/RepositoryEntry/']",
+		"a[href*='/CourseNode/']",
+		".list-group-item a[href]",
+		".dynamic-tab a[href]",
+	}
+
+	isResourcesLike := strings.Contains(strings.ToLower(pageURL), "repositoryentry/resources") || strings.Contains(strings.ToLower(pageURL), "/auth/home") || strings.Contains(strings.ToLower(pageURL), "resource/resources")
+	timeoutMs := 5000.0
+	if isResourcesLike {
+		timeoutMs = 12000
+	}
+
+	for _, selector := range selectors {
+		if _, err := s.page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(timeoutMs)}); err == nil {
+			s.page.WaitForTimeout(800)
+			return
+		}
+	}
+	s.page.WaitForTimeout(1500)
+}
+
+func shouldReplaceCourseRefV2(existing CourseRefV2, newTitle string) bool {
+	if strings.HasPrefix(existing.Title, "RepositoryEntry ") {
+		return true
+	}
+	return len(strings.TrimSpace(newTitle)) > len(strings.TrimSpace(existing.Title))
+}
+
 func appendDiscoveredCoursesV3(discovered map[string]CourseRefV2, candidates []map[string]string, opalURL string, courseFilter []string) {
 	for _, candidate := range candidates {
 		linkTarget := strings.TrimSpace(candidate["openHref"])

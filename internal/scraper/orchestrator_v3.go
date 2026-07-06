@@ -5,16 +5,6 @@ import (
 	"fmt"
 )
 
-func (s *OpalScraper) ScrapeWithSavedSessionV3(courseFilter []string) ([]RemoteFile, error) {
-	if len(courseFilter) == 0 {
-		courseFilter = []string{"*"}
-	}
-	if err := s.ensureSession(false); err != nil {
-		return nil, err
-	}
-	return s.scrapeCoursesBrowserV3(courseFilter)
-}
-
 func (s *OpalScraper) scrapeCoursesBrowserV3(courseFilter []string) ([]RemoteFile, error) {
 	if s.page == nil {
 		return nil, errors.New("no page available")
@@ -41,4 +31,30 @@ func (s *OpalScraper) scrapeCoursesBrowserV3(courseFilter []string) ([]RemoteFil
 
 	fmt.Printf("Discovered %d remote files (v3)\n", len(remoteFiles))
 	return remoteFiles, nil
+}
+
+func convertFileRefsToRemoteFilesV2(items []FileRefV2) []RemoteFile {
+	remoteFiles := make([]RemoteFile, 0, len(items))
+	for _, item := range items {
+		remoteFiles = append(remoteFiles, RemoteFile{
+			Name:   item.Name,
+			URL:    item.URL,
+			Course: item.CourseTitle,
+			Path:   item.Path,
+		})
+	}
+	return remoteFiles
+}
+
+func appendUniqueRemoteFilesV2(existing []RemoteFile, seen map[string]struct{}, candidates []RemoteFile) []RemoteFile {
+	files := append([]RemoteFile(nil), existing...)
+	for _, candidate := range candidates {
+		key := candidate.Path + "|" + candidate.URL
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		files = append(files, candidate)
+	}
+	return files
 }

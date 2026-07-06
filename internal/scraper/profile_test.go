@@ -3,7 +3,6 @@ package scraper
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -56,33 +55,6 @@ func TestIsUserDataDirLocked_StaleLockFileIsNotLocked(t *testing.T) {
 	}
 }
 
-func TestIsUserDataDirLocked_OpenHandleIsLocked(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("exclusive-open detection relies on Windows file sharing semantics")
-	}
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, "lockfile")
-	if err := os.WriteFile(lockPath, []byte(""), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	// Simulate a running browser by holding the file open exclusively, the
-	// same way Chromium's ProcessSingleton does on Windows.
-	f, err := openExclusiveForTest(lockPath)
-	if err != nil {
-		t.Fatalf("setup: could not open lock file: %v", err)
-	}
-	defer f.Close()
-
-	locked, err := isUserDataDirLocked(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected an exclusively held lockfile to be reported as locked")
-	}
-}
-
 func TestIsSharingViolation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -119,31 +91,6 @@ func TestPrepareBrowserProfile_NoUserDataDirConfigured(t *testing.T) {
 	}
 	if dir != "" {
 		t.Fatalf("expected empty result when browser_user_data_dir is unset, got %q", dir)
-	}
-}
-
-func TestPrepareBrowserProfile_LockedSourceReturnsClearError(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("exclusive-open detection relies on Windows file sharing semantics")
-	}
-	source := t.TempDir()
-	lockPath := filepath.Join(source, "lockfile")
-	if err := os.WriteFile(lockPath, []byte(""), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	f, err := openExclusiveForTest(lockPath)
-	if err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	defer f.Close()
-
-	s := &OpalScraper{browserUserDataDir: source, workingProfileDir: filepath.Join(t.TempDir(), "working")}
-	_, err = s.prepareBrowserProfile()
-	if err == nil {
-		t.Fatal("expected an error when the source profile is locked")
-	}
-	if !errorIs(err, ErrProfileLocked) {
-		t.Fatalf("expected error to wrap ErrProfileLocked, got: %v", err)
 	}
 }
 

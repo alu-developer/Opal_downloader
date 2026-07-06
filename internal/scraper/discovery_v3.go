@@ -14,10 +14,18 @@ func (s *OpalScraper) discoverCourseLinksV3(courseFilter []string) ([]CourseRefV
 	}
 
 	discovered := map[string]CourseRefV2{}
+	// auth/resource/courses is OPAL's "Meine Kurse" listing and is the primary,
+	// reliable source of enrolled-course tiles (rendered as `.content-preview`
+	// cards, see extractCourseCardsFromCurrentPageV3). auth/RepositoryEntry/mycourses
+	// redirects to the personal dashboard (auth/home, itself the last-opened course's
+	// page) which also carries a "Favoriten" widget (`.list-group-item` links); both
+	// are kept as a secondary source in case a course is favorited but missing from
+	// the main listing. auth/home#my-courses was removed: it is a bare URL fragment
+	// (never sent to the server) and this OPAL instance does not react to it
+	// client-side, so it always resolves to the exact same page as plain auth/home.
 	sourcePages := []string{
 		resolveURL(s.opalURL, "auth/resource/courses"),
 		resolveURL(s.opalURL, "auth/RepositoryEntry/mycourses"),
-		resolveURL(s.opalURL, "auth/home#my-courses"),
 		resolveURL(s.opalURL, "auth/home"),
 	}
 
@@ -47,8 +55,18 @@ func (s *OpalScraper) extractCourseCardsFromCurrentPageV3() ([]map[string]string
 	value, err := s.page.Evaluate(`() => {
 			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
 			const rootSelectors = ['section#main-content', '[role="main"]', 'main', '#main-content', '#content'];
-			const cardSelectors = ['.o_repository_entry', '.o_repoentry', '.o_infoPanel', '.o_card', '.list-group-item', '.dynamic-tab', 'article', 'li'];
-			const titleSelectors = ['.o_repository_entry_title', '.o_title', '.card-title', '.list-group-item-heading', 'h1', 'h2', 'h3'];
+			// '.content-preview' matches the "Meine Kurse" (auth/resource/courses) repository
+			// tile OPAL currently renders per enrolled course. It is listed first (and searched
+			// in its own pass below) so it takes priority over the generic fallback selectors,
+			// which can otherwise match unrelated wrapper <li>/<article> elements.
+			const cardSelectors = ['.content-preview', '.o_repository_entry', '.o_repoentry', '.o_infoPanel', '.o_card', '.list-group-item', '.dynamic-tab', 'article', 'li'];
+			// '.content-preview-title' holds the actual course title on a '.content-preview'
+			// tile. It must be checked before the generic h1/h2/h3 fallbacks: a course's rich
+			// text description (rendered inside the same tile) can itself contain h1/h2/h3
+			// headings (e.g. "Was lernt man in diesem Kurs?"), which querySelector('h1,h2,h3')
+			// would otherwise match first since it appears earlier in document order than the
+			// real title.
+			const titleSelectors = ['.content-preview-title', '.o_repository_entry_title', '.o_title', '.card-title', '.list-group-item-heading', 'h1', 'h2', 'h3'];
 			const boilerplatePhrases = ['kurs öffnen', 'weitere kursinhalte ansehen', 'weitere kursinhalte', 'kursinhalte ansehen', 'zum kurs', 'kurs starten', 'details anzeigen', 'mehr anzeigen', 'inhalte anzeigen'];
 			const isBoilerplateLabel = (value) => {
 				const lower = (value || '').toLowerCase();
@@ -170,6 +188,12 @@ var boilerplateCourseTitlesV3 = []string{
 	"details anzeigen",
 	"mehr anzeigen",
 	"inhalte anzeigen",
+	// Common rich-text subheading OPAL course descriptions use (e.g. rendered
+	// inside a ".content-preview-desc" block on auth/resource/courses). Before
+	// the .content-preview/.content-preview-title selector fix, a bare
+	// 'h1,h2,h3' title fallback could pick this up instead of the real course
+	// title, surfacing it as a fake "course".
+	"was lernt man in diesem kurs",
 }
 
 func isBoilerplateCourseTitleV3(title string) bool {

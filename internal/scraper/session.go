@@ -138,7 +138,7 @@ func (s *OpalScraper) isAuthenticated() (bool, error) {
 	}
 	_, err := s.page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}
 	pageURL := strings.ToLower(s.page.URL())
 	if strings.Contains(pageURL, "login") || strings.Contains(pageURL, "shib") || strings.Contains(pageURL, "idp") {
@@ -190,7 +190,7 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 	fmt.Println("Please complete login in the opened browser window (TU-Fast/2FA supported).")
 	_, err := s.page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
-		return err
+		return fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}
 	_, err = s.page.WaitForSelector("a[href*='crs_'], a[href*='course'], a[href*='RepositoryEntry']", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(300000)})
 	if err != nil {

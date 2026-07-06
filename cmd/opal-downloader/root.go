@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/gui"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 )
@@ -33,6 +35,8 @@ func Execute() {
 		err = runSync(args)
 	case "dump-links":
 		err = runDumpLinks(args)
+	case "gui":
+		err = runGUI(args)
 	case "--help", "-h", "help":
 		printHelp()
 		return
@@ -258,6 +262,28 @@ func runDumpLinks(args []string) error {
 	return nil
 }
 
+func runGUI(args []string) error {
+	port := 0
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--port":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--port requires a value")
+			}
+			p, convErr := strconv.Atoi(args[i])
+			if convErr != nil {
+				return fmt.Errorf("invalid --port value: %s", args[i])
+			}
+			port = p
+		default:
+			return fmt.Errorf("unknown option for gui: %s", args[i])
+		}
+	}
+
+	return gui.Run(gui.Options{Port: port})
+}
+
 func projectDir() string {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -274,6 +300,7 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  init    Create config.yaml from example")
+	fmt.Println("  gui     Start the local web UI (127.0.0.1)")
 	fmt.Println("  login   Open browser, complete login, save session state")
 	fmt.Println("  list    List detected courses and file counts")
 	fmt.Println("  sync    Download new/changed files")
@@ -281,6 +308,7 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  init --config <path>")
+	fmt.Println("  gui [--port <port>]")
 	fmt.Println("  login --config <path> [--dev]")
 	fmt.Println("  list --config <path> [--dev]")
 	fmt.Println("  sync --config <path> [--force] [--dev]")

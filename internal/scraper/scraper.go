@@ -28,6 +28,7 @@ type OpalScraper struct {
 	browserExecutable  string
 	browserUserDataDir string
 	browserProfileDir  string
+	workingProfileDir  string
 	developerMode      bool
 
 	pw      *playwright.Playwright
@@ -40,6 +41,13 @@ type OpalScraper struct {
 
 func (s *OpalScraper) SetDeveloperMode(enabled bool) {
 	s.developerMode = enabled
+}
+
+// SetWorkingProfileDir overrides where opal-downloader stores its private
+// copy of browser_user_data_dir. Primarily useful for tests; production code
+// leaves this unset and relies on defaultWorkingProfileDir.
+func (s *OpalScraper) SetWorkingProfileDir(dir string) {
+	s.workingProfileDir = dir
 }
 
 func New(opalURL, stateFile, browserExecutable, browserUserDataDir, browserProfileDir string) *OpalScraper {

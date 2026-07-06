@@ -75,7 +75,7 @@ go build -o opal-downloader .
 | `opal_url` | Optional OPAL base URL override |
 | `session_state_file` | Optional path for persisted browser session state |
 | `browser_executable` | Optional browser executable path for real profile login |
-| `browser_user_data_dir` | Optional browser profile directory |
+| `browser_user_data_dir` | Optional browser profile directory. opal-downloader never launches directly against this path - see "TU-Fast / Brave Setup" below |
 | `browser_profile_directory` | Optional profile within user-data (e.g. `Default`, `Profile 1`) |
 
 Example:
@@ -106,8 +106,25 @@ If TU-Fast is only installed in Brave, configure `browser_executable` and `brows
 ./opal-downloader login
 ```
 
-This starts with your real Brave profile so existing extensions can be used.
+This gives the browser access to your real Brave profile so existing extensions can be used.
 If TU-Fast is installed in `Profile 1` (or another non-default profile), also set `browser_profile_directory`.
+
+**How the profile is used:** opal-downloader does not launch Playwright directly against
+`browser_user_data_dir` - that would lock the profile the same way a second Brave window
+would, and either crash on startup if Brave is already open, or make your normal Brave
+unusable while opal-downloader runs. Instead, on first run it copies the parts of the
+profile needed for cookies/logins/extensions (not caches, history, or favicons) into its
+own working directory at `<home>/.opal-downloader/browser-profile`, and launches against
+that copy. This means:
+
+- You can keep your everyday Brave open (or open it) while `login`/`sync` runs, with no
+  lock conflicts.
+- The copy is a one-time snapshot. If you install/update TU-Fast or otherwise change the
+  source profile afterwards, delete `<home>/.opal-downloader/browser-profile` to force a
+  fresh copy on the next run.
+- If `browser_user_data_dir` itself is locked (e.g. Brave happens to be open at the exact
+  moment opal-downloader tries to read it) opal-downloader exits with a clear error asking
+  you to close Brave and retry, instead of crashing.
 
 ## Notes and Limitations
 

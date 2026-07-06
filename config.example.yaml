@@ -41,6 +41,23 @@ browser_executable: ""
 # Optional: browser user-data directory (profile root). Needed if extension should come from your real profile.
 # Example Brave user-data directory on Windows:
 # browser_user_data_dir: "C:/Users/<YOU>/AppData/Local/BraveSoftware/Brave-Browser/User Data"
+#
+# opal-downloader never launches directly against this directory. On first use
+# it copies the parts needed for cookies/logins/extensions (NOT caches or
+# history) into its own working profile under
+# "<your home directory>/.opal-downloader/browser-profile" and launches
+# against that copy instead. This means:
+#   - You can keep using your normal Brave window while opal-downloader runs;
+#     there's no profile-lock conflict.
+#   - The copy is one-time. If you install/update the TU-Fast extension (or
+#     log into OPAL again) in your real browser afterwards, delete the
+#     "<home>/.opal-downloader/browser-profile" folder so opal-downloader
+#     re-copies the profile on its next run.
+#   - If this directory is already open in Brave (or another Chromium-based
+#     browser) when opal-downloader starts, opal-downloader still detects that
+#     and fails with a clear error rather than crashing - closing Brave isn't
+#     required for opal-downloader to work, but the check exists as a safety
+#     net in case the copy step itself races with a browser launch.
 browser_user_data_dir: ""
 
 # Optional: profile directory inside browser_user_data_dir (e.g. "Default", "Profile 1").

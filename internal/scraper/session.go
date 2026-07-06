@@ -20,6 +20,11 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 	}
 
 	if s.browserUserDataDir != "" && !headless && !useSavedState {
+		launchUserDataDir, err := s.prepareBrowserProfile()
+		if err != nil {
+			return err
+		}
+
 		opts := playwright.BrowserTypeLaunchPersistentContextOptions{
 			Headless: playwright.Bool(headless),
 			IgnoreDefaultArgs: []string{
@@ -34,11 +39,11 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		if s.browserExecutable != "" {
 			opts.ExecutablePath = playwright.String(s.browserExecutable)
 		}
-		ctx, err := s.pw.Chromium.LaunchPersistentContext(s.browserUserDataDir, opts)
+		ctx, err := s.pw.Chromium.LaunchPersistentContext(launchUserDataDir, opts)
 		if err != nil {
-			return err
+			return fmt.Errorf("launching browser with profile %s: %w", launchUserDataDir, err)
 		}
-		fmt.Printf("Launching persistent browser profile: userDataDir=%s profile=%s\n", s.browserUserDataDir, defaultString(s.browserProfileDir, "(default)"))
+		fmt.Printf("Launching persistent browser profile: userDataDir=%s profile=%s\n", launchUserDataDir, defaultString(s.browserProfileDir, "(default)"))
 		s.context = ctx
 		pages := ctx.Pages()
 		if len(pages) > 0 {

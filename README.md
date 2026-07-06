@@ -127,6 +127,7 @@ If TU-Fast is installed in `Profile 1` (or another non-default profile), also se
 ```
 
 - Operational checklist and incident steps are documented in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+- To re-validate the fresh-install experience (clone through `init`, no OPAL credentials needed), run [scripts/test-fresh-install.ps1](scripts/test-fresh-install.ps1). Known friction points from the last dry run are tracked in [docs/setup-friction.md](docs/setup-friction.md). The credential-requiring parts (`login`/`list`/`sync`) have a manual checklist in [docs/manual-setup-checklist.md](docs/manual-setup-checklist.md).
 
 ## License
 

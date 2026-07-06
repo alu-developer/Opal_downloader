@@ -18,12 +18,15 @@ venv/
 env/
 
 # Go
-opal-downloader
+/opal-downloader
 *.exe
 *.test
 *.out
 go.work
 go.work.sum
+
+# Local task queue
+.claude/queue/
 
 # IDE / OS
 .idea/

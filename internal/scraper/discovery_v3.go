@@ -49,6 +49,11 @@ func (s *OpalScraper) extractCourseCardsFromCurrentPageV3() ([]map[string]string
 			const rootSelectors = ['section#main-content', '[role="main"]', 'main', '#main-content', '#content'];
 			const cardSelectors = ['.o_repository_entry', '.o_repoentry', '.o_infoPanel', '.o_card', '.list-group-item', '.dynamic-tab', 'article', 'li'];
 			const titleSelectors = ['.o_repository_entry_title', '.o_title', '.card-title', '.list-group-item-heading', 'h1', 'h2', 'h3'];
+			const boilerplatePhrases = ['kurs öffnen', 'weitere kursinhalte ansehen', 'weitere kursinhalte', 'kursinhalte ansehen', 'zum kurs', 'kurs starten', 'details anzeigen', 'mehr anzeigen', 'inhalte anzeigen'];
+			const isBoilerplateLabel = (value) => {
+				const lower = (value || '').toLowerCase();
+				return boilerplatePhrases.some((phrase) => lower.includes(phrase));
+			};
 
 			const roots = [];
 			const seenRoots = new Set();
@@ -84,7 +89,7 @@ func (s *OpalScraper) extractCourseCardsFromCurrentPageV3() ([]map[string]string
 							if (!titleNode) continue;
 							const text = normalize(titleNode.textContent);
 							if (!text) continue;
-							if (text.toLowerCase().includes('kurs öffnen')) continue;
+							if (isBoilerplateLabel(text)) continue;
 							courseTitle = text;
 							break;
 						}
@@ -93,7 +98,7 @@ func (s *OpalScraper) extractCourseCardsFromCurrentPageV3() ([]map[string]string
 								const href = normalize(link.getAttribute('href'));
 								const text = normalize(link.getAttribute('title') || link.textContent);
 								if (!href || !href.toLowerCase().includes('/repositoryentry/') || href.toLowerCase().includes('/coursenode/')) continue;
-								if (!text || text.toLowerCase().includes('kurs öffnen')) continue;
+								if (!text || isBoilerplateLabel(text)) continue;
 								courseTitle = text;
 								break;
 							}
@@ -150,6 +155,27 @@ func shouldReplaceCourseRefV2(existing CourseRefV2, newTitle string) bool {
 	return len(strings.TrimSpace(newTitle)) > len(strings.TrimSpace(existing.Title))
 }
 
+// boilerplateCourseTitlesV3 lists known OPAL UI call-to-action phrases that
+// must never be stored as a course title. This mirrors the denylist applied
+// during in-page extraction (extractCourseCardsFromCurrentPageV3) and acts
+// as a defense-in-depth guard in case a generic link's text ever reaches
+// this far as a candidate courseTitle.
+var boilerplateCourseTitlesV3 = []string{
+	"kurs öffnen",
+	"weitere kursinhalte ansehen",
+	"weitere kursinhalte",
+	"kursinhalte ansehen",
+	"zum kurs",
+	"kurs starten",
+	"details anzeigen",
+	"mehr anzeigen",
+	"inhalte anzeigen",
+}
+
+func isBoilerplateCourseTitleV3(title string) bool {
+	return containsAny(strings.ToLower(strings.TrimSpace(title)), boilerplateCourseTitlesV3)
+}
+
 func appendDiscoveredCoursesV3(discovered map[string]CourseRefV2, candidates []map[string]string, opalURL string, courseFilter []string) {
 	for _, candidate := range candidates {
 		linkTarget := strings.TrimSpace(candidate["openHref"])
@@ -163,7 +189,7 @@ func appendDiscoveredCoursesV3(discovered map[string]CourseRefV2, candidates []m
 			continue
 		}
 		title := strings.TrimSpace(candidate["courseTitle"])
-		if title == "" || !strictCourseFilterMatches(title, courseFilter) {
+		if title == "" || isBoilerplateCourseTitleV3(title) || !strictCourseFilterMatches(title, courseFilter) {
 			continue
 		}
 

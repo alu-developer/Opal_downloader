@@ -8,17 +8,17 @@ import (
 )
 
 const (
-	navGotoTimeoutMsV2         = 15000.0
-	navSelectorTimeoutMsV2     = 2500.0
-	navFallbackWaitMsV2        = 700.0
-	contentGotoTimeoutMsV2     = 15000.0
-	contentSelectorTimeoutMsV2 = 2500.0
-	contentFallbackWaitMsV2    = 700.0
+	navGotoTimeoutMs         = 15000.0
+	navSelectorTimeoutMs     = 2500.0
+	navFallbackWaitMs        = 700.0
+	contentGotoTimeoutMs     = 15000.0
+	contentSelectorTimeoutMs = 2500.0
+	contentFallbackWaitMs    = 700.0
 )
 
 var sectionTitleWhitespaceRe = regexp.MustCompile(`\s+`)
 
-func deriveSectionTitleV2(title, text, rootText string) string {
+func deriveSectionTitle(title, text, rootText string) string {
 	for _, raw := range []string{title, text, rootText} {
 		cleaned := strings.TrimSpace(raw)
 		if cleaned == "" {
@@ -26,14 +26,14 @@ func deriveSectionTitleV2(title, text, rootText string) string {
 		}
 		cleaned = sectionTitleWhitespaceRe.ReplaceAllString(cleaned, " ")
 		cleaned = strings.Trim(cleaned, " -,")
-		if isValidSectionTitleV2(cleaned) {
+		if isValidSectionTitle(cleaned) {
 			return cleaned
 		}
 	}
 	return ""
 }
 
-func isValidSectionTitleV2(value string) bool {
+func isValidSectionTitle(value string) bool {
 	cleaned := strings.ToLower(strings.TrimSpace(value))
 	if len(cleaned) < 2 {
 		return false
@@ -47,7 +47,7 @@ func isValidSectionTitleV2(value string) bool {
 	return true
 }
 
-func looksLikeSectionLinkV2(href, title string) bool {
+func looksLikeSectionLink(href, title string) bool {
 	hrefL := strings.ToLower(strings.TrimSpace(href))
 	titleL := strings.ToLower(strings.TrimSpace(title))
 	if titleL == "" {
@@ -62,7 +62,7 @@ func looksLikeSectionLinkV2(href, title string) bool {
 	return containsAny(hrefL, []string{"target=fold_", "target=grp_", "target=crs_", "goto.php?target=fold_", "goto.php?target=grp_", "goto.php?target=crs_", "/coursenode/", "/repositoryentry/"})
 }
 
-func isSectionURLAllowedForCourseV2(absURL, repoID string) bool {
+func isSectionURLAllowedForCourse(absURL, repoID string) bool {
 	if strings.TrimSpace(absURL) == "" || strings.TrimSpace(repoID) == "" {
 		return false
 	}
@@ -77,7 +77,7 @@ func isSectionURLAllowedForCourseV2(absURL, repoID string) bool {
 	return true
 }
 
-func (s *OpalScraper) waitForInteractiveLinksV2(selectorTimeoutMs, fallbackWaitMs float64) {
+func (s *OpalScraper) waitForInteractiveLinks(selectorTimeoutMs, fallbackWaitMs float64) {
 	if s.page == nil {
 		return
 	}

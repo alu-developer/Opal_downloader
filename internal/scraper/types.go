@@ -1,18 +1,18 @@
 package scraper
 
-type CourseRefV2 struct {
+type CourseRef struct {
 	RepoID string
 	Title  string
 	URL    string
 }
 
-type SectionRefV2 struct {
+type SectionRef struct {
 	CourseRepoID string
 	Title        string
 	URL          string
 }
 
-type FileRefV2 struct {
+type FileRef struct {
 	CourseRepoID string
 	CourseTitle  string
 	SectionTitle string

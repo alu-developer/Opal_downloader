@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (s *OpalScraper) extractSectionContentCandidatesV2() ([]map[string]string, error) {
+func (s *OpalScraper) extractSectionContentCandidates() ([]map[string]string, error) {
 	if s.page == nil {
 		return nil, errors.New("no page available")
 	}
@@ -71,20 +71,20 @@ func (s *OpalScraper) extractSectionContentCandidatesV2() ([]map[string]string, 
 	return toStringMapSlice(value), nil
 }
 
-func appendSectionFilesV2(existing []FileRefV2, fileSeen map[string]struct{}, candidates []map[string]string, course CourseRefV2, section SectionRefV2, sourceURL, opalURL string, downloadCandidates map[string]downloadCandidate) []FileRefV2 {
-	files := append([]FileRefV2(nil), existing...)
+func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candidates []map[string]string, course CourseRef, section SectionRef, sourceURL, opalURL string, downloadCandidates map[string]downloadCandidate) []FileRef {
+	files := append([]FileRef(nil), existing...)
 	for _, candidate := range candidates {
 		linkTarget := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
 		if linkTarget == "" {
 			continue
 		}
-		name := deriveFileNameV2(candidate["title"], candidate["text"], linkTarget)
-		if !looksLikeFileLinkV2(linkTarget, name) {
+		name := deriveFileName(candidate["title"], candidate["text"], linkTarget)
+		if !looksLikeFileLink(linkTarget, name) {
 			continue
 		}
 
 		absURL := resolveURL(opalURL, linkTarget)
-		if !isFileURLAllowedForCourseV2(absURL, course.RepoID) {
+		if !isFileURLAllowedForCourse(absURL, course.RepoID) {
 			continue
 		}
 
@@ -99,7 +99,7 @@ func appendSectionFilesV2(existing []FileRefV2, fileSeen map[string]struct{}, ca
 		if downloadCandidates != nil {
 			downloadCandidates[absURL] = downloadCandidate{SourceURL: sourceURL, LinkText: strings.TrimSpace(defaultString(candidate["title"], candidate["text"])), LinkTarget: linkTarget}
 		}
-		files = append(files, FileRefV2{
+		files = append(files, FileRef{
 			CourseRepoID: course.RepoID,
 			CourseTitle:  safeCourse,
 			SectionTitle: sanitizeFilename(section.Title),
@@ -113,7 +113,7 @@ func appendSectionFilesV2(existing []FileRefV2, fileSeen map[string]struct{}, ca
 
 var fileNameWhitespaceRe = regexp.MustCompile(`\s+`)
 
-func deriveFileNameV2(title, text, linkTarget string) string {
+func deriveFileName(title, text, linkTarget string) string {
 	for _, raw := range []string{title, text} {
 		cleaned := strings.TrimSpace(raw)
 		if cleaned == "" {
@@ -128,7 +128,7 @@ func deriveFileNameV2(title, text, linkTarget string) string {
 	return path.Base(strings.TrimSpace(linkTarget))
 }
 
-func looksLikeFileLinkV2(href, name string) bool {
+func looksLikeFileLink(href, name string) bool {
 	hrefL := strings.ToLower(strings.TrimSpace(href))
 	nameL := strings.ToLower(strings.TrimSpace(name))
 	if nameL == "" {
@@ -148,7 +148,7 @@ func looksLikeFileLinkV2(href, name string) bool {
 
 var fileExtensionRe = regexp.MustCompile(`\.(pdf|zip|doc|docx|ppt|pptx|xls|xlsx|txt|csv|ipynb|py|java|c|cpp|jpg|jpeg|png)$`)
 
-func looksLikeSectionFolderLinkV2(href, title string) bool {
+func looksLikeSectionFolderLink(href, title string) bool {
 	hrefL := strings.ToLower(strings.TrimSpace(href))
 	titleL := strings.ToLower(strings.TrimSpace(title))
 	if titleL == "" {
@@ -163,14 +163,14 @@ func looksLikeSectionFolderLinkV2(href, title string) bool {
 	return containsAny(hrefL, []string{"target=fold_", "target=grp_", "target=crs_", "goto.php?target=fold_", "goto.php?target=grp_", "goto.php?target=crs_", "/coursenode/", "/repositoryentry/"})
 }
 
-// showAllControlTextNeedlesV2 lists case-insensitive substrings that identify an
+// showAllControlTextNeedles lists case-insensitive substrings that identify an
 // OPAL/ILIAS "expand the paginated list" affordance by its visible link/button text.
 // This is a best-effort guess based on common OPAL/ILIAS UI copy (German and English
 // variants); it has not been verified against a live OPAL instance, since this
 // environment has no OPAL login available. A human should confirm the exact wording
 // against a real course with a paginated (>20 item) file list and extend this list if
 // needed.
-var showAllControlTextNeedlesV2 = []string{
+var showAllControlTextNeedles = []string{
 	"alle anzeigen",
 	"alle einträge anzeigen",
 	"alle elemente anzeigen",
@@ -180,12 +180,12 @@ var showAllControlTextNeedlesV2 = []string{
 	"display all",
 }
 
-// showAllControlHrefNeedlesV2 lists substrings in an href/onclick/data-* target that
+// showAllControlHrefNeedles lists substrings in an href/onclick/data-* target that
 // indicate a direct link to a "show everything, no pagination" URL variant, as seen in
 // ILIAS/DataTables-style table pagination (e.g. a DataTables length selector wired to
 // length=-1, or a bespoke showAll flag). Also a best-effort guess pending live
 // verification.
-var showAllControlHrefNeedlesV2 = []string{
+var showAllControlHrefNeedles = []string{
 	"length=-1",
 	"showall=true",
 	"showall=1",
@@ -194,33 +194,33 @@ var showAllControlHrefNeedlesV2 = []string{
 	"pagesize=-1",
 }
 
-// looksLikeShowAllControlV2 decides whether a candidate anchor/button found on a
+// looksLikeShowAllControl decides whether a candidate anchor/button found on a
 // section or folder page is OPAL's "Alle anzeigen" ("show all") pagination control,
 // which expands a truncated (commonly capped at ~20 items) file listing to show every
 // entry. The exact OPAL markup could not be verified live in this environment (no OPAL
 // login available here), so this matches on common OPAL/ILIAS UI text and known
 // "no pagination" URL parameter shapes; a human should verify against a real course
 // known to have more than 20 files in one section.
-func looksLikeShowAllControlV2(linkTarget, text, title string) bool {
+func looksLikeShowAllControl(linkTarget, text, title string) bool {
 	textL := strings.ToLower(strings.TrimSpace(defaultString(text, title)))
 	hrefL := strings.ToLower(strings.TrimSpace(linkTarget))
-	if containsAny(textL, showAllControlTextNeedlesV2) {
+	if containsAny(textL, showAllControlTextNeedles) {
 		return true
 	}
-	if hrefL != "" && containsAny(hrefL, showAllControlHrefNeedlesV2) {
+	if hrefL != "" && containsAny(hrefL, showAllControlHrefNeedles) {
 		return true
 	}
 	return false
 }
 
-// findShowAllTargetV2 scans extracted candidates (as produced by
-// extractSectionContentCandidatesV2) for a "show all" pagination control and returns
+// findShowAllTarget scans extracted candidates (as produced by
+// extractSectionContentCandidates) for a "show all" pagination control and returns
 // its raw (possibly relative) link target. It reports found=false when none matches,
 // which is the common case for sections that already show every file.
-func findShowAllTargetV2(candidates []map[string]string) (linkTarget string, found bool) {
+func findShowAllTarget(candidates []map[string]string) (linkTarget string, found bool) {
 	for _, candidate := range candidates {
 		target := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
-		if !looksLikeShowAllControlV2(target, candidate["text"], candidate["title"]) {
+		if !looksLikeShowAllControl(target, candidate["text"], candidate["title"]) {
 			continue
 		}
 		return target, true
@@ -228,7 +228,7 @@ func findShowAllTargetV2(candidates []map[string]string) (linkTarget string, fou
 	return "", false
 }
 
-func isFileURLAllowedForCourseV2(absURL, repoID string) bool {
+func isFileURLAllowedForCourse(absURL, repoID string) bool {
 	if strings.TrimSpace(absURL) == "" || strings.TrimSpace(repoID) == "" {
 		return false
 	}

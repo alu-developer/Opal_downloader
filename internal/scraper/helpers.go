@@ -85,7 +85,7 @@ func normalizeURLForCrawl(rawURL string) string {
 	return u.String()
 }
 
-func sectionKeyV2(rawURL, repoID string) string {
+func normalizedSectionKey(rawURL, repoID string) string {
 	normalized := normalizeURLForCrawl(rawURL)
 	u, err := url.Parse(normalized)
 	if err != nil {

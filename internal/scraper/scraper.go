@@ -82,7 +82,7 @@ func (s *OpalScraper) ScrapeWithSavedSession(courseFilter []string) ([]RemoteFil
 	if err := s.ensureSession(false); err != nil {
 		return nil, err
 	}
-	return s.scrapeCoursesBrowserV3(courseFilter)
+	return s.scrapeCoursesBrowser(courseFilter)
 }
 
 func (s *OpalScraper) Close() error {

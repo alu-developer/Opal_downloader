@@ -8,15 +8,15 @@ import (
 	"github.com/mxschmitt/playwright-go"
 )
 
-func (s *OpalScraper) discoverCourseLinksV3(courseFilter []string) ([]CourseRefV2, error) {
+func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, error) {
 	if s.page == nil {
 		return nil, errors.New("no page available")
 	}
 
-	discovered := map[string]CourseRefV2{}
+	discovered := map[string]CourseRef{}
 	// auth/resource/courses is OPAL's "Meine Kurse" listing and is the primary,
 	// reliable source of enrolled-course tiles (rendered as `.content-preview`
-	// cards, see extractCourseCardsFromCurrentPageV3). auth/RepositoryEntry/mycourses
+	// cards, see extractCourseCardsFromCurrentPage). auth/RepositoryEntry/mycourses
 	// redirects to the personal dashboard (auth/home, itself the last-opened course's
 	// page) which also carries a "Favoriten" widget (`.list-group-item` links); both
 	// are kept as a secondary source in case a course is favorited but missing from
@@ -35,11 +35,11 @@ func (s *OpalScraper) discoverCourseLinksV3(courseFilter []string) ([]CourseRefV
 		}
 		s.waitForCourseEntries(sourceURL)
 
-		candidates, err := s.extractCourseCardsFromCurrentPageV3()
+		candidates, err := s.extractCourseCardsFromCurrentPage()
 		if err != nil {
 			continue
 		}
-		appendDiscoveredCoursesV3(discovered, candidates, s.opalURL, courseFilter)
+		appendDiscoveredCourses(discovered, candidates, s.opalURL, courseFilter)
 	}
 
 	items := mapValues(discovered)
@@ -47,7 +47,7 @@ func (s *OpalScraper) discoverCourseLinksV3(courseFilter []string) ([]CourseRefV
 	return items, nil
 }
 
-func (s *OpalScraper) extractCourseCardsFromCurrentPageV3() ([]map[string]string, error) {
+func (s *OpalScraper) extractCourseCardsFromCurrentPage() ([]map[string]string, error) {
 	if s.page == nil {
 		return nil, errors.New("no page available")
 	}
@@ -166,19 +166,19 @@ func (s *OpalScraper) waitForCourseEntries(pageURL string) {
 	s.page.WaitForTimeout(1500)
 }
 
-func shouldReplaceCourseRefV2(existing CourseRefV2, newTitle string) bool {
+func shouldReplaceCourseRef(existing CourseRef, newTitle string) bool {
 	if strings.HasPrefix(existing.Title, "RepositoryEntry ") {
 		return true
 	}
 	return len(strings.TrimSpace(newTitle)) > len(strings.TrimSpace(existing.Title))
 }
 
-// boilerplateCourseTitlesV3 lists known OPAL UI call-to-action phrases that
+// boilerplateCourseTitles lists known OPAL UI call-to-action phrases that
 // must never be stored as a course title. This mirrors the denylist applied
-// during in-page extraction (extractCourseCardsFromCurrentPageV3) and acts
+// during in-page extraction (extractCourseCardsFromCurrentPage) and acts
 // as a defense-in-depth guard in case a generic link's text ever reaches
 // this far as a candidate courseTitle.
-var boilerplateCourseTitlesV3 = []string{
+var boilerplateCourseTitles = []string{
 	"kurs öffnen",
 	"weitere kursinhalte ansehen",
 	"weitere kursinhalte",
@@ -196,11 +196,11 @@ var boilerplateCourseTitlesV3 = []string{
 	"was lernt man in diesem kurs",
 }
 
-func isBoilerplateCourseTitleV3(title string) bool {
-	return containsAny(strings.ToLower(strings.TrimSpace(title)), boilerplateCourseTitlesV3)
+func isBoilerplateCourseTitle(title string) bool {
+	return containsAny(strings.ToLower(strings.TrimSpace(title)), boilerplateCourseTitles)
 }
 
-func appendDiscoveredCoursesV3(discovered map[string]CourseRefV2, candidates []map[string]string, opalURL string, courseFilter []string) {
+func appendDiscoveredCourses(discovered map[string]CourseRef, candidates []map[string]string, opalURL string, courseFilter []string) {
 	for _, candidate := range candidates {
 		linkTarget := strings.TrimSpace(candidate["openHref"])
 		if linkTarget == "" {
@@ -213,14 +213,14 @@ func appendDiscoveredCoursesV3(discovered map[string]CourseRefV2, candidates []m
 			continue
 		}
 		title := strings.TrimSpace(candidate["courseTitle"])
-		if title == "" || isBoilerplateCourseTitleV3(title) || !strictCourseFilterMatches(title, courseFilter) {
+		if title == "" || isBoilerplateCourseTitle(title) || !strictCourseFilterMatches(title, courseFilter) {
 			continue
 		}
 
 		canonicalURL := resolveURL(opalURL, "auth/RepositoryEntry/"+repoID)
 		previous, ok := discovered[repoID]
-		if !ok || shouldReplaceCourseRefV2(previous, title) {
-			discovered[repoID] = CourseRefV2{RepoID: repoID, Title: title, URL: canonicalURL}
+		if !ok || shouldReplaceCourseRef(previous, title) {
+			discovered[repoID] = CourseRef{RepoID: repoID, Title: title, URL: canonicalURL}
 		}
 	}
 }

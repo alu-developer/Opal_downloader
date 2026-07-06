@@ -2,7 +2,7 @@ package scraper
 
 import "testing"
 
-func TestLooksLikeNavigableShowAllURLV3(t *testing.T) {
+func TestLooksLikeNavigableShowAllURL(t *testing.T) {
 	tests := []struct {
 		name       string
 		linkTarget string
@@ -18,14 +18,14 @@ func TestLooksLikeNavigableShowAllURLV3(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := looksLikeNavigableShowAllURLV3(tt.linkTarget); got != tt.want {
-				t.Fatalf("looksLikeNavigableShowAllURLV3(%q) = %v, want %v", tt.linkTarget, got, tt.want)
+			if got := looksLikeNavigableShowAllURL(tt.linkTarget); got != tt.want {
+				t.Fatalf("looksLikeNavigableShowAllURL(%q) = %v, want %v", tt.linkTarget, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestAppendSectionFolderTargetsV3SkipsRootAndCurrentSection(t *testing.T) {
+func TestAppendSectionFolderTargetsSkipsRootAndCurrentSection(t *testing.T) {
 	repoID := "53290106881"
 	currentURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1771558760922192006"
 	courseRootURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881"
@@ -50,7 +50,7 @@ func TestAppendSectionFolderTargetsV3SkipsRootAndCurrentSection(t *testing.T) {
 		},
 	}
 
-	queue := appendSectionFolderTargetsV3(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
+	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
 	if len(queue) != 1 {
 		t.Fatalf("expected exactly one queued section target, got %d: %#v", len(queue), queue)
 	}
@@ -59,7 +59,7 @@ func TestAppendSectionFolderTargetsV3SkipsRootAndCurrentSection(t *testing.T) {
 	}
 }
 
-func TestAppendSectionFolderTargetsV3AllowsAnyNestedCourseNodePath(t *testing.T) {
+func TestAppendSectionFolderTargetsAllowsAnyNestedCourseNodePath(t *testing.T) {
 	repoID := "53290106881"
 	currentURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775615795226691003"
 	courseRootURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881"
@@ -99,7 +99,7 @@ func TestAppendSectionFolderTargetsV3AllowsAnyNestedCourseNodePath(t *testing.T)
 		},
 	}
 
-	queue := appendSectionFolderTargetsV3(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
+	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
 	want := []string{
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775615795226691003/Probeklausur",
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775615795226691003/%C3%9Cbungsbl%C3%A4tter",
@@ -115,7 +115,7 @@ func TestAppendSectionFolderTargetsV3AllowsAnyNestedCourseNodePath(t *testing.T)
 	}
 }
 
-func TestAppendSectionFolderTargetsV3AllowsUnlistedSiblingSectionByDefault(t *testing.T) {
+func TestAppendSectionFolderTargetsAllowsUnlistedSiblingSectionByDefault(t *testing.T) {
 	repoID := "53290106881"
 	currentURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775615795226691003"
 	courseRootURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881"
@@ -137,7 +137,7 @@ func TestAppendSectionFolderTargetsV3AllowsUnlistedSiblingSectionByDefault(t *te
 		},
 	}
 
-	queue := appendSectionFolderTargetsV3(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
+	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
 	if len(queue) != 1 {
 		t.Fatalf("expected exactly one queued sibling section, got %d: %#v", len(queue), queue)
 	}

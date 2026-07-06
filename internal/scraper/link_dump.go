@@ -45,7 +45,7 @@ type LinkDumpReport struct {
 	Entries      []LinkDumpEntry `json:"entries"`
 }
 
-func (s *OpalScraper) DumpPageLinksV2(targetURL, outputPath string) error {
+func (s *OpalScraper) DumpPageLinks(targetURL, outputPath string) error {
 	if strings.TrimSpace(targetURL) == "" {
 		return errors.New("target url is required")
 	}
@@ -59,10 +59,10 @@ func (s *OpalScraper) DumpPageLinksV2(targetURL, outputPath string) error {
 		return errors.New("no page available")
 	}
 
-	if _, err := s.page.Goto(targetURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMsV2)}); err != nil {
+	if _, err := s.page.Goto(targetURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 		return err
 	}
-	s.waitForInteractiveLinksV2(contentSelectorTimeoutMsV2, contentFallbackWaitMsV2)
+	s.waitForInteractiveLinks(contentSelectorTimeoutMs, contentFallbackWaitMs)
 
 	value, err := s.page.Evaluate(`() => {
 			const selectors = 'a[href], [onclick], [data-href], [data-url]';
@@ -158,11 +158,11 @@ func (s *OpalScraper) DumpPageLinksV2(targetURL, outputPath string) error {
 		resolvedTarget := ""
 		allowedForCourse := false
 		nameGuess := ""
-		titleGuess := deriveSectionTitleV2(raw["title"], raw["text"], raw["rootText"])
+		titleGuess := deriveSectionTitle(raw["title"], raw["text"], raw["rootText"])
 		if linkTarget != "" {
 			resolvedTarget = resolveURL(s.opalURL, linkTarget)
-			nameGuess = deriveFileNameV2(raw["title"], raw["text"], linkTarget)
-			allowedForCourse = isSectionURLAllowedForCourseV2(resolvedTarget, repoID) || isFileURLAllowedForCourseV2(resolvedTarget, repoID)
+			nameGuess = deriveFileName(raw["title"], raw["text"], linkTarget)
+			allowedForCourse = isSectionURLAllowedForCourse(resolvedTarget, repoID) || isFileURLAllowedForCourse(resolvedTarget, repoID)
 		}
 
 		entries = append(entries, LinkDumpEntry{
@@ -180,9 +180,9 @@ func (s *OpalScraper) DumpPageLinksV2(targetURL, outputPath string) error {
 			DataURL:             raw["dataUrl"],
 			ResolvedTarget:      resolvedTarget,
 			Visible:             strings.EqualFold(raw["visible"], "true"),
-			ExistingFileRule:    looksLikeFileLinkV2(linkTarget, nameGuess),
-			ExistingFolderRule:  looksLikeSectionFolderLinkV2(linkTarget, titleGuess),
-			ExistingSectionRule: looksLikeSectionLinkV2(linkTarget, titleGuess),
+			ExistingFileRule:    looksLikeFileLink(linkTarget, nameGuess),
+			ExistingFolderRule:  looksLikeSectionFolderLink(linkTarget, titleGuess),
+			ExistingSectionRule: looksLikeSectionLink(linkTarget, titleGuess),
 			AllowedForCourse:    allowedForCourse,
 			NameGuess:           nameGuess,
 			TitleGuess:          titleGuess,

@@ -11,7 +11,7 @@ import (
 
 var courseNodeSectionKeyRe = regexp.MustCompile(`(?i)/coursenode/(\d+)(/[^?#]*)?`)
 
-func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, error) {
+func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 	if s.page == nil {
 		return nil, errors.New("no page available")
 	}
@@ -19,10 +19,10 @@ func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, err
 		return nil, errors.New("course repo id is required")
 	}
 
-	files := make([]FileRefV2, 0)
+	files := make([]FileRef, 0)
 	fileSeen := map[string]struct{}{}
 	visited := map[string]struct{}{}
-	rootKey := sectionKeyV3(course.URL, course.RepoID)
+	rootKey := sectionKey(course.URL, course.RepoID)
 	queue := []string{course.URL}
 	queued := map[string]struct{}{rootKey: {}}
 	maxPages := 16
@@ -30,44 +30,44 @@ func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, err
 	for len(queue) > 0 && len(visited) < maxPages {
 		currentURL := queue[0]
 		queue = queue[1:]
-		currentKey := sectionKeyV3(currentURL, course.RepoID)
+		currentKey := sectionKey(currentURL, course.RepoID)
 		delete(queued, currentKey)
 		if _, ok := visited[currentKey]; ok {
 			continue
 		}
 		visited[currentKey] = struct{}{}
 
-		if _, err := s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMsV2)}); err != nil {
+		if _, err := s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 			continue
 		}
-		s.waitForInteractiveLinksV2(contentSelectorTimeoutMsV2, contentFallbackWaitMsV2)
+		s.waitForInteractiveLinks(contentSelectorTimeoutMs, contentFallbackWaitMs)
 
-		candidates, err := s.extractSectionContentCandidatesV2()
+		candidates, err := s.extractSectionContentCandidates()
 		if err != nil {
 			continue
 		}
 		if len(candidates) == 0 {
-			s.page.WaitForTimeout(contentFallbackWaitMsV2)
-			retryCandidates, retryErr := s.extractSectionContentCandidatesV2()
+			s.page.WaitForTimeout(contentFallbackWaitMs)
+			retryCandidates, retryErr := s.extractSectionContentCandidates()
 			if retryErr == nil && len(retryCandidates) > 0 {
 				candidates = retryCandidates
 			}
 		}
 
-		if expanded, ok := s.expandShowAllInSectionV3(currentURL, candidates); ok {
+		if expanded, ok := s.expandShowAllInSection(currentURL, candidates); ok {
 			candidates = expanded
 		}
 
-		sectionTitle := deriveSectionTitleFromURLV3(course.Title, currentURL)
-		section := SectionRefV2{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
-		files = appendSectionFilesV2(files, fileSeen, candidates, course, section, currentURL, s.opalURL, s.downloadCandidates)
-		queue = appendSectionFolderTargetsV3(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title)
+		sectionTitle := deriveSectionTitleFromURL(course.Title, currentURL)
+		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
+		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, s.opalURL, s.downloadCandidates)
+		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title)
 	}
 
 	return files, nil
 }
 
-// expandShowAllInSectionV3 looks for OPAL's "Alle anzeigen" ("show all") pagination
+// expandShowAllInSection looks for OPAL's "Alle anzeigen" ("show all") pagination
 // control among the already-extracted candidates for the current section/folder page
 // and, if found, expands the file list and re-extracts candidates so the caller sees
 // every file rather than just the first page (OPAL's table/folder views commonly cap
@@ -75,12 +75,12 @@ func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, err
 //
 // This handles the expansion as part of the single visit to currentURL - clicking or
 // following the "show all" control does not change the page's canonical URL, so the
-// crawl loop's visited/queued dedupe (keyed by sectionKeyV3) is untouched and this
+// crawl loop's visited/queued dedupe (keyed by sectionKey) is untouched and this
 // cannot cause a requeue or infinite loop.
 //
 // NOTE: the exact OPAL markup for this control could not be verified against a live
 // OPAL instance in this environment (no OPAL login available here). The detection in
-// looksLikeShowAllControlV2 is a best-effort guess based on common OPAL/ILIAS UI
+// looksLikeShowAllControl is a best-effort guess based on common OPAL/ILIAS UI
 // patterns (German "Alle anzeigen"-style link text, or a length=-1/showAll-style URL
 // parameter). A human should manually verify this against a real OPAL course known to
 // have more than 20 files in one section once this lands.
@@ -88,30 +88,30 @@ func (s *OpalScraper) collectCourseFilesV3(course CourseRefV2) ([]FileRefV2, err
 // It returns the re-extracted candidate list and true when a "show all" control was
 // found and acted on; otherwise it returns (nil, false) and the caller keeps using the
 // candidates it already had.
-func (s *OpalScraper) expandShowAllInSectionV3(currentURL string, candidates []map[string]string) ([]map[string]string, bool) {
+func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map[string]string) ([]map[string]string, bool) {
 	if s.page == nil {
 		return nil, false
 	}
 
-	linkTarget, found := findShowAllTargetV2(candidates)
+	linkTarget, found := findShowAllTarget(candidates)
 	if !found {
 		return nil, false
 	}
 
 	absURL := resolveURL(s.opalURL, linkTarget)
 	navigated := false
-	if looksLikeNavigableShowAllURLV3(linkTarget) {
+	if looksLikeNavigableShowAllURL(linkTarget) {
 		// Prefer navigating directly to the "show all" URL over clicking: it's a
 		// plain link with a resolvable href, and direct navigation is more robust
 		// in headless mode than dispatching a click event.
-		if _, err := s.page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMsV2)}); err == nil {
+		if _, err := s.page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err == nil {
 			navigated = true
 		}
 	}
 
 	if !navigated {
 		clicked := false
-		for _, needle := range showAllControlTextNeedlesV2 {
+		for _, needle := range showAllControlTextNeedles {
 			locator := s.page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
 			if err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)}); err == nil {
 				clicked = true
@@ -125,9 +125,9 @@ func (s *OpalScraper) expandShowAllInSectionV3(currentURL string, candidates []m
 		}
 	}
 
-	s.waitForInteractiveLinksV2(contentSelectorTimeoutMsV2, contentFallbackWaitMsV2)
+	s.waitForInteractiveLinks(contentSelectorTimeoutMs, contentFallbackWaitMs)
 
-	expanded, err := s.extractSectionContentCandidatesV2()
+	expanded, err := s.extractSectionContentCandidates()
 	if err != nil || len(expanded) == 0 {
 		return nil, false
 	}
@@ -136,16 +136,16 @@ func (s *OpalScraper) expandShowAllInSectionV3(currentURL string, candidates []m
 	// canonical URL afterwards so any further link resolution / folder discovery
 	// in the caller stays anchored to currentURL rather than the show-all variant.
 	if navigated && !strings.EqualFold(strings.TrimSpace(absURL), strings.TrimSpace(currentURL)) {
-		_, _ = s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMsV2)})
+		_, _ = s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
 	}
 
 	return expanded, true
 }
 
-// looksLikeNavigableShowAllURLV3 reports whether a "show all" control's link target is
+// looksLikeNavigableShowAllURL reports whether a "show all" control's link target is
 // a plain URL worth navigating to directly (as opposed to a javascript:/onclick-driven
 // control that only works via a real click).
-func looksLikeNavigableShowAllURLV3(linkTarget string) bool {
+func looksLikeNavigableShowAllURL(linkTarget string) bool {
 	trimmed := strings.TrimSpace(linkTarget)
 	if trimmed == "" || trimmed == "#" {
 		return false
@@ -153,29 +153,29 @@ func looksLikeNavigableShowAllURLV3(linkTarget string) bool {
 	return !strings.HasPrefix(strings.ToLower(trimmed), "javascript:")
 }
 
-func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string) []string {
-	currentKey := sectionKeyV3(currentURL, repoID)
-	rootKey := sectionKeyV3(courseRootURL, repoID)
+func appendSectionFolderTargets(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string) []string {
+	currentKey := sectionKey(currentURL, repoID)
+	rootKey := sectionKey(courseRootURL, repoID)
 
 	for _, candidate := range candidates {
 		linkTarget := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
 		if linkTarget == "" {
 			continue
 		}
-		title := deriveSectionTitleV2(candidate["title"], candidate["text"], candidate["rootText"])
-		if !looksLikeSectionFolderLinkV2(linkTarget, title) {
+		title := deriveSectionTitle(candidate["title"], candidate["text"], candidate["rootText"])
+		if !looksLikeSectionFolderLink(linkTarget, title) {
 			continue
 		}
 
 		absURL := resolveURL(opalURL, linkTarget)
-		if !isSectionURLAllowedForCourseV2(absURL, repoID) {
+		if !isSectionURLAllowedForCourse(absURL, repoID) {
 			continue
 		}
-		if !isAllowedFolderNavigationTargetV3(title, absURL, courseTitle) {
+		if !isAllowedFolderNavigationTarget(title, absURL, courseTitle) {
 			continue
 		}
 
-		key := sectionKeyV3(absURL, repoID)
+		key := sectionKey(absURL, repoID)
 		if key == currentKey || key == rootKey {
 			continue
 		}
@@ -193,7 +193,7 @@ func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]str
 	return queue
 }
 
-// isAllowedFolderNavigationTargetV3 decides whether a folder-shaped link found in a
+// isAllowedFolderNavigationTarget decides whether a folder-shaped link found in a
 // section's content area should be descended into, rather than relying on a fixed
 // list of known folder-name words. A link nested under a CourseNode's own path
 // (e.g. ".../CourseNode/123/Uebungen") or pointing at an explicit fold_/grp_ target
@@ -201,15 +201,15 @@ func appendSectionFolderTargetsV3(queue []string, queued, visited map[string]str
 // A bare CourseNode/RepositoryEntry link with no such nesting is a sibling section of
 // the course tree; it's only excluded when its label is just a self-reference back to
 // the course itself (e.g. a breadcrumb link), since everything else administrative
-// (forum, calendar, members, ...) was already filtered out by looksLikeSectionFolderLinkV2.
-func isAllowedFolderNavigationTargetV3(title, absURL, courseTitle string) bool {
-	if hasNestedCourseContentPathV3(absURL) {
+// (forum, calendar, members, ...) was already filtered out by looksLikeSectionFolderLink.
+func isAllowedFolderNavigationTarget(title, absURL, courseTitle string) bool {
+	if hasNestedCourseContentPath(absURL) {
 		return true
 	}
 	return !strings.EqualFold(strings.TrimSpace(title), strings.TrimSpace(courseTitle))
 }
 
-func hasNestedCourseContentPathV3(absURL string) bool {
+func hasNestedCourseContentPath(absURL string) bool {
 	lower := strings.ToLower(absURL)
 	if strings.Contains(lower, "target=fold_") || strings.Contains(lower, "target=grp_") {
 		return true
@@ -218,7 +218,7 @@ func hasNestedCourseContentPathV3(absURL string) bool {
 	return len(match) > 2 && match[2] != ""
 }
 
-func deriveSectionTitleFromURLV3(courseTitle, currentURL string) string {
+func deriveSectionTitleFromURL(courseTitle, currentURL string) string {
 	if strings.TrimSpace(currentURL) == "" {
 		return sanitizeFilename(defaultString(courseTitle, "Kursinhalt"))
 	}
@@ -228,10 +228,10 @@ func deriveSectionTitleFromURLV3(courseTitle, currentURL string) string {
 	return sanitizeFilename(defaultString(courseTitle, "Kursinhalt"))
 }
 
-func sectionKeyV3(rawURL, repoID string) string {
+func sectionKey(rawURL, repoID string) string {
 	cleaned := strings.TrimSpace(rawURL)
 	if cleaned == "" {
-		return sectionKeyV2(rawURL, repoID)
+		return normalizedSectionKey(rawURL, repoID)
 	}
 	lower := strings.ToLower(cleaned)
 	if strings.Contains(lower, "/coursenode/") {
@@ -261,5 +261,5 @@ func sectionKeyV3(rawURL, repoID string) string {
 			return "coursenode|" + match[1]
 		}
 	}
-	return sectionKeyV2(rawURL, repoID)
+	return normalizedSectionKey(rawURL, repoID)
 }

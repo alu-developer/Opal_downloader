@@ -1,0 +1,144 @@
+# Manual Setup Checklist (login / sync tier)
+
+This checklist covers the part of the fresh-install flow that **cannot** be
+automated because it requires a real TU Dresden OPAL account, real
+credentials, and (usually) real 2FA. It's the companion to:
+
+- [`scripts/test-fresh-install.ps1`](../scripts/test-fresh-install.ps1) - covers
+  everything before this (clone, Playwright install, build, `init`, config
+  validation) without needing credentials.
+- [`docs/setup-friction.md`](setup-friction.md) - friction points and
+  suggestions found while doing the automatable part of this dry run.
+
+**Do this only as yourself, with your own real OPAL credentials.** Never share
+credentials or session-state files with anyone, including AI assistants -
+don't paste them into a chat, screenshot them, or commit them.
+
+## Prerequisites before starting this checklist
+
+- [ ] You've already run through the automatable tier successfully - either by
+      running `scripts/test-fresh-install.ps1` yourself, or by having an
+      assistant run it and confirm it passed.
+- [ ] You have a real, working copy of the repo built (`opal-downloader.exe`
+      on Windows), with a `config.yaml` you've edited to match your actual
+      setup (real `download_path`, real `courses` list or `"*"`).
+- [ ] You know your TU Dresden / Bildungsportal Sachsen login and have your
+      2FA device (TU-Fast / authenticator) ready.
+
+Record start time here so you can note total setup time at the end: `___________`
+
+## Step 1: `login`
+
+Run:
+
+```powershell
+./opal-downloader.exe login
+```
+
+- [ ] **Pass/Fail:** A browser window opened automatically.
+- [ ] **Pass/Fail:** The OPAL login page loaded (not a blank page / error).
+- [ ] **Pass/Fail:** You were able to complete TU-Fast / 2FA login without the
+      tool interfering (closing the window, timing out too early, etc).
+- [ ] **Pass/Fail:** After login, the terminal printed something like
+      `Login successful! Session state saved.` and a session state file path.
+- [ ] Note the **time taken** from running the command to seeing "Login
+      successful": `___________`
+- [ ] Note any **friction**: confusing prompts, unclear waiting states, browser
+      window losing focus, unexpected extra login steps, timeout too short/long, etc.
+      `___________________________________________________`
+
+If this step fails, capture the exact error text before retrying - it's useful
+feedback even if a retry then succeeds.
+
+## Step 2: `list`
+
+Run:
+
+```powershell
+./opal-downloader.exe list
+```
+
+- [ ] **Pass/Fail:** Command reused the saved session (no browser window /
+      no re-login prompt).
+- [ ] **Pass/Fail:** Real courses you're enrolled in actually showed up.
+- [ ] **Pass/Fail:** The course names look correct (not truncated, garbled, or
+      obviously missing courses you expected).
+- [ ] Note **how many courses** were listed vs. how many you expected:
+      `___________________________________________________`
+- [ ] Note the **time taken**: `___________`
+- [ ] Note any **friction**: unexpected courses, missing courses, unclear
+      output formatting, etc. `___________________________________________________`
+
+## Step 3: `sync` (first real download)
+
+Edit `config.yaml` first if needed so `courses:` / `course_folders:` reflect
+what you actually want downloaded (not just placeholder values), then run:
+
+```powershell
+./opal-downloader.exe sync
+```
+
+- [ ] **Pass/Fail:** Command reused the saved session (no re-login needed).
+- [ ] **Pass/Fail:** Files actually downloaded to the configured
+      `download_path`.
+- [ ] **Pass/Fail:** Files landed in the expected folder structure (matching
+      `course_folders` rules / `default_course_folder` / course-name folders).
+- [ ] **Pass/Fail:** The final summary line (`Done. downloaded=N skipped=N
+      errors=N`) matches what you expected (errors=0, downloaded roughly
+      matches file count in your courses).
+- [ ] Note **how long the sync took** and roughly how much data: `___________`
+- [ ] Note any **friction**: unexpected files skipped/downloaded, wrong
+      folder placement, unclear progress output, slow performance, etc.
+      `___________________________________________________`
+
+If `errors > 0`, check the printed error lines - do they mention which
+file/course failed clearly enough to act on? `___________________________`
+
+## Step 4: re-run `sync` a second time (incremental behavior)
+
+Without changing anything, run the exact same command again:
+
+```powershell
+./opal-downloader.exe sync
+```
+
+- [ ] **Pass/Fail:** Second run reports `downloaded=0` (or very close to 0 -
+      only genuinely new/changed files) and a `skipped=N` count matching the
+      number of files from the first run.
+- [ ] **Pass/Fail:** No files were re-downloaded unnecessarily (check
+      timestamps on a few files in `download_path`, or watch for "Done."
+      completing much faster than the first run).
+- [ ] **Pass/Fail:** The manifest file `.opal-sync.manifest.json` exists
+      inside your configured `download_path` and its `updated_at` / file
+      entries look sane.
+- [ ] Note the **time taken** for this second run vs. the first (should be
+      much faster): `___________`
+- [ ] Note any **friction**: files re-downloaded that shouldn't have been,
+      manifest in an unexpected location, unclear "skipped" reporting, etc.
+      `___________________________________________________`
+
+## Optional: `sync --force` (re-download everything)
+
+Only do this if you want to verify the force-download path; it will re-fetch
+everything and take as long as the first `sync`.
+
+```powershell
+./opal-downloader.exe sync --force
+```
+
+- [ ] **Pass/Fail:** All previously-downloaded files were re-downloaded
+      (`downloaded=N` matches total file count, `skipped=0`).
+
+## Wrap-up
+
+- [ ] Total time from first `login` to a fully synced course set:
+      `___________`
+- [ ] Biggest single friction point encountered: `___________________________`
+- [ ] Anything that felt genuinely broken (not just rough around the edges):
+      `___________________________________________________`
+- [ ] Anything you had to figure out that wasn't documented anywhere:
+      `___________________________________________________`
+
+Report back (to whoever asked you to run this, or as a GitHub issue/PR
+comment) with: this filled-in checklist, plus the overall pass/fail verdict
+for the login -> list -> sync -> re-sync flow.

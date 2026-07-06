@@ -49,7 +49,34 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {
 		return errors.New("response is HTML, not a direct file download")
 	}
 
-	if _, err := s.page.Goto(candidate.SourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+	// Try the page where the candidate was originally recorded first. For files only
+	// revealed by a section's "show all"/"Alle anzeigen" expansion, that recorded
+	// SourceURL is the section's plain (unexpanded) page, which won't render the link -
+	// so if the click search comes up empty there, retry on candidate.ShowAllURL, the
+	// expanded page where the link actually renders.
+	if err := s.clickCandidateLinkOnPage(candidate.SourceURL, candidate, localPath); err == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(candidate.ShowAllURL) != "" && !strings.EqualFold(strings.TrimSpace(candidate.ShowAllURL), strings.TrimSpace(candidate.SourceURL)) {
+		if err := s.clickCandidateLinkOnPage(candidate.ShowAllURL, candidate, localPath); err == nil {
+			return nil
+		}
+	}
+
+	return errors.New("response is HTML, browser fallback click did not find downloadable link")
+}
+
+// clickCandidateLinkOnPage navigates to pageURL and attempts to locate and click the
+// download candidate's link there, saving the resulting download to localPath. It
+// returns an error (without wrapping context) whenever the link could not be found or
+// clicked on that page, so callers can try an alternate page as a fallback.
+func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloadCandidate, localPath string) error {
+	if strings.TrimSpace(pageURL) == "" {
+		return errors.New("no page URL to search for downloadable link")
+	}
+
+	if _, err := s.page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 		return err
 	}
 
@@ -80,5 +107,5 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {
 		}
 	}
 
-	return errors.New("response is HTML, browser fallback click did not find downloadable link")
+	return errors.New("downloadable link not found on page")
 }

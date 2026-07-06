@@ -33,7 +33,7 @@ func TestAppendSectionFilesCollectsOnlyAllowedFiles(t *testing.T) {
 		},
 	}
 
-	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
 	if len(files) != 1 {
 		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
 	}
@@ -45,6 +45,80 @@ func TestAppendSectionFilesCollectsOnlyAllowedFiles(t *testing.T) {
 	}
 	if files[0].URL != "https://bildungsportal.sachsen.de/opal/goto.php?target=file_55&cmd=sendfile" {
 		t.Fatalf("unexpected file URL: %#v", files[0])
+	}
+}
+
+func TestAppendSectionFilesRecordsShowAllURLForExpansionOnlyFiles(t *testing.T) {
+	course := CourseRef{RepoID: "123", Title: "Analysis", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
+	sectionURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123/CourseNode/456"
+	section := SectionRef{CourseRepoID: "123", Title: "Downloads", URL: sectionURL}
+	showAllURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123/CourseNode/456?7-1.-tbl-length=-1"
+
+	// Simulates a file that was only present in the "show all"-expanded candidate
+	// set - the caller passes the resolved show-all URL alongside the plain
+	// section URL, as collectCourseFiles now does when expandShowAllInSection
+	// reports it found and navigated to a distinct show-all URL.
+	candidates := []map[string]string{
+		{
+			"href":  "/opal/goto.php?target=file_99&cmd=sendfile",
+			"title": "Analysis21.pdf",
+			"text":  "Analysis21.pdf",
+		},
+	}
+
+	downloadCandidates := map[string]downloadCandidate{}
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, sectionURL, showAllURL, "https://bildungsportal.sachsen.de/opal/", downloadCandidates)
+	if len(files) != 1 {
+		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
+	}
+
+	fileURL := "https://bildungsportal.sachsen.de/opal/goto.php?target=file_99&cmd=sendfile"
+	candidate, ok := downloadCandidates[fileURL]
+	if !ok {
+		t.Fatalf("expected a download candidate to be recorded for %q", fileURL)
+	}
+	if candidate.SourceURL != sectionURL {
+		t.Fatalf("expected SourceURL to stay the plain section URL, got %q", candidate.SourceURL)
+	}
+	if candidate.ShowAllURL != showAllURL {
+		t.Fatalf("expected ShowAllURL to be recorded as %q, got %q", showAllURL, candidate.ShowAllURL)
+	}
+	if candidate.ShowAllURL == candidate.SourceURL {
+		t.Fatalf("expected ShowAllURL to differ from SourceURL for an expansion-only file")
+	}
+}
+
+func TestAppendSectionFilesLeavesShowAllURLEmptyForNormalPageFiles(t *testing.T) {
+	course := CourseRef{RepoID: "123", Title: "Analysis", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
+	sectionURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123/CourseNode/456"
+	section := SectionRef{CourseRepoID: "123", Title: "Downloads", URL: sectionURL}
+
+	candidates := []map[string]string{
+		{
+			"href":  "/opal/goto.php?target=file_1&cmd=sendfile",
+			"title": "Analysis01.pdf",
+			"text":  "Analysis01.pdf",
+		},
+	}
+
+	downloadCandidates := map[string]downloadCandidate{}
+	// No show-all expansion happened for this section - the caller (collectCourseFiles)
+	// passes an empty showAllURL in that case.
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, sectionURL, "", "https://bildungsportal.sachsen.de/opal/", downloadCandidates)
+	if len(files) != 1 {
+		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
+	}
+
+	fileURL := "https://bildungsportal.sachsen.de/opal/goto.php?target=file_1&cmd=sendfile"
+	candidate, ok := downloadCandidates[fileURL]
+	if !ok {
+		t.Fatalf("expected a download candidate to be recorded for %q", fileURL)
+	}
+	if candidate.SourceURL != sectionURL {
+		t.Fatalf("expected SourceURL to be the section URL, got %q", candidate.SourceURL)
+	}
+	if candidate.ShowAllURL != "" {
+		t.Fatalf("expected ShowAllURL to stay empty for a normal-page file, got %q", candidate.ShowAllURL)
 	}
 }
 

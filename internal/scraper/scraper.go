@@ -20,6 +20,13 @@ type downloadCandidate struct {
 	SourceURL  string
 	LinkText   string
 	LinkTarget string
+	// ShowAllURL is the "show all"/"Alle anzeigen"-expanded variant of SourceURL,
+	// set only when this candidate was discovered after expanding a paginated
+	// section listing. downloadFileViaBrowser falls back to navigating here when
+	// the link isn't present on SourceURL, since files beyond the default ~20-item
+	// page cap only render on the expanded page. Empty when the candidate was
+	// found on a section's normal (non-expanded) first page.
+	ShowAllURL string
 }
 
 type OpalScraper struct {

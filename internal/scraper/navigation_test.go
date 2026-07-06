@@ -2,7 +2,7 @@ package scraper
 
 import "testing"
 
-func TestIsSectionURLAllowedForCourseV2RejectsForeignAndDashboardTargets(t *testing.T) {
+func TestIsSectionURLAllowedForCourseRejectsForeignAndDashboardTargets(t *testing.T) {
 	tests := []struct {
 		name string
 		url  string
@@ -17,14 +17,14 @@ func TestIsSectionURLAllowedForCourseV2RejectsForeignAndDashboardTargets(t *test
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isSectionURLAllowedForCourseV2(tt.url, "123"); got != tt.want {
-				t.Fatalf("isSectionURLAllowedForCourseV2(%q, %q) = %v, want %v", tt.url, "123", got, tt.want)
+			if got := isSectionURLAllowedForCourse(tt.url, "123"); got != tt.want {
+				t.Fatalf("isSectionURLAllowedForCourse(%q, %q) = %v, want %v", tt.url, "123", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestLooksLikeSectionLinkV2RejectsGlobalAndUtilityLinks(t *testing.T) {
+func TestLooksLikeSectionLinkRejectsGlobalAndUtilityLinks(t *testing.T) {
 	tests := []struct {
 		name  string
 		href  string
@@ -40,26 +40,26 @@ func TestLooksLikeSectionLinkV2RejectsGlobalAndUtilityLinks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := looksLikeSectionLinkV2(tt.href, tt.title); got != tt.want {
-				t.Fatalf("looksLikeSectionLinkV2(%q, %q) = %v, want %v", tt.href, tt.title, got, tt.want)
+			if got := looksLikeSectionLink(tt.href, tt.title); got != tt.want {
+				t.Fatalf("looksLikeSectionLink(%q, %q) = %v, want %v", tt.href, tt.title, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestSectionKeyV2NormalizesRepositoryRootVariants(t *testing.T) {
+func TestNormalizedSectionKeyNormalizesRepositoryRootVariants(t *testing.T) {
 	repoID := "123"
-	root := sectionKeyV2("https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123", repoID)
-	view := sectionKeyV2("https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123?cmd=view&ref_id=123", repoID)
+	root := normalizedSectionKey("https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123", repoID)
+	view := normalizedSectionKey("https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123?cmd=view&ref_id=123", repoID)
 	if root != view {
 		t.Fatalf("expected root and cmd=view URLs to share section key, got %q vs %q", root, view)
 	}
 }
 
-func TestSectionKeyV2KeepsDistinctFolderTargets(t *testing.T) {
+func TestNormalizedSectionKeyKeepsDistinctFolderTargets(t *testing.T) {
 	repoID := "123"
-	foldA := sectionKeyV2("https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234&client_id=bildung", repoID)
-	foldB := sectionKeyV2("https://bildungsportal.sachsen.de/opal/goto.php?target=fold_5678&client_id=bildung", repoID)
+	foldA := normalizedSectionKey("https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234&client_id=bildung", repoID)
+	foldB := normalizedSectionKey("https://bildungsportal.sachsen.de/opal/goto.php?target=fold_5678&client_id=bildung", repoID)
 	if foldA == foldB {
 		t.Fatalf("expected different folder targets to produce different keys, got %q", foldA)
 	}

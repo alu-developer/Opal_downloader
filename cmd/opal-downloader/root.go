@@ -250,7 +250,7 @@ func runDumpLinks(args []string) error {
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
 
-	if err := sc.DumpPageLinksV2(targetURL, outputPath); err != nil {
+	if err := sc.DumpPageLinks(targetURL, outputPath); err != nil {
 		return err
 	}
 

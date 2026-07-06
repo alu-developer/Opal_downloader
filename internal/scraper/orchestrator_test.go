@@ -2,8 +2,8 @@ package scraper
 
 import "testing"
 
-func TestConvertFileRefsToRemoteFilesV2(t *testing.T) {
-	items := []FileRefV2{
+func TestConvertFileRefsToRemoteFiles(t *testing.T) {
+	items := []FileRef{
 		{
 			CourseRepoID: "123",
 			CourseTitle:  "Programmierung 1",
@@ -14,7 +14,7 @@ func TestConvertFileRefsToRemoteFilesV2(t *testing.T) {
 		},
 	}
 
-	remoteFiles := convertFileRefsToRemoteFilesV2(items)
+	remoteFiles := convertFileRefsToRemoteFiles(items)
 	if len(remoteFiles) != 1 {
 		t.Fatalf("expected one remote file, got %d: %#v", len(remoteFiles), remoteFiles)
 	}
@@ -26,7 +26,7 @@ func TestConvertFileRefsToRemoteFilesV2(t *testing.T) {
 	}
 }
 
-func TestAppendUniqueRemoteFilesV2DeduplicatesByPathAndURL(t *testing.T) {
+func TestAppendUniqueRemoteFilesDeduplicatesByPathAndURL(t *testing.T) {
 	existing := []RemoteFile{{
 		Name:   "Folien.pdf",
 		URL:    "https://bildungsportal.sachsen.de/opal/goto.php?target=file_55&cmd=sendfile",
@@ -51,7 +51,7 @@ func TestAppendUniqueRemoteFilesV2DeduplicatesByPathAndURL(t *testing.T) {
 		},
 	}
 
-	files := appendUniqueRemoteFilesV2(existing, seen, candidates)
+	files := appendUniqueRemoteFiles(existing, seen, candidates)
 	if len(files) != 2 {
 		t.Fatalf("expected one new file after dedupe, got %d: %#v", len(files), files)
 	}
@@ -61,17 +61,17 @@ func TestAppendUniqueRemoteFilesV2DeduplicatesByPathAndURL(t *testing.T) {
 }
 
 func TestOrchestratorSectionKeyDeduplicationByURLVariants(t *testing.T) {
-	course := CourseRefV2{RepoID: "123", Title: "Algorithmen und Datenstrukturen"}
-	sections := []SectionRefV2{
+	course := CourseRef{RepoID: "123", Title: "Algorithmen und Datenstrukturen"}
+	sections := []SectionRef{
 		{CourseRepoID: "123", Title: "Algorithmen und Datenstrukturen", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"},
 		{CourseRepoID: "123", Title: "Algorithmen und Datenstrukturen", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123?cmd=view&ref_id=123"},
 		{CourseRepoID: "123", Title: "Materialien", URL: "https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234"},
 	}
 
 	seen := map[string]struct{}{}
-	unique := make([]SectionRefV2, 0, len(sections))
+	unique := make([]SectionRef, 0, len(sections))
 	for _, section := range sections {
-		key := sectionKeyV2(section.URL, course.RepoID)
+		key := normalizedSectionKey(section.URL, course.RepoID)
 		if _, ok := seen[key]; ok {
 			continue
 		}

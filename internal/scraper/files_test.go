@@ -2,9 +2,9 @@ package scraper
 
 import "testing"
 
-func TestAppendSectionFilesV2CollectsOnlyAllowedFiles(t *testing.T) {
-	course := CourseRefV2{RepoID: "123", Title: "Programmierung 1", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
-	section := SectionRefV2{CourseRepoID: "123", Title: "Materialien", URL: "https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234"}
+func TestAppendSectionFilesCollectsOnlyAllowedFiles(t *testing.T) {
+	course := CourseRef{RepoID: "123", Title: "Programmierung 1", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
+	section := SectionRef{CourseRepoID: "123", Title: "Materialien", URL: "https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234"}
 	candidates := []map[string]string{
 		{
 			"href":  "/opal/goto.php?target=file_55&cmd=sendfile",
@@ -33,7 +33,7 @@ func TestAppendSectionFilesV2CollectsOnlyAllowedFiles(t *testing.T) {
 		},
 	}
 
-	files := appendSectionFilesV2(nil, map[string]struct{}{}, candidates, course, section, section.URL, "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
 	if len(files) != 1 {
 		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
 	}
@@ -48,7 +48,7 @@ func TestAppendSectionFilesV2CollectsOnlyAllowedFiles(t *testing.T) {
 	}
 }
 
-func TestLooksLikeShowAllControlV2MatchesKnownOpalStylePatterns(t *testing.T) {
+func TestLooksLikeShowAllControlMatchesKnownOpalStylePatterns(t *testing.T) {
 	tests := []struct {
 		name       string
 		linkTarget string
@@ -70,14 +70,14 @@ func TestLooksLikeShowAllControlV2MatchesKnownOpalStylePatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := looksLikeShowAllControlV2(tt.linkTarget, tt.text, tt.title); got != tt.want {
-				t.Fatalf("looksLikeShowAllControlV2(%q, %q, %q) = %v, want %v", tt.linkTarget, tt.text, tt.title, got, tt.want)
+			if got := looksLikeShowAllControl(tt.linkTarget, tt.text, tt.title); got != tt.want {
+				t.Fatalf("looksLikeShowAllControl(%q, %q, %q) = %v, want %v", tt.linkTarget, tt.text, tt.title, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestFindShowAllTargetV2FindsFirstMatchingCandidate(t *testing.T) {
+func TestFindShowAllTargetFindsFirstMatchingCandidate(t *testing.T) {
 	candidates := []map[string]string{
 		{
 			"href":  "/opal/goto.php?target=file_55&cmd=sendfile",
@@ -96,7 +96,7 @@ func TestFindShowAllTargetV2FindsFirstMatchingCandidate(t *testing.T) {
 		},
 	}
 
-	target, found := findShowAllTargetV2(candidates)
+	target, found := findShowAllTarget(candidates)
 	if !found {
 		t.Fatalf("expected to find a show-all target")
 	}
@@ -105,7 +105,7 @@ func TestFindShowAllTargetV2FindsFirstMatchingCandidate(t *testing.T) {
 	}
 }
 
-func TestFindShowAllTargetV2ReturnsNotFoundWhenAbsent(t *testing.T) {
+func TestFindShowAllTargetReturnsNotFoundWhenAbsent(t *testing.T) {
 	candidates := []map[string]string{
 		{
 			"href":  "/opal/goto.php?target=file_55&cmd=sendfile",
@@ -119,12 +119,12 @@ func TestFindShowAllTargetV2ReturnsNotFoundWhenAbsent(t *testing.T) {
 		},
 	}
 
-	if _, found := findShowAllTargetV2(candidates); found {
+	if _, found := findShowAllTarget(candidates); found {
 		t.Fatalf("expected no show-all target to be found")
 	}
 }
 
-func TestIsFileURLAllowedForCourseV2RejectsForeignAndDashboardTargets(t *testing.T) {
+func TestIsFileURLAllowedForCourseRejectsForeignAndDashboardTargets(t *testing.T) {
 	tests := []struct {
 		name string
 		url  string
@@ -139,8 +139,8 @@ func TestIsFileURLAllowedForCourseV2RejectsForeignAndDashboardTargets(t *testing
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isFileURLAllowedForCourseV2(tt.url, "123"); got != tt.want {
-				t.Fatalf("isFileURLAllowedForCourseV2(%q, %q) = %v, want %v", tt.url, "123", got, tt.want)
+			if got := isFileURLAllowedForCourse(tt.url, "123"); got != tt.want {
+				t.Fatalf("isFileURLAllowedForCourse(%q, %q) = %v, want %v", tt.url, "123", got, tt.want)
 			}
 		})
 	}

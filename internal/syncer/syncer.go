@@ -18,6 +18,31 @@ type Stats struct {
 	Errors     int
 }
 
+// EventType identifies the kind of progress event fired during a sync run.
+type EventType int
+
+const (
+	EventCourseStarted EventType = iota
+	EventFileDownloaded
+	EventFileSkipped
+	EventError
+	EventComplete
+)
+
+// Event is a single incremental progress notification fired during
+// SyncCoursesWithProgress. Course/File are populated for the events they're
+// relevant to; Err is set for EventError; Stats is set for EventComplete.
+type Event struct {
+	Type   EventType
+	Course string
+	File   string
+	Err    error
+	Stats  Stats
+}
+
+// ProgressFunc receives incremental progress events during a sync run.
+type ProgressFunc func(Event)
+
 type FileRecord struct {
 	Size     *int64  `json:"size"`
 	Modified *string `json:"modified"`
@@ -82,7 +107,21 @@ func (m *Manifest) Save() error {
 	return os.WriteFile(m.Path, data, 0o644)
 }
 
+// SyncCourses runs a sync with no progress callback; CLI output is
+// unchanged from before progress reporting was added.
 func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, error) {
+	return SyncCoursesWithProgress(sc, cfg, force, nil)
+}
+
+// SyncCoursesWithProgress runs a sync, invoking progress (if non-nil) with
+// incremental events as courses/files are processed, in addition to the
+// existing stdout output. progress may be nil, in which case behavior is
+// identical to SyncCourses.
+func SyncCoursesWithProgress(sc *scraper.OpalScraper, cfg config.App, force bool, progress ProgressFunc) (Stats, error) {
+	if progress == nil {
+		progress = func(Event) {}
+	}
+
 	stats := Stats{}
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
 		return stats, err
@@ -100,8 +139,33 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 	}
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
 
+	stats = processRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
+
+	if err := manifest.Save(); err != nil {
+		return stats, err
+	}
+
+	progress(Event{Type: EventComplete, Stats: stats})
+
+	return stats, nil
+}
+
+// processRemoteFiles applies the changed/skip/download decision and
+// progress-event firing for a discovered file list. Extracted from
+// SyncCoursesWithProgress so it can be unit tested without a real
+// *scraper.OpalScraper (downloadFn stands in for sc.DownloadFile).
+func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
+	stats := Stats{}
+
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
+
+	seenCourses := map[string]bool{}
 	for _, remoteFile := range remoteFiles {
+		if !seenCourses[remoteFile.Course] {
+			seenCourses[remoteFile.Course] = true
+			progress(Event{Type: EventCourseStarted, Course: remoteFile.Course})
+		}
+
 		targetPath := resolveRemoteTargetPath(cfg, remoteFile)
 		targetKey := filepath.ToSlash(targetPath)
 		localPath := filepath.Join(cfg.DownloadPath, targetPath)
@@ -112,6 +176,7 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 		if !changed {
 			if _, err := os.Stat(localPath); err == nil {
 				stats.Skipped++
+				progress(Event{Type: EventFileSkipped, Course: remoteFile.Course, File: targetKey})
 				continue
 			}
 		}
@@ -119,12 +184,14 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 			stats.Errors++
 			fmt.Printf("  error: %s (%v)\n", targetKey, err)
+			progress(Event{Type: EventError, Course: remoteFile.Course, File: targetKey, Err: err})
 			continue
 		}
 
-		if err := sc.DownloadFile(remoteFile.URL, localPath); err != nil {
+		if err := downloadFn(remoteFile.URL, localPath); err != nil {
 			stats.Errors++
 			fmt.Printf("  error: %s (%v)\n", targetKey, err)
+			progress(Event{Type: EventError, Course: remoteFile.Course, File: targetKey, Err: err})
 			continue
 		}
 
@@ -134,13 +201,10 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 		}
 		stats.Downloaded++
 		fmt.Printf("  downloaded: %s\n", targetKey)
+		progress(Event{Type: EventFileDownloaded, Course: remoteFile.Course, File: targetKey})
 	}
 
-	if err := manifest.Save(); err != nil {
-		return stats, err
-	}
-
-	return stats, nil
+	return stats
 }
 
 func ListAvailableCourses(sc *scraper.OpalScraper) error {

@@ -24,6 +24,12 @@ courses:
 # On re-run, skip unchanged files (uses size/modified metadata)
 sync: true
 
+# (Optional) Maximum number of files downloaded concurrently during sync via
+# the fast HTTP path. Keep this conservative - a large value increases the
+# chance of tripping OPAL's rate-limiting/bot-detection. Can also be set with
+# --concurrency on the sync command. Defaults to 3.
+download_concurrency: 3
+
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.
 # Only change if you're using a different Bildungsportal Sachsen instance.
 opal_url: "https://bildungsportal.sachsen.de/opal/"

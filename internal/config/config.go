@@ -16,6 +16,11 @@ import (
 const (
 	DefaultOPALURL   = "https://bildungsportal.sachsen.de/opal/"
 	DefaultStateFile = "~/.opal_storage_state.json"
+
+	// DefaultDownloadConcurrency is the default number of files downloaded
+	// concurrently during sync. Kept conservative (not "max parallelism") to
+	// avoid tripping OPAL's rate-limiting/bot-detection.
+	DefaultDownloadConcurrency = 3
 )
 
 type Credentials struct {
@@ -32,6 +37,12 @@ type App struct {
 	Sync                bool
 	DefaultCourseFolder string
 	CourseFolders       map[string]string
+
+	// DownloadConcurrency is the maximum number of files downloaded
+	// concurrently via the fast HTTP path during sync. The browser-fallback
+	// download path is always serialized regardless of this value. Defaults
+	// to DefaultDownloadConcurrency when unset/non-positive.
+	DownloadConcurrency int
 }
 
 type Loaded struct {
@@ -50,6 +61,7 @@ type rawConfig struct {
 	BrowserExecutable   string            `yaml:"browser_executable"`
 	BrowserUserDataDir  string            `yaml:"browser_user_data_dir"`
 	BrowserProfileDir   string            `yaml:"browser_profile_directory"`
+	DownloadConcurrency int               `yaml:"download_concurrency"`
 }
 
 func LoadCredentials(configPath string) (Credentials, error) {
@@ -104,6 +116,11 @@ func Load(configPath string) (Loaded, error) {
 		syncEnabled = *cfg.Sync
 	}
 
+	downloadConcurrency := cfg.DownloadConcurrency
+	if downloadConcurrency <= 0 {
+		downloadConcurrency = DefaultDownloadConcurrency
+	}
+
 	courseFolders := map[string]string{}
 	for pattern, folder := range cfg.CourseFolders {
 		p := strings.TrimSpace(pattern)
@@ -121,6 +138,7 @@ func Load(configPath string) (Loaded, error) {
 			Sync:                syncEnabled,
 			DefaultCourseFolder: strings.TrimSpace(cfg.DefaultCourseFolder),
 			CourseFolders:       courseFolders,
+			DownloadConcurrency: downloadConcurrency,
 		},
 		Credentials: credentials,
 	}, nil
@@ -239,6 +257,7 @@ func toRawConfig(cfg Loaded) rawConfig {
 		BrowserExecutable:   cfg.Credentials.BrowserExecutable,
 		BrowserUserDataDir:  cfg.Credentials.BrowserUserDataDir,
 		BrowserProfileDir:   cfg.Credentials.BrowserProfileDir,
+		DownloadConcurrency: cfg.App.DownloadConcurrency,
 	}
 }
 

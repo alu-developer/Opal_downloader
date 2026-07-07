@@ -6,12 +6,22 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/timing"
 )
+
+// Downloader is the subset of *scraper.OpalScraper's behavior SyncCourses
+// depends on. Extracted as an interface so tests can exercise the
+// concurrent-download scheduling logic with a fake, without needing a real
+// browser/Playwright context.
+type Downloader interface {
+	ScrapeWithSavedSession(courseFilter []string) ([]scraper.RemoteFile, error)
+	DownloadFile(fileURL, localPath string) error
+}
 
 type Stats struct {
 	Downloaded int
@@ -98,7 +108,26 @@ func (m *Manifest) Save() error {
 	return os.WriteFile(m.Path, data, 0o644)
 }
 
-func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, error) {
+// downloadJob is one file queued for download after the manifest comparison
+// pass has decided it needs to be fetched.
+type downloadJob struct {
+	targetKey  string
+	localPath  string
+	remoteFile scraper.RemoteFile
+}
+
+// downloadResult is what a worker reports back for a single job. Manifest
+// and stats mutations happen on the main goroutine only (see the result
+// collection loop in SyncCourses), so no locking is needed there; workers
+// only ever write to their own downloadResult value and send it on a
+// channel.
+type downloadResult struct {
+	job     downloadJob
+	elapsed time.Duration
+	err     error
+}
+
+func SyncCourses(sc Downloader, cfg config.App, force bool) (Stats, error) {
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
 		return Stats{}, err
 	}
@@ -134,6 +163,8 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
 
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
+
+	jobs := make([]downloadJob, 0, len(remoteFiles))
 	for _, remoteFile := range remoteFiles {
 		targetPath := resolveRemoteTargetPath(cfg, remoteFile)
 		targetKey := filepath.ToSlash(targetPath)
@@ -155,24 +186,66 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 			continue
 		}
 
-		fileTimer := timing.StartTimer()
-		downloadErr := downloadFn(remoteFile.URL, localPath)
-		fileElapsed := fileTimer.Elapsed()
-		if downloadErr != nil {
-			stats.Errors++
-			fmt.Printf("  error: %s (%v)\n", targetKey, downloadErr)
-			continue
+		jobs = append(jobs, downloadJob{targetKey: targetKey, localPath: localPath, remoteFile: remoteFile})
+	}
+
+	concurrency := cfg.DownloadConcurrency
+	if concurrency <= 0 {
+		concurrency = config.DefaultDownloadConcurrency
+	}
+	if concurrency > len(jobs) {
+		concurrency = len(jobs)
+	}
+
+	if concurrency > 0 {
+		jobCh := make(chan downloadJob)
+		resultCh := make(chan downloadResult)
+
+		var workers sync.WaitGroup
+		workers.Add(concurrency)
+		for i := 0; i < concurrency; i++ {
+			go func() {
+				defer workers.Done()
+				for job := range jobCh {
+					fileTimer := timing.StartTimer()
+					downloadErr := downloadFn(job.remoteFile.URL, job.localPath)
+					resultCh <- downloadResult{job: job, elapsed: fileTimer.Elapsed(), err: downloadErr}
+				}
+			}()
 		}
 
-		stats.Downloads.Record(fileElapsed, remoteFile.Size)
-		timing.PrintProfileLine("downloaded %s in %s", targetKey, fileElapsed)
+		go func() {
+			for _, job := range jobs {
+				jobCh <- job
+			}
+			close(jobCh)
+		}()
 
-		manifest.Files[targetKey] = FileRecord{
-			Size:     remoteFile.Size,
-			Modified: remoteFile.Modified,
+		go func() {
+			workers.Wait()
+			close(resultCh)
+		}()
+
+		// All manifest/stats mutations happen here on the single goroutine
+		// draining resultCh, so concurrent workers never race on shared state.
+		for result := range resultCh {
+			targetKey := result.job.targetKey
+			if result.err != nil {
+				stats.Errors++
+				fmt.Printf("  error: %s (%v)\n", targetKey, result.err)
+				continue
+			}
+
+			stats.Downloads.Record(result.elapsed, result.job.remoteFile.Size)
+			timing.PrintProfileLine("downloaded %s in %s", targetKey, result.elapsed)
+
+			manifest.Files[targetKey] = FileRecord{
+				Size:     result.job.remoteFile.Size,
+				Modified: result.job.remoteFile.Modified,
+			}
+			stats.Downloaded++
+			fmt.Printf("  downloaded: %s\n", targetKey)
 		}
-		stats.Downloaded++
-		fmt.Printf("  downloaded: %s\n", targetKey)
 	}
 
 	if err := manifest.Save(); err != nil {

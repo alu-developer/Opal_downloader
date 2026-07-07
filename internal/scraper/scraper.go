@@ -37,6 +37,12 @@ type OpalScraper struct {
 	context playwright.BrowserContext
 	page    playwright.Page
 
+	// downloadCandidates is populated once, synchronously, during discovery
+	// (crawl.go/files.go, before any download worker goroutines start) and is
+	// only read afterward, concurrently, from download.go. That ordering is
+	// what makes concurrent reads safe without a lock today - do not make
+	// discovery lazy/interleaved with downloads without adding a lock (or
+	// switching to a concurrent-safe map) first.
 	downloadCandidates map[string]downloadCandidate
 
 	// browserDownloadMu serializes the single-page browser-fallback download

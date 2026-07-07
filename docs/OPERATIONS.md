@@ -16,6 +16,11 @@ This project is browser-automation heavy and depends on external website structu
 - Weekly: `scripts/dev.ps1 all`
 - Monthly: dependency updates (`go get -u ./...`) and smoke sync run
 - Semester start: validate course discovery and download selectors
+- Periodically (or after README/config changes): `scripts/test-fresh-install.ps1`
+  to re-validate the new-user setup flow (clone through `init`, no OPAL
+  credentials needed). See [docs/setup-friction.md](setup-friction.md) for
+  known friction points and [docs/manual-setup-checklist.md](manual-setup-checklist.md)
+  for the credential-requiring login/sync tier.
 
 ## Incident playbook
 

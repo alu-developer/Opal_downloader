@@ -22,15 +22,36 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 ## Installation
 
 ```bash
-git clone https://github.com/alu-developer/opal-downloader.git
-cd opal-downloader
+git clone https://github.com/alu-developer/Opal_downloader.git
+cd Opal_downloader
 
 # Install browser binaries used by Playwright for Go (mxschmitt binding)
 go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
 
-# Build the binary
+# Build the binary (Linux/macOS)
 go build -o opal-downloader .
+
+# Build the binary (Windows / PowerShell)
+go build -o opal-downloader.exe .
 ```
+
+Windows note: `go build -o opal-downloader .` (without `.exe`) produces an
+extensionless file that PowerShell's call operator (`./opal-downloader`) does
+not reliably execute. Use the `.exe` form above on Windows.
+
+### Fast path: `setup`
+
+Instead of running the Playwright install and `init` steps above by hand, you
+can run:
+
+```bash
+./opal-downloader setup
+```
+
+This installs Playwright's browser binaries, creates `config.yaml` from the
+example if it doesn't exist yet, and prints what's left to do. It assumes
+you've already built the binary (`go build` above) - it can't rebuild itself.
+The manual steps above still work and are documented for transparency.
 
 ## Quick Start
 
@@ -53,10 +74,13 @@ go build -o opal-downloader .
 | Command | Description |
 |---|---|
 | `./opal-downloader init` | Create `config.yaml` from example |
+| `./opal-downloader setup` | Install Playwright browsers, create `config.yaml` if missing, print next steps |
+| `./opal-downloader status` | Offline check: config parses and whether a session state file exists (no browser opened) |
 | `./opal-downloader login` | Open browser, complete login, persist session state |
 | `./opal-downloader list` | List detected courses and file counts |
 | `./opal-downloader sync` | Download new/changed files |
 | `./opal-downloader sync --force` | Re-download matched files |
+| `./opal-downloader dump-links --url <url>` | Open a page and write all detected link candidates to a JSON file (debugging aid) |
 | `./opal-downloader login --dev` | Developer mode (visible browser, useful for tracing) |
 | `./opal-downloader list --dev` | Developer mode for listing/discovery tracing |
 | `./opal-downloader sync --dev` | Developer mode for full crawl/download tracing |
@@ -144,6 +168,7 @@ that copy. This means:
 ```
 
 - Operational checklist and incident steps are documented in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+- To re-validate the fresh-install experience (clone through `init`, no OPAL credentials needed), run [scripts/test-fresh-install.ps1](scripts/test-fresh-install.ps1). Known friction points from the last dry run are tracked in [docs/setup-friction.md](docs/setup-friction.md). The credential-requiring parts (`login`/`list`/`sync`) have a manual checklist in [docs/manual-setup-checklist.md](docs/manual-setup-checklist.md).
 
 ## License
 

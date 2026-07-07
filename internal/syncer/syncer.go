@@ -44,6 +44,31 @@ type Stats struct {
 	Downloads        *timing.DownloadTracker
 }
 
+// EventType identifies the kind of progress event fired during a sync run.
+type EventType int
+
+const (
+	EventCourseStarted EventType = iota
+	EventFileDownloaded
+	EventFileSkipped
+	EventError
+	EventComplete
+)
+
+// Event is a single incremental progress notification fired during
+// SyncCoursesWithProgress. Course/File are populated for the events they're
+// relevant to; Err is set for EventError; Stats is set for EventComplete.
+type Event struct {
+	Type   EventType
+	Course string
+	File   string
+	Err    error
+	Stats  Stats
+}
+
+// ProgressFunc receives incremental progress events during a sync run.
+type ProgressFunc func(Event)
+
 type FileRecord struct {
 	Size     *int64  `json:"size"`
 	Modified *string `json:"modified"`
@@ -118,8 +143,8 @@ type downloadJob struct {
 
 // downloadResult is what a worker reports back for a single job. Manifest
 // and stats mutations happen on the main goroutine only (see the result
-// collection loop in SyncCourses), so no locking is needed there; workers
-// only ever write to their own downloadResult value and send it on a
+// collection loop in processRemoteFiles), so no locking is needed there;
+// workers only ever write to their own downloadResult value and send it on a
 // channel.
 type downloadResult struct {
 	job     downloadJob
@@ -127,7 +152,21 @@ type downloadResult struct {
 	err     error
 }
 
+// SyncCourses runs a sync with no progress callback; CLI output is
+// unchanged from before progress reporting was added.
 func SyncCourses(sc Downloader, cfg config.App, force bool) (Stats, error) {
+	return SyncCoursesWithProgress(sc, cfg, force, nil)
+}
+
+// SyncCoursesWithProgress runs a sync, invoking progress (if non-nil) with
+// incremental events as courses/files are processed, in addition to the
+// existing stdout output. progress may be nil, in which case behavior is
+// identical to SyncCourses.
+func SyncCoursesWithProgress(sc Downloader, cfg config.App, force bool, progress ProgressFunc) (Stats, error) {
+	if progress == nil {
+		progress = func(Event) {}
+	}
+
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
 		return Stats{}, err
 	}
@@ -143,18 +182,16 @@ func SyncCourses(sc Downloader, cfg config.App, force bool) (Stats, error) {
 		return Stats{}, err
 	}
 
-	return syncRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile)
+	return syncRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
 }
 
 // syncRemoteFiles runs the manifest-diff-and-download phase of a sync given
 // an already-discovered list of remote files. It is split out from
-// SyncCourses so the download-timing behavior (stats.DownloadDuration must
-// exclude discovery/crawl time, which happens before this function is ever
-// called) can be exercised in tests with a fake downloadFn, without needing
-// a real *scraper.OpalScraper/browser.
-func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error) (Stats, error) {
-	stats := Stats{Downloads: &timing.DownloadTracker{}}
-
+// SyncCoursesWithProgress so the download-timing behavior (stats.DownloadDuration
+// must exclude discovery/crawl time, which happens before this function is
+// ever called) can be exercised in tests with a fake downloadFn, without
+// needing a real *scraper.OpalScraper/browser.
+func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error, progress ProgressFunc) (Stats, error) {
 	// The download timer starts only after discovery has returned (the
 	// caller only invokes syncRemoteFiles post-discovery), so
 	// stats.DownloadDuration (and the "Download:" line printed from it)
@@ -162,10 +199,39 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 	syncTimer := timing.StartTimer()
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
 
+	stats := processRemoteFiles(remoteFiles, manifest, cfg, force, downloadFn, progress)
+
+	if err := manifest.Save(); err != nil {
+		return stats, err
+	}
+
+	stats.DownloadDuration = syncTimer.Elapsed()
+	progress(Event{Type: EventComplete, Stats: stats})
+
+	return stats, nil
+}
+
+// processRemoteFiles applies the changed/skip/download decision and
+// progress-event firing for a discovered file list. Extracted from
+// syncRemoteFiles so it can be unit tested without a real
+// *scraper.OpalScraper (downloadFn stands in for sc.DownloadFile). Downloads
+// are scheduled across a worker pool (see downloadJob/downloadResult) sized
+// by cfg.DownloadConcurrency; manifest and stats mutations only ever happen
+// on the goroutine draining the result channel, so no locking is needed for
+// them even though DownloadFile calls happen concurrently.
+func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
+	stats := Stats{Downloads: &timing.DownloadTracker{}}
+
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
 
 	jobs := make([]downloadJob, 0, len(remoteFiles))
+	seenCourses := map[string]bool{}
 	for _, remoteFile := range remoteFiles {
+		if !seenCourses[remoteFile.Course] {
+			seenCourses[remoteFile.Course] = true
+			progress(Event{Type: EventCourseStarted, Course: remoteFile.Course})
+		}
+
 		targetPath := resolveRemoteTargetPath(cfg, remoteFile)
 		targetKey := filepath.ToSlash(targetPath)
 		localPath := filepath.Join(cfg.DownloadPath, targetPath)
@@ -176,6 +242,7 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 		if !changed {
 			if _, err := os.Stat(localPath); err == nil {
 				stats.Skipped++
+				progress(Event{Type: EventFileSkipped, Course: remoteFile.Course, File: targetKey})
 				continue
 			}
 		}
@@ -183,6 +250,7 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 			stats.Errors++
 			fmt.Printf("  error: %s (%v)\n", targetKey, err)
+			progress(Event{Type: EventError, Course: remoteFile.Course, File: targetKey, Err: err})
 			continue
 		}
 
@@ -226,13 +294,16 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 			close(resultCh)
 		}()
 
-		// All manifest/stats mutations happen here on the single goroutine
-		// draining resultCh, so concurrent workers never race on shared state.
+		// All manifest/stats mutations and progress-event firing happen here
+		// on the single goroutine draining resultCh, so concurrent workers
+		// never race on shared state and progress observers never see
+		// events out of order relative to each other.
 		for result := range resultCh {
 			targetKey := result.job.targetKey
 			if result.err != nil {
 				stats.Errors++
 				fmt.Printf("  error: %s (%v)\n", targetKey, result.err)
+				progress(Event{Type: EventError, Course: result.job.remoteFile.Course, File: targetKey, Err: result.err})
 				continue
 			}
 
@@ -245,15 +316,11 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 			}
 			stats.Downloaded++
 			fmt.Printf("  downloaded: %s\n", targetKey)
+			progress(Event{Type: EventFileDownloaded, Course: result.job.remoteFile.Course, File: targetKey})
 		}
 	}
 
-	if err := manifest.Save(); err != nil {
-		return stats, err
-	}
-
-	stats.DownloadDuration = syncTimer.Elapsed()
-	return stats, nil
+	return stats
 }
 
 func ListAvailableCourses(sc *scraper.OpalScraper) error {

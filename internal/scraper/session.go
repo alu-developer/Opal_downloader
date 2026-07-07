@@ -20,10 +20,27 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 	}
 
 	if s.browserUserDataDir != "" && !headless && !useSavedState {
-		launchUserDataDir, err := s.prepareBrowserProfile()
+		// Launch directly against the real browser_user_data_dir rather than
+		// a private copy. A copy-based approach was tried (see git history
+		// around "fix-brave-profile-lock-conflict") to let Brave stay usable
+		// while opal-downloader runs, but Chromium's "Secure Preferences"
+		// file is integrity-protected (HMAC'd) specifically to detect
+		// externally-modified extension state: copying it into a new
+		// user-data-dir invalidates that protection, and Chromium resets
+		// TU-Fast's permissions (or drops it entirely) the moment it loads
+		// the copy - confirmed by direct inspection, not just a hunch. There
+		// is no known way to relax that check without disabling Chromium's
+		// tamper-protection outright, so launching against the real profile
+		// (accepting the lock conflict below) is the only way to get a
+		// working TU-Fast.
+		locked, err := isUserDataDirLocked(s.browserUserDataDir)
 		if err != nil {
 			return err
 		}
+		if locked {
+			return fmt.Errorf("%w: %s appears to be open in Brave (or another Chromium-based browser) right now — please fully close Brave before running opal-downloader login/sync, so it can use your real profile (with TU-Fast) directly", ErrProfileLocked, s.browserUserDataDir)
+		}
+		launchUserDataDir := s.browserUserDataDir
 
 		opts := playwright.BrowserTypeLaunchPersistentContextOptions{
 			Headless: playwright.Bool(headless),
@@ -45,6 +62,7 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		}
 		fmt.Printf("Launching persistent browser profile: userDataDir=%s profile=%s\n", launchUserDataDir, defaultString(s.browserProfileDir, "(default)"))
 		s.context = ctx
+		s.trackActivePage(ctx)
 		pages := ctx.Pages()
 		if len(pages) > 0 {
 			s.page = pages[0]
@@ -81,6 +99,7 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		return err
 	}
 	s.context = ctx
+	s.trackActivePage(ctx)
 	page, err := ctx.NewPage()
 	if err != nil {
 		return err
@@ -89,6 +108,20 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 	s.page.SetDefaultTimeout(15000)
 	s.page.SetDefaultNavigationTimeout(20000)
 	return nil
+}
+
+// trackActivePage keeps s.page pointed at whatever page is currently open in
+// ctx. During interactive login, TU-Fast (or the Shibboleth IdP redirect it
+// drives) sometimes opens a new tab/window for the auth flow and closes the
+// original one; without this, s.page keeps referencing the closed page and
+// any later call on it (Goto/WaitForSelector) fails with "target closed"
+// even though the login flow is proceeding fine in the new tab.
+func (s *OpalScraper) trackActivePage(ctx playwright.BrowserContext) {
+	ctx.OnPage(func(p playwright.Page) {
+		p.SetDefaultTimeout(15000)
+		p.SetDefaultNavigationTimeout(20000)
+		s.page = p
+	})
 }
 
 func (s *OpalScraper) closeOpalPages() {
@@ -138,7 +171,7 @@ func (s *OpalScraper) isAuthenticated() (bool, error) {
 	}
 	_, err := s.page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}
 	pageURL := strings.ToLower(s.page.URL())
 	if strings.Contains(pageURL, "login") || strings.Contains(pageURL, "shib") || strings.Contains(pageURL, "idp") {
@@ -151,7 +184,7 @@ func (s *OpalScraper) isAuthenticated() (bool, error) {
 	if passwordCount > 0 {
 		return false, nil
 	}
-	courseCandidates, err := s.page.Locator("a[href*='crs_'], a[href*='course'], a[href*='RepositoryEntry']").Count()
+	courseCandidates, err := s.page.Locator(courseLinkSelector).Count()
 	if err != nil {
 		return false, err
 	}
@@ -190,11 +223,35 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 	fmt.Println("Please complete login in the opened browser window (TU-Fast/2FA supported).")
 	_, err := s.page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
-		return err
+		return fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}
-	_, err = s.page.WaitForSelector("a[href*='crs_'], a[href*='course'], a[href*='RepositoryEntry']", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(300000)})
-	if err != nil {
+	if err := s.waitForLoggedInCourseLink(); err != nil {
 		return err
 	}
 	return s.saveState()
+}
+
+// courseLinkSelector matches links present once the OPAL dashboard/course
+// list has loaded after a successful login.
+const courseLinkSelector = "a[href*='crs_'], a[href*='course'], a[href*='RepositoryEntry']"
+
+// waitForLoggedInCourseLink waits for the post-login course list to appear.
+// If the tab it's waiting on gets closed mid-wait - which happens when
+// TU-Fast/the Shibboleth IdP opens a new tab for the auth flow and closes the
+// original one - trackActivePage will already have retargeted s.page at the
+// new tab, so this retries the wait there instead of failing outright.
+func (s *OpalScraper) waitForLoggedInCourseLink() error {
+	for attempt := 0; attempt < 2; attempt++ {
+		waitingOn := s.page
+		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(300000)})
+		if err == nil {
+			return nil
+		}
+		if attempt == 0 && s.page != nil && s.page != waitingOn {
+			// The active page changed while we were waiting; retry on it.
+			continue
+		}
+		return err
+	}
+	return nil
 }

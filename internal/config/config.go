@@ -238,6 +238,18 @@ func Validate(cfg Loaded) error {
 		if strings.TrimSpace(folder) == "" {
 			return fmt.Errorf("course_folders[%q] must not be empty", pattern)
 		}
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return fmt.Errorf("course_folders[%q] is not a valid glob pattern: %w", pattern, err)
+		}
+	}
+	for _, pattern := range cfg.App.Courses {
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			return errors.New("courses contains an empty pattern")
+		}
+		if _, err := filepath.Match(trimmed, ""); err != nil {
+			return fmt.Errorf("courses[%q] is not a valid glob pattern: %w", trimmed, err)
+		}
 	}
 	return nil
 }

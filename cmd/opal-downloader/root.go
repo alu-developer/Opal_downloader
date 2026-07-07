@@ -264,6 +264,7 @@ func runDumpLinks(args []string) error {
 
 func runGUI(args []string) error {
 	port := 0
+	configPath := filepath.Join(projectDir(), "config.yaml")
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--port":
@@ -276,12 +277,18 @@ func runGUI(args []string) error {
 				return fmt.Errorf("invalid --port value: %s", args[i])
 			}
 			port = p
+		case "--config":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--config requires a path")
+			}
+			configPath = args[i]
 		default:
 			return fmt.Errorf("unknown option for gui: %s", args[i])
 		}
 	}
 
-	return gui.Run(gui.Options{Port: port})
+	return gui.Run(gui.Options{Port: port, ConfigPath: configPath})
 }
 
 func projectDir() string {
@@ -308,7 +315,7 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  init --config <path>")
-	fmt.Println("  gui [--port <port>]")
+	fmt.Println("  gui [--port <port>] [--config <path>]")
 	fmt.Println("  login --config <path> [--dev]")
 	fmt.Println("  list --config <path> [--dev]")
 	fmt.Println("  sync --config <path> [--force] [--dev]")

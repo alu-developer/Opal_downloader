@@ -77,3 +77,51 @@ func TestPrepareBrowserProfile_LockedSourceReturnsClearError(t *testing.T) {
 		t.Fatalf("expected error to wrap ErrProfileLocked, got: %v", err)
 	}
 }
+
+// TestPrepareBrowserProfile_ExistingCopyIgnoresLockedSource is the regression
+// test for the bug this file's changes fix: when the working profile copy
+// already exists (marker present), prepareBrowserProfile must not even check
+// whether the live source profile is locked - it should return the existing
+// working copy path immediately. Previously the lock check ran first and
+// would incorrectly block every run whenever Brave happened to be open, even
+// though the tool had no need to touch the live profile at all.
+func TestPrepareBrowserProfile_ExistingCopyIgnoresLockedSource(t *testing.T) {
+	source := t.TempDir()
+	lockPath := filepath.Join(source, "lockfile")
+	if err := os.WriteFile(lockPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	// Simulate the live source profile being locked (as if Brave had it open
+	// right now), the same way Chromium's ProcessSingleton does on Windows.
+	f, err := openExclusiveForTest(lockPath)
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	defer f.Close()
+
+	// Sanity-check that the simulated lock is actually detected; otherwise
+	// this test would pass for the wrong reason.
+	if locked, lockErr := isUserDataDirLocked(source); lockErr != nil || !locked {
+		t.Fatalf("failed to simulate a locked source profile (locked=%v, err=%v)", locked, lockErr)
+	}
+
+	dest := t.TempDir()
+	// Simulate a working copy already completed in a previous run.
+	if err := os.WriteFile(filepath.Join(dest, ".opal-copy-complete"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("setup marker: %v", err)
+	}
+
+	s := &OpalScraper{
+		browserUserDataDir: source,
+		browserProfileDir:  "Default",
+		workingProfileDir:  dest,
+	}
+
+	got, err := s.prepareBrowserProfile()
+	if err != nil {
+		t.Fatalf("expected no error when working copy already exists (even with source locked), got: %v", err)
+	}
+	if got != dest {
+		t.Fatalf("expected existing working copy path %q to be returned unchanged, got %q", dest, got)
+	}
+}

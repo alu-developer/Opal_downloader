@@ -164,16 +164,9 @@ func (s *OpalScraper) prepareBrowserProfile() (string, error) {
 		return "", nil
 	}
 
-	locked, err := isUserDataDirLocked(sourceUserDataDir)
-	if err != nil {
-		return "", err
-	}
-	if locked {
-		return "", fmt.Errorf("%w: %s appears to be open in Brave (or another Chromium-based browser) right now — please close it before running opal-downloader, or point browser_user_data_dir at a separate profile", ErrProfileLocked, sourceUserDataDir)
-	}
-
 	destUserDataDir := s.workingProfileDir
 	if destUserDataDir == "" {
+		var err error
 		destUserDataDir, err = defaultWorkingProfileDir()
 		if err != nil {
 			return "", fmt.Errorf("could not determine working profile directory: %w", err)
@@ -185,11 +178,27 @@ func (s *OpalScraper) prepareBrowserProfile() (string, error) {
 		profileDirName = "Default"
 	}
 
+	// Check for an already-completed working copy *before* checking whether
+	// the live source profile is locked. If the copy already exists, we have
+	// no need to touch the live source at all, so whether Brave happens to
+	// have it open right now is irrelevant - checking the lock first would
+	// defeat the entire purpose of the one-time-copy design (see trade-off
+	// note above), which is to let Brave stay open while opal-downloader
+	// runs. The lock check only matters when a fresh copy actually needs to
+	// be read from the live source (i.e. the marker is absent, below).
 	marker := filepath.Join(destUserDataDir, ".opal-copy-complete")
 	if _, err := os.Stat(marker); err == nil {
 		// Already copied in a previous run; reuse it as-is (see trade-off
 		// note above).
 		return destUserDataDir, nil
+	}
+
+	locked, err := isUserDataDirLocked(sourceUserDataDir)
+	if err != nil {
+		return "", err
+	}
+	if locked {
+		return "", fmt.Errorf("%w: %s appears to be open in Brave (or another Chromium-based browser) right now — please close it before running opal-downloader, or point browser_user_data_dir at a separate profile", ErrProfileLocked, sourceUserDataDir)
 	}
 
 	fmt.Printf("Preparing a private copy of the browser profile (one-time) so Brave stays usable while opal-downloader runs: %s\n", destUserDataDir)

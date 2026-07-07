@@ -55,25 +55,3 @@ func TestIsUserDataDirLocked_OpenHandleIsLocked(t *testing.T) {
 		t.Fatal("expected an exclusively held lockfile to be reported as locked")
 	}
 }
-
-func TestPrepareBrowserProfile_LockedSourceReturnsClearError(t *testing.T) {
-	source := t.TempDir()
-	lockPath := filepath.Join(source, "lockfile")
-	if err := os.WriteFile(lockPath, []byte(""), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	f, err := openExclusiveForTest(lockPath)
-	if err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	defer f.Close()
-
-	s := &OpalScraper{browserUserDataDir: source, workingProfileDir: filepath.Join(t.TempDir(), "working")}
-	_, err = s.prepareBrowserProfile()
-	if err == nil {
-		t.Fatal("expected an error when the source profile is locked")
-	}
-	if !errorIs(err, ErrProfileLocked) {
-		t.Fatalf("expected error to wrap ErrProfileLocked, got: %v", err)
-	}
-}

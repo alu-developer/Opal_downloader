@@ -10,12 +10,20 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/timing"
 )
 
 type Stats struct {
 	Downloaded int
 	Skipped    int
 	Errors     int
+
+	// DownloadDuration is the total wall-clock time spent in SyncCourses,
+	// covering discovery-comparison plus every file download. Downloads is
+	// the per-file timing tracker used to report throughput at the end of a
+	// run (perf-01 instrumentation groundwork for perf-02/03/04).
+	DownloadDuration time.Duration
+	Downloads        timing.DownloadTracker
 }
 
 type FileRecord struct {
@@ -84,6 +92,7 @@ func (m *Manifest) Save() error {
 
 func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, error) {
 	stats := Stats{}
+	syncTimer := timing.StartTimer()
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
 		return stats, err
 	}
@@ -122,11 +131,17 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 			continue
 		}
 
-		if err := sc.DownloadFile(remoteFile.URL, localPath); err != nil {
+		fileTimer := timing.StartTimer()
+		downloadErr := sc.DownloadFile(remoteFile.URL, localPath)
+		fileElapsed := fileTimer.Elapsed()
+		if downloadErr != nil {
 			stats.Errors++
-			fmt.Printf("  error: %s (%v)\n", targetKey, err)
+			fmt.Printf("  error: %s (%v)\n", targetKey, downloadErr)
 			continue
 		}
+
+		stats.Downloads.Record(fileElapsed, remoteFile.Size)
+		timing.PrintProfileLine("downloaded %s in %s", targetKey, fileElapsed)
 
 		manifest.Files[targetKey] = FileRecord{
 			Size:     remoteFile.Size,
@@ -140,6 +155,7 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 		return stats, err
 	}
 
+	stats.DownloadDuration = syncTimer.Elapsed()
 	return stats, nil
 }
 

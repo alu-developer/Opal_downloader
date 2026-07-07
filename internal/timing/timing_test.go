@@ -78,7 +78,7 @@ func TestDownloadTrackerMixedSizes(t *testing.T) {
 	var d DownloadTracker
 
 	d.Record(1*time.Second, int64Ptr(1024*1024))
-	d.Record(1 * time.Second, nil) // size unknown for this one
+	d.Record(1*time.Second, nil) // size unknown for this one
 
 	if d.Bytes() != 1024*1024 {
 		t.Fatalf("expected 1MB accounted for, got %d", d.Bytes())

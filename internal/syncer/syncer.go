@@ -18,12 +18,20 @@ type Stats struct {
 	Skipped    int
 	Errors     int
 
-	// DownloadDuration is the total wall-clock time spent in SyncCourses,
-	// covering discovery-comparison plus every file download. Downloads is
-	// the per-file timing tracker used to report throughput at the end of a
-	// run (perf-01 instrumentation groundwork for perf-02/03/04).
+	// DownloadDuration is the wall-clock time spent downloading files, i.e.
+	// everything in SyncCourses AFTER remote discovery
+	// (sc.ScrapeWithSavedSession) has returned: manifest comparison plus
+	// every file download. It intentionally excludes discovery/crawl time,
+	// which is reported separately via timing.PrintDiscoverySummary inside
+	// the scraper. Downloads is the per-file timing tracker used to report
+	// throughput at the end of a run (perf-01 instrumentation groundwork for
+	// perf-02/03/04).
+	// Downloads is a pointer (rather than an embedded value) because
+	// timing.DownloadTracker holds a mutex for concurrency-safety (needed by
+	// perf-02's parallel downloads); embedding it by value in Stats would
+	// make returning Stats by value copy the lock, which go vet flags.
 	DownloadDuration time.Duration
-	Downloads        timing.DownloadTracker
+	Downloads        *timing.DownloadTracker
 }
 
 type FileRecord struct {
@@ -91,22 +99,38 @@ func (m *Manifest) Save() error {
 }
 
 func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, error) {
-	stats := Stats{}
-	syncTimer := timing.StartTimer()
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
-		return stats, err
+		return Stats{}, err
 	}
 
 	manifestPath := filepath.Join(cfg.DownloadPath, ".opal-sync.manifest.json")
 	manifest, err := LoadManifest(manifestPath)
 	if err != nil {
-		return stats, err
+		return Stats{}, err
 	}
 
 	remoteFiles, err := sc.ScrapeWithSavedSession(cfg.Courses)
 	if err != nil {
-		return stats, err
+		return Stats{}, err
 	}
+
+	return syncRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile)
+}
+
+// syncRemoteFiles runs the manifest-diff-and-download phase of a sync given
+// an already-discovered list of remote files. It is split out from
+// SyncCourses so the download-timing behavior (stats.DownloadDuration must
+// exclude discovery/crawl time, which happens before this function is ever
+// called) can be exercised in tests with a fake downloadFn, without needing
+// a real *scraper.OpalScraper/browser.
+func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error) (Stats, error) {
+	stats := Stats{Downloads: &timing.DownloadTracker{}}
+
+	// The download timer starts only after discovery has returned (the
+	// caller only invokes syncRemoteFiles post-discovery), so
+	// stats.DownloadDuration (and the "Download:" line printed from it)
+	// measures actual download work, not discovery/crawl time.
+	syncTimer := timing.StartTimer()
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
 
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
@@ -132,7 +156,7 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 		}
 
 		fileTimer := timing.StartTimer()
-		downloadErr := sc.DownloadFile(remoteFile.URL, localPath)
+		downloadErr := downloadFn(remoteFile.URL, localPath)
 		fileElapsed := fileTimer.Elapsed()
 		if downloadErr != nil {
 			stats.Errors++

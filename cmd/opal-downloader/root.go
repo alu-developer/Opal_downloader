@@ -218,7 +218,7 @@ func runSync(args []string) error {
 	fmt.Printf("\nDone. downloaded=%d skipped=%d errors=%d\n", stats.Downloaded, stats.Skipped, stats.Errors)
 
 	fmt.Println()
-	timing.PrintDownloadSummary(stats.DownloadDuration, &stats.Downloads)
+	timing.PrintDownloadSummary(stats.DownloadDuration, stats.Downloads)
 	timing.PrintTotalSummary(totalTimer.Elapsed())
 	return nil
 }

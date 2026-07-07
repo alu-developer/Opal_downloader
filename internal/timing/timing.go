@@ -7,6 +7,7 @@ package timing
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -51,7 +52,12 @@ func (t Timer) Elapsed() time.Duration {
 // DownloadTracker accumulates per-file download timings so an
 // average/throughput can be computed at the end of a sync run without
 // printing per-file spam unless Profile is enabled.
+//
+// DownloadTracker is safe for concurrent use: Record and all read methods
+// take an internal mutex, since perf-02 (parallel downloads) records from
+// multiple goroutines into a single shared tracker.
 type DownloadTracker struct {
+	mu       sync.Mutex
 	count    int
 	sum      time.Duration
 	bytes    int64
@@ -61,6 +67,8 @@ type DownloadTracker struct {
 // Record adds one completed file download's duration (and optionally its
 // size in bytes, if known) to the tracker.
 func (d *DownloadTracker) Record(elapsed time.Duration, size *int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.count++
 	d.sum += elapsed
 	if size != nil {
@@ -71,23 +79,31 @@ func (d *DownloadTracker) Record(elapsed time.Duration, size *int64) {
 
 // Count returns the number of recorded downloads.
 func (d *DownloadTracker) Count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.count
 }
 
 // Sum returns the total time spent downloading across all recorded files.
 func (d *DownloadTracker) Sum() time.Duration {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.sum
 }
 
 // Bytes returns the total bytes downloaded across all recorded files (0 if
 // sizes were never provided).
 func (d *DownloadTracker) Bytes() int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.bytes
 }
 
 // AverageDuration returns the mean per-file download duration, or 0 if no
 // downloads were recorded.
 func (d *DownloadTracker) AverageDuration() time.Duration {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.count == 0 {
 		return 0
 	}
@@ -97,6 +113,8 @@ func (d *DownloadTracker) AverageDuration() time.Duration {
 // FilesPerSecond returns throughput in files/sec based on wall-clock sum, or
 // 0 if no downloads were recorded or the sum is zero.
 func (d *DownloadTracker) FilesPerSecond() float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	seconds := d.sum.Seconds()
 	if d.count == 0 || seconds <= 0 {
 		return 0
@@ -108,6 +126,8 @@ func (d *DownloadTracker) FilesPerSecond() float64 {
 // total bytes recorded, or 0 if no sizes were ever provided or the sum is
 // zero.
 func (d *DownloadTracker) MBPerSecond() float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	seconds := d.sum.Seconds()
 	if !d.hasBytes || seconds <= 0 {
 		return 0

@@ -49,17 +49,26 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {
 		return errors.New("response is HTML, not a direct file download")
 	}
 
-	// Try the page where the candidate was originally recorded first. For files only
-	// revealed by a section's "show all"/"Alle anzeigen" expansion, that recorded
-	// SourceURL is the section's plain (unexpanded) page, which won't render the link -
-	// so if the click search comes up empty there, retry on candidate.ShowAllURL, the
-	// expanded page where the link actually renders.
-	if err := s.clickCandidateLinkOnPage(candidate.SourceURL, candidate, localPath); err == nil {
+	return tryCandidatePagesInOrder(candidate, func(pageURL string) error {
+		return s.clickCandidateLinkOnPage(pageURL, candidate, localPath)
+	})
+}
+
+// tryCandidatePagesInOrder implements the retry ordering for locating a download
+// candidate's link: try the page where the candidate was originally recorded first. For
+// files only revealed by a section's "show all"/"Alle anzeigen" expansion, that recorded
+// SourceURL is the section's plain (unexpanded) page, which won't render the link - so if
+// the click search comes up empty there, retry on candidate.ShowAllURL, the expanded page
+// where the link actually renders, but only when it is non-empty and distinct from
+// SourceURL (otherwise it would just repeat an identical failed attempt). tryPage is
+// injected so this ordering can be unit tested without a real playwright.Page.
+func tryCandidatePagesInOrder(candidate downloadCandidate, tryPage func(pageURL string) error) error {
+	if err := tryPage(candidate.SourceURL); err == nil {
 		return nil
 	}
 
 	if strings.TrimSpace(candidate.ShowAllURL) != "" && !strings.EqualFold(strings.TrimSpace(candidate.ShowAllURL), strings.TrimSpace(candidate.SourceURL)) {
-		if err := s.clickCandidateLinkOnPage(candidate.ShowAllURL, candidate, localPath); err == nil {
+		if err := tryPage(candidate.ShowAllURL); err == nil {
 			return nil
 		}
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile, error) {
-	if s.page == nil {
+	if s.getPage() == nil {
 		return nil, errors.New("no page available")
 	}
 

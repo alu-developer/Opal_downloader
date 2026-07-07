@@ -11,12 +11,12 @@ import (
 )
 
 func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
-	if s.pw == nil {
+	if s.getPw() == nil {
 		pw, err := playwright.Run()
 		if err != nil {
 			return err
 		}
-		s.pw = pw
+		s.setPw(pw)
 	}
 
 	if s.browserUserDataDir != "" && !headless && !useSavedState {
@@ -56,25 +56,27 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		if s.browserExecutable != "" {
 			opts.ExecutablePath = playwright.String(s.browserExecutable)
 		}
-		ctx, err := s.pw.Chromium.LaunchPersistentContext(launchUserDataDir, opts)
+		ctx, err := s.getPw().Chromium.LaunchPersistentContext(launchUserDataDir, opts)
 		if err != nil {
 			return fmt.Errorf("launching browser with profile %s: %w", launchUserDataDir, err)
 		}
 		fmt.Printf("Launching persistent browser profile: userDataDir=%s profile=%s\n", launchUserDataDir, defaultString(s.browserProfileDir, "(default)"))
-		s.context = ctx
+		s.setContext(ctx)
 		s.trackActivePage(ctx)
 		pages := ctx.Pages()
+		var page playwright.Page
 		if len(pages) > 0 {
-			s.page = pages[0]
+			page = pages[0]
 		} else {
 			p, pErr := ctx.NewPage()
 			if pErr != nil {
 				return pErr
 			}
-			s.page = p
+			page = p
 		}
-		s.page.SetDefaultTimeout(15000)
-		s.page.SetDefaultNavigationTimeout(20000)
+		page.SetDefaultTimeout(15000)
+		page.SetDefaultNavigationTimeout(20000)
+		s.setPage(page)
 		return nil
 	}
 
@@ -82,11 +84,11 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 	if s.browserExecutable != "" {
 		launchOpts.ExecutablePath = playwright.String(s.browserExecutable)
 	}
-	browser, err := s.pw.Chromium.Launch(launchOpts)
+	browser, err := s.getPw().Chromium.Launch(launchOpts)
 	if err != nil {
 		return err
 	}
-	s.browser = browser
+	s.setBrowser(browser)
 
 	ctxOpts := playwright.BrowserNewContextOptions{}
 	if useSavedState {
@@ -98,15 +100,15 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 	if err != nil {
 		return err
 	}
-	s.context = ctx
+	s.setContext(ctx)
 	s.trackActivePage(ctx)
 	page, err := ctx.NewPage()
 	if err != nil {
 		return err
 	}
-	s.page = page
-	s.page.SetDefaultTimeout(15000)
-	s.page.SetDefaultNavigationTimeout(20000)
+	page.SetDefaultTimeout(15000)
+	page.SetDefaultNavigationTimeout(20000)
+	s.setPage(page)
 	return nil
 }
 
@@ -120,15 +122,16 @@ func (s *OpalScraper) trackActivePage(ctx playwright.BrowserContext) {
 	ctx.OnPage(func(p playwright.Page) {
 		p.SetDefaultTimeout(15000)
 		p.SetDefaultNavigationTimeout(20000)
-		s.page = p
+		s.setPage(p)
 	})
 }
 
 func (s *OpalScraper) closeOpalPages() {
-	if s.context == nil {
+	ctx := s.getContext()
+	if ctx == nil {
 		return
 	}
-	for _, p := range s.context.Pages() {
+	for _, p := range ctx.Pages() {
 		pageURL := strings.ToLower(p.URL())
 		if strings.Contains(pageURL, "bildungsportal.sachsen.de/opal") || pageURL == "about:blank" {
 			_ = p.Close()
@@ -136,28 +139,37 @@ func (s *OpalScraper) closeOpalPages() {
 	}
 }
 
+// closeBrowser tears down the page/context/browser. It is safe to call
+// concurrently with itself or with any in-flight scrape/login/download call:
+// each field is atomically read-and-cleared via the locked setters below
+// before the captured value is closed, so a concurrent caller either sees
+// the field already nil or gets back the (still valid to close once) old
+// value - never a torn/racing read of the field itself. See fieldMu's doc
+// comment on OpalScraper.
 func (s *OpalScraper) closeBrowser() error {
 	s.closeOpalPages()
-	s.page = nil
-	if s.context != nil {
-		_ = s.context.Close()
-		s.context = nil
+	s.setPage(nil)
+
+	if ctx := s.getContext(); ctx != nil {
+		s.setContext(nil)
+		_ = ctx.Close()
 	}
-	if s.browser != nil {
-		_ = s.browser.Close()
-		s.browser = nil
+	if browser := s.getBrowser(); browser != nil {
+		s.setBrowser(nil)
+		_ = browser.Close()
 	}
 	return nil
 }
 
 func (s *OpalScraper) saveState() error {
-	if s.context == nil {
+	ctx := s.getContext()
+	if ctx == nil {
 		return errors.New("no browser context available")
 	}
 	if err := os.MkdirAll(filepath.Dir(s.stateFile), 0o755); err != nil {
 		return err
 	}
-	_, err := s.context.StorageState(playwright.BrowserContextStorageStateOptions{Path: playwright.String(s.stateFile)})
+	_, err := ctx.StorageState(playwright.BrowserContextStorageStateOptions{Path: playwright.String(s.stateFile)})
 	if err != nil {
 		return err
 	}
@@ -166,25 +178,26 @@ func (s *OpalScraper) saveState() error {
 }
 
 func (s *OpalScraper) isAuthenticated() (bool, error) {
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return false, nil
 	}
-	_, err := s.page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
+	_, err := page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
 		return false, fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}
-	pageURL := strings.ToLower(s.page.URL())
+	pageURL := strings.ToLower(page.URL())
 	if strings.Contains(pageURL, "login") || strings.Contains(pageURL, "shib") || strings.Contains(pageURL, "idp") {
 		return false, nil
 	}
-	passwordCount, err := s.page.Locator("input[type='password']").Count()
+	passwordCount, err := page.Locator("input[type='password']").Count()
 	if err != nil {
 		return false, err
 	}
 	if passwordCount > 0 {
 		return false, nil
 	}
-	courseCandidates, err := s.page.Locator(courseLinkSelector).Count()
+	courseCandidates, err := page.Locator(courseLinkSelector).Count()
 	if err != nil {
 		return false, err
 	}
@@ -215,13 +228,14 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 	if err := s.launchBrowser(false, false); err != nil {
 		return err
 	}
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return errors.New("failed to initialize browser page")
 	}
 
 	fmt.Printf("Opening OPAL at %s\n", s.opalURL)
 	fmt.Println("Please complete login in the opened browser window (TU-Fast/2FA supported).")
-	_, err := s.page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
+	_, err := page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
 		return fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}
@@ -242,12 +256,12 @@ const courseLinkSelector = "a[href*='crs_'], a[href*='course'], a[href*='Reposit
 // new tab, so this retries the wait there instead of failing outright.
 func (s *OpalScraper) waitForLoggedInCourseLink() error {
 	for attempt := 0; attempt < 2; attempt++ {
-		waitingOn := s.page
+		waitingOn := s.getPage()
 		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(300000)})
 		if err == nil {
 			return nil
 		}
-		if attempt == 0 && s.page != nil && s.page != waitingOn {
+		if attempt == 0 && s.getPage() != nil && s.getPage() != waitingOn {
 			// The active page changed while we were waiting; retry on it.
 			continue
 		}

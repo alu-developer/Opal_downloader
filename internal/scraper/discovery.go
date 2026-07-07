@@ -9,7 +9,8 @@ import (
 )
 
 func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, error) {
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return nil, errors.New("no page available")
 	}
 
@@ -30,7 +31,7 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 	}
 
 	for _, sourceURL := range sourcePages {
-		if _, err := s.page.Goto(sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+		if _, err := page.Goto(sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 			continue
 		}
 		s.waitForCourseEntries(sourceURL)
@@ -48,11 +49,12 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 }
 
 func (s *OpalScraper) extractCourseCardsFromCurrentPage() ([]map[string]string, error) {
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return nil, errors.New("no page available")
 	}
 
-	value, err := s.page.Evaluate(`() => {
+	value, err := page.Evaluate(`() => {
 			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
 			const rootSelectors = ['section#main-content', '[role="main"]', 'main', '#main-content', '#content'];
 			// '.content-preview' matches the "Meine Kurse" (auth/resource/courses) repository
@@ -141,7 +143,8 @@ func (s *OpalScraper) extractCourseCardsFromCurrentPage() ([]map[string]string, 
 }
 
 func (s *OpalScraper) waitForCourseEntries(pageURL string) {
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return
 	}
 	selectors := []string{
@@ -158,12 +161,12 @@ func (s *OpalScraper) waitForCourseEntries(pageURL string) {
 	}
 
 	for _, selector := range selectors {
-		if _, err := s.page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(timeoutMs)}); err == nil {
-			s.page.WaitForTimeout(800)
+		if _, err := page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(timeoutMs)}); err == nil {
+			page.WaitForTimeout(800)
 			return
 		}
 	}
-	s.page.WaitForTimeout(1500)
+	page.WaitForTimeout(1500)
 }
 
 func shouldReplaceCourseRef(existing CourseRef, newTitle string) bool {

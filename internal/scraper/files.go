@@ -9,11 +9,12 @@ import (
 )
 
 func (s *OpalScraper) extractSectionContentCandidates() ([]map[string]string, error) {
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return nil, errors.New("no page available")
 	}
 
-	value, err := s.page.Evaluate(`() => {
+	value, err := page.Evaluate(`() => {
 			const rootSelectors = [
 				'main',
 				'[role="main"]',

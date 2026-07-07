@@ -19,6 +19,9 @@ import (
 type Options struct {
 	// Port to bind on 127.0.0.1. Zero selects an available port automatically.
 	Port int
+	// ConfigPath is the config.yaml path the settings page reads/writes.
+	// Defaults to "config.yaml" in the current working directory if empty.
+	ConfigPath string
 }
 
 // Run starts the local web UI server and blocks until it is stopped via
@@ -29,8 +32,14 @@ func Run(opts Options) error {
 		return fmt.Errorf("starting GUI server: %w", err)
 	}
 
+	configPath := opts.ConfigPath
+	if configPath == "" {
+		configPath = "config.yaml"
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleLanding)
+	mux.HandleFunc("/settings", handleSettings(configPath))
 
 	server := &http.Server{Handler: mux}
 
@@ -88,7 +97,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 
 	<nav>
 		<ul>
-			<li>Settings <span class="soon">(coming soon)</span></li>
+			<li><a href="/settings">Settings</a></li>
 			<li>Login <span class="soon">(coming soon)</span></li>
 			<li>Sync <span class="soon">(coming soon)</span></li>
 		</ul>

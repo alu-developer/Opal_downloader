@@ -59,6 +59,10 @@ The manual steps above still work and are documented for transparency.
 # Create config.yaml from example
 ./opal-downloader init
 
+# Start the local settings UI and configure download path, courses, etc.
+# in the browser instead of hand-editing config.yaml
+./opal-downloader gui
+
 # Interactive one-time login (opens browser)
 ./opal-downloader login
 
@@ -69,6 +73,28 @@ The manual steps above still work and are documented for transparency.
 ./opal-downloader sync --dev
 ```
 
+### Configuring via the GUI (recommended)
+
+```bash
+./opal-downloader gui
+```
+
+Starts a local web server bound to `127.0.0.1` and prints the URL to open in
+your browser (default `http://127.0.0.1:<port>/`, an available port is picked
+automatically unless `--port` is given). From there, **Settings** is a form
+covering every `config.yaml` field described below, split into "Connection &
+browser" and "Sync behavior & folders" - including an add/remove row editor
+for `course_folders`. Saving validates the form (e.g. rejects an empty
+download path or a malformed glob pattern) and shows errors inline instead of
+writing a broken config; a valid save writes `config.yaml` directly and keeps
+the previous version as `config.yaml.bak`.
+
+This is now the primary way to configure opal-downloader. Hand-editing
+`config.yaml` (documented below) remains fully supported and is the better
+fit for scripting/automation or power users who prefer YAML directly - the
+GUI and manual edits both read/write the same file, so you can freely switch
+between them.
+
 ## Commands
 
 | Command | Description |
@@ -76,6 +102,7 @@ The manual steps above still work and are documented for transparency.
 | `./opal-downloader init` | Create `config.yaml` from example |
 | `./opal-downloader setup` | Install Playwright browsers, create `config.yaml` if missing, print next steps |
 | `./opal-downloader status` | Offline check: config parses and whether a session state file exists (no browser opened) |
+| `./opal-downloader gui` | Start the local settings web UI (127.0.0.1) |
 | `./opal-downloader login` | Open browser, complete login, persist session state |
 | `./opal-downloader list` | List detected courses and file counts |
 | `./opal-downloader sync` | Download new/changed files |

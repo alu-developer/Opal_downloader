@@ -40,6 +40,7 @@ func Run(opts Options) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleLanding)
 	mux.HandleFunc("/settings", handleSettings(configPath))
+	registerSyncRoutes(mux, configPath)
 
 	server := &http.Server{Handler: mux}
 
@@ -99,7 +100,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 		<ul>
 			<li><a href="/settings">Settings</a></li>
 			<li>Login <span class="soon">(coming soon)</span></li>
-			<li>Sync <span class="soon">(coming soon)</span></li>
+			<li><a href="/sync">Sync / List / Dump links</a></li>
 		</ul>
 	</nav>
 </body>

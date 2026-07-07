@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -24,9 +23,10 @@ import (
 type Options struct {
 	// Port to bind on 127.0.0.1. Zero selects an available port automatically.
 	Port int
-	// ConfigPath is the config.yaml path used to resolve credentials
-	// (OPAL URL, session state file, browser settings). Defaults to
-	// "config.yaml" in the current working directory when empty.
+	// ConfigPath is the config.yaml path the settings page reads/writes, and
+	// that the login page uses to resolve credentials (OPAL URL, session
+	// state file, browser settings). Defaults to "config.yaml" in the
+	// current working directory when empty.
 	ConfigPath string
 }
 
@@ -34,7 +34,7 @@ type Options struct {
 type server struct {
 	configPath string
 
-	// loginMu serializes login attempts and guards loginStatus. Login runs
+	// loginMu serializes login attempts and guards loginActive. Login runs
 	// synchronously from the caller's perspective (v1 scope): a request to
 	// /login/start blocks until the interactive Playwright login completes
 	// or fails.
@@ -52,13 +52,14 @@ func Run(opts Options) error {
 
 	configPath := opts.ConfigPath
 	if configPath == "" {
-		configPath = filepath.Join(projectDir(), "config.yaml")
+		configPath = "config.yaml"
 	}
 
 	srv := &server{configPath: configPath}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.handleLanding)
+	mux.HandleFunc("/settings", handleSettings(configPath))
 	mux.HandleFunc("/login", srv.handleLoginPage)
 	mux.HandleFunc("/login/start", srv.handleLoginStart)
 
@@ -88,14 +89,6 @@ func Run(opts Options) error {
 		}
 		return nil
 	}
-}
-
-func projectDir() string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	return wd
 }
 
 const disclaimerHTML = `<div class="disclaimer">
@@ -146,7 +139,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 
 	<nav>
 		<ul>
-			<li>Settings <span class="soon">(coming soon)</span></li>
+			<li><a href="/settings">Settings</a></li>
 			<li><a href="/login">Login</a></li>
 			<li>Sync <span class="soon">(coming soon)</span></li>
 		</ul>

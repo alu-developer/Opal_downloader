@@ -22,21 +22,46 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 ## Installation
 
 ```bash
-git clone https://github.com/alu-developer/opal-downloader.git
-cd opal-downloader
+git clone https://github.com/alu-developer/Opal_downloader.git
+cd Opal_downloader
 
 # Install browser binaries used by Playwright for Go (mxschmitt binding)
 go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
 
-# Build the binary
+# Build the binary (Linux/macOS)
 go build -o opal-downloader .
+
+# Build the binary (Windows / PowerShell)
+go build -o opal-downloader.exe .
 ```
+
+Windows note: `go build -o opal-downloader .` (without `.exe`) produces an
+extensionless file that PowerShell's call operator (`./opal-downloader`) does
+not reliably execute. Use the `.exe` form above on Windows.
+
+### Fast path: `setup`
+
+Instead of running the Playwright install and `init` steps above by hand, you
+can run:
+
+```bash
+./opal-downloader setup
+```
+
+This installs Playwright's browser binaries, creates `config.yaml` from the
+example if it doesn't exist yet, and prints what's left to do. It assumes
+you've already built the binary (`go build` above) - it can't rebuild itself.
+The manual steps above still work and are documented for transparency.
 
 ## Quick Start
 
 ```bash
 # Create config.yaml from example
 ./opal-downloader init
+
+# Start the local settings UI and configure download path, courses, etc.
+# in the browser instead of hand-editing config.yaml
+./opal-downloader gui
 
 # Interactive one-time login (opens browser)
 ./opal-downloader login
@@ -48,15 +73,41 @@ go build -o opal-downloader .
 ./opal-downloader sync --dev
 ```
 
+### Configuring via the GUI (recommended)
+
+```bash
+./opal-downloader gui
+```
+
+Starts a local web server bound to `127.0.0.1` and prints the URL to open in
+your browser (default `http://127.0.0.1:<port>/`, an available port is picked
+automatically unless `--port` is given). From there, **Settings** is a form
+covering every `config.yaml` field described below, split into "Connection &
+browser" and "Sync behavior & folders" - including an add/remove row editor
+for `course_folders`. Saving validates the form (e.g. rejects an empty
+download path or a malformed glob pattern) and shows errors inline instead of
+writing a broken config; a valid save writes `config.yaml` directly and keeps
+the previous version as `config.yaml.bak`.
+
+This is now the primary way to configure opal-downloader. Hand-editing
+`config.yaml` (documented below) remains fully supported and is the better
+fit for scripting/automation or power users who prefer YAML directly - the
+GUI and manual edits both read/write the same file, so you can freely switch
+between them.
+
 ## Commands
 
 | Command | Description |
 |---|---|
 | `./opal-downloader init` | Create `config.yaml` from example |
+| `./opal-downloader setup` | Install Playwright browsers, create `config.yaml` if missing, print next steps |
+| `./opal-downloader status` | Offline check: config parses and whether a session state file exists (no browser opened) |
+| `./opal-downloader gui` | Start the local settings web UI (127.0.0.1) |
 | `./opal-downloader login` | Open browser, complete login, persist session state |
 | `./opal-downloader list` | List detected courses and file counts |
 | `./opal-downloader sync` | Download new/changed files |
 | `./opal-downloader sync --force` | Re-download matched files |
+| `./opal-downloader dump-links --url <url>` | Open a page and write all detected link candidates to a JSON file (debugging aid) |
 | `./opal-downloader login --dev` | Developer mode (visible browser, useful for tracing) |
 | `./opal-downloader list --dev` | Developer mode for listing/discovery tracing |
 | `./opal-downloader sync --dev` | Developer mode for full crawl/download tracing |

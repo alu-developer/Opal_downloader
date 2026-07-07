@@ -25,6 +25,13 @@ func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 	rootKey := sectionKey(course.URL, course.RepoID)
 	queue := []string{course.URL}
 	queued := map[string]struct{}{rootKey: {}}
+	// sectionTitles carries the human-readable folder/section title discovered
+	// when a section link was queued (via appendSectionFolderTargets, which
+	// already extracts real OPAL folder names like "Übungen"/"Vorlesung" using
+	// deriveSectionTitle). Without this, nested course content would only be
+	// identifiable by deriveSectionTitleFromURL's coarse URL-shape guess, which
+	// cannot recover the actual OPAL-assigned section name.
+	sectionTitles := map[string]string{rootKey: course.Title}
 	maxPages := 16
 
 	for len(queue) > 0 && len(visited) < maxPages {
@@ -58,10 +65,13 @@ func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 			candidates = expanded
 		}
 
-		sectionTitle := deriveSectionTitleFromURL(course.Title, currentURL)
+		sectionTitle := sectionTitles[currentKey]
+		if strings.TrimSpace(sectionTitle) == "" {
+			sectionTitle = deriveSectionTitleFromURL(course.Title, currentURL)
+		}
 		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
 		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, s.opalURL, s.downloadCandidates)
-		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title)
+		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles)
 	}
 
 	return files, nil
@@ -153,7 +163,7 @@ func looksLikeNavigableShowAllURL(linkTarget string) bool {
 	return !strings.HasPrefix(strings.ToLower(trimmed), "javascript:")
 }
 
-func appendSectionFolderTargets(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string) []string {
+func appendSectionFolderTargets(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string, sectionTitles map[string]string) []string {
 	currentKey := sectionKey(currentURL, repoID)
 	rootKey := sectionKey(courseRootURL, repoID)
 
@@ -187,6 +197,11 @@ func appendSectionFolderTargets(queue []string, queued, visited map[string]struc
 		}
 
 		queued[key] = struct{}{}
+		if sectionTitles != nil {
+			if _, has := sectionTitles[key]; !has && strings.TrimSpace(title) != "" {
+				sectionTitles[key] = sanitizeFilename(title)
+			}
+		}
 		queue = append(queue, absURL)
 	}
 

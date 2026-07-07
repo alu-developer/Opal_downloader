@@ -37,10 +37,11 @@ func convertFileRefsToRemoteFiles(items []FileRef) []RemoteFile {
 	remoteFiles := make([]RemoteFile, 0, len(items))
 	for _, item := range items {
 		remoteFiles = append(remoteFiles, RemoteFile{
-			Name:   item.Name,
-			URL:    item.URL,
-			Course: item.CourseTitle,
-			Path:   item.Path,
+			Name:         item.Name,
+			URL:          item.URL,
+			Course:       item.CourseTitle,
+			SectionTitle: item.SectionTitle,
+			Path:         item.Path,
 		})
 	}
 	return remoteFiles

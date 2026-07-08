@@ -9,18 +9,26 @@ import (
 )
 
 type RemoteFile struct {
-	Name     string
-	URL      string
-	Course   string
-	Path     string
-	Size     *int64
-	Modified *string
+	Name         string
+	URL          string
+	Course       string
+	SectionTitle string
+	Path         string
+	Size         *int64
+	Modified     *string
 }
 
 type downloadCandidate struct {
 	SourceURL  string
 	LinkText   string
 	LinkTarget string
+	// ShowAllURL is the "show all"/"Alle anzeigen"-expanded variant of SourceURL,
+	// set only when this candidate was discovered after expanding a paginated
+	// section listing. downloadFileViaBrowser falls back to navigating here when
+	// the link isn't present on SourceURL, since files beyond the default ~20-item
+	// page cap only render on the expanded page. Empty when the candidate was
+	// found on a section's normal (non-expanded) first page.
+	ShowAllURL string
 }
 
 type OpalScraper struct {
@@ -56,7 +64,23 @@ type OpalScraper struct {
 	context playwright.BrowserContext
 	page    playwright.Page
 
+	// downloadCandidates is populated once, synchronously, during discovery
+	// (crawl.go/files.go, before any download worker goroutines start) and is
+	// only read afterward, concurrently, from download.go. That ordering is
+	// what makes concurrent reads safe without a lock today - do not make
+	// discovery lazy/interleaved with downloads without adding a lock (or
+	// switching to a concurrent-safe map) first.
 	downloadCandidates map[string]downloadCandidate
+
+	// browserDownloadMu serializes the single-page browser-fallback download
+	// path (downloadFileViaBrowser). s.page is a single shared Playwright page
+	// and is not safe for concurrent navigation, so even though DownloadFile's
+	// fast HTTP path can run from many goroutines at once (the underlying
+	// APIRequestContext/connection is safe for concurrent use - see
+	// playwright-go's connection.go, which dispatches calls via atomic IDs and
+	// a sync.Map of callbacks), any request that falls back to driving the
+	// browser must be serialized behind this mutex.
+	browserDownloadMu sync.Mutex
 }
 
 func (s *OpalScraper) getPage() playwright.Page {

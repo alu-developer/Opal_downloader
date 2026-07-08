@@ -50,7 +50,7 @@ func TestAppendSectionFolderTargetsSkipsRootAndCurrentSection(t *testing.T) {
 		},
 	}
 
-	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
+	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen", map[string]string{})
 	if len(queue) != 1 {
 		t.Fatalf("expected exactly one queued section target, got %d: %#v", len(queue), queue)
 	}
@@ -99,7 +99,7 @@ func TestAppendSectionFolderTargetsAllowsAnyNestedCourseNodePath(t *testing.T) {
 		},
 	}
 
-	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
+	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen", map[string]string{})
 	want := []string{
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775615795226691003/Probeklausur",
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775615795226691003/%C3%9Cbungsbl%C3%A4tter",
@@ -112,6 +112,39 @@ func TestAppendSectionFolderTargetsAllowsAnyNestedCourseNodePath(t *testing.T) {
 		if queue[i] != target {
 			t.Fatalf("unexpected queued folder target at %d: got %q, want %q", i, queue[i], target)
 		}
+	}
+}
+
+func TestAppendSectionFolderTargetsRecordsRealSectionTitles(t *testing.T) {
+	repoID := "53290106881"
+	currentURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1771558760922192006"
+	courseRootURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881"
+	candidates := []map[string]string{
+		{
+			"href":     "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775615795226691003",
+			"title":    "Übungen",
+			"text":     "Übungen",
+			"rootText": "Übungen",
+		},
+	}
+
+	sectionTitles := map[string]string{}
+	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen", sectionTitles)
+	if len(queue) != 1 {
+		t.Fatalf("expected one queued section target, got %d: %#v", len(queue), queue)
+	}
+
+	key := sectionKey(queue[0], repoID)
+	got, ok := sectionTitles[key]
+	if !ok {
+		t.Fatalf("expected sectionTitles to record a title for queued target %q", queue[0])
+	}
+	// This is the crux of the SectionTitle reliability fix: without recording the
+	// real folder-link title here, every file nested under this section would
+	// have been labeled with the generic, uninformative "CourseNode" fallback
+	// from deriveSectionTitleFromURL instead of the actual OPAL section name.
+	if got != "Übungen" {
+		t.Fatalf("expected real section title %q to be recorded, got %q", "Übungen", got)
 	}
 }
 
@@ -137,7 +170,7 @@ func TestAppendSectionFolderTargetsAllowsUnlistedSiblingSectionByDefault(t *test
 		},
 	}
 
-	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen")
+	queue := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{}, candidates, "https://bildungsportal.sachsen.de/opal/", repoID, currentURL, courseRootURL, "Algorithmen und Datenstrukturen", map[string]string{})
 	if len(queue) != 1 {
 		t.Fatalf("expected exactly one queued sibling section, got %d: %#v", len(queue), queue)
 	}

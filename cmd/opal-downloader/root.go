@@ -13,6 +13,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/gui"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
+	"github.com/alu-developer/opal-downloader/internal/timing"
 )
 
 func Execute() {
@@ -217,6 +218,7 @@ func runLogin(args []string) error {
 func runList(args []string) error {
 	configPath := filepath.Join(projectDir(), "config.yaml")
 	devMode := false
+	profile := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--config":
@@ -227,10 +229,13 @@ func runList(args []string) error {
 			configPath = args[i]
 		case "--dev":
 			devMode = true
+		case "--profile":
+			profile = true
 		default:
 			return fmt.Errorf("unknown option for list: %s", args[i])
 		}
 	}
+	timing.Profile = profile
 
 	loaded, err := config.Load(configPath)
 	if err != nil {
@@ -240,13 +245,20 @@ func runList(args []string) error {
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
-	return syncer.ListAvailableCourses(sc)
+
+	totalTimer := timing.StartTimer()
+	err = syncer.ListAvailableCourses(sc)
+	fmt.Println()
+	timing.PrintTotalSummary(totalTimer.Elapsed())
+	return err
 }
 
 func runSync(args []string) error {
 	configPath := filepath.Join(projectDir(), "config.yaml")
 	force := false
 	devMode := false
+	profile := false
+	concurrency := 0
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -260,14 +272,30 @@ func runSync(args []string) error {
 			force = true
 		case "--dev":
 			devMode = true
+		case "--profile":
+			profile = true
+		case "--concurrency":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--concurrency requires a value")
+			}
+			parsed, parseErr := strconv.Atoi(args[i])
+			if parseErr != nil || parsed <= 0 {
+				return fmt.Errorf("--concurrency requires a positive integer, got %q", args[i])
+			}
+			concurrency = parsed
 		default:
 			return fmt.Errorf("unknown option for sync: %s", args[i])
 		}
 	}
+	timing.Profile = profile
 
 	loaded, err := config.Load(configPath)
 	if err != nil {
 		return err
+	}
+	if concurrency > 0 {
+		loaded.App.DownloadConcurrency = concurrency
 	}
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
@@ -287,11 +315,16 @@ func runSync(args []string) error {
 	}
 	fmt.Println()
 
+	totalTimer := timing.StartTimer()
 	stats, err := syncer.SyncCourses(sc, loaded.App, force)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\nDone. downloaded=%d skipped=%d errors=%d\n", stats.Downloaded, stats.Skipped, stats.Errors)
+
+	fmt.Println()
+	timing.PrintDownloadSummary(stats.DownloadDuration, stats.Downloads)
+	timing.PrintTotalSummary(totalTimer.Elapsed())
 	return nil
 }
 
@@ -408,9 +441,12 @@ func printHelp() {
 	fmt.Println("  status --config <path>")
 	fmt.Println("  gui [--port <port>] [--config <path>]")
 	fmt.Println("  login --config <path> [--dev]")
-	fmt.Println("  list --config <path> [--dev]")
-	fmt.Println("  sync --config <path> [--force] [--dev]")
+	fmt.Println("  list --config <path> [--dev] [--profile]")
+	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--concurrency <n>]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
+	fmt.Println()
+	fmt.Println("  --profile        Print granular per-course/per-file timings in addition to the summary")
+	fmt.Println("  --concurrency n  Max concurrent file downloads for sync (default 3, overrides config.yaml)")
 }
 
 func copyFile(source, target string) error {

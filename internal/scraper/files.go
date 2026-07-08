@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mxschmitt/playwright-go"
@@ -47,10 +48,12 @@ func (s *OpalScraper) extractSectionContentCandidates(page playwright.Page) ([]m
 			if (roots.length === 0) {
 				roots.push(document.body);
 			}
+			const rowSelector = 'tr, li, .o_file, .ilContainerListItem, .o_table_row, [class*="row"], [class*="item"]';
 			const out = [];
 			const seen = new Set();
 			for (const root of roots) {
 				for (const el of root.querySelectorAll('a[href], [onclick], [data-href], [data-url]')) {
+					const row = el.closest(rowSelector);
 					const item = {
 						href: (el.getAttribute('href') || '').trim(),
 						onclick: (el.getAttribute('onclick') || '').trim(),
@@ -59,6 +62,13 @@ func (s *OpalScraper) extractSectionContentCandidates(page playwright.Page) ([]m
 						text: (el.textContent || '').trim(),
 						title: (el.getAttribute('title') || '').trim(),
 						rootText: (root.textContent || '').trim(),
+						// rowText is the closest table-row/list-item ancestor's own
+						// text, used to best-effort parse OPAL's "Größe"/"Zuletzt
+						// geändert" file-list columns (see parseRowSizeBytes/
+						// parseRowModified below) - unlike rootText (the whole
+						// section), this is scoped to just this file's row so the
+						// parsed size/date actually belongs to this link.
+						rowText: row ? (row.textContent || '').trim() : ''
 					};
 					const key = JSON.stringify(item);
 					if (seen.has(key)) {
@@ -105,6 +115,7 @@ func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candid
 		if downloadCandidates != nil {
 			downloadCandidates[absURL] = downloadCandidate{SourceURL: sourceURL, ShowAllURL: showAllURL, LinkText: strings.TrimSpace(defaultString(candidate["title"], candidate["text"])), LinkTarget: linkTarget}
 		}
+		rowText := candidate["rowText"]
 		files = append(files, FileRef{
 			CourseRepoID: course.RepoID,
 			CourseTitle:  safeCourse,
@@ -112,9 +123,87 @@ func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candid
 			Name:         safeName,
 			URL:          absURL,
 			Path:         filepath.ToSlash(filepath.Join(safeCourse, safeName)),
+			Size:         parseRowSizeBytes(rowText),
+			Modified:     parseRowModified(rowText),
 		})
 	}
 	return files
+}
+
+// fileSizeRe matches OPAL's "Größe" file-list column, e.g. "245 KB", "1,2 MB",
+// "3.4 GB", or a bare byte count like "512 Byte"/"512 Bytes". OPAL renders
+// this as plain column text (comma as the German decimal separator) rather
+// than a structured data-* attribute, so this is a best-effort regex match
+// against the file link's row text rather than a precise DOM lookup.
+//
+// Confirmed live (2026-07, this account's "Materialien" course folder,
+// captured DOM saved under tmp/opal-course-1-materialien-links.json - not
+// committed, local investigation artifact): the file-list table header row
+// reads "Dateityp Name Größe Zuletzt geändert Lizenz", i.e. OPAL does expose
+// a "Größe" (size) column for entries in this table. That capture only
+// reached a folder-only listing (three subfolders, no individual files were
+// visited), so the exact rendering of a *file* row's Größe cell (units used,
+// whether it's "245 KB" vs "245,0 KB" vs something else) was not directly
+// observed - this regex is written to match OPAL's/OLAT's documented German
+// UI convention for this column. A human should confirm against a real file
+// row (not a folder row) and adjust the unit list/format here if it differs.
+var fileSizeRe = regexp.MustCompile(`(?i)(\d+(?:[.,]\d+)?)\s*(GB|MB|KB|Bytes?)`)
+
+// fileModifiedRe matches OPAL's "Zuletzt geändert" column / the "am
+// DD.MM.YYYY[, HH:MM Uhr]" phrasing OPAL uses for both files and folders
+// (e.g. a folder row's observed text "Probeklausur am 16.06.2026 um 14:11
+// Uhr"). Confirmed live against this pattern for folder rows (see
+// fileSizeRe's doc comment for the capture details); files in the same
+// table are expected to use the same date rendering since they share the
+// same "Zuletzt geändert" column, but this was not directly confirmed
+// against an individual file row live.
+var fileModifiedRe = regexp.MustCompile(`\d{1,2}\.\d{1,2}\.\d{4}(?:,?\s*(?:um\s*)?\d{1,2}:\d{2}(?:\s*Uhr)?)?`)
+
+// parseRowSizeBytes best-effort extracts a file size in bytes from a file
+// link's surrounding row text (see the rowText field populated in
+// extractSectionContentCandidates above). Returns nil when no size-shaped
+// substring is found, which is the common case for course sections where
+// OPAL doesn't render this column (e.g. it's hidden, or the entry isn't a
+// plain file) - callers must treat a nil Size as "unknown", not "zero
+// bytes".
+func parseRowSizeBytes(rowText string) *int64 {
+	match := fileSizeRe.FindStringSubmatch(rowText)
+	if match == nil {
+		return nil
+	}
+	numeric := strings.ReplaceAll(match[1], ",", ".")
+	value, err := strconv.ParseFloat(numeric, 64)
+	if err != nil {
+		return nil
+	}
+	var multiplier float64
+	switch strings.ToUpper(match[2]) {
+	case "GB":
+		multiplier = 1024 * 1024 * 1024
+	case "MB":
+		multiplier = 1024 * 1024
+	case "KB":
+		multiplier = 1024
+	default: // "Byte" / "Bytes"
+		multiplier = 1
+	}
+	bytes := int64(value * multiplier)
+	return &bytes
+}
+
+// parseRowModified best-effort extracts OPAL's "Zuletzt geändert" date text
+// from a file link's surrounding row text. The raw matched substring (e.g.
+// "01.07.2026, 09:06 Uhr") is kept as-is rather than parsed into a
+// time.Time: syncer.fileChanged only ever compares this value for exact
+// string equality against the previously recorded one, so any stable,
+// OPAL-produced string works as a change signal regardless of its format.
+// Returns nil when no date-shaped substring is found.
+func parseRowModified(rowText string) *string {
+	match := fileModifiedRe.FindString(rowText)
+	if match == "" {
+		return nil
+	}
+	return &match
 }
 
 var fileNameWhitespaceRe = regexp.MustCompile(`\s+`)

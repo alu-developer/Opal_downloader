@@ -191,6 +191,8 @@ func convertFileRefsToRemoteFiles(items []FileRef) []RemoteFile {
 			Course:       item.CourseTitle,
 			SectionTitle: item.SectionTitle,
 			Path:         item.Path,
+			Size:         item.Size,
+			Modified:     item.Modified,
 		})
 	}
 	return remoteFiles

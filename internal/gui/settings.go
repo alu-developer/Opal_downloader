@@ -64,7 +64,15 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 // save). The view data always reflects exactly what the user submitted, so
 // a validation error round-trips the user's input rather than silently
 // reverting to the last saved config.
-func parseSettingsForm(r *http.Request, configPath string) (settingsViewData, config.Loaded) {
+//
+// base is the currently-persisted config (or the zero value if none exists
+// yet). Only the fields the Settings form actually exposes are overwritten
+// on top of base; everything else - notably UseSectionSubfolders,
+// SectionFolderNames, SubfolderDestinations, DownloadConcurrency, and
+// CourseConcurrency, none of which this form has inputs for - is carried
+// through unchanged so Save doesn't silently wipe hand-edited config.yaml
+// fields the GUI doesn't yet know how to edit.
+func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (settingsViewData, config.Loaded) {
 	_ = r.ParseForm()
 
 	get := func(name string) string {
@@ -114,22 +122,17 @@ func parseSettingsForm(r *http.Request, configPath string) (settingsViewData, co
 		CourseFolders:       rows,
 	}
 
-	loaded := config.Loaded{
-		App: config.App{
-			DownloadPath:        view.DownloadPath,
-			Courses:             courses,
-			Sync:                syncEnabled,
-			DefaultCourseFolder: view.DefaultCourseFolder,
-			CourseFolders:       courseFolders,
-		},
-		Credentials: config.Credentials{
-			URL:                view.OpalURL,
-			StateFile:          view.SessionStateFile,
-			BrowserExecutable:  view.BrowserExecutable,
-			BrowserUserDataDir: view.BrowserUserDataDir,
-			BrowserProfileDir:  view.BrowserProfileDir,
-		},
-	}
+	loaded := base
+	loaded.App.DownloadPath = view.DownloadPath
+	loaded.App.Courses = courses
+	loaded.App.Sync = syncEnabled
+	loaded.App.DefaultCourseFolder = view.DefaultCourseFolder
+	loaded.App.CourseFolders = courseFolders
+	loaded.Credentials.URL = view.OpalURL
+	loaded.Credentials.StateFile = view.SessionStateFile
+	loaded.Credentials.BrowserExecutable = view.BrowserExecutable
+	loaded.Credentials.BrowserUserDataDir = view.BrowserUserDataDir
+	loaded.Credentials.BrowserProfileDir = view.BrowserProfileDir
 
 	return view, loaded
 }
@@ -171,7 +174,19 @@ func handleSettings(configPath string) http.HandlerFunc {
 			renderSettings(w, loadedToViewData(configPath, loaded))
 
 		case http.MethodPost:
-			view, loaded := parseSettingsForm(r, configPath)
+			// Load the currently-persisted config first so fields the
+			// Settings form has no inputs for (e.g. use_section_subfolders,
+			// section_folder_names, subfolder_destinations) are preserved
+			// rather than reset to zero values on save. If no config exists
+			// yet, or the existing file can't be parsed, fall back to the
+			// zero value - there's nothing on disk to preserve either way,
+			// and Save's own validation will surface any real problem.
+			base, err := config.Load(configPath)
+			if err != nil {
+				base = config.Loaded{}
+			}
+
+			view, loaded := parseSettingsForm(r, configPath, base)
 			if err := config.Save(configPath, loaded); err != nil {
 				view.Error = err.Error()
 				renderSettings(w, view)

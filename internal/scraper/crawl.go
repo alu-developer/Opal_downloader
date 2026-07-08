@@ -54,13 +54,15 @@ func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 			}
 		}
 
-		if expanded, ok := s.expandShowAllInSection(currentURL, candidates); ok {
+		showAllURL := ""
+		if expanded, expandedURL, ok := s.expandShowAllInSection(currentURL, candidates); ok {
 			candidates = expanded
+			showAllURL = expandedURL
 		}
 
 		sectionTitle := deriveSectionTitleFromURL(course.Title, currentURL)
 		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
-		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, s.opalURL, s.downloadCandidates)
+		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, s.opalURL, s.downloadCandidates)
 		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title)
 	}
 
@@ -85,17 +87,24 @@ func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 // parameter). A human should manually verify this against a real OPAL course known to
 // have more than 20 files in one section once this lands.
 //
-// It returns the re-extracted candidate list and true when a "show all" control was
-// found and acted on; otherwise it returns (nil, false) and the caller keeps using the
+// It returns the re-extracted candidate list, the resolved "show all" URL (when the
+// expansion was reached via direct navigation to a distinct URL rather than a click on
+// a javascript:/onclick-driven control), and true when a "show all" control was found
+// and acted on; otherwise it returns (nil, "", false) and the caller keeps using the
 // candidates it already had.
-func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map[string]string) ([]map[string]string, bool) {
+//
+// The returned URL lets callers record where files revealed only by this expansion can
+// be found again later (e.g. for a browser-fallback download click), since navigating
+// back to currentURL - which this function does before returning, see below - no longer
+// shows those files.
+func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map[string]string) ([]map[string]string, string, bool) {
 	if s.page == nil {
-		return nil, false
+		return nil, "", false
 	}
 
 	linkTarget, found := findShowAllTarget(candidates)
 	if !found {
-		return nil, false
+		return nil, "", false
 	}
 
 	absURL := resolveURL(s.opalURL, linkTarget)
@@ -121,7 +130,7 @@ func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map
 		if !clicked {
 			// Could not click or navigate to the control; keep whatever candidates
 			// the caller already extracted rather than failing the whole section.
-			return nil, false
+			return nil, "", false
 		}
 	}
 
@@ -129,17 +138,21 @@ func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map
 
 	expanded, err := s.extractSectionContentCandidates()
 	if err != nil || len(expanded) == 0 {
-		return nil, false
+		return nil, "", false
 	}
 
 	// If we navigated to a dedicated "show all" URL, go back to the section's
 	// canonical URL afterwards so any further link resolution / folder discovery
 	// in the caller stays anchored to currentURL rather than the show-all variant.
+	// Record that show-all URL (when distinct) so the caller can still point later
+	// re-visits (e.g. download fallback) at the page where these files actually render.
+	showAllURL := ""
 	if navigated && !strings.EqualFold(strings.TrimSpace(absURL), strings.TrimSpace(currentURL)) {
+		showAllURL = absURL
 		_, _ = s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
 	}
 
-	return expanded, true
+	return expanded, showAllURL, true
 }
 
 // looksLikeNavigableShowAllURL reports whether a "show all" control's link target is

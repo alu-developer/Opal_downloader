@@ -364,6 +364,25 @@ func Validate(cfg Loaded) error {
 	return nil
 }
 
+// Warnings returns non-fatal configuration warnings for cfg. Unlike Validate,
+// these never block Load/Save - they flag settings that parse fine but
+// silently do nothing at sync time, so a user notices the misconfiguration
+// instead of wondering why section_folder_names/subfolder_destinations had
+// no effect. Callers (CLI on config load, GUI Settings page) are expected to
+// surface these to the user; config.Load itself does not print anything.
+func Warnings(cfg App) []string {
+	var warnings []string
+	if !cfg.UseSectionSubfolders {
+		if len(cfg.SectionFolderNames) > 0 {
+			warnings = append(warnings, "section_folder_names is set but use_section_subfolders is false, so it has no effect. Set use_section_subfolders: true to apply these subfolder name overrides.")
+		}
+		if len(cfg.SubfolderDestinations) > 0 {
+			warnings = append(warnings, "subfolder_destinations is set but use_section_subfolders is false, so it has no effect. Set use_section_subfolders: true to apply these destination overrides.")
+		}
+	}
+	return warnings
+}
+
 // toRawConfig converts the normalized in-memory config shape back into the
 // on-disk rawConfig shape used for YAML marshaling.
 func toRawConfig(cfg Loaded) rawConfig {

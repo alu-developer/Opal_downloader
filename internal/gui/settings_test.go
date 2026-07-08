@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
@@ -14,12 +15,14 @@ import (
 
 // TestHandleSettingsPostPreservesFieldsWithoutFormInputs is a regression test
 // for a data-loss bug: saving the GUI Settings page used to build a fresh
-// config.App{} from only the fields the form submits, silently deleting
-// use_section_subfolders, section_folder_names, and subfolder_destinations
-// (and any other field the Settings form has no input for) from config.yaml
-// if they had been set by hand. This round-trips a config.yaml with those
-// fields set through the real POST /settings handler and asserts they come
-// back unchanged.
+// config.App{} from only the fields the form submits, silently deleting any
+// field the Settings form has no input for from config.yaml if it had been
+// set by hand. use_section_subfolders/section_folder_names/
+// subfolder_destinations have since gained real form inputs (see
+// TestHandleSettingsPostRoundTripsSubfolderFields) so they're no longer part
+// of what this test covers - it now exercises the fields that still have no
+// form input (download_concurrency, course_concurrency), submitting a form
+// that leaves them untouched and asserting they survive the save.
 func TestHandleSettingsPostPreservesFieldsWithoutFormInputs(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
@@ -31,13 +34,6 @@ sync: true
 default_course_folder: ""
 opal_url: https://bildungsportal.sachsen.de/opal/
 session_state_file: ./state.json
-use_section_subfolders: true
-section_folder_names:
-  Vorlesung: Lectures
-  Uebung: Exercises
-subfolder_destinations:
-  Analysis/Vorlesung: D:/Uni/Analysis/Lectures
-  Analysis/Uebung: D:/Uni/Analysis/Exercises
 download_concurrency: 5
 course_concurrency: 2
 `
@@ -49,12 +45,9 @@ course_concurrency: 2
 	if err != nil {
 		t.Fatalf("failed to load initial config: %v", err)
 	}
-	if !before.App.UseSectionSubfolders {
-		t.Fatalf("precondition failed: initial config should have use_section_subfolders: true")
-	}
-	if len(before.App.SectionFolderNames) == 0 || len(before.App.SubfolderDestinations) == 0 {
-		t.Fatalf("precondition failed: initial config should have non-empty section_folder_names/subfolder_destinations, got %+v / %+v",
-			before.App.SectionFolderNames, before.App.SubfolderDestinations)
+	if before.App.DownloadConcurrency != 5 || before.App.CourseConcurrency != 2 {
+		t.Fatalf("precondition failed: expected download_concurrency=5 course_concurrency=2, got %+v",
+			before.App)
 	}
 
 	// Simulate the user submitting the Settings form as-is (values mirror
@@ -87,22 +80,162 @@ course_concurrency: 2
 		t.Fatalf("failed to load config after save: %v", err)
 	}
 
-	if after.App.UseSectionSubfolders != before.App.UseSectionSubfolders {
-		t.Errorf("use_section_subfolders was not preserved: before=%v after=%v",
-			before.App.UseSectionSubfolders, after.App.UseSectionSubfolders)
+	if after.App.DownloadConcurrency != before.App.DownloadConcurrency {
+		t.Errorf("download_concurrency was not preserved: before=%v after=%v",
+			before.App.DownloadConcurrency, after.App.DownloadConcurrency)
 	}
-	if !reflect.DeepEqual(after.App.SectionFolderNames, before.App.SectionFolderNames) {
-		t.Errorf("section_folder_names was not preserved:\nbefore=%+v\nafter=%+v",
-			before.App.SectionFolderNames, after.App.SectionFolderNames)
-	}
-	if !reflect.DeepEqual(after.App.SubfolderDestinations, before.App.SubfolderDestinations) {
-		t.Errorf("subfolder_destinations was not preserved:\nbefore=%+v\nafter=%+v",
-			before.App.SubfolderDestinations, after.App.SubfolderDestinations)
+	if after.App.CourseConcurrency != before.App.CourseConcurrency {
+		t.Errorf("course_concurrency was not preserved: before=%v after=%v",
+			before.App.CourseConcurrency, after.App.CourseConcurrency)
 	}
 
 	// Sanity: fields the form does submit were actually applied.
 	if after.App.DownloadPath != before.App.DownloadPath {
 		t.Errorf("download_path should still be settable via the form: before=%q after=%q",
 			before.App.DownloadPath, after.App.DownloadPath)
+	}
+
+	// The three subfolder fields have no value in the initial config and no
+	// form input was submitted for them either, so they should still be
+	// absent/empty/false after save (not previously-silently-dropped values
+	// reappearing from nowhere).
+	if after.App.UseSectionSubfolders {
+		t.Errorf("expected use_section_subfolders to remain false, got true")
+	}
+	if len(after.App.SectionFolderNames) != 0 {
+		t.Errorf("expected section_folder_names to remain empty, got %+v", after.App.SectionFolderNames)
+	}
+	if len(after.App.SubfolderDestinations) != 0 {
+		t.Errorf("expected subfolder_destinations to remain empty, got %+v", after.App.SubfolderDestinations)
+	}
+}
+
+// TestHandleSettingsPostRoundTripsSubfolderFields verifies the new GUI
+// editors for use_section_subfolders, section_folder_names, and
+// subfolder_destinations actually save what the user submits - the point of
+// this task is making these fields editable, not just non-destructive.
+func TestHandleSettingsPostRoundTripsSubfolderFields(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	initialYAML := `download_path: ./downloads
+courses:
+  - "*"
+sync: true
+opal_url: https://bildungsportal.sachsen.de/opal/
+session_state_file: ./state.json
+`
+	if err := os.WriteFile(configPath, []byte(initialYAML), 0o644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	before, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load initial config: %v", err)
+	}
+	if before.App.UseSectionSubfolders {
+		t.Fatalf("precondition failed: expected use_section_subfolders to start false")
+	}
+
+	form := url.Values{}
+	form.Set("opal_url", before.Credentials.URL)
+	form.Set("session_state_file", before.Credentials.StateFile)
+	form.Set("download_path", before.App.DownloadPath)
+	form.Set("courses", "*")
+	form.Set("sync", "on")
+	form.Set("use_section_subfolders", "on")
+	form["section_folder_pattern[]"] = []string{"Vorlesung", "Uebung"}
+	form["section_folder_folder[]"] = []string{"Lectures", "Exercises"}
+	form["subfolder_dest_key[]"] = []string{"*Analysis*/*Vorlesung*"}
+	form["subfolder_dest_path[]"] = []string{"D:/Uni/Analysis/Lectures"}
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSettings(configPath)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	after, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config after save: %v", err)
+	}
+
+	if !after.App.UseSectionSubfolders {
+		t.Errorf("expected use_section_subfolders to be saved as true")
+	}
+	wantSectionFolders := map[string]string{"Vorlesung": "Lectures", "Uebung": "Exercises"}
+	if !reflect.DeepEqual(after.App.SectionFolderNames, wantSectionFolders) {
+		t.Errorf("section_folder_names mismatch: got %+v, want %+v", after.App.SectionFolderNames, wantSectionFolders)
+	}
+	wantDestinations := map[string]string{"*Analysis*/*Vorlesung*": "D:/Uni/Analysis/Lectures"}
+	if !reflect.DeepEqual(after.App.SubfolderDestinations, wantDestinations) {
+		t.Errorf("subfolder_destinations mismatch: got %+v, want %+v", after.App.SubfolderDestinations, wantDestinations)
+	}
+
+	// Saving with use_section_subfolders on and these fields populated
+	// should not produce a misconfiguration warning.
+	if warnings := config.Warnings(after.App); len(warnings) != 0 {
+		t.Errorf("expected no config warnings when use_section_subfolders is true, got %v", warnings)
+	}
+}
+
+// TestHandleSettingsPostUncheckingSubfoldersProducesWarning verifies that
+// saving with use_section_subfolders unchecked while section_folder_names/
+// subfolder_destinations rows are still present surfaces the misconfiguration
+// warning inline on the re-rendered page (the GUI counterpart of
+// config.Warnings, which the CLI surfaces separately on config load).
+func TestHandleSettingsPostUncheckingSubfoldersProducesWarning(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	initialYAML := `download_path: ./downloads
+courses:
+  - "*"
+sync: true
+opal_url: https://bildungsportal.sachsen.de/opal/
+session_state_file: ./state.json
+`
+	if err := os.WriteFile(configPath, []byte(initialYAML), 0o644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("opal_url", "https://bildungsportal.sachsen.de/opal/")
+	form.Set("session_state_file", "./state.json")
+	form.Set("download_path", "./downloads")
+	form.Set("courses", "*")
+	form.Set("sync", "on")
+	// use_section_subfolders intentionally omitted (unchecked checkbox).
+	form["section_folder_pattern[]"] = []string{"Vorlesung"}
+	form["section_folder_folder[]"] = []string{"Lectures"}
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSettings(configPath)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "section_folder_names is set but use_section_subfolders is false") {
+		t.Errorf("expected rendered page to contain the misconfiguration warning, got body:\n%s", body)
+	}
+
+	after, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config after save: %v", err)
+	}
+	warnings := config.Warnings(after.App)
+	if len(warnings) != 1 {
+		t.Fatalf("expected exactly one config warning after save, got %v", warnings)
 	}
 }

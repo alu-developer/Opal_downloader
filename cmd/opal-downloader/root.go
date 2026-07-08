@@ -155,6 +155,7 @@ func runStatus(args []string) error {
 	if err != nil {
 		return err
 	}
+	printConfigWarnings(loaded.App)
 
 	fmt.Printf("Config: %s (OK)\n", configPath)
 	fmt.Printf("OPAL URL: %s\n", loaded.Credentials.URL)
@@ -252,6 +253,7 @@ func runList(args []string) error {
 	if err != nil {
 		return err
 	}
+	printConfigWarnings(loaded.App)
 	if courseConcurrency > 0 {
 		loaded.App.CourseConcurrency = courseConcurrency
 	}
@@ -320,6 +322,7 @@ func runSync(args []string) error {
 	if err != nil {
 		return err
 	}
+	printConfigWarnings(loaded.App)
 	if concurrency > 0 {
 		loaded.App.DownloadConcurrency = concurrency
 	}
@@ -439,6 +442,15 @@ func runGUI(args []string) error {
 	}
 
 	return gui.Run(gui.Options{Port: port, ConfigPath: configPath})
+}
+
+// printConfigWarnings prints non-fatal config.Warnings for app to stderr,
+// one line per warning, prefixed "Warning:" (matching the "Error:" prefix
+// used for fatal errors in Execute). A no-op when there are no warnings.
+func printConfigWarnings(app config.App) {
+	for _, w := range config.Warnings(app) {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
 }
 
 func projectDir() string {

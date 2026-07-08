@@ -83,6 +83,13 @@ what you actually want downloaded (not just placeholder values), then run:
       `download_path`.
 - [ ] **Pass/Fail:** Files landed in the expected folder structure (matching
       `course_folders` rules / `default_course_folder` / course-name folders).
+      If you're using per-section subfolders or destination overrides
+      (`use_section_subfolders` / `section_folder_names` /
+      `subfolder_destinations`, editable via `config.yaml` or the GUI
+      Settings page), see
+      [docs/OPERATIONS.md](OPERATIONS.md#per-subfolder-download-destinations)
+      for a worked example and check files landed under the expected
+      per-section paths too.
 - [ ] **Pass/Fail:** The final summary line (`Done. downloaded=N skipped=N
       errors=N`) matches what you expected (errors=0, downloaded roughly
       matches file count in your courses).

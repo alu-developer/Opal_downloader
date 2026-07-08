@@ -116,9 +116,15 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 // candidates it already had.
 //
 // The returned URL lets callers record where files revealed only by this expansion can
-// be found again later (e.g. for a browser-fallback download click), since navigating
-// back to currentURL - which this function does before returning, see below - no longer
-// shows those files.
+// be found again later (e.g. for a browser-fallback download click). This function
+// deliberately leaves page on the "show all" URL rather than navigating back to
+// currentURL afterwards (perf-04 removed that extra round-trip): collectCourseFiles's
+// caller only consumes the returned candidates slice and plain string URLs
+// (appendSectionFiles/appendSectionFolderTargets take currentURL as a parameter, not
+// page.URL()), and the crawl loop's next iteration unconditionally navigates page to
+// whatever URL it dequeues next - so nothing downstream ever reads page's location
+// between here and that next Goto. Do not reintroduce the navigate-back without first
+// checking that invariant still holds.
 func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL string, candidates []map[string]string) ([]map[string]string, string, bool) {
 	if page == nil {
 		return nil, "", false
@@ -163,15 +169,13 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		return nil, "", false
 	}
 
-	// If we navigated to a dedicated "show all" URL, go back to the section's
-	// canonical URL afterwards so any further link resolution / folder discovery
-	// in the caller stays anchored to currentURL rather than the show-all variant.
-	// Record that show-all URL (when distinct) so the caller can still point later
-	// re-visits (e.g. download fallback) at the page where these files actually render.
+	// Record the show-all URL (when distinct from currentURL) so the caller can point
+	// later re-visits (e.g. download fallback) at the page where these files actually
+	// render. See the doc comment above for why this intentionally does not navigate
+	// page back to currentURL.
 	showAllURL := ""
 	if navigated && !strings.EqualFold(strings.TrimSpace(absURL), strings.TrimSpace(currentURL)) {
 		showAllURL = absURL
-		_, _ = page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
 	}
 
 	return expanded, showAllURL, true

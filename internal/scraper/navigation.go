@@ -7,10 +7,20 @@ import (
 	"github.com/mxschmitt/playwright-go"
 )
 
+// contentSelectorTimeoutMs/contentFallbackWaitMs bound waitForInteractiveLinks
+// (below): WaitForSelector already returns as soon as any link-like element
+// is attached to the DOM, so contentSelectorTimeoutMs is a worst-case cap,
+// not a cost paid on every call - OPAL pages already have nav/header links
+// present by the time WaitUntilStateDomcontentloaded fires, so this resolves
+// near-instantly on the happy path. contentFallbackWaitMs only fires when
+// that selector wait itself times out (a genuinely slow-rendering page), so
+// it's a bounded fallback, not blind per-page overhead. perf-04 audited
+// these against a live run (see PR description) and found no unconditional
+// fixed cost worth removing here; the previously-unused navGotoTimeoutMs/
+// navSelectorTimeoutMs/navFallbackWaitMs constants (dead leftovers from
+// pre-perf-03 single-page code, superseded by the content* ones below but
+// never deleted) were removed as part of that audit.
 const (
-	navGotoTimeoutMs         = 15000.0
-	navSelectorTimeoutMs     = 2500.0
-	navFallbackWaitMs        = 700.0
 	contentGotoTimeoutMs     = 15000.0
 	contentSelectorTimeoutMs = 2500.0
 	contentFallbackWaitMs    = 700.0

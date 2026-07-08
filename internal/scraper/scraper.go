@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/mxschmitt/playwright-go"
@@ -43,7 +44,23 @@ type OpalScraper struct {
 	context playwright.BrowserContext
 	page    playwright.Page
 
+	// downloadCandidates is populated once, synchronously, during discovery
+	// (crawl.go/files.go, before any download worker goroutines start) and is
+	// only read afterward, concurrently, from download.go. That ordering is
+	// what makes concurrent reads safe without a lock today - do not make
+	// discovery lazy/interleaved with downloads without adding a lock (or
+	// switching to a concurrent-safe map) first.
 	downloadCandidates map[string]downloadCandidate
+
+	// browserDownloadMu serializes the single-page browser-fallback download
+	// path (downloadFileViaBrowser). s.page is a single shared Playwright page
+	// and is not safe for concurrent navigation, so even though DownloadFile's
+	// fast HTTP path can run from many goroutines at once (the underlying
+	// APIRequestContext/connection is safe for concurrent use - see
+	// playwright-go's connection.go, which dispatches calls via atomic IDs and
+	// a sync.Map of callbacks), any request that falls back to driving the
+	// browser must be serialized behind this mutex.
+	browserDownloadMu sync.Mutex
 }
 
 func (s *OpalScraper) SetDeveloperMode(enabled bool) {

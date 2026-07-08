@@ -258,6 +258,7 @@ func runSync(args []string) error {
 	force := false
 	devMode := false
 	profile := false
+	concurrency := 0
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -273,6 +274,16 @@ func runSync(args []string) error {
 			devMode = true
 		case "--profile":
 			profile = true
+		case "--concurrency":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--concurrency requires a value")
+			}
+			parsed, parseErr := strconv.Atoi(args[i])
+			if parseErr != nil || parsed <= 0 {
+				return fmt.Errorf("--concurrency requires a positive integer, got %q", args[i])
+			}
+			concurrency = parsed
 		default:
 			return fmt.Errorf("unknown option for sync: %s", args[i])
 		}
@@ -282,6 +293,9 @@ func runSync(args []string) error {
 	loaded, err := config.Load(configPath)
 	if err != nil {
 		return err
+	}
+	if concurrency > 0 {
+		loaded.App.DownloadConcurrency = concurrency
 	}
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
@@ -428,10 +442,11 @@ func printHelp() {
 	fmt.Println("  gui [--port <port>] [--config <path>]")
 	fmt.Println("  login --config <path> [--dev]")
 	fmt.Println("  list --config <path> [--dev] [--profile]")
-	fmt.Println("  sync --config <path> [--force] [--dev] [--profile]")
+	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--concurrency <n>]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
 	fmt.Println()
-	fmt.Println("  --profile   Print granular per-course/per-file timings in addition to the summary")
+	fmt.Println("  --profile        Print granular per-course/per-file timings in addition to the summary")
+	fmt.Println("  --concurrency n  Max concurrent file downloads for sync (default 3, overrides config.yaml)")
 }
 
 func copyFile(source, target string) error {

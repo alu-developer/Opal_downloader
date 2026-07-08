@@ -10,6 +10,19 @@ import (
 	"github.com/mxschmitt/playwright-go"
 )
 
+// DownloadFile downloads fileURL to localPath. It first tries a plain HTTP
+// GET through the shared Playwright APIRequestContext (s.context.Request()),
+// which is safe to call concurrently from multiple goroutines - the
+// underlying connection dispatches each call with its own atomic message ID
+// and a sync.Map of pending callbacks (see playwright-go's connection.go),
+// so it is not tied to a single page/tab the way page navigation is.
+//
+// If the fast path doesn't return a direct, non-HTML 200 response, it falls
+// back to downloadFileViaBrowser, which drives the single shared s.page and
+// therefore must not run concurrently with itself or with any other
+// navigation of s.page. That fallback is serialized behind
+// s.browserDownloadMu so callers are free to invoke DownloadFile from a
+// worker pool for the common (fast-path) case.
 func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 	if s.context == nil {
 		return errors.New("no authenticated browser context available")
@@ -28,6 +41,8 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 		}
 	}
 
+	s.browserDownloadMu.Lock()
+	defer s.browserDownloadMu.Unlock()
 	return s.downloadFileViaBrowser(fileURL, localPath)
 }
 

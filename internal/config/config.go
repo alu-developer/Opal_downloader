@@ -27,11 +27,14 @@ type Credentials struct {
 }
 
 type App struct {
-	DownloadPath        string
-	Courses             []string
-	Sync                bool
-	DefaultCourseFolder string
-	CourseFolders       map[string]string
+	DownloadPath          string
+	Courses               []string
+	Sync                  bool
+	DefaultCourseFolder   string
+	CourseFolders         map[string]string
+	UseSectionSubfolders  bool
+	SectionFolderNames    map[string]string
+	SubfolderDestinations map[string]string
 }
 
 type Loaded struct {
@@ -40,16 +43,19 @@ type Loaded struct {
 }
 
 type rawConfig struct {
-	DownloadPath        string            `yaml:"download_path"`
-	Courses             []string          `yaml:"courses"`
-	Sync                *bool             `yaml:"sync"`
-	DefaultCourseFolder string            `yaml:"default_course_folder"`
-	CourseFolders       map[string]string `yaml:"course_folders"`
-	OPALURL             string            `yaml:"opal_url"`
-	SessionStateFile    string            `yaml:"session_state_file"`
-	BrowserExecutable   string            `yaml:"browser_executable"`
-	BrowserUserDataDir  string            `yaml:"browser_user_data_dir"`
-	BrowserProfileDir   string            `yaml:"browser_profile_directory"`
+	DownloadPath          string            `yaml:"download_path"`
+	Courses               []string          `yaml:"courses"`
+	Sync                  *bool             `yaml:"sync"`
+	DefaultCourseFolder   string            `yaml:"default_course_folder"`
+	CourseFolders         map[string]string `yaml:"course_folders"`
+	UseSectionSubfolders  bool              `yaml:"use_section_subfolders"`
+	SectionFolderNames    map[string]string `yaml:"section_folder_names"`
+	SubfolderDestinations map[string]string `yaml:"subfolder_destinations"`
+	OPALURL               string            `yaml:"opal_url"`
+	SessionStateFile      string            `yaml:"session_state_file"`
+	BrowserExecutable     string            `yaml:"browser_executable"`
+	BrowserUserDataDir    string            `yaml:"browser_user_data_dir"`
+	BrowserProfileDir     string            `yaml:"browser_profile_directory"`
 }
 
 func LoadCredentials(configPath string) (Credentials, error) {
@@ -114,13 +120,36 @@ func Load(configPath string) (Loaded, error) {
 		courseFolders[p] = f
 	}
 
+	sectionFolderNames := map[string]string{}
+	for sectionName, mapped := range cfg.SectionFolderNames {
+		s := strings.TrimSpace(sectionName)
+		m := strings.TrimSpace(mapped)
+		if s == "" || m == "" {
+			continue
+		}
+		sectionFolderNames[s] = m
+	}
+
+	subfolderDestinations := map[string]string{}
+	for key, dest := range cfg.SubfolderDestinations {
+		k := strings.TrimSpace(key)
+		d := strings.TrimSpace(dest)
+		if k == "" || d == "" {
+			continue
+		}
+		subfolderDestinations[k] = expandHome(d)
+	}
+
 	return Loaded{
 		App: App{
-			DownloadPath:        expandHome(downloadPath),
-			Courses:             courses,
-			Sync:                syncEnabled,
-			DefaultCourseFolder: strings.TrimSpace(cfg.DefaultCourseFolder),
-			CourseFolders:       courseFolders,
+			DownloadPath:          expandHome(downloadPath),
+			Courses:               courses,
+			Sync:                  syncEnabled,
+			DefaultCourseFolder:   strings.TrimSpace(cfg.DefaultCourseFolder),
+			CourseFolders:         courseFolders,
+			UseSectionSubfolders:  cfg.UseSectionSubfolders,
+			SectionFolderNames:    sectionFolderNames,
+			SubfolderDestinations: subfolderDestinations,
 		},
 		Credentials: credentials,
 	}, nil
@@ -138,6 +167,51 @@ func ResolveCourseFolder(cfg App, courseName string) (folder string, explicit bo
 	}
 
 	return SanitizePathComponent(courseName), false
+}
+
+// ResolveSectionFolderName maps an OPAL section/folder name to the subfolder
+// name that should be used on disk. If sectionName matches a configured
+// section_folder_names pattern, the mapped name is returned. Otherwise the
+// section name itself is sanitized and returned as-is. Matching uses the same
+// CourseMatches-style logic (case-insensitive, diacritic-insensitive,
+// substring/glob) as course_folders/course patterns elsewhere in this package.
+func ResolveSectionFolderName(cfg App, sectionName string) string {
+	for pattern, mapped := range cfg.SectionFolderNames {
+		if CourseMatches(sectionName, []string{pattern}) {
+			return SanitizePathComponent(mapped)
+		}
+	}
+	return SanitizePathComponent(sectionName)
+}
+
+// ResolveSubfolderDestination looks up subfolder_destinations for an override
+// destination path matching both courseName and sectionName. Entries are keyed
+// as "<course pattern>/<subfolder pattern>"; both halves are matched using the
+// same pattern-matching rules as course_folders (CourseMatches). It returns the
+// configured destination path and true on a match, or ("", false) otherwise.
+func ResolveSubfolderDestination(cfg App, courseName, sectionName string) (destination string, ok bool) {
+	for key, dest := range cfg.SubfolderDestinations {
+		coursePattern, subfolderPattern, valid := splitSubfolderDestinationKey(key)
+		if !valid {
+			continue
+		}
+		if CourseMatches(courseName, []string{coursePattern}) && CourseMatches(sectionName, []string{subfolderPattern}) {
+			return dest, true
+		}
+	}
+	return "", false
+}
+
+// splitSubfolderDestinationKey splits a subfolder_destinations key of the form
+// "<course pattern>/<subfolder pattern>" on the last "/" so that course
+// patterns themselves may contain "/" (e.g. nested folder-style names) while
+// the subfolder pattern remains a single path component.
+func splitSubfolderDestinationKey(key string) (coursePattern, subfolderPattern string, ok bool) {
+	idx := strings.LastIndex(key, "/")
+	if idx <= 0 || idx >= len(key)-1 {
+		return "", "", false
+	}
+	return strings.TrimSpace(key[:idx]), strings.TrimSpace(key[idx+1:]), true
 }
 
 func CourseMatches(name string, patterns []string) bool {
@@ -233,6 +307,22 @@ func Validate(cfg Loaded) error {
 			return fmt.Errorf("courses[%q] is not a valid glob pattern: %w", trimmed, err)
 		}
 	}
+	for sectionName, mapped := range cfg.App.SectionFolderNames {
+		if strings.TrimSpace(sectionName) == "" {
+			return errors.New("section_folder_names contains an empty pattern")
+		}
+		if strings.TrimSpace(mapped) == "" {
+			return fmt.Errorf("section_folder_names[%q] must not be empty", sectionName)
+		}
+	}
+	for key, dest := range cfg.App.SubfolderDestinations {
+		if _, _, valid := splitSubfolderDestinationKey(key); !valid {
+			return fmt.Errorf("subfolder_destinations key %q must be in the form \"<course pattern>/<subfolder pattern>\"", key)
+		}
+		if strings.TrimSpace(dest) == "" {
+			return fmt.Errorf("subfolder_destinations[%q] must not be empty", key)
+		}
+	}
 	return nil
 }
 
@@ -241,16 +331,19 @@ func Validate(cfg Loaded) error {
 func toRawConfig(cfg Loaded) rawConfig {
 	sync := cfg.App.Sync
 	return rawConfig{
-		DownloadPath:        cfg.App.DownloadPath,
-		Courses:             cfg.App.Courses,
-		Sync:                &sync,
-		DefaultCourseFolder: cfg.App.DefaultCourseFolder,
-		CourseFolders:       cfg.App.CourseFolders,
-		OPALURL:             cfg.Credentials.URL,
-		SessionStateFile:    cfg.Credentials.StateFile,
-		BrowserExecutable:   cfg.Credentials.BrowserExecutable,
-		BrowserUserDataDir:  cfg.Credentials.BrowserUserDataDir,
-		BrowserProfileDir:   cfg.Credentials.BrowserProfileDir,
+		DownloadPath:          cfg.App.DownloadPath,
+		Courses:               cfg.App.Courses,
+		Sync:                  &sync,
+		DefaultCourseFolder:   cfg.App.DefaultCourseFolder,
+		CourseFolders:         cfg.App.CourseFolders,
+		UseSectionSubfolders:  cfg.App.UseSectionSubfolders,
+		SectionFolderNames:    cfg.App.SectionFolderNames,
+		SubfolderDestinations: cfg.App.SubfolderDestinations,
+		OPALURL:               cfg.Credentials.URL,
+		SessionStateFile:      cfg.Credentials.StateFile,
+		BrowserExecutable:     cfg.Credentials.BrowserExecutable,
+		BrowserUserDataDir:    cfg.Credentials.BrowserUserDataDir,
+		BrowserProfileDir:     cfg.Credentials.BrowserProfileDir,
 	}
 }
 

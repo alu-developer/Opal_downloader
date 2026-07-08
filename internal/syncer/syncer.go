@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
@@ -202,9 +203,9 @@ func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cf
 			progress(Event{Type: EventCourseStarted, Course: remoteFile.Course})
 		}
 
-		targetPath := resolveRemoteTargetPath(cfg, remoteFile)
-		targetKey := filepath.ToSlash(targetPath)
-		localPath := filepath.Join(cfg.DownloadPath, targetPath)
+		resolved := resolveRemoteTargetPath(cfg, remoteFile)
+		targetKey := filepath.ToSlash(resolved.ManifestKey)
+		localPath := resolved.LocalPath
 
 		previous, ok := manifest.Files[targetKey]
 		changed := force || fileChanged(remoteFile, ok, previous)
@@ -274,15 +275,75 @@ func ListAvailableCourses(sc *scraper.OpalScraper) error {
 	return nil
 }
 
-func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) string {
-	folder, explicit := config.ResolveCourseFolder(cfg, remoteFile.Course)
+// resolvedTarget describes where a remote file should land on disk.
+//
+// ManifestKey is always relative to cfg.DownloadPath - it is used as the
+// manifest's dedup/change-tracking key regardless of where the file
+// physically lands, so files redirected to a subfolder_destinations override
+// still get their own stable manifest entry.
+//
+// LocalPath is the actual filesystem path to download to. For the common
+// case (no override) it is filepath.Join(cfg.DownloadPath, ManifestKey). When
+// a subfolder_destinations override applies, LocalPath instead points
+// directly at the configured destination (which may be outside
+// cfg.DownloadPath entirely), bypassing the normal course folder.
+type resolvedTarget struct {
+	ManifestKey string
+	LocalPath   string
+}
+
+func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) resolvedTarget {
+	sectionName := strings.TrimSpace(remoteFile.SectionTitle)
+	if cfg.UseSectionSubfolders && sectionName != "" {
+		if destination, ok := config.ResolveSubfolderDestination(cfg, remoteFile.Course, sectionName); ok {
+			// Override destinations bypass the normal course folder entirely and
+			// may point outside download_path (e.g. an absolute path elsewhere on
+			// disk), so LocalPath is built directly from destination rather than
+			// being joined under cfg.DownloadPath. The manifest key still tracks
+			// this file under its normal course/subfolder-relative location so
+			// change detection stays stable even though the file physically lives
+			// elsewhere.
+			manifestKey := filepath.Join(resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName), remoteFile.Name)
+			return resolvedTarget{
+				ManifestKey: manifestKey,
+				LocalPath:   filepath.Join(destination, remoteFile.Name),
+			}
+		}
+	}
+
+	base := resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName)
+	manifestKey := filepath.Join(base, remoteFile.Name)
+	return resolvedTarget{
+		ManifestKey: manifestKey,
+		LocalPath:   filepath.Join(cfg.DownloadPath, manifestKey),
+	}
+}
+
+// resolveCourseSubfolderBase computes the course-folder-relative directory a
+// file belongs in, applying section subfolders when enabled and a matching
+// section name is available. This is shared between the manifest key
+// computation and the default (non-override) local path computation so both
+// stay in sync.
+func resolveCourseSubfolderBase(cfg config.App, courseName, sectionName string) string {
+	folder, explicit := config.ResolveCourseFolder(cfg, courseName)
+
+	var base string
 	if explicit {
-		return filepath.Join(folder, remoteFile.Name)
+		base = folder
+	} else if cfg.DefaultCourseFolder != "" {
+		base = filepath.Join(folder, courseName)
+	} else {
+		base = folder
 	}
-	if cfg.DefaultCourseFolder != "" {
-		return filepath.Join(folder, remoteFile.Course, remoteFile.Name)
+
+	if cfg.UseSectionSubfolders && sectionName != "" {
+		subfolder := config.ResolveSectionFolderName(cfg, sectionName)
+		if subfolder != "" {
+			base = filepath.Join(base, subfolder)
+		}
 	}
-	return filepath.Join(folder, remoteFile.Name)
+
+	return base
 }
 
 func fileChanged(remote scraper.RemoteFile, hasPrevious bool, previous FileRecord) bool {

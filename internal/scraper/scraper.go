@@ -8,12 +8,13 @@ import (
 )
 
 type RemoteFile struct {
-	Name     string
-	URL      string
-	Course   string
-	Path     string
-	Size     *int64
-	Modified *string
+	Name         string
+	URL          string
+	Course       string
+	SectionTitle string
+	Path         string
+	Size         *int64
+	Modified     *string
 }
 
 type downloadCandidate struct {

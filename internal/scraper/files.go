@@ -71,7 +71,7 @@ func (s *OpalScraper) extractSectionContentCandidates() ([]map[string]string, er
 	return toStringMapSlice(value), nil
 }
 
-func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candidates []map[string]string, course CourseRef, section SectionRef, sourceURL, opalURL string, downloadCandidates map[string]downloadCandidate) []FileRef {
+func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candidates []map[string]string, course CourseRef, section SectionRef, sourceURL, showAllURL, opalURL string, downloadCandidates map[string]downloadCandidate) []FileRef {
 	files := append([]FileRef(nil), existing...)
 	for _, candidate := range candidates {
 		linkTarget := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
@@ -97,7 +97,7 @@ func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candid
 
 		safeName := sanitizeFilename(name)
 		if downloadCandidates != nil {
-			downloadCandidates[absURL] = downloadCandidate{SourceURL: sourceURL, LinkText: strings.TrimSpace(defaultString(candidate["title"], candidate["text"])), LinkTarget: linkTarget}
+			downloadCandidates[absURL] = downloadCandidate{SourceURL: sourceURL, ShowAllURL: showAllURL, LinkText: strings.TrimSpace(defaultString(candidate["title"], candidate["text"])), LinkTarget: linkTarget}
 		}
 		files = append(files, FileRef{
 			CourseRepoID: course.RepoID,

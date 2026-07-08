@@ -21,6 +21,9 @@ func TestConvertFileRefsToRemoteFiles(t *testing.T) {
 	if remoteFiles[0].Name != "Folien.pdf" || remoteFiles[0].Course != "Programmierung 1" {
 		t.Fatalf("unexpected remote file conversion: %#v", remoteFiles[0])
 	}
+	if remoteFiles[0].SectionTitle != "Materialien" {
+		t.Fatalf("expected SectionTitle to be carried over from FileRef, got %q", remoteFiles[0].SectionTitle)
+	}
 	if remoteFiles[0].Path != "Programmierung 1/Folien.pdf" {
 		t.Fatalf("unexpected remote file path: %#v", remoteFiles[0])
 	}

@@ -121,6 +121,9 @@ between them.
 | `download_path` | Local destination path |
 | `default_course_folder` | Folder used when no course rule matches; if omitted, the course name is used as before |
 | `course_folders` | Mapping of course-name patterns to target folders; first match wins |
+| `use_section_subfolders` | Optional, default `false`. When `true`, files are placed in a subfolder per OPAL section (e.g. `<course>/<section>/<file>`) instead of flat `<course>/<file>`. Off by default; output is unchanged unless this is enabled. |
+| `section_folder_names` | Optional mapping of OPAL section-name patterns to a custom subfolder name (e.g. rename `"Exercises"` to `"Übungen"`). Only used when `use_section_subfolders` is `true`. Unmatched sections fall back to OPAL's own (sanitized) section name. |
+| `subfolder_destinations` | Optional mapping of `"<course pattern>/<subfolder pattern>": "<destination path>"` to redirect a specific course's specific section to an arbitrary destination path, which may be outside `download_path` entirely. Both halves are matched with the same pattern rules as `course_folders`. Only used when `use_section_subfolders` is `true`. |
 | `courses` | List of exact course names to sync (case-insensitive); use `"*"` to match every course. Partial/glob patterns are not matched. |
 | `sync` | Keep for compatibility (`true` by default) |
 | `opal_url` | Optional OPAL base URL override |
@@ -137,6 +140,25 @@ default_course_folder: "default"
 course_folders:
   "*Programmierung*": "Informatik/Programmierung"
   "*Analysis*": "Mathematik/Analysis"
+
+# Optional: organize each course's downloads into subfolders per OPAL section
+# (e.g. "Übungen", "Vorlesung"). Default is false - files stay flat directly
+# under the course folder, exactly as before.
+use_section_subfolders: false
+
+# Optional: rename/normalize specific OPAL section names to your own subfolder
+# names. Only applies when use_section_subfolders is true. Sections that don't
+# match any pattern here keep OPAL's own (sanitized) section name.
+section_folder_names:
+  "Exercises": "Übungen"
+
+# Optional: redirect one course's specific section to an arbitrary destination
+# path, bypassing the normal course folder entirely (the path may live outside
+# download_path). Keyed as "<course pattern>/<subfolder pattern>": "<path>".
+# Only applies when use_section_subfolders is true.
+subfolder_destinations:
+  "*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides"
+
 courses:
   - "Lineare Algebra 2"
   - "Grundlagen der Programmierung"

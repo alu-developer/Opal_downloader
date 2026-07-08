@@ -2,6 +2,100 @@ package scraper
 
 import "testing"
 
+func TestAppendSectionFilesParsesSizeAndModifiedFromRowText(t *testing.T) {
+	course := CourseRef{RepoID: "123", Title: "Programmierung 1", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
+	section := SectionRef{CourseRepoID: "123", Title: "Materialien", URL: "https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234"}
+	candidates := []map[string]string{
+		{
+			"href":    "/opal/goto.php?target=file_55&cmd=sendfile",
+			"title":   "Folien Woche 1.pdf",
+			"text":    "Folien Woche 1.pdf",
+			"rowText": "Folien Woche 1.pdf 245 KB 01.07.2026, 09:06 Uhr",
+		},
+	}
+
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
+	if len(files) != 1 {
+		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
+	}
+	if files[0].Size == nil || *files[0].Size != 245*1024 {
+		t.Fatalf("expected size to be parsed as 245 KB in bytes, got %#v", files[0].Size)
+	}
+	if files[0].Modified == nil || *files[0].Modified != "01.07.2026, 09:06 Uhr" {
+		t.Fatalf("expected modified date to be parsed, got %#v", files[0].Modified)
+	}
+}
+
+func TestAppendSectionFilesLeavesSizeAndModifiedNilWithoutRowText(t *testing.T) {
+	course := CourseRef{RepoID: "123", Title: "Programmierung 1", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
+	section := SectionRef{CourseRepoID: "123", Title: "Materialien", URL: "https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234"}
+	candidates := []map[string]string{
+		{
+			"href":  "/opal/goto.php?target=file_55&cmd=sendfile",
+			"title": "Folien Woche 1.pdf",
+			"text":  "Folien Woche 1.pdf",
+		},
+	}
+
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
+	if len(files) != 1 {
+		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
+	}
+	if files[0].Size != nil {
+		t.Fatalf("expected nil size when no row text is available, got %#v", *files[0].Size)
+	}
+	if files[0].Modified != nil {
+		t.Fatalf("expected nil modified when no row text is available, got %#v", *files[0].Modified)
+	}
+}
+
+func TestParseRowSizeBytesHandlesUnitsAndDecimalComma(t *testing.T) {
+	cases := []struct {
+		rowText string
+		want    *int64
+	}{
+		{"Skript.pdf 245 KB Zuletzt geändert am 01.07.2026", int64Ptr(245 * 1024)},
+		{"Video.mp4 1,5 MB", int64Ptr(int64(1.5 * 1024 * 1024))},
+		{"Archiv.zip 2 GB", int64Ptr(2 * 1024 * 1024 * 1024)},
+		{"Klein.txt 512 Byte", int64Ptr(512)},
+		{"Klein.txt 512 Bytes", int64Ptr(512)},
+		{"Kein Größenhinweis hier", nil},
+	}
+	for _, tc := range cases {
+		got := parseRowSizeBytes(tc.rowText)
+		if (got == nil) != (tc.want == nil) {
+			t.Fatalf("parseRowSizeBytes(%q) = %v, want %v", tc.rowText, got, tc.want)
+		}
+		if got != nil && *got != *tc.want {
+			t.Fatalf("parseRowSizeBytes(%q) = %d, want %d", tc.rowText, *got, *tc.want)
+		}
+	}
+}
+
+func TestParseRowModifiedExtractsGermanDateFormats(t *testing.T) {
+	cases := []struct {
+		rowText string
+		want    *string
+	}{
+		{"Probeklausur am 16.06.2026 um 14:11 Uhr", stringPtr("16.06.2026 um 14:11 Uhr")},
+		{"Skript.pdf 245 KB 01.07.2026, 09:06 Uhr", stringPtr("01.07.2026, 09:06 Uhr")},
+		{"Skript.pdf 245 KB 01.07.2026", stringPtr("01.07.2026")},
+		{"Keine Datumsangabe hier", nil},
+	}
+	for _, tc := range cases {
+		got := parseRowModified(tc.rowText)
+		if (got == nil) != (tc.want == nil) {
+			t.Fatalf("parseRowModified(%q) = %v, want %v", tc.rowText, got, tc.want)
+		}
+		if got != nil && *got != *tc.want {
+			t.Fatalf("parseRowModified(%q) = %q, want %q", tc.rowText, *got, *tc.want)
+		}
+	}
+}
+
+func int64Ptr(v int64) *int64    { return &v }
+func stringPtr(v string) *string { return &v }
+
 func TestAppendSectionFilesCollectsOnlyAllowedFiles(t *testing.T) {
 	course := CourseRef{RepoID: "123", Title: "Programmierung 1", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
 	section := SectionRef{CourseRepoID: "123", Title: "Materialien", URL: "https://bildungsportal.sachsen.de/opal/goto.php?target=fold_1234"}

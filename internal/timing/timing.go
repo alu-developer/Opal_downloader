@@ -110,25 +110,28 @@ func (d *DownloadTracker) AverageDuration() time.Duration {
 	return d.sum / time.Duration(d.count)
 }
 
-// FilesPerSecond returns throughput in files/sec based on wall-clock sum, or
-// 0 if no downloads were recorded or the sum is zero.
-func (d *DownloadTracker) FilesPerSecond() float64 {
+// FilesPerSecond returns throughput in files/sec based on the wall-clock
+// elapsed duration of the download phase (not the summed per-job durations,
+// which can far exceed wall-clock time when downloads are serialized behind
+// a mutex, e.g. the browser-fallback path), or 0 if no downloads were
+// recorded or elapsed is zero.
+func (d *DownloadTracker) FilesPerSecond(elapsed time.Duration) float64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	seconds := d.sum.Seconds()
+	seconds := elapsed.Seconds()
 	if d.count == 0 || seconds <= 0 {
 		return 0
 	}
 	return float64(d.count) / seconds
 }
 
-// MBPerSecond returns throughput in MB/sec based on wall-clock sum and the
-// total bytes recorded, or 0 if no sizes were ever provided or the sum is
-// zero.
-func (d *DownloadTracker) MBPerSecond() float64 {
+// MBPerSecond returns throughput in MB/sec based on the wall-clock elapsed
+// duration of the download phase (see FilesPerSecond) and the total bytes
+// recorded, or 0 if no sizes were ever provided or elapsed is zero.
+func (d *DownloadTracker) MBPerSecond(elapsed time.Duration) float64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	seconds := d.sum.Seconds()
+	seconds := elapsed.Seconds()
 	if !d.hasBytes || seconds <= 0 {
 		return 0
 	}
@@ -163,14 +166,14 @@ func PrintDownloadSummary(elapsed time.Duration, tracker *DownloadTracker) {
 		return
 	}
 
-	if mbps := tracker.MBPerSecond(); mbps > 0 {
+	if mbps := tracker.MBPerSecond(elapsed); mbps > 0 {
 		fmt.Printf("Download:  %s (%d files, %.1f files/sec, %.1f MB/sec)\n",
-			formatDuration(elapsed), tracker.Count(), tracker.FilesPerSecond(), mbps)
+			formatDuration(elapsed), tracker.Count(), tracker.FilesPerSecond(elapsed), mbps)
 		return
 	}
 
 	fmt.Printf("Download:  %s (%d files, %.1f files/sec)\n",
-		formatDuration(elapsed), tracker.Count(), tracker.FilesPerSecond())
+		formatDuration(elapsed), tracker.Count(), tracker.FilesPerSecond(elapsed))
 }
 
 // PrintTotalSummary prints the final total wall-clock line, e.g.:

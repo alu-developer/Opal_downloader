@@ -11,12 +11,28 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/timing"
 )
 
 type Stats struct {
 	Downloaded int
 	Skipped    int
 	Errors     int
+
+	// DownloadDuration is the wall-clock time spent downloading files, i.e.
+	// everything in SyncCourses AFTER remote discovery
+	// (sc.ScrapeWithSavedSession) has returned: manifest comparison plus
+	// every file download. It intentionally excludes discovery/crawl time,
+	// which is reported separately via timing.PrintDiscoverySummary inside
+	// the scraper. Downloads is the per-file timing tracker used to report
+	// throughput at the end of a run (perf-01 instrumentation groundwork for
+	// perf-02/03/04).
+	// Downloads is a pointer (rather than an embedded value) because
+	// timing.DownloadTracker holds a mutex for concurrency-safety (needed by
+	// perf-02's parallel downloads); embedding it by value in Stats would
+	// make returning Stats by value copy the lock, which go vet flags.
+	DownloadDuration time.Duration
+	Downloads        *timing.DownloadTracker
 }
 
 // EventType identifies the kind of progress event fired during a sync run.
@@ -123,29 +139,49 @@ func SyncCoursesWithProgress(sc *scraper.OpalScraper, cfg config.App, force bool
 		progress = func(Event) {}
 	}
 
-	stats := Stats{}
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
-		return stats, err
+		return Stats{}, err
 	}
 
 	manifestPath := filepath.Join(cfg.DownloadPath, ".opal-sync.manifest.json")
 	manifest, err := LoadManifest(manifestPath)
 	if err != nil {
-		return stats, err
+		return Stats{}, err
 	}
 
 	remoteFiles, err := sc.ScrapeWithSavedSession(cfg.Courses)
 	if err != nil {
-		return stats, err
+		return Stats{}, err
 	}
+
+	return syncRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
+}
+
+// syncRemoteFiles runs the manifest-diff-and-download phase of a sync given
+// an already-discovered list of remote files. It is split out from
+// SyncCoursesWithProgress so the download-timing behavior (stats.DownloadDuration
+// must exclude discovery/crawl time, which happens before this function is
+// ever called) can be exercised in tests with a fake downloadFn, without
+// needing a real *scraper.OpalScraper/browser.
+func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error, progress ProgressFunc) (Stats, error) {
+	if progress == nil {
+		progress = func(Event) {}
+	}
+
+	// The download timer starts only after discovery has returned (the
+	// caller only invokes syncRemoteFiles post-discovery), so
+	// stats.DownloadDuration (and the "Download:" line printed from it)
+	// measures actual download work, not discovery/crawl time.
+	syncTimer := timing.StartTimer()
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
 
-	stats = processRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
+	stats := processRemoteFiles(remoteFiles, manifest, cfg, force, downloadFn, progress)
 
 	if err := manifest.Save(); err != nil {
 		return stats, err
 	}
 
+	stats.DownloadDuration = syncTimer.Elapsed()
 	progress(Event{Type: EventComplete, Stats: stats})
 
 	return stats, nil
@@ -153,10 +189,10 @@ func SyncCoursesWithProgress(sc *scraper.OpalScraper, cfg config.App, force bool
 
 // processRemoteFiles applies the changed/skip/download decision and
 // progress-event firing for a discovered file list. Extracted from
-// SyncCoursesWithProgress so it can be unit tested without a real
+// syncRemoteFiles so it can be unit tested without a real
 // *scraper.OpalScraper (downloadFn stands in for sc.DownloadFile).
 func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
-	stats := Stats{}
+	stats := Stats{Downloads: &timing.DownloadTracker{}}
 
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
 
@@ -189,12 +225,18 @@ func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cf
 			continue
 		}
 
-		if err := downloadFn(remoteFile.URL, localPath); err != nil {
+		fileTimer := timing.StartTimer()
+		downloadErr := downloadFn(remoteFile.URL, localPath)
+		fileElapsed := fileTimer.Elapsed()
+		if downloadErr != nil {
 			stats.Errors++
-			fmt.Printf("  error: %s (%v)\n", targetKey, err)
-			progress(Event{Type: EventError, Course: remoteFile.Course, File: targetKey, Err: err})
+			fmt.Printf("  error: %s (%v)\n", targetKey, downloadErr)
+			progress(Event{Type: EventError, Course: remoteFile.Course, File: targetKey, Err: downloadErr})
 			continue
 		}
+
+		stats.Downloads.Record(fileElapsed, remoteFile.Size)
+		timing.PrintProfileLine("downloaded %s in %s", targetKey, fileElapsed)
 
 		manifest.Files[targetKey] = FileRecord{
 			Size:     remoteFile.Size,

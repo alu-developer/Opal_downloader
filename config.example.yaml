@@ -50,6 +50,12 @@ sync: true
 # --concurrency on the sync command. Defaults to 3.
 download_concurrency: 3
 
+# (Optional) Maximum number of courses crawled concurrently during discovery,
+# each on its own browser tab. Keep this conservative for the same reason as
+# download_concurrency. Can also be set with --course-concurrency on the
+# list/sync commands. Defaults to 3.
+course_concurrency: 3
+
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.
 # Only change if you're using a different Bildungsportal Sachsen instance.
 opal_url: "https://bildungsportal.sachsen.de/opal/"

@@ -21,6 +21,13 @@ const (
 	// concurrently during sync. Kept conservative (not "max parallelism") to
 	// avoid tripping OPAL's rate-limiting/bot-detection.
 	DefaultDownloadConcurrency = 3
+
+	// DefaultCourseConcurrency is the default number of courses crawled
+	// concurrently during discovery, each on its own browser tab/page.
+	// Kept conservative for the same reason as DefaultDownloadConcurrency:
+	// avoid tripping OPAL's rate-limiting/bot-detection with too much
+	// parallelism.
+	DefaultCourseConcurrency = 3
 )
 
 type Credentials struct {
@@ -46,6 +53,12 @@ type App struct {
 	// download path is always serialized regardless of this value. Defaults
 	// to DefaultDownloadConcurrency when unset/non-positive.
 	DownloadConcurrency int
+
+	// CourseConcurrency is the maximum number of courses crawled
+	// concurrently during discovery, each on its own browser tab/page
+	// sharing the authenticated browser context. Defaults to
+	// DefaultCourseConcurrency when unset/non-positive.
+	CourseConcurrency int
 }
 
 type Loaded struct {
@@ -68,6 +81,7 @@ type rawConfig struct {
 	BrowserUserDataDir    string            `yaml:"browser_user_data_dir"`
 	BrowserProfileDir     string            `yaml:"browser_profile_directory"`
 	DownloadConcurrency   int               `yaml:"download_concurrency"`
+	CourseConcurrency     int               `yaml:"course_concurrency"`
 }
 
 func LoadCredentials(configPath string) (Credentials, error) {
@@ -127,6 +141,11 @@ func Load(configPath string) (Loaded, error) {
 		downloadConcurrency = DefaultDownloadConcurrency
 	}
 
+	courseConcurrency := cfg.CourseConcurrency
+	if courseConcurrency <= 0 {
+		courseConcurrency = DefaultCourseConcurrency
+	}
+
 	courseFolders := map[string]string{}
 	for pattern, folder := range cfg.CourseFolders {
 		p := strings.TrimSpace(pattern)
@@ -168,6 +187,7 @@ func Load(configPath string) (Loaded, error) {
 			SectionFolderNames:    sectionFolderNames,
 			SubfolderDestinations: subfolderDestinations,
 			DownloadConcurrency:   downloadConcurrency,
+			CourseConcurrency:     courseConcurrency,
 		},
 		Credentials: credentials,
 	}, nil
@@ -363,6 +383,7 @@ func toRawConfig(cfg Loaded) rawConfig {
 		BrowserUserDataDir:    cfg.Credentials.BrowserUserDataDir,
 		BrowserProfileDir:     cfg.Credentials.BrowserProfileDir,
 		DownloadConcurrency:   cfg.App.DownloadConcurrency,
+		CourseConcurrency:     cfg.App.CourseConcurrency,
 	}
 }
 

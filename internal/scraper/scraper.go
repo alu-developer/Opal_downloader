@@ -39,6 +39,14 @@ type OpalScraper struct {
 	browserProfileDir  string
 	developerMode      bool
 
+	// courseConcurrency is the number of courses crawled concurrently during
+	// discovery, each on its own browser tab/page (see
+	// collectCourseFilesConcurrently in orchestrator.go). Like
+	// developerMode, it is set once via SetCourseConcurrency before a scrape
+	// begins and only read afterward, so it needs no locking of its own.
+	// <= 0 means "use config.DefaultCourseConcurrency".
+	courseConcurrency int
+
 	// fieldMu guards pw/browser/context/page. The GUI's /sync/cancel handler
 	// calls Close() from the HTTP-handler goroutine while runJob's goroutine
 	// may still be reading/writing these same fields mid-scrape (see PR #22
@@ -133,6 +141,13 @@ func (s *OpalScraper) setPw(pw *playwright.Playwright) {
 
 func (s *OpalScraper) SetDeveloperMode(enabled bool) {
 	s.developerMode = enabled
+}
+
+// SetCourseConcurrency sets the number of courses crawled concurrently
+// during discovery. A value <= 0 falls back to
+// config.DefaultCourseConcurrency at scrape time.
+func (s *OpalScraper) SetCourseConcurrency(concurrency int) {
+	s.courseConcurrency = concurrency
 }
 
 func New(opalURL, stateFile, browserExecutable, browserUserDataDir, browserProfileDir string) *OpalScraper {

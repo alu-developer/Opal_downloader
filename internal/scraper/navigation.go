@@ -77,8 +77,12 @@ func isSectionURLAllowedForCourse(absURL, repoID string) bool {
 	return true
 }
 
-func (s *OpalScraper) waitForInteractiveLinks(selectorTimeoutMs, fallbackWaitMs float64) {
-	page := s.getPage()
+// waitForInteractiveLinks waits for interactive link-like elements to appear
+// on page. page is taken as an explicit parameter (rather than defaulting to
+// s.getPage()) so this also works correctly against one of the per-worker
+// tabs opened by collectCourseFilesConcurrently for parallel course
+// crawling, not just the single shared s.page.
+func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, selectorTimeoutMs, fallbackWaitMs float64) {
 	if page == nil {
 		return
 	}

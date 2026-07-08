@@ -24,11 +24,12 @@ import (
 // s.browserDownloadMu so callers are free to invoke DownloadFile from a
 // worker pool for the common (fast-path) case.
 func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
-	if s.context == nil {
+	ctx := s.getContext()
+	if ctx == nil {
 		return errors.New("no authenticated browser context available")
 	}
 
-	response, err := s.context.Request().Get(fileURL)
+	response, err := ctx.Request().Get(fileURL)
 	if err == nil && response != nil && response.Status() == 200 {
 		headers := response.Headers()
 		contentType := strings.ToLower(headers["content-type"])
@@ -47,12 +48,13 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 }
 
 func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return errors.New("no browser page available for download fallback")
 	}
 
-	download, err := s.page.ExpectDownload(func() error {
-		_, navErr := s.page.Goto(fileURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)})
+	download, err := page.ExpectDownload(func() error {
+		_, navErr := page.Goto(fileURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)})
 		return navErr
 	}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
 	if err == nil {
@@ -100,7 +102,12 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 		return errors.New("no page URL to search for downloadable link")
 	}
 
-	if _, err := s.page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+	page := s.getPage()
+	if page == nil {
+		return errors.New("no browser page available for download fallback")
+	}
+
+	if _, err := page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 		return err
 	}
 
@@ -114,8 +121,8 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 
 	if targetFragment != "" {
 		selector := fmt.Sprintf("a[href*='%s']", strings.ReplaceAll(targetFragment, "'", "\\'"))
-		download, clickErr := s.page.ExpectDownload(func() error {
-			return s.page.Locator(selector).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)})
+		download, clickErr := page.ExpectDownload(func() error {
+			return page.Locator(selector).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)})
 		}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
 		if clickErr == nil {
 			return download.SaveAs(localPath)
@@ -123,8 +130,8 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	}
 
 	if candidate.LinkText != "" {
-		download, clickErr := s.page.ExpectDownload(func() error {
-			return s.page.GetByText(candidate.LinkText, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)})
+		download, clickErr := page.ExpectDownload(func() error {
+			return page.GetByText(candidate.LinkText, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)})
 		}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
 		if clickErr == nil {
 			return download.SaveAs(localPath)

@@ -55,16 +55,17 @@ func (s *OpalScraper) DumpPageLinks(targetURL, outputPath string) error {
 	if err := s.ensureSession(false); err != nil {
 		return err
 	}
-	if s.page == nil {
+	page := s.getPage()
+	if page == nil {
 		return errors.New("no page available")
 	}
 
-	if _, err := s.page.Goto(targetURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
+	if _, err := page.Goto(targetURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 		return err
 	}
 	s.waitForInteractiveLinks(contentSelectorTimeoutMs, contentFallbackWaitMs)
 
-	value, err := s.page.Evaluate(`() => {
+	value, err := page.Evaluate(`() => {
 			const selectors = 'a[href], [onclick], [data-href], [data-url]';
 			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
 			const isVisible = (el) => {
@@ -150,7 +151,7 @@ func (s *OpalScraper) DumpPageLinks(targetURL, outputPath string) error {
 	}
 
 	rawEntries := toStringMapSlice(value)
-	finalURL := defaultString(s.page.URL(), targetURL)
+	finalURL := defaultString(page.URL(), targetURL)
 	repoID := extractRepositoryEntryID(finalURL)
 	entries := make([]LinkDumpEntry, 0, len(rawEntries))
 	for _, raw := range rawEntries {

@@ -155,6 +155,7 @@ func runStatus(args []string) error {
 	if err != nil {
 		return err
 	}
+	printConfigWarnings(loaded.App)
 
 	fmt.Printf("Config: %s (OK)\n", configPath)
 	fmt.Printf("OPAL URL: %s\n", loaded.Credentials.URL)
@@ -219,6 +220,7 @@ func runList(args []string) error {
 	configPath := filepath.Join(projectDir(), "config.yaml")
 	devMode := false
 	profile := false
+	courseConcurrency := 0
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--config":
@@ -231,6 +233,16 @@ func runList(args []string) error {
 			devMode = true
 		case "--profile":
 			profile = true
+		case "--course-concurrency":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--course-concurrency requires a value")
+			}
+			parsed, parseErr := strconv.Atoi(args[i])
+			if parseErr != nil || parsed <= 0 {
+				return fmt.Errorf("--course-concurrency requires a positive integer, got %q", args[i])
+			}
+			courseConcurrency = parsed
 		default:
 			return fmt.Errorf("unknown option for list: %s", args[i])
 		}
@@ -241,9 +253,14 @@ func runList(args []string) error {
 	if err != nil {
 		return err
 	}
+	printConfigWarnings(loaded.App)
+	if courseConcurrency > 0 {
+		loaded.App.CourseConcurrency = courseConcurrency
+	}
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
+	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	defer sc.Close()
 
 	totalTimer := timing.StartTimer()
@@ -259,6 +276,7 @@ func runSync(args []string) error {
 	devMode := false
 	profile := false
 	concurrency := 0
+	courseConcurrency := 0
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -284,6 +302,16 @@ func runSync(args []string) error {
 				return fmt.Errorf("--concurrency requires a positive integer, got %q", args[i])
 			}
 			concurrency = parsed
+		case "--course-concurrency":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--course-concurrency requires a value")
+			}
+			parsed, parseErr := strconv.Atoi(args[i])
+			if parseErr != nil || parsed <= 0 {
+				return fmt.Errorf("--course-concurrency requires a positive integer, got %q", args[i])
+			}
+			courseConcurrency = parsed
 		default:
 			return fmt.Errorf("unknown option for sync: %s", args[i])
 		}
@@ -294,12 +322,17 @@ func runSync(args []string) error {
 	if err != nil {
 		return err
 	}
+	printConfigWarnings(loaded.App)
 	if concurrency > 0 {
 		loaded.App.DownloadConcurrency = concurrency
+	}
+	if courseConcurrency > 0 {
+		loaded.App.CourseConcurrency = courseConcurrency
 	}
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
+	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	defer sc.Close()
 
 	fmt.Printf("Download path: %s\n", loaded.App.DownloadPath)
@@ -411,6 +444,15 @@ func runGUI(args []string) error {
 	return gui.Run(gui.Options{Port: port, ConfigPath: configPath})
 }
 
+// printConfigWarnings prints non-fatal config.Warnings for app to stderr,
+// one line per warning, prefixed "Warning:" (matching the "Error:" prefix
+// used for fatal errors in Execute). A no-op when there are no warnings.
+func printConfigWarnings(app config.App) {
+	for _, w := range config.Warnings(app) {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
+}
+
 func projectDir() string {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -441,12 +483,13 @@ func printHelp() {
 	fmt.Println("  status --config <path>")
 	fmt.Println("  gui [--port <port>] [--config <path>]")
 	fmt.Println("  login --config <path> [--dev]")
-	fmt.Println("  list --config <path> [--dev] [--profile]")
-	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--concurrency <n>]")
+	fmt.Println("  list --config <path> [--dev] [--profile] [--course-concurrency <n>]")
+	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--concurrency <n>] [--course-concurrency <n>]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
 	fmt.Println()
-	fmt.Println("  --profile        Print granular per-course/per-file timings in addition to the summary")
-	fmt.Println("  --concurrency n  Max concurrent file downloads for sync (default 3, overrides config.yaml)")
+	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
+	fmt.Println("  --concurrency n         Max concurrent file downloads for sync (default 3, overrides config.yaml)")
+	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 3, overrides config.yaml)")
 }
 
 func copyFile(source, target string) error {

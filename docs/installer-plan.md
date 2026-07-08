@@ -1,0 +1,264 @@
+# Windows `setup.exe` Installer — Design Plan
+
+Status: planning only. No installer code, `.iss`/`.wxs`/`.nsi` scripts, or CI
+changes exist yet. This document is the deliverable for that planning task;
+implementation is intentionally deferred to follow-up tasks (see Section 8).
+
+## 1. Problem statement
+
+Today, getting `opal-downloader` running requires (per `docs/setup-friction.md`
+and `README.md`'s Installation section):
+
+1. `git clone` the repo (with a README URL casing bug already logged as
+   friction finding #1).
+2. Install Go 1.23+.
+3. Run the Playwright browser install (`go run
+   github.com/mxschmitt/playwright-go/cmd/playwright@... install`).
+4. `go build -o opal-downloader.exe .`.
+5. Run `init` (or the newer `setup` meta-command) to create `config.yaml`,
+   then hand-edit it or use `gui` to configure it.
+
+That's a developer workflow, not an end-user install. The goal here is a
+single downloadable `setup.exe` that a non-technical TU Dresden student can
+double-click, click through a short wizard, and end up with the app
+installed, Playwright's Chromium ready, and the GUI open in their browser —
+no Go toolchain, no `git`, no terminal.
+
+This plan explicitly targets **Windows only** (the primary user base per
+`env`/repo history), consistent with the rest of the project's Windows-first
+tooling (`scripts/dev.ps1`, `scripts/test-fresh-install.ps1` are PowerShell).
+
+## 2. Installer technology choice: **Inno Setup**
+
+Recommendation: **Inno Setup** (free, script-driven `.iss` compiler, produces
+a single self-contained `setup.exe`).
+
+Rationale, considered against the alternatives:
+
+| Option | Verdict |
+|---|---|
+| **Inno Setup** | **Chosen.** Purpose-built for exactly this shape of deliverable: one binary + a few support files, a short wizard (welcome → install dir → optional shortcuts → finish), and a post-install hook to run an arbitrary command. Its Pascal-like scripting (`[Code]` sections) is enough to run `opal-downloader.exe setup` after file copy and to detect Brave/Chrome presence (Section 5). Single `.iss` text file, no XML, compiles to one `setup.exe` with no runtime dependency beyond what Windows already has. Large existing user base for "simple app installer" use cases, so tutorials/troubleshooting are easy to find. |
+| **WiX Toolset** | Rejected for v1. Produces industry-standard `.msi` packages with strong enterprise/Group Policy/uninstall-tracking support, but that's overkill for a single-maintainer open-source tool with no enterprise deployment story. XML authoring and the WiX build pipeline (candle/light, or the newer WiX v4 CLI) are meaningfully more setup/learning overhead than Inno Setup for the same result. Worth revisiting only if the project later needs MSI-specific features (e.g. SCCM/Intune deployment at TU Dresden IT scale) — not needed now. |
+| **NSIS** | Close second, also viable (also free, also produces a single `.exe`, arguably more flexible/lower-level via its scripting language). Passed over in favor of Inno Setup mainly because Inno's declarative `[Files]`/`[Tasks]`/`[Run]` sections map more directly and readably onto this installer's actual needs (copy binary + assets, optionally run `setup`, optionally launch `gui`) with less boilerplate than NSIS's more macro-heavy scripting style. Either would work; this is a mild preference, not a hard technical requirement. |
+| **Go-based self-extracting wizard** (a custom Go program with an embedded archive that extracts itself and shows a minimal UI) | Rejected. Appealing in the abstract ("stay in the language the rest of the project already uses"), but it means building and maintaining a GUI wizard framework (welcome screen, directory picker, progress bar, uninstall registration, Windows Add/Remove Programs entry, admin-elevation prompts) essentially from scratch — all things Inno Setup already provides out of the box, tested across two decades of Windows versions. Not a good use of effort for a single-maintainer project; would only make sense if the project needed cross-platform installer parity from one codebase, which is not a current goal (this repo is Windows-first per `env`/`CLAUDE.md`). |
+
+**Decision: Inno Setup**, single `.iss` script, compiled to
+`opal-downloader-setup.exe`.
+
+## 3. What gets bundled vs. installed at install-time
+
+Two install-time cost centers exist beyond the Go binary itself: (a) the
+compiled `opal-downloader.exe` and its static assets (GUI templates/static
+files, `config.example.yaml`), and (b) Playwright's Chromium browser cache
+(`%LOCALAPPDATA%\ms-playwright`, historically 150–300+ MB depending on
+Chromium version).
+
+**Decision: do not bundle Chromium. Trigger `opal-downloader.exe setup`
+(already exists, see `cmd/opal-downloader/root.go`'s `runSetup`) as a
+post-install step, downloaded over the internet at install time.**
+
+Rationale:
+
+- `runSetup` already wraps exactly this step (`go run
+  .../playwright-go/cmd/playwright@v0.6100.0 install`, run as a subprocess of
+  the *installed* binary — no Go toolchain needed on the user's machine,
+  since the pinned `playwright` driver download is independent of `go run`
+  requiring a local Go install... **caveat**: `runSetup` currently shells out
+  via `exec.Command("go", "run", ...)`, which *does* require a Go toolchain
+  on PATH. That's a real blocker worth flagging as a prerequisite fix (see
+  Section 8) — either the installer's post-install hook needs its own
+  Chromium-fetch mechanism independent of `go run`, or `runSetup` needs to
+  be reworked to invoke the Playwright driver executable directly (the
+  `playwright-go` module can install its own driver without `go run` via the
+  library's `playwright.Install()` API, which is what `runSetup` should
+  probably call instead of shelling out to `go run ... install`). This plan
+  flags it; fixing it is out of scope for this planning-only document.
+- Bundling Chromium would roughly triple-plus the installer size and,
+  worse, would need updating in lockstep with the `playwright-go` version
+  pin (`v0.6100.0` today) every time it's bumped — an ongoing maintenance
+  tax the project doesn't currently have tooling for.
+- Fetching at install time keeps the installer itself small (just the Go
+  binary + assets, likely low tens of MB) and matches the project's existing
+  "internet-required for one step" precedent (README already documents this
+  as a one-time step for the manual dev path).
+- Trade-off accepted: install-time internet access is required. If it's
+  unavailable or the download fails, the installer should not hard-fail the
+  whole install — it should install the binary successfully, skip/report the
+  Chromium step as failed, and tell the user they can re-run it later via
+  `opal-downloader.exe setup` from a shortcut or terminal. This mirrors how
+  `setup` already degrades today (it's rerunnable/idempotent per its
+  existing "skip if exists" pattern for config).
+
+## 4. Config bootstrap during install
+
+**Decision: the installer does not collect `download_path`, course patterns,
+`browser_user_data_dir`/`browser_profile_directory`, or any other
+`config.yaml` field. It defers entirely to the GUI's first-run settings
+page.**
+
+Rationale:
+
+- The GUI (`internal/gui/settings.go`) already detects a missing config file
+  (matches on `"config file not found"` from `internal/config`) and offers to
+  create one — this is exactly the onboarding surface a wizard-style install
+  flow should hand off to, and it's already implemented (unlike the
+  currently-blocked `gui-primary-entrypoint` task, this detection is a
+  pre-existing capability of the settings page, not something this plan is
+  waiting on).
+- Config fields like `browser_user_data_dir`/course glob patterns require
+  path pickers, validation, and explanatory text that are far better suited
+  to a web form (already built) than to Inno Setup's limited wizard-page
+  scripting. Duplicating that logic in Pascal Script inside the `.iss` file
+  would be redundant, harder to maintain, and would drift from the GUI's own
+  validation over time.
+- The one thing worth the installer's own wizard page: **the install
+  directory and the "create a desktop/start-menu shortcut" choice** — both
+  are standard Inno Setup wizard pages requiring no custom code.
+- Post-install flow: last installer step runs `opal-downloader.exe setup`
+  (Playwright install, per Section 3) then optionally launches
+  `opal-downloader.exe gui`, which opens the user's browser straight into
+  the settings page — if `config.yaml` doesn't exist yet (fresh install,
+  the common case), the GUI's existing missing-config flow takes over from
+  there. This means the installer's job ends at "the app runs and shows you
+  a working GUI," and the GUI's existing onboarding does the rest — no new
+  config-writing code needed in the installer itself.
+
+## 5. Real-browser-profile constraint
+
+Per `CLAUDE.md`'s "Key design decisions" section, `login`/`sync`/`list`
+launch Playwright directly against the user's **real** Brave/Chrome profile
+(`browser_user_data_dir`/`browser_profile_directory`) — there is no working
+copy, because copying breaks Chromium's `Secure Preferences` HMAC integrity
+check and silently strips TU-Fast's permissions (confirmed in PR #20).
+
+**This constraint is untouched by the installer and must stay that way.**
+Concretely:
+
+- The installer **must not** attempt to install, configure, or silently
+  modify Brave/Chrome or the TU-Fast browser extension. That's out of scope
+  by design, not an oversight — any attempt to script around the profile
+  constraint (e.g. auto-detecting and pre-filling
+  `browser_user_data_dir`) risks the exact HMAC-breakage class of bug PR #20
+  already fixed once.
+- What the installer **can** reasonably do, as a pure detect-and-inform step
+  (no writes, no assumptions baked into config):
+  - Check for Brave (`%LOCALAPPDATA%\BraveSoftware\Brave-Browser`) and/or
+    Chrome (`%LOCALAPPDATA%\Google\Chrome`) presence on disk during install,
+    purely informationally.
+  - If neither is found, show a plain-text wizard page: "Opal Downloader
+    needs Brave or Chrome installed, with the TU-Fast extension enabled and
+    logged in, before `login`/`sync` will work. This installer does not set
+    that up for you — see [link to a docs page] once you're ready." This is
+    a non-blocking informational page (Next/Skip), not a hard requirement
+    gate, since a user might install now and set up the browser later.
+  - Optionally (nice-to-have, not required for v1): if Brave/Chrome *is*
+    found, pass its default profile directory as a suggested prefill value
+    to the GUI on first launch — but only as a suggestion the user must
+    confirm on the GUI's settings page, never as a silent write to
+    `config.yaml`. This is a candidate for a follow-up task, not this
+    installer's v1.
+- The existing `isUserDataDirLocked` pre-flight check (`internal/scraper/
+  profile.go`) already handles the "Brave is open" case at runtime with a
+  clear error; the installer doesn't need to duplicate that, only avoid
+  interfering with it.
+
+## 6. Code signing / SmartScreen
+
+An unsigned `setup.exe` triggers a Windows SmartScreen "Windows protected
+your PC" warning on first run (and on the downloaded file's "unblock"
+prompt), which reads as scary/untrustworthy to a non-technical user — exactly
+the audience this installer is meant to serve.
+
+Trade-off:
+
+| | Buy a code-signing cert | Ship unsigned + document workaround |
+|---|---|---|
+| Cost | EV code-signing certs run roughly $300–600+/year (standard/OV certs are cheaper but SmartScreen reputation still needs to build up over time/downloads even when signed); ongoing renewal burden | $0 |
+| User experience | No SmartScreen warning (EV certs get instant reputation; standard certs still need download-volume reputation to build) | SmartScreen warning every fresh download until enough users click through and Microsoft's reputation system whitelists the hash — which won't happen at this project's likely download volume |
+| Maintainer burden | Cert renewal, secure key storage, signing step in the release process | None beyond a doc note |
+| Fit for this project | A single-maintainer open-source tool with an unknown/small user base (TU Dresden students) | Matches the project's current scale and budget — no other paid infrastructure exists today (no CI signing secrets, no cert vault) |
+
+**Recommendation: ship unsigned for v1, document the SmartScreen "More info →
+Run anyway" workaround prominently** (in the GitHub release notes and a short
+section in the README/installer download page). Revisit code signing only if
+the user base grows enough that the SmartScreen friction becomes a real
+adoption blocker — at that point a standard (non-EV) cert is the pragmatic
+next step, since EV's main advantage (instant reputation) is proportionally
+less valuable than its cost for a project this size.
+
+## 7. Update story
+
+**Recommendation: re-run the installer manually for v1** (download the
+latest `setup.exe` from GitHub Releases, run it again — Inno Setup installs
+support upgrade-in-place by default when the same `AppId` is reused, so
+re-running over an existing install just updates files rather than
+duplicating the Start Menu entry).
+
+Rationale: an in-app update checker is real additional scope — it needs a
+version-check endpoint or GitHub Releases API polling, a download-and-apply
+flow, and a decision about auto-vs-prompted updates, none of which exist
+today. Manual re-run is zero-cost to build (it falls out of Inno Setup's
+default behavior) and is consistent with how the project already treats
+Playwright's own version pin (`v0.6100.0`) — bumped manually by the
+maintainer, not auto-updated.
+
+This can change later: an in-app "check for updates" button on the GUI
+(hitting the GitHub Releases API, showing "v0.2.0 available, download here")
+is a reasonable, low-effort follow-up once there's more than one release to
+update *to* — flagged in Section 8, not designed further here.
+
+## 8. Relationship to existing work
+
+- **Supersedes, for end users:** the multi-step manual clone → Go install →
+  Playwright install → build → `init`/`gui` flow in `README.md`'s
+  Installation/Quick Start sections, and the friction items in
+  `docs/setup-friction.md` that are specifically about *that* flow (findings
+  #1, #2, #5, #7 in particular — wrong clone URL, `.exe` suffix gotcha,
+  silent Playwright install, "no single meta-command" — all become
+  non-issues once `setup.exe` exists, since the installer subsumes what the
+  `setup` subcommand already does and removes the clone/build steps
+  entirely).
+- **Does NOT replace:** the documented manual dev setup. Contributors who
+  need to build from source (to modify the code, run tests, `scripts/dev.ps1
+  all`, etc.) keep using the existing README instructions unchanged — the
+  installer is an end-user distribution artifact built *from* a contributor's
+  `go build`, not a replacement for the build process itself.
+- **Independent of `gui-primary-entrypoint`** (`.claude/queue/blocked/
+  gui-primary-entrypoint.md`), which is currently blocked on PR #17. This
+  plan does not depend on that task landing — the installer can launch
+  `opal-downloader.exe gui` explicitly as its post-install action regardless
+  of whether running the bare binary with no subcommand later also defaults
+  to `gui`. **However, the installer itself should not actually ship
+  (i.e. no GitHub Release of `setup.exe` for end users) until
+  `gui-primary-entrypoint` lands** — shipping an installer whose entire
+  pitch is "double-click, get the GUI" while the GUI is still one extra
+  subcommand away from being the default undercuts the "no CLI knowledge
+  needed" promise this installer is meant to deliver. The installer's
+  post-install `[Run]` step can explicitly invoke `opal-downloader.exe gui`
+  either way, so this is a release-gating decision, not a technical
+  dependency.
+
+## 9. Effort/complexity estimate and suggested follow-up order
+
+Rough sizing, assuming Inno Setup and the decisions above:
+
+| Task | Effort | Depends on |
+|---|---|---|
+| 1. Fix `runSetup`'s Playwright install to not require a Go toolchain on the target machine (call `playwright-go`'s install API directly instead of `exec.Command("go", "run", ...)`) | Small–Medium | None — this is a prerequisite bug, not installer-specific, worth fixing regardless of the installer |
+| 2. Write the `.iss` script: file list (binary, GUI assets, `config.example.yaml`, LICENSE), wizard pages (install dir, shortcuts), post-install `[Run]` entries (`setup`, then `gui`) | Medium | Task 1 (so the post-install hook actually works without Go installed) |
+| 3. Add the Brave/Chrome detection informational page (Section 5) | Small | Task 2 |
+| 4. Wire installer build into a release process (manual `iscc` invocation is fine for v1; CI automation is explicitly out of scope per this task's constraints, but worth a follow-up) | Small | Task 2 |
+| 5. Wait on / land `gui-primary-entrypoint` before the first public release of `setup.exe` (Section 8) | N/A (blocked externally) | `gui-login-trigger` PR #17 merging first |
+| 6. Document the SmartScreen workaround in the release notes / README | Trivial | Task 2 |
+| 7. (Later, optional) In-app update checker | Medium | A second release existing to update to |
+| 8. (Later, optional) Suggested-profile-path prefill from browser detection into the GUI (Section 5) | Small | Task 3 |
+
+**Overall estimate: small-to-medium** for a working v1 installer (tasks 1–4,
+6) — roughly a few days of focused work for someone already familiar with
+this codebase, dominated more by the `runSetup`/Go-toolchain fix (task 1)
+than by the Inno Setup scripting itself, which is templated and
+well-documented. This is explicitly **not urgent** — per the task framing,
+this is long-term/low-priority and should not block other in-flight work.
+Follow-up tasks (1–4, 6 first; 7–8 later) should be captured separately in
+the local task queue (`.claude/queue/`) rather than implemented as part of
+this planning task.

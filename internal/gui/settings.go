@@ -17,11 +17,28 @@ type courseFolderRow struct {
 	Folder  string
 }
 
+// sectionFolderRow is one editable row of the section_folder_names map: an
+// OPAL section-name pattern mapped to the local folder name to use instead.
+type sectionFolderRow struct {
+	Pattern string
+	Folder  string
+}
+
+// subfolderDestinationRow is one editable row of the subfolder_destinations
+// map. Key is the raw "<course pattern>/<subfolder pattern>" string (kept as
+// a single field, matching the on-disk YAML key syntax documented in
+// config.example.yaml) and Destination is the target path.
+type subfolderDestinationRow struct {
+	Key         string
+	Destination string
+}
+
 // settingsViewData is passed to the settings template.
 type settingsViewData struct {
 	ConfigPath string
 	Error      string
 	Saved      bool
+	Warnings   []string
 
 	OpalURL            string
 	SessionStateFile   string
@@ -34,6 +51,10 @@ type settingsViewData struct {
 	Sync                bool
 	DefaultCourseFolder string
 	CourseFolders       []courseFolderRow
+
+	UseSectionSubfolders  bool
+	SectionFolderNames    []sectionFolderRow
+	SubfolderDestinations []subfolderDestinationRow
 }
 
 func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData {
@@ -42,8 +63,19 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 		rows = append(rows, courseFolderRow{Pattern: pattern, Folder: folder})
 	}
 
+	sectionRows := make([]sectionFolderRow, 0, len(loaded.App.SectionFolderNames))
+	for pattern, folder := range loaded.App.SectionFolderNames {
+		sectionRows = append(sectionRows, sectionFolderRow{Pattern: pattern, Folder: folder})
+	}
+
+	destRows := make([]subfolderDestinationRow, 0, len(loaded.App.SubfolderDestinations))
+	for key, dest := range loaded.App.SubfolderDestinations {
+		destRows = append(destRows, subfolderDestinationRow{Key: key, Destination: dest})
+	}
+
 	return settingsViewData{
 		ConfigPath: configPath,
+		Warnings:   config.Warnings(loaded.App),
 
 		OpalURL:            loaded.Credentials.URL,
 		SessionStateFile:   loaded.Credentials.StateFile,
@@ -56,6 +88,10 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 		Sync:                loaded.App.Sync,
 		DefaultCourseFolder: loaded.App.DefaultCourseFolder,
 		CourseFolders:       rows,
+
+		UseSectionSubfolders:  loaded.App.UseSectionSubfolders,
+		SectionFolderNames:    sectionRows,
+		SubfolderDestinations: destRows,
 	}
 }
 
@@ -64,7 +100,17 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 // save). The view data always reflects exactly what the user submitted, so
 // a validation error round-trips the user's input rather than silently
 // reverting to the last saved config.
-func parseSettingsForm(r *http.Request, configPath string) (settingsViewData, config.Loaded) {
+//
+// base is the currently-persisted config (or the zero value if none exists
+// yet). Only the fields the Settings form actually exposes are overwritten
+// on top of base; everything else - notably DownloadConcurrency and
+// CourseConcurrency, which this form has no inputs for - is carried through
+// unchanged so Save doesn't silently wipe hand-edited config.yaml fields the
+// GUI doesn't yet know how to edit. UseSectionSubfolders, SectionFolderNames,
+// and SubfolderDestinations *are* form fields (see the "Subfolder
+// organization" section) and are always overwritten from the submission,
+// same as course_folders.
+func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (settingsViewData, config.Loaded) {
 	_ = r.ParseForm()
 
 	get := func(name string) string {
@@ -96,7 +142,42 @@ func parseSettingsForm(r *http.Request, configPath string) (settingsViewData, co
 		courseFolders[pattern] = folder
 	}
 
+	sectionPatterns := r.PostForm["section_folder_pattern[]"]
+	sectionFolders := r.PostForm["section_folder_folder[]"]
+	sectionFolderNames := map[string]string{}
+	sectionRows := make([]sectionFolderRow, 0, len(sectionPatterns))
+	for i := range sectionPatterns {
+		pattern := strings.TrimSpace(sectionPatterns[i])
+		folder := ""
+		if i < len(sectionFolders) {
+			folder = strings.TrimSpace(sectionFolders[i])
+		}
+		sectionRows = append(sectionRows, sectionFolderRow{Pattern: pattern, Folder: folder})
+		if pattern == "" && folder == "" {
+			continue
+		}
+		sectionFolderNames[pattern] = folder
+	}
+
+	destKeys := r.PostForm["subfolder_dest_key[]"]
+	destPaths := r.PostForm["subfolder_dest_path[]"]
+	subfolderDestinations := map[string]string{}
+	destRows := make([]subfolderDestinationRow, 0, len(destKeys))
+	for i := range destKeys {
+		key := strings.TrimSpace(destKeys[i])
+		dest := ""
+		if i < len(destPaths) {
+			dest = strings.TrimSpace(destPaths[i])
+		}
+		destRows = append(destRows, subfolderDestinationRow{Key: key, Destination: dest})
+		if key == "" && dest == "" {
+			continue
+		}
+		subfolderDestinations[key] = dest
+	}
+
 	syncEnabled := r.FormValue("sync") == "on"
+	useSectionSubfolders := r.FormValue("use_section_subfolders") == "on"
 
 	view := settingsViewData{
 		ConfigPath: configPath,
@@ -112,24 +193,28 @@ func parseSettingsForm(r *http.Request, configPath string) (settingsViewData, co
 		Sync:                syncEnabled,
 		DefaultCourseFolder: get("default_course_folder"),
 		CourseFolders:       rows,
+
+		UseSectionSubfolders:  useSectionSubfolders,
+		SectionFolderNames:    sectionRows,
+		SubfolderDestinations: destRows,
 	}
 
-	loaded := config.Loaded{
-		App: config.App{
-			DownloadPath:        view.DownloadPath,
-			Courses:             courses,
-			Sync:                syncEnabled,
-			DefaultCourseFolder: view.DefaultCourseFolder,
-			CourseFolders:       courseFolders,
-		},
-		Credentials: config.Credentials{
-			URL:                view.OpalURL,
-			StateFile:          view.SessionStateFile,
-			BrowserExecutable:  view.BrowserExecutable,
-			BrowserUserDataDir: view.BrowserUserDataDir,
-			BrowserProfileDir:  view.BrowserProfileDir,
-		},
-	}
+	loaded := base
+	loaded.App.DownloadPath = view.DownloadPath
+	loaded.App.Courses = courses
+	loaded.App.Sync = syncEnabled
+	loaded.App.DefaultCourseFolder = view.DefaultCourseFolder
+	loaded.App.CourseFolders = courseFolders
+	loaded.App.UseSectionSubfolders = useSectionSubfolders
+	loaded.App.SectionFolderNames = sectionFolderNames
+	loaded.App.SubfolderDestinations = subfolderDestinations
+	loaded.Credentials.URL = view.OpalURL
+	loaded.Credentials.StateFile = view.SessionStateFile
+	loaded.Credentials.BrowserExecutable = view.BrowserExecutable
+	loaded.Credentials.BrowserUserDataDir = view.BrowserUserDataDir
+	loaded.Credentials.BrowserProfileDir = view.BrowserProfileDir
+
+	view.Warnings = config.Warnings(loaded.App)
 
 	return view, loaded
 }
@@ -171,7 +256,19 @@ func handleSettings(configPath string) http.HandlerFunc {
 			renderSettings(w, loadedToViewData(configPath, loaded))
 
 		case http.MethodPost:
-			view, loaded := parseSettingsForm(r, configPath)
+			// Load the currently-persisted config first so fields the
+			// Settings form has no inputs for (e.g. use_section_subfolders,
+			// section_folder_names, subfolder_destinations) are preserved
+			// rather than reset to zero values on save. If no config exists
+			// yet, or the existing file can't be parsed, fall back to the
+			// zero value - there's nothing on disk to preserve either way,
+			// and Save's own validation will surface any real problem.
+			base, err := config.Load(configPath)
+			if err != nil {
+				base = config.Loaded{}
+			}
+
+			view, loaded := parseSettingsForm(r, configPath, base)
 			if err := config.Save(configPath, loaded); err != nil {
 				view.Error = err.Error()
 				renderSettings(w, view)
@@ -195,12 +292,6 @@ func renderSettings(w http.ResponseWriter, data settingsViewData) {
 }
 
 var settingsTemplateFuncs = template.FuncMap{
-	"checked": func(b bool) string {
-		if b {
-			return "checked"
-		}
-		return ""
-	},
 	"add1": func(i int) int { return i + 1 },
 	"itoa": strconv.Itoa,
 }
@@ -227,6 +318,8 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	.checkbox-row label { margin: 0; font-weight: 600; }
 	.error { background: #fdecea; border: 1px solid #d93025; color: #7a1712; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
 	.success { background: #e6f4ea; border: 1px solid #34a853; color: #1e4620; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
+	.warning { background: #fff8e1; border: 1px solid #e0c46c; color: #6b5300; border-radius: 6px; padding: 0.6rem 1rem; margin: 0.75rem 0; font-size: 0.9rem; }
+	.warning ul { margin: 0.25rem 0 0; padding-left: 1.2rem; }
 	table.folders { width: 100%; border-collapse: collapse; margin-bottom: 0.5rem; }
 	table.folders th { text-align: left; font-size: 0.8rem; color: #666; font-weight: 600; padding-bottom: 0.25rem; }
 	table.folders td { padding: 0.2rem 0.4rem 0.2rem 0; }
@@ -244,6 +337,14 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	{{if .Error}}<div class="error"><strong>Could not save:</strong> {{.Error}}</div>{{end}}
 	{{if .Saved}}<div class="success">Saved. Config written to {{.ConfigPath}} (previous version backed up to {{.ConfigPath}}.bak).</div>{{end}}
+	{{if .Warnings}}
+	<div class="warning">
+		<strong>Heads up:</strong>
+		<ul>
+		{{range .Warnings}}<li>{{.}}</li>{{end}}
+		</ul>
+	</div>
+	{{end}}
 
 	<form method="post" action="/settings" id="settings-form">
 
@@ -294,7 +395,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	</div>
 
 	<div class="field checkbox-row">
-		<input type="checkbox" id="sync" name="sync" {{checked .Sync}}>
+		<input type="checkbox" id="sync" name="sync" {{if .Sync}}checked{{end}}>
 		<label for="sync">Incremental sync (skip unchanged files)</label>
 	</div>
 
@@ -322,6 +423,50 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<button type="button" class="add-row-btn" id="add-folder-row">+ Add rule</button>
 	</div>
 
+	<h2>Subfolder organization</h2>
+
+	<div class="field checkbox-row">
+		<input type="checkbox" id="use_section_subfolders" name="use_section_subfolders" {{if .UseSectionSubfolders}}checked{{end}}>
+		<label for="use_section_subfolders">Organize downloads into a subfolder per OPAL section</label>
+	</div>
+	<p class="hint">When enabled, files are placed in <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code> instead of flat <code>&lt;course&gt;/&lt;file&gt;</code>. The two editors below only take effect while this is checked - otherwise they are saved but ignored (see warning above if that happens).</p>
+
+	<div class="field">
+		<label>Section folder names</label>
+		<p class="hint">Renames an OPAL section name (glob pattern, e.g. <code>*Exercises*</code>) to a custom local folder name, e.g. <code>Übungen</code>. Unmatched sections keep OPAL's own (sanitized) name.</p>
+		<table class="folders" id="section-folders-table">
+			<thead><tr><th>OPAL section pattern</th><th>Local folder name</th><th></th></tr></thead>
+			<tbody>
+			{{range $i, $row := .SectionFolderNames}}
+				<tr>
+					<td><input type="text" name="section_folder_pattern[]" value="{{$row.Pattern}}" placeholder="Exercises"></td>
+					<td><input type="text" name="section_folder_folder[]" value="{{$row.Folder}}" placeholder="Übungen"></td>
+					<td><button type="button" class="remove-row-btn" onclick="this.closest('tr').remove()">Remove</button></td>
+				</tr>
+			{{end}}
+			</tbody>
+		</table>
+		<button type="button" class="add-row-btn" id="add-section-folder-row">+ Add rule</button>
+	</div>
+
+	<div class="field">
+		<label>Subfolder destination overrides</label>
+		<p class="hint">Redirects one course's specific section to an arbitrary destination path (may be outside the download path). Key is <code>&lt;course pattern&gt;/&lt;subfolder pattern&gt;</code>, e.g. <code>*Analysis*/*Vorlesung*</code>; both halves use the same pattern rules as course folder rules above.</p>
+		<table class="folders" id="subfolder-dest-table">
+			<thead><tr><th>Course pattern / subfolder pattern</th><th>Destination path</th><th></th></tr></thead>
+			<tbody>
+			{{range $i, $row := .SubfolderDestinations}}
+				<tr>
+					<td><input type="text" name="subfolder_dest_key[]" value="{{$row.Key}}" placeholder="*Analysis*/*Vorlesung*"></td>
+					<td><input type="text" name="subfolder_dest_path[]" value="{{$row.Destination}}" placeholder="D:/Elsewhere/AnalysisSlides"></td>
+					<td><button type="button" class="remove-row-btn" onclick="this.closest('tr').remove()">Remove</button></td>
+				</tr>
+			{{end}}
+			</tbody>
+		</table>
+		<button type="button" class="add-row-btn" id="add-subfolder-dest-row">+ Add rule</button>
+	</div>
+
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>
 
@@ -331,6 +476,24 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			var tr = document.createElement('tr');
 			tr.innerHTML = '<td><input type="text" name="course_folder_pattern[]" placeholder="*Analysis*"></td>' +
 				'<td><input type="text" name="course_folder_folder[]" placeholder="Mathematik/Analysis"></td>' +
+				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
+			tbody.appendChild(tr);
+		});
+
+		document.getElementById('add-section-folder-row').addEventListener('click', function () {
+			var tbody = document.querySelector('#section-folders-table tbody');
+			var tr = document.createElement('tr');
+			tr.innerHTML = '<td><input type="text" name="section_folder_pattern[]" placeholder="Exercises"></td>' +
+				'<td><input type="text" name="section_folder_folder[]" placeholder="Übungen"></td>' +
+				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
+			tbody.appendChild(tr);
+		});
+
+		document.getElementById('add-subfolder-dest-row').addEventListener('click', function () {
+			var tbody = document.querySelector('#subfolder-dest-table tbody');
+			var tr = document.createElement('tr');
+			tr.innerHTML = '<td><input type="text" name="subfolder_dest_key[]" placeholder="*Analysis*/*Vorlesung*"></td>' +
+				'<td><input type="text" name="subfolder_dest_path[]" placeholder="D:/Elsewhere/AnalysisSlides"></td>' +
 				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
 			tbody.appendChild(tr);
 		});

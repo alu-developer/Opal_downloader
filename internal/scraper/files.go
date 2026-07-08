@@ -6,14 +6,20 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/mxschmitt/playwright-go"
 )
 
-func (s *OpalScraper) extractSectionContentCandidates() ([]map[string]string, error) {
-	if s.page == nil {
+// extractSectionContentCandidates extracts candidate link elements from
+// page's current content area. page is passed explicitly so this can be run
+// against any of the per-worker tabs opened for parallel course crawling,
+// not just the single shared s.page.
+func (s *OpalScraper) extractSectionContentCandidates(page playwright.Page) ([]map[string]string, error) {
+	if page == nil {
 		return nil, errors.New("no page available")
 	}
 
-	value, err := s.page.Evaluate(`() => {
+	value, err := page.Evaluate(`() => {
 			const rootSelectors = [
 				'main',
 				'[role="main"]',

@@ -1,6 +1,13 @@
 package scraper
 
-import "testing"
+import (
+	"fmt"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 func TestConvertFileRefsToRemoteFiles(t *testing.T) {
 	items := []FileRef{
@@ -85,4 +92,195 @@ func TestOrchestratorSectionKeyDeduplicationByURLVariants(t *testing.T) {
 	if len(unique) != 2 {
 		t.Fatalf("expected two unique sections after key-based dedupe, got %d: %#v", len(unique), unique)
 	}
+}
+
+// TestCollectCourseFilesConcurrentlyAllFilesPresentRegardlessOfOrder exercises
+// the worker-pool orchestration added for perf-03 (parallel course
+// discovery): every course's files must end up in the aggregated result even
+// when courses complete out of dispatch order (the fake collectFn here gives
+// earlier-queued courses a longer delay than later ones, so completion order
+// is deliberately reversed from dispatch order).
+func TestCollectCourseFilesConcurrentlyAllFilesPresentRegardlessOfOrder(t *testing.T) {
+	courses := []CourseRef{
+		{RepoID: "1", Title: "Course A", URL: "https://opal.example/course/1"},
+		{RepoID: "2", Title: "Course B", URL: "https://opal.example/course/2"},
+		{RepoID: "3", Title: "Course C", URL: "https://opal.example/course/3"},
+		{RepoID: "4", Title: "Course D", URL: "https://opal.example/course/4"},
+	}
+
+	collectFn := func(course CourseRef) (courseCrawlResult, error) {
+		// Reverse the natural dispatch order: the first course queued sleeps
+		// longest, so it finishes last despite being dispatched first.
+		delayMs := 40 - (10 * mustAtoi(course.RepoID))
+		if delayMs > 0 {
+			time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		}
+		return courseCrawlResult{
+			files: []FileRef{{
+				CourseRepoID: course.RepoID,
+				CourseTitle:  course.Title,
+				Name:         "file.pdf",
+				URL:          course.URL + "/file.pdf",
+				Path:         course.Title + "/file.pdf",
+			}},
+		}, nil
+	}
+
+	remoteFiles := collectCourseFilesConcurrently(courses, 3, collectFn, nil)
+
+	if len(remoteFiles) != len(courses) {
+		t.Fatalf("expected %d files (one per course), got %d: %#v", len(courses), len(remoteFiles), remoteFiles)
+	}
+
+	gotCourses := make([]string, 0, len(remoteFiles))
+	for _, f := range remoteFiles {
+		gotCourses = append(gotCourses, f.Course)
+	}
+	sort.Strings(gotCourses)
+	want := []string{"Course A", "Course B", "Course C", "Course D"}
+	for i := range want {
+		if gotCourses[i] != want[i] {
+			t.Fatalf("expected courses %v in result, got %v", want, gotCourses)
+		}
+	}
+}
+
+// TestCollectCourseFilesConcurrentlyOneErrorDoesNotDropOthers matches the
+// acceptance criterion that a single course's crawl error must not abort the
+// others (the same continue-on-error behavior the old sequential loop had).
+func TestCollectCourseFilesConcurrentlyOneErrorDoesNotDropOthers(t *testing.T) {
+	courses := []CourseRef{
+		{RepoID: "1", Title: "Course A", URL: "https://opal.example/course/1"},
+		{RepoID: "2", Title: "Course B (broken)", URL: "https://opal.example/course/2"},
+		{RepoID: "3", Title: "Course C", URL: "https://opal.example/course/3"},
+	}
+
+	collectFn := func(course CourseRef) (courseCrawlResult, error) {
+		if course.RepoID == "2" {
+			return courseCrawlResult{}, fmt.Errorf("simulated crawl failure for %s", course.Title)
+		}
+		return courseCrawlResult{
+			files: []FileRef{{
+				CourseRepoID: course.RepoID,
+				CourseTitle:  course.Title,
+				Name:         "file.pdf",
+				URL:          course.URL + "/file.pdf",
+				Path:         course.Title + "/file.pdf",
+			}},
+		}, nil
+	}
+
+	remoteFiles := collectCourseFilesConcurrently(courses, 2, collectFn, nil)
+
+	if len(remoteFiles) != 2 {
+		t.Fatalf("expected 2 files (broken course excluded, others kept), got %d: %#v", len(remoteFiles), remoteFiles)
+	}
+	for _, f := range remoteFiles {
+		if f.Course == "Course B (broken)" {
+			t.Fatalf("expected broken course to be excluded from results, got: %#v", remoteFiles)
+		}
+	}
+}
+
+// TestCollectCourseFilesConcurrentlyRespectsConcurrencyCap verifies courses
+// are actually crawled in parallel (not serially disguised as a worker pool)
+// while never exceeding the configured concurrency cap - the core
+// requirement of perf-03 ("small worker pool, default 3-4 concurrent tabs").
+func TestCollectCourseFilesConcurrentlyRespectsConcurrencyCap(t *testing.T) {
+	const concurrency = 3
+	const courseCount = 9
+
+	courses := make([]CourseRef, 0, courseCount)
+	for i := 0; i < courseCount; i++ {
+		courses = append(courses, CourseRef{RepoID: fmt.Sprintf("%d", i), Title: fmt.Sprintf("Course %d", i), URL: "https://opal.example/course"})
+	}
+
+	var current int32
+	var maxObserved int32
+	collectFn := func(course CourseRef) (courseCrawlResult, error) {
+		cur := atomic.AddInt32(&current, 1)
+		defer atomic.AddInt32(&current, -1)
+		for {
+			max := atomic.LoadInt32(&maxObserved)
+			if cur <= max || atomic.CompareAndSwapInt32(&maxObserved, max, cur) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		return courseCrawlResult{files: []FileRef{{CourseRepoID: course.RepoID, CourseTitle: course.Title, Name: "f.pdf", URL: course.URL, Path: course.Title + "/f.pdf"}}}, nil
+	}
+
+	remoteFiles := collectCourseFilesConcurrently(courses, concurrency, collectFn, nil)
+
+	if len(remoteFiles) != courseCount {
+		t.Fatalf("expected %d files, got %d", courseCount, len(remoteFiles))
+	}
+	if got := atomic.LoadInt32(&maxObserved); got < 2 {
+		t.Fatalf("expected courses to run concurrently (max observed concurrency %d), delay should have made overlap observable", got)
+	}
+	if got := atomic.LoadInt32(&maxObserved); got > concurrency {
+		t.Fatalf("expected concurrency to be capped at %d, observed %d", concurrency, got)
+	}
+}
+
+// TestCollectCourseFilesConcurrentlyMergesDownloadCandidatesViaCallback
+// verifies the onResult callback (used by scrapeCoursesBrowser to fold each
+// course's locally-recorded downloadCandidates into the shared
+// s.downloadCandidates map) is invoked exactly once per successfully
+// crawled course, with that course's candidates, and never for a course
+// whose crawl errored.
+func TestCollectCourseFilesConcurrentlyMergesDownloadCandidatesViaCallback(t *testing.T) {
+	courses := []CourseRef{
+		{RepoID: "1", Title: "Course A"},
+		{RepoID: "2", Title: "Course B (broken)"},
+		{RepoID: "3", Title: "Course C"},
+	}
+
+	collectFn := func(course CourseRef) (courseCrawlResult, error) {
+		if course.RepoID == "2" {
+			return courseCrawlResult{}, fmt.Errorf("simulated crawl failure")
+		}
+		return courseCrawlResult{
+			files: []FileRef{{CourseRepoID: course.RepoID, CourseTitle: course.Title, Name: "f.pdf", URL: "https://opal.example/" + course.RepoID, Path: course.Title + "/f.pdf"}},
+			downloadCandidates: map[string]downloadCandidate{
+				"https://opal.example/" + course.RepoID: {SourceURL: "https://opal.example/" + course.RepoID},
+			},
+		}, nil
+	}
+
+	var mu sync.Mutex
+	merged := map[string]downloadCandidate{}
+	onResult := func(candidates map[string]downloadCandidate) {
+		mu.Lock()
+		defer mu.Unlock()
+		for k, v := range candidates {
+			merged[k] = v
+		}
+	}
+
+	collectCourseFilesConcurrently(courses, 2, collectFn, onResult)
+
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 merged download candidates (one per successful course), got %d: %#v", len(merged), merged)
+	}
+	if _, ok := merged["https://opal.example/1"]; !ok {
+		t.Fatalf("expected candidate from course 1 to be merged, got: %#v", merged)
+	}
+	if _, ok := merged["https://opal.example/3"]; !ok {
+		t.Fatalf("expected candidate from course 3 to be merged, got: %#v", merged)
+	}
+	if _, ok := merged["https://opal.example/2"]; ok {
+		t.Fatalf("did not expect candidate from broken course 2 to be merged, got: %#v", merged)
+	}
+}
+
+func mustAtoi(s string) int {
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return n
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
 }

@@ -11,15 +11,27 @@ import (
 
 var courseNodeSectionKeyRe = regexp.MustCompile(`(?i)/coursenode/(\d+)(/[^?#]*)?`)
 
-func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
-	if s.page == nil {
-		return nil, errors.New("no page available")
+// collectCourseFiles crawls a single course's section/folder tree on page,
+// starting from course.URL, and returns every downloadable file found along
+// with the downloadCandidates recorded for the browser-fallback download
+// path (see appendSectionFiles). page is taken as an explicit parameter
+// (rather than defaulting to s.getPage()) so this can be run concurrently
+// for multiple courses at once, each on its own Playwright page/tab opened
+// against the shared authenticated browser context - see
+// collectCourseFilesConcurrently in orchestrator.go. The returned
+// downloadCandidates map is local to this call; callers are responsible for
+// merging it into any shared state (concurrent writes to a single shared map
+// from here would race).
+func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef) ([]FileRef, map[string]downloadCandidate, error) {
+	if page == nil {
+		return nil, nil, errors.New("no page available")
 	}
 	if course.RepoID == "" {
-		return nil, errors.New("course repo id is required")
+		return nil, nil, errors.New("course repo id is required")
 	}
 
 	files := make([]FileRef, 0)
+	downloadCandidates := map[string]downloadCandidate{}
 	fileSeen := map[string]struct{}{}
 	visited := map[string]struct{}{}
 	rootKey := sectionKey(course.URL, course.RepoID)
@@ -44,25 +56,25 @@ func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 		}
 		visited[currentKey] = struct{}{}
 
-		if _, err := s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
+		if _, err := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 			continue
 		}
-		s.waitForInteractiveLinks(contentSelectorTimeoutMs, contentFallbackWaitMs)
+		s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
 
-		candidates, err := s.extractSectionContentCandidates()
+		candidates, err := s.extractSectionContentCandidates(page)
 		if err != nil {
 			continue
 		}
 		if len(candidates) == 0 {
-			s.page.WaitForTimeout(contentFallbackWaitMs)
-			retryCandidates, retryErr := s.extractSectionContentCandidates()
+			page.WaitForTimeout(contentFallbackWaitMs)
+			retryCandidates, retryErr := s.extractSectionContentCandidates(page)
 			if retryErr == nil && len(retryCandidates) > 0 {
 				candidates = retryCandidates
 			}
 		}
 
 		showAllURL := ""
-		if expanded, expandedURL, ok := s.expandShowAllInSection(currentURL, candidates); ok {
+		if expanded, expandedURL, ok := s.expandShowAllInSection(page, currentURL, candidates); ok {
 			candidates = expanded
 			showAllURL = expandedURL
 		}
@@ -72,11 +84,11 @@ func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 			sectionTitle = deriveSectionTitleFromURL(course.Title, currentURL)
 		}
 		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
-		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, s.opalURL, s.downloadCandidates)
+		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, s.opalURL, downloadCandidates)
 		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles)
 	}
 
-	return files, nil
+	return files, downloadCandidates, nil
 }
 
 // expandShowAllInSection looks for OPAL's "Alle anzeigen" ("show all") pagination
@@ -107,8 +119,8 @@ func (s *OpalScraper) collectCourseFiles(course CourseRef) ([]FileRef, error) {
 // be found again later (e.g. for a browser-fallback download click), since navigating
 // back to currentURL - which this function does before returning, see below - no longer
 // shows those files.
-func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map[string]string) ([]map[string]string, string, bool) {
-	if s.page == nil {
+func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL string, candidates []map[string]string) ([]map[string]string, string, bool) {
+	if page == nil {
 		return nil, "", false
 	}
 
@@ -123,7 +135,7 @@ func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map
 		// Prefer navigating directly to the "show all" URL over clicking: it's a
 		// plain link with a resolvable href, and direct navigation is more robust
 		// in headless mode than dispatching a click event.
-		if _, err := s.page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err == nil {
+		if _, err := page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err == nil {
 			navigated = true
 		}
 	}
@@ -131,7 +143,7 @@ func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map
 	if !navigated {
 		clicked := false
 		for _, needle := range showAllControlTextNeedles {
-			locator := s.page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
+			locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
 			if err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)}); err == nil {
 				clicked = true
 				break
@@ -144,9 +156,9 @@ func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map
 		}
 	}
 
-	s.waitForInteractiveLinks(contentSelectorTimeoutMs, contentFallbackWaitMs)
+	s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
 
-	expanded, err := s.extractSectionContentCandidates()
+	expanded, err := s.extractSectionContentCandidates(page)
 	if err != nil || len(expanded) == 0 {
 		return nil, "", false
 	}
@@ -159,7 +171,7 @@ func (s *OpalScraper) expandShowAllInSection(currentURL string, candidates []map
 	showAllURL := ""
 	if navigated && !strings.EqualFold(strings.TrimSpace(absURL), strings.TrimSpace(currentURL)) {
 		showAllURL = absURL
-		_, _ = s.page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
+		_, _ = page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
 	}
 
 	return expanded, showAllURL, true

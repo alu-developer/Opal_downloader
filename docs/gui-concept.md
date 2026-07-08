@@ -58,12 +58,22 @@ option below:
     `browser_profile_directory`.
   - **Sync behavior settings**: `download_path`, `courses` (glob/exact list),
     `sync` (bool, incremental on/off), `default_course_folder`,
-    `course_folders` (map of pattern -> folder).
+    `course_folders` (map of pattern -> folder), `use_section_subfolders`
+    (bool, off by default), `section_folder_names` (map of OPAL
+    section-name pattern -> local folder name, only applied when
+    `use_section_subfolders` is true), `subfolder_destinations` (map of
+    `"<course pattern>/<subfolder pattern>"` -> arbitrary destination path,
+    same gating).
   Loading is split into `LoadCredentials` (cheap, used by `login` and
   `dump-links`) and `Load` (full `App` + `Credentials`, used by `list`/
   `sync`). There is no persisted secrets/token store beyond the Playwright
-  `storage_state` JSON file (session cookies), and no config *writer* at all
-  today - `init` only copies `config.example.yaml` verbatim.
+  `storage_state` JSON file (session cookies). A config *writer*
+  (`config.Save`) now exists and the GUI Settings page (`internal/gui/settings.go`)
+  covers the full config surface above, including the three
+  subfolder-organization fields via add/remove row editors matching the
+  `course_folders` pattern, plus an inline warning when
+  `section_folder_names`/`subfolder_destinations` are set without
+  `use_section_subfolders` enabled (see `config.Warnings`).
 
 This matters for GUI design because: (a) there's already a real child-process
 / automation dependency, so "just add a GUI" doesn't make the process model

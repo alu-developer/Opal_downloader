@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -166,6 +167,60 @@ func TestValidateRejectsMalformedSubfolderDestinationKey(t *testing.T) {
 	}
 	if err := Validate(loaded); err == nil {
 		t.Fatal("expected error for malformed subfolder_destinations key, got nil")
+	}
+}
+
+func TestWarningsFlagsSectionFolderNamesWithoutUseSectionSubfolders(t *testing.T) {
+	cfg := App{
+		SectionFolderNames: map[string]string{"Exercises": "Uebungen"},
+	}
+	warnings := Warnings(cfg)
+	if len(warnings) != 1 {
+		t.Fatalf("expected exactly one warning, got %v", warnings)
+	}
+	if !strings.Contains(warnings[0], "section_folder_names") || !strings.Contains(warnings[0], "use_section_subfolders") {
+		t.Fatalf("expected warning to mention section_folder_names and use_section_subfolders, got %q", warnings[0])
+	}
+}
+
+func TestWarningsFlagsSubfolderDestinationsWithoutUseSectionSubfolders(t *testing.T) {
+	cfg := App{
+		SubfolderDestinations: map[string]string{"*Analysis*/*Vorlesung*": "D:/Elsewhere"},
+	}
+	warnings := Warnings(cfg)
+	if len(warnings) != 1 {
+		t.Fatalf("expected exactly one warning, got %v", warnings)
+	}
+	if !strings.Contains(warnings[0], "subfolder_destinations") || !strings.Contains(warnings[0], "use_section_subfolders") {
+		t.Fatalf("expected warning to mention subfolder_destinations and use_section_subfolders, got %q", warnings[0])
+	}
+}
+
+func TestWarningsFlagsBothFieldsWithoutUseSectionSubfolders(t *testing.T) {
+	cfg := App{
+		SectionFolderNames:    map[string]string{"Exercises": "Uebungen"},
+		SubfolderDestinations: map[string]string{"*Analysis*/*Vorlesung*": "D:/Elsewhere"},
+	}
+	warnings := Warnings(cfg)
+	if len(warnings) != 2 {
+		t.Fatalf("expected exactly two warnings, got %v", warnings)
+	}
+}
+
+func TestWarningsEmptyWhenUseSectionSubfoldersTrue(t *testing.T) {
+	cfg := App{
+		UseSectionSubfolders:  true,
+		SectionFolderNames:    map[string]string{"Exercises": "Uebungen"},
+		SubfolderDestinations: map[string]string{"*Analysis*/*Vorlesung*": "D:/Elsewhere"},
+	}
+	if warnings := Warnings(cfg); len(warnings) != 0 {
+		t.Fatalf("expected no warnings when use_section_subfolders is true, got %v", warnings)
+	}
+}
+
+func TestWarningsEmptyWhenNothingConfigured(t *testing.T) {
+	if warnings := Warnings(App{}); len(warnings) != 0 {
+		t.Fatalf("expected no warnings for zero-value App, got %v", warnings)
 	}
 }
 

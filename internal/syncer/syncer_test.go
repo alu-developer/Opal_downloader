@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
@@ -62,6 +63,63 @@ func TestFileChanged(t *testing.T) {
 	if !fileChanged(remote, true, prev) {
 		t.Fatal("expected changed when modified timestamp differs")
 	}
+}
+
+// TestSyncRemoteFilesDurationExcludesDiscovery is a regression test for the
+// PR #16 bug where the printed "Download" duration silently included
+// discovery time. It simulates a slow discovery phase (by sleeping before
+// ever calling syncRemoteFiles, mirroring how SyncCourses only starts timing
+// after sc.ScrapeWithSavedSession returns) followed by a fast, fake
+// download, and asserts stats.DownloadDuration reflects only the download
+// work, not the simulated discovery delay.
+func TestSyncRemoteFilesDurationExcludesDiscovery(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.App{DownloadPath: tmpDir}
+
+	size := int64(4)
+	remoteFiles := []scraper.RemoteFile{
+		{Name: "notes.txt", Course: "Course A", Path: "Course A/notes.txt", Size: &size},
+	}
+	manifest := &Manifest{Path: filepath.Join(tmpDir, ".opal-sync.manifest.json"), Files: map[string]FileRecord{}}
+
+	const discoverySimulatedDelay = 300 * time.Millisecond
+	const downloadFakeDelay = 20 * time.Millisecond
+
+	// Simulate a slow discovery phase that happens entirely BEFORE the
+	// timed section starts (as it does in SyncCourses, where
+	// sc.ScrapeWithSavedSession runs to completion before syncRemoteFiles
+	// is invoked).
+	time.Sleep(discoverySimulatedDelay)
+
+	downloadFn := func(url, localPath string) error {
+		time.Sleep(downloadFakeDelay)
+		return writePlaceholderFile(localPath)
+	}
+
+	stats, err := syncRemoteFiles(remoteFiles, manifest, cfg, false, downloadFn, nil)
+	if err != nil {
+		t.Fatalf("syncRemoteFiles returned error: %v", err)
+	}
+
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected 1 file downloaded, got %d", stats.Downloaded)
+	}
+
+	// The reported duration must be well under the simulated discovery
+	// delay. Before the fix, DownloadDuration would have included the full
+	// discovery sleep too. Allow generous slack for scheduler jitter, but
+	// stay far below discoverySimulatedDelay so the test fails if discovery
+	// time leaks back in.
+	if stats.DownloadDuration >= discoverySimulatedDelay {
+		t.Fatalf("DownloadDuration (%v) should not include discovery delay (%v); it appears discovery time leaked into the download timer", stats.DownloadDuration, discoverySimulatedDelay)
+	}
+	if stats.DownloadDuration < downloadFakeDelay {
+		t.Fatalf("DownloadDuration (%v) is implausibly smaller than the fake download delay (%v)", stats.DownloadDuration, downloadFakeDelay)
+	}
+}
+
+func writePlaceholderFile(path string) error {
+	return os.WriteFile(path, []byte("data"), 0o644)
 }
 
 func TestProcessRemoteFilesFiresExpectedEvents(t *testing.T) {

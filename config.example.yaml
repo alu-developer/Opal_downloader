@@ -11,6 +11,26 @@ course_folders:
   "*Programmierung*": "Informatik/Programmierung"
   "*Analysis*": "Mathematik/Analysis"
 
+# Optional: organize each course's downloads into subfolders per OPAL section
+# (e.g. "Übungen", "Vorlesung") instead of the flat "<course>/<file>" default.
+# Default is false; leaving this unset/false keeps output identical to before.
+use_section_subfolders: false
+
+# Optional: rename/normalize specific OPAL section names to your own subfolder
+# names, instead of using OPAL's raw section wording. Only applies when
+# use_section_subfolders is true. Keys are section-name patterns (same matching
+# rules as course_folders); unmatched sections keep OPAL's own sanitized name.
+section_folder_names:
+  "Exercises": "Übungen"
+
+# Optional: redirect one course's specific section to an arbitrary destination
+# path (can be outside download_path entirely), bypassing the normal course
+# folder for just that subfolder. Keys are "<course pattern>/<subfolder pattern>",
+# each matched with the same pattern rules as course_folders. Only applies when
+# use_section_subfolders is true.
+subfolder_destinations:
+  "*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides"
+
 # Exact course names to sync (case-insensitive). Partial/glob patterns are NOT
 # matched here - unlike course_folders above, this list requires the full course
 # name as it appears in OPAL.
@@ -23,6 +43,12 @@ courses:
 
 # On re-run, skip unchanged files (uses size/modified metadata)
 sync: true
+
+# (Optional) Maximum number of files downloaded concurrently during sync via
+# the fast HTTP path. Keep this conservative - a large value increases the
+# chance of tripping OPAL's rate-limiting/bot-detection. Can also be set with
+# --concurrency on the sync command. Defaults to 3.
+download_concurrency: 3
 
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.
 # Only change if you're using a different Bildungsportal Sachsen instance.

@@ -55,6 +55,120 @@ func TestResolveCourseFolder(t *testing.T) {
 	}
 }
 
+func TestResolveSectionFolderNameDefaultsToSanitizedSectionName(t *testing.T) {
+	cfg := App{}
+	if got := ResolveSectionFolderName(cfg, "Übungen"); got != "Übungen" {
+		t.Fatalf("expected sanitized section name unchanged, got %q", got)
+	}
+}
+
+func TestResolveSectionFolderNameAppliesMapping(t *testing.T) {
+	cfg := App{
+		SectionFolderNames: map[string]string{
+			"Exercises": "Übungen",
+		},
+	}
+	if got := ResolveSectionFolderName(cfg, "Exercises"); got != "Übungen" {
+		t.Fatalf("expected mapped section name, got %q", got)
+	}
+	// Unmapped sections fall back to their own (sanitized) name.
+	if got := ResolveSectionFolderName(cfg, "Vorlesung"); got != "Vorlesung" {
+		t.Fatalf("expected unmapped section name unchanged, got %q", got)
+	}
+}
+
+func TestResolveSubfolderDestinationMatch(t *testing.T) {
+	cfg := App{
+		SubfolderDestinations: map[string]string{
+			"*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides",
+		},
+	}
+	dest, ok := ResolveSubfolderDestination(cfg, "Analysis I", "Vorlesung")
+	if !ok || dest != "D:/Elsewhere/AnalysisSlides" {
+		t.Fatalf("expected override destination match, got (%q, %v)", dest, ok)
+	}
+
+	_, ok = ResolveSubfolderDestination(cfg, "Analysis I", "Uebungen")
+	if ok {
+		t.Fatal("expected no match for non-matching subfolder pattern")
+	}
+
+	_, ok = ResolveSubfolderDestination(cfg, "Programmierung", "Vorlesung")
+	if ok {
+		t.Fatal("expected no match for non-matching course pattern")
+	}
+}
+
+func TestLoadDefaultsUnchangedWithoutSubfolderConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	content := `download_path: "./downloads"
+opal_url: "https://bildungsportal.sachsen.de/opal/"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if loaded.App.UseSectionSubfolders {
+		t.Fatal("expected UseSectionSubfolders to default to false")
+	}
+	if len(loaded.App.SectionFolderNames) != 0 {
+		t.Fatalf("expected empty SectionFolderNames, got %v", loaded.App.SectionFolderNames)
+	}
+	if len(loaded.App.SubfolderDestinations) != 0 {
+		t.Fatalf("expected empty SubfolderDestinations, got %v", loaded.App.SubfolderDestinations)
+	}
+}
+
+func TestLoadParsesSubfolderConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	content := `download_path: "./downloads"
+opal_url: "https://bildungsportal.sachsen.de/opal/"
+use_section_subfolders: true
+section_folder_names:
+  "Exercises": "Uebungen"
+subfolder_destinations:
+  "*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !loaded.App.UseSectionSubfolders {
+		t.Fatal("expected UseSectionSubfolders to be true")
+	}
+	if loaded.App.SectionFolderNames["Exercises"] != "Uebungen" {
+		t.Fatalf("expected section_folder_names to be parsed, got %v", loaded.App.SectionFolderNames)
+	}
+	if loaded.App.SubfolderDestinations["*Analysis*/*Vorlesung*"] != "D:/Elsewhere/AnalysisSlides" {
+		t.Fatalf("expected subfolder_destinations to be parsed, got %v", loaded.App.SubfolderDestinations)
+	}
+}
+
+func TestValidateRejectsMalformedSubfolderDestinationKey(t *testing.T) {
+	loaded := Loaded{
+		App: App{
+			DownloadPath:          "./downloads",
+			SubfolderDestinations: map[string]string{"NoSlashHere": "D:/dest"},
+		},
+		Credentials: Credentials{URL: DefaultOPALURL},
+	}
+	if err := Validate(loaded); err == nil {
+		t.Fatal("expected error for malformed subfolder_destinations key, got nil")
+	}
+}
+
 func TestSanitizePathComponent(t *testing.T) {
 	if got := SanitizePathComponent("  folder<>name  "); got != "folder__name" {
 		t.Fatalf("sanitize invalid chars failed: got %q", got)

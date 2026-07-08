@@ -6,16 +6,43 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/timing"
 )
+
+// Downloader is the subset of *scraper.OpalScraper's behavior SyncCourses
+// depends on. Extracted as an interface so tests can exercise the
+// concurrent-download scheduling logic with a fake, without needing a real
+// browser/Playwright context.
+type Downloader interface {
+	ScrapeWithSavedSession(courseFilter []string) ([]scraper.RemoteFile, error)
+	DownloadFile(fileURL, localPath string) error
+}
 
 type Stats struct {
 	Downloaded int
 	Skipped    int
 	Errors     int
+
+	// DownloadDuration is the wall-clock time spent downloading files, i.e.
+	// everything in SyncCourses AFTER remote discovery
+	// (sc.ScrapeWithSavedSession) has returned: manifest comparison plus
+	// every file download. It intentionally excludes discovery/crawl time,
+	// which is reported separately via timing.PrintDiscoverySummary inside
+	// the scraper. Downloads is the per-file timing tracker used to report
+	// throughput at the end of a run (perf-01 instrumentation groundwork for
+	// perf-02/03/04).
+	// Downloads is a pointer (rather than an embedded value) because
+	// timing.DownloadTracker holds a mutex for concurrency-safety (needed by
+	// perf-02's parallel downloads); embedding it by value in Stats would
+	// make returning Stats by value copy the lock, which go vet flags.
+	DownloadDuration time.Duration
+	Downloads        *timing.DownloadTracker
 }
 
 // EventType identifies the kind of progress event fired during a sync run.
@@ -107,9 +134,28 @@ func (m *Manifest) Save() error {
 	return os.WriteFile(m.Path, data, 0o644)
 }
 
+// downloadJob is one file queued for download after the manifest comparison
+// pass has decided it needs to be fetched.
+type downloadJob struct {
+	targetKey  string
+	localPath  string
+	remoteFile scraper.RemoteFile
+}
+
+// downloadResult is what a worker reports back for a single job. Manifest
+// and stats mutations happen on the main goroutine only (see the result
+// collection loop in processRemoteFiles), so no locking is needed there;
+// workers only ever write to their own downloadResult value and send it on a
+// channel.
+type downloadResult struct {
+	job     downloadJob
+	elapsed time.Duration
+	err     error
+}
+
 // SyncCourses runs a sync with no progress callback; CLI output is
 // unchanged from before progress reporting was added.
-func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, error) {
+func SyncCourses(sc Downloader, cfg config.App, force bool) (Stats, error) {
 	return SyncCoursesWithProgress(sc, cfg, force, nil)
 }
 
@@ -117,34 +163,54 @@ func SyncCourses(sc *scraper.OpalScraper, cfg config.App, force bool) (Stats, er
 // incremental events as courses/files are processed, in addition to the
 // existing stdout output. progress may be nil, in which case behavior is
 // identical to SyncCourses.
-func SyncCoursesWithProgress(sc *scraper.OpalScraper, cfg config.App, force bool, progress ProgressFunc) (Stats, error) {
+func SyncCoursesWithProgress(sc Downloader, cfg config.App, force bool, progress ProgressFunc) (Stats, error) {
 	if progress == nil {
 		progress = func(Event) {}
 	}
 
-	stats := Stats{}
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
-		return stats, err
+		return Stats{}, err
 	}
 
 	manifestPath := filepath.Join(cfg.DownloadPath, ".opal-sync.manifest.json")
 	manifest, err := LoadManifest(manifestPath)
 	if err != nil {
-		return stats, err
+		return Stats{}, err
 	}
 
 	remoteFiles, err := sc.ScrapeWithSavedSession(cfg.Courses)
 	if err != nil {
-		return stats, err
+		return Stats{}, err
 	}
+
+	return syncRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
+}
+
+// syncRemoteFiles runs the manifest-diff-and-download phase of a sync given
+// an already-discovered list of remote files. It is split out from
+// SyncCoursesWithProgress so the download-timing behavior (stats.DownloadDuration
+// must exclude discovery/crawl time, which happens before this function is
+// ever called) can be exercised in tests with a fake downloadFn, without
+// needing a real *scraper.OpalScraper/browser.
+func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error, progress ProgressFunc) (Stats, error) {
+	if progress == nil {
+		progress = func(Event) {}
+	}
+
+	// The download timer starts only after discovery has returned (the
+	// caller only invokes syncRemoteFiles post-discovery), so
+	// stats.DownloadDuration (and the "Download:" line printed from it)
+	// measures actual download work, not discovery/crawl time.
+	syncTimer := timing.StartTimer()
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
 
-	stats = processRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
+	stats := processRemoteFiles(remoteFiles, manifest, cfg, force, downloadFn, progress)
 
 	if err := manifest.Save(); err != nil {
 		return stats, err
 	}
 
+	stats.DownloadDuration = syncTimer.Elapsed()
 	progress(Event{Type: EventComplete, Stats: stats})
 
 	return stats, nil
@@ -152,13 +218,18 @@ func SyncCoursesWithProgress(sc *scraper.OpalScraper, cfg config.App, force bool
 
 // processRemoteFiles applies the changed/skip/download decision and
 // progress-event firing for a discovered file list. Extracted from
-// SyncCoursesWithProgress so it can be unit tested without a real
-// *scraper.OpalScraper (downloadFn stands in for sc.DownloadFile).
+// syncRemoteFiles so it can be unit tested without a real
+// *scraper.OpalScraper (downloadFn stands in for sc.DownloadFile). Downloads
+// are scheduled across a worker pool (see downloadJob/downloadResult) sized
+// by cfg.DownloadConcurrency; manifest and stats mutations only ever happen
+// on the goroutine draining the result channel, so no locking is needed for
+// them even though DownloadFile calls happen concurrently.
 func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
-	stats := Stats{}
+	stats := Stats{Downloads: &timing.DownloadTracker{}}
 
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
 
+	jobs := make([]downloadJob, 0, len(remoteFiles))
 	seenCourses := map[string]bool{}
 	for _, remoteFile := range remoteFiles {
 		if !seenCourses[remoteFile.Course] {
@@ -166,9 +237,9 @@ func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cf
 			progress(Event{Type: EventCourseStarted, Course: remoteFile.Course})
 		}
 
-		targetPath := resolveRemoteTargetPath(cfg, remoteFile)
-		targetKey := filepath.ToSlash(targetPath)
-		localPath := filepath.Join(cfg.DownloadPath, targetPath)
+		resolved := resolveRemoteTargetPath(cfg, remoteFile)
+		targetKey := filepath.ToSlash(resolved.ManifestKey)
+		localPath := resolved.LocalPath
 
 		previous, ok := manifest.Files[targetKey]
 		changed := force || fileChanged(remoteFile, ok, previous)
@@ -188,20 +259,70 @@ func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cf
 			continue
 		}
 
-		if err := downloadFn(remoteFile.URL, localPath); err != nil {
-			stats.Errors++
-			fmt.Printf("  error: %s (%v)\n", targetKey, err)
-			progress(Event{Type: EventError, Course: remoteFile.Course, File: targetKey, Err: err})
-			continue
+		jobs = append(jobs, downloadJob{targetKey: targetKey, localPath: localPath, remoteFile: remoteFile})
+	}
+
+	concurrency := cfg.DownloadConcurrency
+	if concurrency <= 0 {
+		concurrency = config.DefaultDownloadConcurrency
+	}
+	if concurrency > len(jobs) {
+		concurrency = len(jobs)
+	}
+
+	if concurrency > 0 {
+		jobCh := make(chan downloadJob)
+		resultCh := make(chan downloadResult)
+
+		var workers sync.WaitGroup
+		workers.Add(concurrency)
+		for i := 0; i < concurrency; i++ {
+			go func() {
+				defer workers.Done()
+				for job := range jobCh {
+					fileTimer := timing.StartTimer()
+					downloadErr := downloadFn(job.remoteFile.URL, job.localPath)
+					resultCh <- downloadResult{job: job, elapsed: fileTimer.Elapsed(), err: downloadErr}
+				}
+			}()
 		}
 
-		manifest.Files[targetKey] = FileRecord{
-			Size:     remoteFile.Size,
-			Modified: remoteFile.Modified,
+		go func() {
+			for _, job := range jobs {
+				jobCh <- job
+			}
+			close(jobCh)
+		}()
+
+		go func() {
+			workers.Wait()
+			close(resultCh)
+		}()
+
+		// All manifest/stats mutations and progress-event firing happen here
+		// on the single goroutine draining resultCh, so concurrent workers
+		// never race on shared state and progress observers never see
+		// events out of order relative to each other.
+		for result := range resultCh {
+			targetKey := result.job.targetKey
+			if result.err != nil {
+				stats.Errors++
+				fmt.Printf("  error: %s (%v)\n", targetKey, result.err)
+				progress(Event{Type: EventError, Course: result.job.remoteFile.Course, File: targetKey, Err: result.err})
+				continue
+			}
+
+			stats.Downloads.Record(result.elapsed, result.job.remoteFile.Size)
+			timing.PrintProfileLine("downloaded %s in %s", targetKey, result.elapsed)
+
+			manifest.Files[targetKey] = FileRecord{
+				Size:     result.job.remoteFile.Size,
+				Modified: result.job.remoteFile.Modified,
+			}
+			stats.Downloaded++
+			fmt.Printf("  downloaded: %s\n", targetKey)
+			progress(Event{Type: EventFileDownloaded, Course: result.job.remoteFile.Course, File: targetKey})
 		}
-		stats.Downloaded++
-		fmt.Printf("  downloaded: %s\n", targetKey)
-		progress(Event{Type: EventFileDownloaded, Course: remoteFile.Course, File: targetKey})
 	}
 
 	return stats
@@ -232,15 +353,75 @@ func ListAvailableCourses(sc *scraper.OpalScraper) error {
 	return nil
 }
 
-func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) string {
-	folder, explicit := config.ResolveCourseFolder(cfg, remoteFile.Course)
+// resolvedTarget describes where a remote file should land on disk.
+//
+// ManifestKey is always relative to cfg.DownloadPath - it is used as the
+// manifest's dedup/change-tracking key regardless of where the file
+// physically lands, so files redirected to a subfolder_destinations override
+// still get their own stable manifest entry.
+//
+// LocalPath is the actual filesystem path to download to. For the common
+// case (no override) it is filepath.Join(cfg.DownloadPath, ManifestKey). When
+// a subfolder_destinations override applies, LocalPath instead points
+// directly at the configured destination (which may be outside
+// cfg.DownloadPath entirely), bypassing the normal course folder.
+type resolvedTarget struct {
+	ManifestKey string
+	LocalPath   string
+}
+
+func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) resolvedTarget {
+	sectionName := strings.TrimSpace(remoteFile.SectionTitle)
+	if cfg.UseSectionSubfolders && sectionName != "" {
+		if destination, ok := config.ResolveSubfolderDestination(cfg, remoteFile.Course, sectionName); ok {
+			// Override destinations bypass the normal course folder entirely and
+			// may point outside download_path (e.g. an absolute path elsewhere on
+			// disk), so LocalPath is built directly from destination rather than
+			// being joined under cfg.DownloadPath. The manifest key still tracks
+			// this file under its normal course/subfolder-relative location so
+			// change detection stays stable even though the file physically lives
+			// elsewhere.
+			manifestKey := filepath.Join(resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName), remoteFile.Name)
+			return resolvedTarget{
+				ManifestKey: manifestKey,
+				LocalPath:   filepath.Join(destination, remoteFile.Name),
+			}
+		}
+	}
+
+	base := resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName)
+	manifestKey := filepath.Join(base, remoteFile.Name)
+	return resolvedTarget{
+		ManifestKey: manifestKey,
+		LocalPath:   filepath.Join(cfg.DownloadPath, manifestKey),
+	}
+}
+
+// resolveCourseSubfolderBase computes the course-folder-relative directory a
+// file belongs in, applying section subfolders when enabled and a matching
+// section name is available. This is shared between the manifest key
+// computation and the default (non-override) local path computation so both
+// stay in sync.
+func resolveCourseSubfolderBase(cfg config.App, courseName, sectionName string) string {
+	folder, explicit := config.ResolveCourseFolder(cfg, courseName)
+
+	var base string
 	if explicit {
-		return filepath.Join(folder, remoteFile.Name)
+		base = folder
+	} else if cfg.DefaultCourseFolder != "" {
+		base = filepath.Join(folder, courseName)
+	} else {
+		base = folder
 	}
-	if cfg.DefaultCourseFolder != "" {
-		return filepath.Join(folder, remoteFile.Course, remoteFile.Name)
+
+	if cfg.UseSectionSubfolders && sectionName != "" {
+		subfolder := config.ResolveSectionFolderName(cfg, sectionName)
+		if subfolder != "" {
+			base = filepath.Join(base, subfolder)
+		}
 	}
-	return filepath.Join(folder, remoteFile.Name)
+
+	return base
 }
 
 func fileChanged(remote scraper.RemoteFile, hasPrevious bool, previous FileRecord) bool {

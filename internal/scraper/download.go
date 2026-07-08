@@ -10,6 +10,19 @@ import (
 	"github.com/mxschmitt/playwright-go"
 )
 
+// DownloadFile downloads fileURL to localPath. It first tries a plain HTTP
+// GET through the shared Playwright APIRequestContext (s.context.Request()),
+// which is safe to call concurrently from multiple goroutines - the
+// underlying connection dispatches each call with its own atomic message ID
+// and a sync.Map of pending callbacks (see playwright-go's connection.go),
+// so it is not tied to a single page/tab the way page navigation is.
+//
+// If the fast path doesn't return a direct, non-HTML 200 response, it falls
+// back to downloadFileViaBrowser, which drives the single shared s.page and
+// therefore must not run concurrently with itself or with any other
+// navigation of s.page. That fallback is serialized behind
+// s.browserDownloadMu so callers are free to invoke DownloadFile from a
+// worker pool for the common (fast-path) case.
 func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 	if s.context == nil {
 		return errors.New("no authenticated browser context available")
@@ -28,6 +41,8 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 		}
 	}
 
+	s.browserDownloadMu.Lock()
+	defer s.browserDownloadMu.Unlock()
 	return s.downloadFileViaBrowser(fileURL, localPath)
 }
 
@@ -49,7 +64,43 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {
 		return errors.New("response is HTML, not a direct file download")
 	}
 
-	if _, err := s.page.Goto(candidate.SourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+	return tryCandidatePagesInOrder(candidate, func(pageURL string) error {
+		return s.clickCandidateLinkOnPage(pageURL, candidate, localPath)
+	})
+}
+
+// tryCandidatePagesInOrder implements the retry ordering for locating a download
+// candidate's link: try the page where the candidate was originally recorded first. For
+// files only revealed by a section's "show all"/"Alle anzeigen" expansion, that recorded
+// SourceURL is the section's plain (unexpanded) page, which won't render the link - so if
+// the click search comes up empty there, retry on candidate.ShowAllURL, the expanded page
+// where the link actually renders, but only when it is non-empty and distinct from
+// SourceURL (otherwise it would just repeat an identical failed attempt). tryPage is
+// injected so this ordering can be unit tested without a real playwright.Page.
+func tryCandidatePagesInOrder(candidate downloadCandidate, tryPage func(pageURL string) error) error {
+	if err := tryPage(candidate.SourceURL); err == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(candidate.ShowAllURL) != "" && !strings.EqualFold(strings.TrimSpace(candidate.ShowAllURL), strings.TrimSpace(candidate.SourceURL)) {
+		if err := tryPage(candidate.ShowAllURL); err == nil {
+			return nil
+		}
+	}
+
+	return errors.New("response is HTML, browser fallback click did not find downloadable link")
+}
+
+// clickCandidateLinkOnPage navigates to pageURL and attempts to locate and click the
+// download candidate's link there, saving the resulting download to localPath. It
+// returns an error (without wrapping context) whenever the link could not be found or
+// clicked on that page, so callers can try an alternate page as a fallback.
+func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloadCandidate, localPath string) error {
+	if strings.TrimSpace(pageURL) == "" {
+		return errors.New("no page URL to search for downloadable link")
+	}
+
+	if _, err := s.page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 		return err
 	}
 
@@ -80,5 +131,5 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {
 		}
 	}
 
-	return errors.New("response is HTML, browser fallback click did not find downloadable link")
+	return errors.New("downloadable link not found on page")
 }

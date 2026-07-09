@@ -66,13 +66,34 @@ func Run(opts Options) error {
 
 	httpServer := &http.Server{Handler: mux}
 
-	fmt.Printf("Opal Downloader GUI running at http://%s\n", listener.Addr().String())
-	fmt.Println("Press Ctrl-C to stop.")
+	url := fmt.Sprintf("http://%s", listener.Addr().String())
 
 	serveErr := make(chan error, 1)
 	go func() {
 		serveErr <- httpServer.Serve(listener)
 	}()
+
+	// On Windows, hasNativeWindow is true and this opens a native WebView2
+	// window showing the GUI, blocking until the user closes it. On other
+	// platforms (no native window implementation - see window_other.go)
+	// this falls through to the old print-the-URL-and-wait-for-Ctrl-C
+	// behavior.
+	if hasNativeWindow {
+		fmt.Printf("Opal Downloader GUI opening in a native window (%s)...\n", url)
+		windowErr := openNativeWindow(url)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		shutdownErr := httpServer.Shutdown(ctx)
+
+		if windowErr != nil {
+			return windowErr
+		}
+		return shutdownErr
+	}
+
+	fmt.Printf("Opal Downloader GUI running at %s\n", url)
+	fmt.Println("Open that address in your browser. Press Ctrl-C to stop.")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
@@ -93,11 +114,11 @@ func Run(opts Options) error {
 }
 
 const disclaimerHTML = `<div class="disclaimer">
-		<strong>Note:</strong> this browser tab is just this app's local UI.
+		<strong>Note:</strong> this window is just this app's local UI.
 		It is separate from the Playwright-controlled browser window that
-		opens for OPAL login/sync automation. Closing this tab does not
+		opens for OPAL login/sync automation. Closing this window does not
 		affect an in-progress sync's automation browser, and closing the
-		automation browser does not affect this tab.
+		automation browser does not affect this window.
 	</div>`
 
 const pageStyle = `
@@ -211,9 +232,9 @@ var loginPageTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE htm
 
 	<p>
 		Clicking "Log in" opens a <strong>separate, visible browser window</strong>
-		controlled by this app (not this tab) where you complete the OPAL login,
-		including TU-Fast/2FA if required. This tab will wait and update once
-		that window reports login succeeded or failed.
+		controlled by this app (not this window) where you complete the OPAL
+		login, including TU-Fast/2FA if required. This window will wait and
+		update once that browser window reports login succeeded or failed.
 	</p>
 
 	<form method="post" action="/login/start">

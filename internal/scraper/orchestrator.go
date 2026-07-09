@@ -28,9 +28,17 @@ func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile,
 		concurrency = config.DefaultCourseConcurrency
 	}
 
+	// Suspend s.page tracking for the duration of the concurrent crawl below:
+	// each course gets its own throwaway page (newCourseFileCollector), and
+	// without suspending, trackActivePage's ctx.OnPage hook (session.go)
+	// would retarget the shared s.page at whichever course's page was opened
+	// last, which is already closed by the time downloads start. See
+	// pageTrackingSuspended's doc comment in scraper.go.
+	s.suspendPageTracking()
 	fileCollectionTimer := timing.StartTimer()
 	remoteFiles := collectCourseFilesConcurrently(courses, concurrency, s.newCourseFileCollector(), s.mergeDownloadCandidates)
 	fileCollectionElapsed := fileCollectionTimer.Elapsed()
+	s.resumePageTracking()
 	timing.PrintProfileLine("file collection (aggregate): %s", fileCollectionElapsed)
 
 	fmt.Printf("Discovered %d remote files\n", len(remoteFiles))

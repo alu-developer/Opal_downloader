@@ -118,12 +118,31 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 // original one; without this, s.page keeps referencing the closed page and
 // any later call on it (Goto/WaitForSelector) fails with "target closed"
 // even though the login flow is proceeding fine in the new tab.
+//
+// ctx.OnPage fires for every page opened in the context, not just login-flow
+// tabs - including the one-page-per-course tabs that
+// collectCourseFilesConcurrently/newCourseFileCollector (orchestrator.go)
+// open and close during concurrent course crawling. Retargeting s.page at
+// those would leave it pointing at an already-closed crawl page once
+// discovery finishes, breaking every subsequent browser-fallback download
+// with "target closed" errors. So this hook is a no-op while
+// s.pageTrackingSuspended is set (see suspendPageTracking/
+// resumePageTracking in scraper.go, toggled around the concurrent crawl in
+// orchestrator.go's scrapeCoursesBrowser).
 func (s *OpalScraper) trackActivePage(ctx playwright.BrowserContext) {
-	ctx.OnPage(func(p playwright.Page) {
-		p.SetDefaultTimeout(15000)
-		p.SetDefaultNavigationTimeout(20000)
-		s.setPage(p)
-	})
+	ctx.OnPage(s.handleContextPageOpened)
+}
+
+// handleContextPageOpened is trackActivePage's ctx.OnPage callback, split out
+// as its own method so it can be exercised directly in tests without needing
+// a real playwright.BrowserContext to fire the event (see session_test.go).
+func (s *OpalScraper) handleContextPageOpened(p playwright.Page) {
+	if s.pageTrackingSuspended.Load() {
+		return
+	}
+	p.SetDefaultTimeout(15000)
+	p.SetDefaultNavigationTimeout(20000)
+	s.setPage(p)
 }
 
 func (s *OpalScraper) closeOpalPages() {

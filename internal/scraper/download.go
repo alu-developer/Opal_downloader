@@ -110,17 +110,20 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	if _, err := page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 		return err
 	}
+	// Give the page's JS a chance to finish rendering the link-list before the
+	// selector search below - this page may be revisited well after discovery
+	// (concurrent downloads sharing the browser's network stack can slow down
+	// in-page rendering), and unlike collectCourseFiles's crawl loop, nothing
+	// here previously waited for interactive content before searching for the
+	// candidate link. See PR #11 follow-up investigation (queue task
+	// fix-download-fallback-html-errors-post-pr11) for the live-observed flake
+	// this addresses.
+	s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
 
-	targetFragment := strings.TrimSpace(candidate.LinkTarget)
-	if strings.HasPrefix(targetFragment, "http") {
-		parsed, parseErr := url.Parse(targetFragment)
-		if parseErr == nil {
-			targetFragment = parsed.Path
-		}
-	}
+	targetFragment := hrefSelectorFragment(candidate.LinkTarget)
 
 	if targetFragment != "" {
-		selector := fmt.Sprintf("a[href*='%s']", strings.ReplaceAll(targetFragment, "'", "\\'"))
+		selector := hrefContainsSelector(targetFragment)
 		download, clickErr := page.ExpectDownload(func() error {
 			return page.Locator(selector).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)})
 		}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
@@ -139,4 +142,36 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	}
 
 	return errors.New("downloadable link not found on page")
+}
+
+// hrefSelectorFragment reduces a download candidate's recorded LinkTarget (which may be
+// an absolute URL or a relative href, as originally captured verbatim from the DOM's
+// href attribute) to the path fragment used to build clickCandidateLinkOnPage's
+// a[href*=...] CSS attribute selector.
+//
+// It deliberately uses url.URL.EscapedPath(), not the decoded .Path field: .Path
+// percent-decodes escapes in the URL (e.g. "%C3%9C" becomes "Ü"), but the literal href
+// attribute rendered in the DOM stays percent-encoded - a CSS attribute selector like
+// a[href*='...'] matches against that raw, still-encoded attribute string, never the
+// decoded form. Using .Path here silently produced a selector that could never match
+// for any filename containing a percent-escaped character: confirmed live for
+// "ÜB10.pdf" (href contains ".../%C3%9CB10.pdf") as part of investigating
+// queue-task fix-download-fallback-html-errors-post-pr11 - the old selector searched
+// for the literal "Ü" character and matched zero elements, producing exactly the
+// "browser fallback click did not find downloadable link" error that task reported.
+func hrefSelectorFragment(linkTarget string) string {
+	fragment := strings.TrimSpace(linkTarget)
+	if strings.HasPrefix(fragment, "http") {
+		if parsed, err := url.Parse(fragment); err == nil {
+			fragment = parsed.EscapedPath()
+		}
+	}
+	return fragment
+}
+
+// hrefContainsSelector builds the a[href*='...'] CSS attribute selector used to find a
+// candidate's download link on a page, escaping any single quote in fragment so it
+// cannot break out of the selector's quoted string.
+func hrefContainsSelector(fragment string) string {
+	return fmt.Sprintf("a[href*='%s']", strings.ReplaceAll(fragment, "'", "\\'"))
 }

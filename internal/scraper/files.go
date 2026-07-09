@@ -100,7 +100,7 @@ func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candid
 		}
 
 		absURL := resolveURL(opalURL, linkTarget)
-		if !isFileURLAllowedForCourse(absURL, course.RepoID) {
+		if !isFileURLAllowedForCourse(absURL, course.RepoID, opalURL) {
 			continue
 		}
 
@@ -323,8 +323,22 @@ func findShowAllTarget(candidates []map[string]string) (linkTarget string, found
 	return "", false
 }
 
-func isFileURLAllowedForCourse(absURL, repoID string) bool {
+// isFileURLAllowedForCourse decides whether absURL - already confirmed to
+// looksLikeFileLink-match - should actually be treated as a downloadable file for the
+// given course. opalURL gates out links to a different host entirely: a course's
+// "Linkliste" section commonly lists plain external resource links (e.g. a tool's
+// homepage) alongside real file downloads, and looksLikeFileLink's substring checks
+// can't tell those apart from an OPAL sendfile link by shape alone (confirmed live:
+// "[Java-Tools] Eclipse" -> https://www.eclipse.org/downloads/, misclassified as a
+// file because "/downloads/" contains the "/download" substring looksLikeFileLink
+// checks for - see queue-task fix-download-fallback-html-errors-post-pr11). No
+// genuine OPAL-hosted file link is ever served from a different host than opalURL, so
+// this check is safe to apply unconditionally.
+func isFileURLAllowedForCourse(absURL, repoID, opalURL string) bool {
 	if strings.TrimSpace(absURL) == "" || strings.TrimSpace(repoID) == "" {
+		return false
+	}
+	if !isSameHostAsOpal(absURL, opalURL) {
 		return false
 	}
 	relatedRepoID := extractRepositoryEntryID(absURL)

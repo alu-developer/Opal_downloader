@@ -135,6 +135,23 @@ func resolveURL(baseURL, href string) string {
 	return base.ResolveReference(rel).String()
 }
 
+// isSameHostAsOpal reports whether absURL points at the same host as opalURL. It
+// returns true whenever either URL fails to parse or has an empty host, so a
+// malformed/relative-looking value never gets rejected here - callers that need a
+// stricter guard already have other checks for that. Comparison is case-insensitive
+// (hostnames aren't case-sensitive) and ignores port, via url.URL.Hostname().
+func isSameHostAsOpal(absURL, opalURL string) bool {
+	target, err := url.Parse(absURL)
+	if err != nil || target.Hostname() == "" {
+		return true
+	}
+	base, err := url.Parse(opalURL)
+	if err != nil || base.Hostname() == "" {
+		return true
+	}
+	return strings.EqualFold(target.Hostname(), base.Hostname())
+}
+
 func toStringSlice(value interface{}) []string {
 	items, ok := value.([]interface{})
 	if !ok {

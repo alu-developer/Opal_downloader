@@ -293,6 +293,7 @@ func TestFindShowAllTargetReturnsNotFoundWhenAbsent(t *testing.T) {
 }
 
 func TestIsFileURLAllowedForCourseRejectsForeignAndDashboardTargets(t *testing.T) {
+	const opalURL = "https://bildungsportal.sachsen.de/opal/"
 	tests := []struct {
 		name string
 		url  string
@@ -307,8 +308,51 @@ func TestIsFileURLAllowedForCourseRejectsForeignAndDashboardTargets(t *testing.T
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isFileURLAllowedForCourse(tt.url, "123"); got != tt.want {
-				t.Fatalf("isFileURLAllowedForCourse(%q, %q) = %v, want %v", tt.url, "123", got, tt.want)
+			if got := isFileURLAllowedForCourse(tt.url, "123", opalURL); got != tt.want {
+				t.Fatalf("isFileURLAllowedForCourse(%q, %q, %q) = %v, want %v", tt.url, "123", opalURL, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsFileURLAllowedForCourseRejectsExternalHost covers the root cause found while
+// investigating queue-task fix-download-fallback-html-errors-post-pr11: a course's
+// "Linkliste" section can list a plain external resource link (e.g. a tool's
+// homepage) whose href shape happens to still match looksLikeFileLink's heuristics -
+// live-confirmed for "[Java-Tools] Eclipse", which resolves to
+// https://www.eclipse.org/downloads/ and was previously treated as a downloadable
+// file because looksLikeFileLink's "/download" substring check matches the
+// "/downloads/" path segment. No genuine OPAL file link is ever served from a
+// different host than opal_url, so isFileURLAllowedForCourse must reject any link
+// whose host differs from it, regardless of how file-shaped its path looks.
+func TestIsFileURLAllowedForCourseRejectsExternalHost(t *testing.T) {
+	const opalURL = "https://bildungsportal.sachsen.de/opal/"
+
+	if got := isFileURLAllowedForCourse("https://www.eclipse.org/downloads/", "123", opalURL); got {
+		t.Fatalf("isFileURLAllowedForCourse(eclipse.org link) = %v, want false (external host)", got)
+	}
+	if got := isFileURLAllowedForCourse("https://bildungsportal.sachsen.de/opal/goto.php?target=file_55&cmd=sendfile", "123", opalURL); !got {
+		t.Fatalf("isFileURLAllowedForCourse(same-host sendfile link) = %v, want true", got)
+	}
+}
+
+func TestIsSameHostAsOpal(t *testing.T) {
+	const opalURL = "https://bildungsportal.sachsen.de/opal/"
+	tests := []struct {
+		name   string
+		absURL string
+		want   bool
+	}{
+		{name: "same host", absURL: "https://bildungsportal.sachsen.de/opal/goto.php?target=file_55", want: true},
+		{name: "same host different case", absURL: "https://Bildungsportal.Sachsen.DE/opal/goto.php?target=file_55", want: true},
+		{name: "different host", absURL: "https://www.eclipse.org/downloads/", want: false},
+		{name: "relative path has no host, not rejected here", absURL: "/opal/goto.php?target=file_55", want: true},
+		{name: "empty url has no host, not rejected here", absURL: "", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSameHostAsOpal(tt.absURL, opalURL); got != tt.want {
+				t.Fatalf("isSameHostAsOpal(%q, %q) = %v, want %v", tt.absURL, opalURL, got, tt.want)
 			}
 		})
 	}

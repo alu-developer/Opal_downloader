@@ -163,7 +163,7 @@ func (s *OpalScraper) DumpPageLinks(targetURL, outputPath string) error {
 		if linkTarget != "" {
 			resolvedTarget = resolveURL(s.opalURL, linkTarget)
 			nameGuess = deriveFileName(raw["title"], raw["text"], linkTarget)
-			allowedForCourse = isSectionURLAllowedForCourse(resolvedTarget, repoID) || isFileURLAllowedForCourse(resolvedTarget, repoID)
+			allowedForCourse = isSectionURLAllowedForCourse(resolvedTarget, repoID) || isFileURLAllowedForCourse(resolvedTarget, repoID, s.opalURL)
 		}
 
 		entries = append(entries, LinkDumpEntry{

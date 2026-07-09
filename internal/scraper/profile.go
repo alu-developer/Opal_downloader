@@ -6,24 +6,39 @@ import (
 	"path/filepath"
 )
 
-// profileLockFiles lists the files Chromium-based browsers use to guard a
-// user-data-dir against being opened by two running instances at once.
+// profileLockFiles lists the marker files Chromium's *POSIX*
+// (process_singleton_posix.cc) ProcessSingleton creates in a user-data-dir to
+// guard against being opened by two running instances at once:
+// "lockfile" is a symlink written on Linux, "SingletonLock"/"SingletonCookie"
+// are used on macOS/Linux as well.
 //
-// "lockfile" is the marker used on Windows (Chromium's ProcessSingleton opens
-// it with an exclusive share mode for the lifetime of the browser process).
-// "SingletonLock"/"SingletonCookie" are the equivalents used on macOS/Linux.
-// We check all of them so the detection works regardless of platform, even
-// though this project's primary target is Windows.
+// IMPORTANT: none of these files are ever created by Chromium/Brave on
+// Windows. Windows has a completely separate implementation
+// (process_singleton_win.cc) that doesn't touch the user-data-dir at all -
+// see profile_lock_windows.go for the Windows-specific check this is paired
+// with. This POSIX marker-file check is kept for completeness/portability,
+// but on Windows (this project's primary target) it will always return
+// false, nil by itself; isUserDataDirLocked below only trusts it in
+// combination with the Windows-specific check.
 var profileLockFiles = []string{"lockfile", "SingletonLock", "SingletonCookie"}
 
 // isUserDataDirLocked reports whether userDataDir appears to be in active use
 // by another Chromium-based browser process (e.g. the user's real Brave
-// window). It works by trying to open the known lock marker files with
-// read-write access and no sharing allowed to other writers; if the OS
-// reports the file is already in use, the profile is locked.
+// window).
 //
-// A missing userDataDir or missing lock files is not an error - it just means
-// the profile is not currently locked (or doesn't exist yet).
+// This combines two checks:
+//  1. The POSIX marker-file check (lockfile/SingletonLock/SingletonCookie) -
+//     opens each marker with read-write access and no sharing allowed to
+//     other writers; if the OS reports the file is already in use, the
+//     profile is locked. This only ever fires on macOS/Linux, since Chromium
+//     on Windows doesn't create these files (see profileLockFiles doc above).
+//  2. isWindowsSingletonWindowPresent (profile_lock_windows.go / a no-op
+//     stub on non-Windows) - the actual Windows-native check, which looks for
+//     the hidden message-only window Chromium's Windows ProcessSingleton
+//     keeps alive for the entire lifetime of the browser process.
+//
+// A missing userDataDir or missing lock files/window is not an error - it
+// just means the profile is not currently locked (or doesn't exist yet).
 func isUserDataDirLocked(userDataDir string) (bool, error) {
 	if userDataDir == "" {
 		return false, nil
@@ -55,6 +70,17 @@ func isUserDataDirLocked(userDataDir string) (bool, error) {
 			continue
 		}
 		_ = f.Close()
+	}
+
+	locked, err := isWindowsSingletonWindowPresent(userDataDir)
+	if err != nil {
+		// Inconclusive (e.g. an unexpected Win32 API error): don't silently
+		// treat this as "not locked" and risk launching a second instance -
+		// surface it so the caller can fail loud instead.
+		return false, err
+	}
+	if locked {
+		return true, nil
 	}
 
 	return false, nil

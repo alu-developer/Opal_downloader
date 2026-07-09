@@ -25,6 +25,11 @@ env/
 go.work
 go.work.sum
 
+# Installer build artifacts (staged Chromium cache + compiled setup.exe -
+# both are local/generated, never checked in; see installer/opal-downloader.iss)
+installer/chromium-cache/
+installer/output/
+
 # Local task queue
 .claude/queue/
 

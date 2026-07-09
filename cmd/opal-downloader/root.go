@@ -16,6 +16,17 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/timing"
 )
 
+// buildVersion holds the released version string. It defaults to "dev" for
+// plain `go build`/`go run` and is overridden at release-build time via:
+//
+//	go build -ldflags "-X github.com/alu-developer/opal-downloader/cmd/opal-downloader.buildVersion=vX.Y.Z"
+//
+// This is a prerequisite for the planned in-app update checker (see
+// docs/update-mechanism-plan.md Section 2.1), which needs a reliable "what
+// version am I running" value. Wiring the release pipeline to actually pass
+// -ldflags is separate follow-up work.
+var buildVersion = "dev"
+
 func Execute() {
 	// Running the binary with no subcommand at all launches the GUI - the
 	// web UI is the primary/default way most users interact with
@@ -55,7 +66,7 @@ func Execute() {
 		printHelp()
 		return
 	case "--version", "-v", "version":
-		fmt.Println("opal-downloader 0.1.0")
+		fmt.Println("opal-downloader " + buildVersion)
 		return
 	default:
 		err = fmt.Errorf("unknown command: %s", command)

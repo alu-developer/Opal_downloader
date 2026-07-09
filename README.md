@@ -39,10 +39,43 @@ Windows note: `go build -o opal-downloader .` (without `.exe`) produces an
 extensionless file that PowerShell's call operator (`./opal-downloader`) does
 not reliably execute. Use the `.exe` form above on Windows.
 
+## Quick Start (Web UI)
+
+Once built (see Installation above), just run the binary with no arguments:
+
+```bash
+./opal-downloader
+```
+
+This starts a local web server bound to `127.0.0.1` and prints the URL to
+open in your browser (default `http://127.0.0.1:<port>/`, an available port
+is picked automatically unless `--port` is given) - equivalent to running
+`./opal-downloader gui` explicitly. From there:
+
+1. **Settings** - a form covering every `config.yaml` field described below,
+   split into "Connection & browser" and "Sync behavior & folders" -
+   including an add/remove row editor for `course_folders`. If no
+   `config.yaml` exists yet, the form is pre-filled with sensible defaults
+   instead of erroring, so saving it here is all you need to bootstrap a
+   fresh setup - no need to run `opal-downloader init` first. Saving
+   validates the form (e.g. rejects an empty download path or a malformed
+   glob pattern) and shows errors inline instead of writing a broken config;
+   a valid save writes `config.yaml` directly and keeps the previous version
+   as `config.yaml.bak`.
+2. **Login** - opens a separate, visible browser window to complete OPAL
+   login (TU-Fast/2FA supported) and saves the session for later use.
+3. **Sync / List / Dump links** - run the same operations as the CLI
+   subcommands below, from the browser.
+
+The web UI is the primary, recommended way to use opal-downloader. Everything
+it does is backed by the same `config.yaml` and the same underlying code as
+the CLI subcommands below, so you can freely mix the two - e.g. configure and
+log in via the browser, then run `sync` from a script or cron job.
+
 ### Fast path: `setup`
 
-Instead of running the Playwright install and `init` steps above by hand, you
-can run:
+Instead of running the Playwright install manually (see Installation above),
+you can run:
 
 ```bash
 ./opal-downloader setup
@@ -51,17 +84,17 @@ can run:
 This installs Playwright's browser binaries, creates `config.yaml` from the
 example if it doesn't exist yet, and prints what's left to do. It assumes
 you've already built the binary (`go build` above) - it can't rebuild itself.
-The manual steps above still work and are documented for transparency.
 
-## Quick Start
+## Scripting / Automation (CLI)
+
+Every action available in the web UI is also available as a CLI subcommand,
+for cron jobs, scripts, or anyone who prefers the terminal. All subcommands
+below work exactly as before - the web UI does not replace or change them.
 
 ```bash
-# Create config.yaml from example
+# Create config.yaml from example (optional - the GUI's Settings page can
+# also bootstrap a missing config.yaml, see "Quick Start" above)
 ./opal-downloader init
-
-# Start the local settings UI and configure download path, courses, etc.
-# in the browser instead of hand-editing config.yaml
-./opal-downloader gui
 
 # Interactive one-time login (opens browser)
 ./opal-downloader login
@@ -73,36 +106,15 @@ The manual steps above still work and are documented for transparency.
 ./opal-downloader sync --dev
 ```
 
-### Configuring via the GUI (recommended)
-
-```bash
-./opal-downloader gui
-```
-
-Starts a local web server bound to `127.0.0.1` and prints the URL to open in
-your browser (default `http://127.0.0.1:<port>/`, an available port is picked
-automatically unless `--port` is given). From there, **Settings** is a form
-covering every `config.yaml` field described below, split into "Connection &
-browser" and "Sync behavior & folders" - including an add/remove row editor
-for `course_folders`. Saving validates the form (e.g. rejects an empty
-download path or a malformed glob pattern) and shows errors inline instead of
-writing a broken config; a valid save writes `config.yaml` directly and keeps
-the previous version as `config.yaml.bak`.
-
-This is now the primary way to configure opal-downloader. Hand-editing
-`config.yaml` (documented below) remains fully supported and is the better
-fit for scripting/automation or power users who prefer YAML directly - the
-GUI and manual edits both read/write the same file, so you can freely switch
-between them.
-
-## Commands
+### Commands
 
 | Command | Description |
 |---|---|
+| `./opal-downloader` | Start the web UI (127.0.0.1) - default action when no command is given |
+| `./opal-downloader gui` | Start the web UI explicitly (same as running with no command) |
 | `./opal-downloader init` | Create `config.yaml` from example |
 | `./opal-downloader setup` | Install Playwright browsers, create `config.yaml` if missing, print next steps |
 | `./opal-downloader status` | Offline check: config parses and whether a session state file exists (no browser opened) |
-| `./opal-downloader gui` | Start the local settings web UI (127.0.0.1) |
 | `./opal-downloader login` | Open browser, complete login, persist session state |
 | `./opal-downloader list` | List detected courses and file counts |
 | `./opal-downloader sync` | Download new/changed files |

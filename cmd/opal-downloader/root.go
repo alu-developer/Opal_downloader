@@ -17,9 +17,17 @@ import (
 )
 
 func Execute() {
+	// Running the binary with no subcommand at all launches the GUI - the
+	// web UI is the primary/default way most users interact with
+	// opal-downloader (see docs/gui-concept.md Section 5). All CLI
+	// subcommands below remain fully functional for scripting/automation;
+	// this only changes what happens when none of them is given.
 	if len(os.Args) < 2 {
-		printHelp()
-		os.Exit(1)
+		if err := runGUI(nil); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	command := os.Args[1]
@@ -466,6 +474,10 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  opal-downloader <command> [options]")
+	fmt.Println()
+	fmt.Println("Running opal-downloader with no command starts the GUI (same as")
+	fmt.Println("'opal-downloader gui') - that's the primary way to use this tool.")
+	fmt.Println("The commands below remain available for scripting/automation.")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  init    Create config.yaml from example")

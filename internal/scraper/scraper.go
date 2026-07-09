@@ -3,6 +3,7 @@ package scraper
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/mxschmitt/playwright-go"
@@ -89,6 +90,37 @@ type OpalScraper struct {
 	// a sync.Map of callbacks), any request that falls back to driving the
 	// browser must be serialized behind this mutex.
 	browserDownloadMu sync.Mutex
+
+	// pageTrackingSuspended, when set, tells trackActivePage's ctx.OnPage
+	// hook (session.go) to ignore newly opened pages instead of retargeting
+	// s.page at them. It is set for the duration of concurrent course-file
+	// collection (see suspendPageTracking/resumePageTracking, called from
+	// orchestrator.go's scrapeCoursesBrowser): newCourseFileCollector opens
+	// one throwaway page per course via ctx.NewPage() and Close()s it once
+	// that course's crawl finishes, and ctx.OnPage fires for every page
+	// opened in the context - not just login-flow tabs. Without suspending
+	// tracking during that phase, s.page ends up pointing at whichever
+	// course's crawl page was opened last, which is already closed by the
+	// time downloads start, breaking every browser-fallback download with
+	// "target closed" errors. It is an atomic.Bool (not fieldMu-guarded like
+	// page/context/browser above) because it is independent of those fields
+	// and is only ever toggled by the single goroutine driving a scrape, not
+	// raced against Close().
+	pageTrackingSuspended atomic.Bool
+}
+
+// suspendPageTracking stops trackActivePage's ctx.OnPage hook from
+// retargeting s.page, for the duration of concurrent course-file collection.
+// See pageTrackingSuspended's doc comment for why this is necessary.
+func (s *OpalScraper) suspendPageTracking() {
+	s.pageTrackingSuspended.Store(true)
+}
+
+// resumePageTracking re-enables trackActivePage's ctx.OnPage hook after
+// concurrent course-file collection finishes, so it keeps working for any
+// later interactive-login tab switching.
+func (s *OpalScraper) resumePageTracking() {
+	s.pageTrackingSuspended.Store(false)
 }
 
 func (s *OpalScraper) getPage() playwright.Page {

@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -44,7 +45,16 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 	// identifiable by deriveSectionTitleFromURL's coarse URL-shape guess, which
 	// cannot recover the actual OPAL-assigned section name.
 	sectionTitles := map[string]string{rootKey: course.Title}
-	maxPages := 16
+	// maxPages is a sanity cap against runaway crawls, not the primary loop
+	// bound - the visited/queued dedup above already prevents infinite loops
+	// on legitimately distinct sections. It was 16 until a live run against
+	// real OPAL courses (queue task fix-list-flaky-missing-files) showed
+	// courses with 100+ genuine sections (weekly folders, exercise sheets,
+	// etc.) silently losing most of their content to this cap - not
+	// randomly, but deterministically for any course past the 16th BFS
+	// section, which read as "flaky missing files" because which files
+	// landed in the first 16 varied with section-discovery order.
+	maxPages := 500
 
 	for len(queue) > 0 && len(visited) < maxPages {
 		currentURL := queue[0]
@@ -57,19 +67,40 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		visited[currentKey] = struct{}{}
 
 		if _, err := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
-			continue
+			// Retry once after a short wait: net::ERR_ABORTED and similar are
+			// commonly transient (a competing in-page navigation/redirect
+			// racing our Goto), confirmed live - the same section often
+			// succeeds on a second attempt.
+			page.WaitForTimeout(contentFallbackWaitMs)
+			if _, retryErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
+				fmt.Printf("  Warning: skipping section %q (%s): navigation failed after retry: %v\n", sectionTitles[currentKey], currentURL, retryErr)
+				continue
+			}
 		}
 		s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
 
 		candidates, err := s.extractSectionContentCandidates(page)
 		if err != nil {
-			continue
+			// Same transient-race class as the Goto retry above: "execution
+			// context was destroyed" happens when the page is still settling
+			// (e.g. a client-side redirect) when we evaluate - confirmed live
+			// to often succeed on a second attempt after a short wait.
+			page.WaitForTimeout(contentFallbackWaitMs)
+			candidates, err = s.extractSectionContentCandidates(page)
+			if err != nil {
+				fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitles[currentKey], currentURL, err)
+				continue
+			}
 		}
 		if len(candidates) == 0 {
 			page.WaitForTimeout(contentFallbackWaitMs)
 			retryCandidates, retryErr := s.extractSectionContentCandidates(page)
 			if retryErr == nil && len(retryCandidates) > 0 {
 				candidates = retryCandidates
+			} else if retryErr != nil {
+				fmt.Printf("  Warning: section %q (%s) returned no content and retry failed: %v\n", sectionTitles[currentKey], currentURL, retryErr)
+			} else {
+				fmt.Printf("  Warning: section %q (%s) returned no content even after retry; it may be genuinely empty, or files may have been dropped\n", sectionTitles[currentKey], currentURL)
 			}
 		}
 
@@ -86,6 +117,10 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
 		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, s.opalURL, downloadCandidates)
 		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles)
+	}
+
+	if len(queue) > 0 && len(visited) >= maxPages {
+		fmt.Printf("  Warning: course %q hit the %d-section crawl cap with %d section(s) still queued; some content may be missing\n", course.Title, maxPages, len(queue))
 	}
 
 	return files, downloadCandidates, nil
@@ -203,6 +238,16 @@ func appendSectionFolderTargets(queue []string, queued, visited map[string]struc
 		}
 		title := deriveSectionTitle(candidate["title"], candidate["text"], candidate["rootText"])
 		if !looksLikeSectionFolderLink(linkTarget, title) {
+			continue
+		}
+		// A link nested under /CourseNode/ satisfies looksLikeSectionFolderLink
+		// even when it's actually a downloadable file (OPAL serves files at
+		// .../CourseNode/<id>/<filename>.pdf) - confirmed live, where raising
+		// maxPages exposed dozens of these being queued as "sections" and then
+		// failing Goto with "Download is starting". Anything that also looks
+		// like a file link is content, not a folder to descend into.
+		fileName := deriveFileName(candidate["title"], candidate["text"], linkTarget)
+		if looksLikeFileLink(linkTarget, fileName) {
 			continue
 		}
 

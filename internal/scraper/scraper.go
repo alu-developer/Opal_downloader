@@ -40,6 +40,11 @@ type OpalScraper struct {
 	browserProfileDir  string
 	developerMode      bool
 
+	// debugClicks enables the click/wait audit log (see audit.go). Same
+	// set-once-before-scrape/read-only-afterward lifecycle as
+	// developerMode, so it needs no locking of its own.
+	debugClicks bool
+
 	// courseConcurrency is the number of courses crawled concurrently during
 	// discovery, each on its own browser tab/page (see
 	// collectCourseFilesConcurrently in orchestrator.go). Like

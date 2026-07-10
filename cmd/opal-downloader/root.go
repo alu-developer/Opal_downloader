@@ -330,6 +330,7 @@ func runList(args []string) error {
 	configPath := filepath.Join(projectDir(), "config.yaml")
 	devMode := false
 	profile := false
+	debugClicks := false
 	courseConcurrency := 0
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -343,6 +344,8 @@ func runList(args []string) error {
 			devMode = true
 		case "--profile":
 			profile = true
+		case "--debug-clicks":
+			debugClicks = true
 		case "--course-concurrency":
 			i++
 			if i >= len(args) {
@@ -370,6 +373,7 @@ func runList(args []string) error {
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
+	sc.SetDebugClicks(debugClicks)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()
@@ -389,6 +393,7 @@ func runSync(args []string) error {
 	force := false
 	devMode := false
 	profile := false
+	debugClicks := false
 	concurrency := 0
 	courseConcurrency := 0
 
@@ -406,6 +411,8 @@ func runSync(args []string) error {
 			devMode = true
 		case "--profile":
 			profile = true
+		case "--debug-clicks":
+			debugClicks = true
 		case "--concurrency":
 			i++
 			if i >= len(args) {
@@ -446,6 +453,7 @@ func runSync(args []string) error {
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
+	sc.SetDebugClicks(debugClicks)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()
@@ -657,11 +665,12 @@ func printHelp() {
 	fmt.Println("  status --config <path>")
 	fmt.Println("  gui [--port <port>] [--config <path>]")
 	fmt.Println("  login --config <path> [--dev]")
-	fmt.Println("  list --config <path> [--dev] [--profile] [--course-concurrency <n>]")
-	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--concurrency <n>] [--course-concurrency <n>]")
+	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>]")
+	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
 	fmt.Println()
 	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
+	fmt.Println("  --debug-clicks          Log every click and navigation/interactive-link wait with timestamp, page URL, selector, and reason (diagnostic tool)")
 	fmt.Println("  --concurrency n         Max concurrent file downloads for sync (default 3, overrides config.yaml)")
 	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 3, overrides config.yaml)")
 }

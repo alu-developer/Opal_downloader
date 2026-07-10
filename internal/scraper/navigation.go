@@ -1,28 +1,35 @@
 package scraper
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
 
 // contentSelectorTimeoutMs/contentFallbackWaitMs bound waitForInteractiveLinks
-// (below): WaitForSelector already returns as soon as any link-like element
-// is attached to the DOM, so contentSelectorTimeoutMs is a worst-case cap,
-// not a cost paid on every call - OPAL pages already have nav/header links
-// present by the time WaitUntilStateDomcontentloaded fires, so this resolves
-// near-instantly on the happy path. contentFallbackWaitMs only fires when
-// that selector wait itself times out (a genuinely slow-rendering page), so
-// it's a bounded fallback, not blind per-page overhead. perf-04 audited
-// these against a live run (see PR description) and found no unconditional
-// fixed cost worth removing here; the previously-unused navGotoTimeoutMs/
-// navSelectorTimeoutMs/navFallbackWaitMs constants (dead leftovers from
-// pre-perf-03 single-page code, superseded by the content* ones below but
-// never deleted) were removed as part of that audit.
+// (below). perf-04 (2026-07-08) assumed WaitForSelector "resolves
+// near-instantly on the happy path" and left contentSelectorTimeoutMs at
+// 2500ms unverified against a live run. Queue task
+// click-wait-audit-and-speedup's --debug-clicks audit (2026-07-10, live
+// `list --dev --debug-clicks --profile` against the real account, 6 courses,
+// 205 files) disproved that assumption with real timestamps: the selector
+// wait timed out 261/261 times (100%) - every single section visit paid the
+// full contentSelectorTimeoutMs before falling back to the fixed
+// contentFallbackWaitMs wait, which then reliably let content extraction
+// succeed. So on this OPAL instance the selector wait never once resolves
+// early; it is pure worst-case overhead, not a bounded fallback. Lowered
+// from 2500ms to 400ms (small margin above zero in case some page or a
+// different OPAL deployment ever does resolve it quickly) rather than
+// removing the wait outright, since a live re-run at 400ms
+// (see click-wait-audit-and-speedup's PR) confirmed identical file counts
+// with no regression. contentFallbackWaitMs (700ms) is left unchanged - the
+// audit confirmed it reliably succeeds and was not the bottleneck.
 const (
 	contentGotoTimeoutMs     = 15000.0
-	contentSelectorTimeoutMs = 2500.0
+	contentSelectorTimeoutMs = 400.0
 	contentFallbackWaitMs    = 700.0
 )
 
@@ -96,7 +103,14 @@ func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, selectorTime
 	if page == nil {
 		return
 	}
-	if _, err := page.WaitForSelector("a[href], [onclick], [data-href], [data-url]", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(selectorTimeoutMs)}); err != nil {
+	const selector = "a[href], [onclick], [data-href], [data-url]"
+	start := time.Now()
+	if _, err := page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(selectorTimeoutMs)}); err != nil {
+		s.auditLog("wait-selector-timeout", page, selector, fmt.Sprintf("selector wait did not resolve within %v (waited %s); falling back to fixed %v ms wait", selectorTimeoutMs, time.Since(start), fallbackWaitMs))
+		fallbackStart := time.Now()
 		page.WaitForTimeout(fallbackWaitMs)
+		s.auditLog("wait-fallback-done", page, selector, fmt.Sprintf("fixed fallback wait took %s", time.Since(fallbackStart)))
+	} else {
+		s.auditLog("wait-selector-resolved", page, selector, fmt.Sprintf("selector resolved after %s", time.Since(start)))
 	}
 }

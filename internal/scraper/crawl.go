@@ -185,7 +185,9 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		clicked := false
 		for _, needle := range showAllControlTextNeedles {
 			locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
+			s.auditLog("click", page, needle, "show-all expand attempt for section "+currentURL)
 			if err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)}); err == nil {
+				s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+currentURL)
 				clicked = true
 				break
 			}

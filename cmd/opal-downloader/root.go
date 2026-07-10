@@ -1,20 +1,36 @@
 package opaldownloader
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/gui"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 	"github.com/alu-developer/opal-downloader/internal/timing"
+	"github.com/alu-developer/opal-downloader/internal/updater"
 	"github.com/mxschmitt/playwright-go"
 )
+
+// updateCheckTimeout bounds how long the best-effort "is a newer version
+// available" check (see printUpdateFooter) is allowed to block a
+// login/list/sync run before giving up silently. Kept short so an
+// offline/unreachable/rate-limited GitHub API never noticeably delays
+// command completion.
+const updateCheckTimeout = 3 * time.Second
+
+// updaterCheckLatest is a package-level indirection over
+// updater.CheckLatest so tests can substitute a fake implementation (e.g.
+// backed by an httptest.Server) without printUpdateFooter making a real
+// network call.
+var updaterCheckLatest = updater.CheckLatest
 
 // buildVersion holds the released version string. It defaults to "dev" for
 // plain `go build`/`go run` and is overridden at release-build time via:
@@ -238,6 +254,7 @@ func runLogin(args []string) error {
 	fmt.Printf("Session state file: %s\n", credentials.StateFile)
 	fmt.Println()
 	fmt.Println("You can now run: opal-downloader sync")
+	printUpdateFooter()
 	return nil
 }
 
@@ -292,6 +309,9 @@ func runList(args []string) error {
 	err = syncer.ListAvailableCourses(sc)
 	fmt.Println()
 	timing.PrintTotalSummary(totalTimer.Elapsed())
+	if err == nil {
+		printUpdateFooter()
+	}
 	return err
 }
 
@@ -383,6 +403,7 @@ func runSync(args []string) error {
 	fmt.Println()
 	timing.PrintDownloadSummary(stats.DownloadDuration, stats.Downloads)
 	timing.PrintTotalSummary(totalTimer.Elapsed())
+	printUpdateFooter()
 	return nil
 }
 
@@ -467,6 +488,27 @@ func runGUI(args []string) error {
 	}
 
 	return gui.Run(gui.Options{Port: port, ConfigPath: configPath})
+}
+
+// printUpdateFooter does a best-effort, short-timeout check against
+// internal/updater for a newer release and, if one exists, prints one
+// informational line pointing at its GitHub release page. This is the CLI
+// counterpart to the GUI's update banner (docs/update-mechanism-plan.md
+// Section 2.4's "CLI footnote") - purely informational, no
+// download/install prompt, since login/list/sync are often run directly
+// without the GUI. Any failure (offline, rate-limited, unparseable
+// buildVersion such as the "dev" default) is swallowed silently: the
+// update check must never fail or delay the command it's attached to.
+func printUpdateFooter() {
+	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
+	defer cancel()
+
+	rel, err := updaterCheckLatest(ctx, buildVersion)
+	if err != nil || !rel.IsNewer {
+		return
+	}
+
+	fmt.Printf("\nA newer version (v%s) is available: %s\n", rel.Version, rel.HTMLURL)
 }
 
 // printConfigWarnings prints non-fatal config.Warnings for app to stderr,

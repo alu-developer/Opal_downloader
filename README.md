@@ -19,6 +19,28 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 1. Go 1.23+
 2. Chromium/Chrome (installed via Playwright)
 
+## Download & Install (Windows installer)
+
+A Windows `setup.exe` installer (built from [`installer/opal-downloader.iss`](installer/opal-downloader.iss)
+with [Inno Setup](https://jrsoftware.org/isinfo.php)) is the intended
+easiest way to get started — no Go toolchain, no `git`, no terminal. There
+is no public download yet (no GitHub Release / CI release workflow has been
+set up for it), so for now use the manual build steps below. Once releases
+exist, grab `opal-downloader-setup.exe` from the
+[Releases page](https://github.com/alu-developer/Opal_downloader/releases),
+run it, and follow the wizard.
+
+**About the Windows security warning:** because the installer isn't
+digitally signed (that costs money and isn't worth it for a small
+open-source tool — see [`docs/installer-plan.md`](docs/installer-plan.md)
+Section 6 for the reasoning), Windows will likely show a blue
+"Windows protected your PC" SmartScreen screen the first time you run
+`opal-downloader-setup.exe`. **This is expected, not a sign of malware** —
+it just means Microsoft hasn't seen this particular file enough times yet
+to vouch for it. To continue: click **"More info"** on that screen, then
+click the **"Run anyway"** button that appears. The installer will proceed
+normally after that.
+
 ## Installation
 
 ```bash

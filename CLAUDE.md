@@ -219,14 +219,23 @@ listed.
     running. The detach-and-survive-parent-exit mechanic itself (a process
     started via `.Start()` and never `.Wait()`'d does outlive the parent's
     `os.Exit`) was separately confirmed live with a plain manifested Win32
-    executable. **Not yet addressed**: what happens on a real end user's
-    interactive desktop when the real signed installer requests elevation
-    — expected behavior is a normal UAC consent dialog (which blocks
-    `cmd.Start()` until the user answers, then proceeds normally), but this
-    hasn't been live-verified with an actual signed, admin-requesting
-    `opal-downloader-setup.exe` on an interactive session; worth confirming
-    once a real installer exists (`docs/installer-plan.md`) and before
-    relying on this path unattended.
+    executable.
+  - **Follow-up (2026-07-10, queue-review live desktop verification): the
+    elevation concern above does not apply to this project's real
+    installer, and the full handoff has now been live-verified end-to-end.**
+    `installer/opal-downloader.iss` sets `PrivilegesRequired=lowest` (installs
+    per-user to `%LocalAppData%\Programs\...`, no admin needed) — the
+    "requires elevation" failure only reproduced with an unmanifested
+    stand-in exe that Windows's installer-detection heuristic assumed needed
+    admin. Serving a real build of the `.iss` script from a local fake
+    GitHub API and clicking "Download & install" in the actual native GUI
+    window downloaded it, verified its checksum, and launched the real Inno
+    Setup wizard with no UAC prompt at all, confirmed by the maintainer on
+    their own desktop. Also found and fixed in the same pass: a "dev"
+    `buildVersion` (unreleased/local builds) surfaced a raw "not a parseable
+    numeric version" error on `/update` while the landing page simultaneously
+    claimed "Running the latest version" - both now show a distinct, honest
+    "Update checks are unavailable for development builds" message instead.
 - **Installer bundles Chromium** — `docs/installer-plan.md` Section 3
   originally decided *against* bundling (to keep `setup.exe` small and
   avoid an assumed version-sync tax), but that call was reversed

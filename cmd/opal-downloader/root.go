@@ -466,7 +466,7 @@ func runGUI(args []string) error {
 		}
 	}
 
-	return gui.Run(gui.Options{Port: port, ConfigPath: configPath})
+	return gui.Run(gui.Options{Port: port, ConfigPath: configPath, Version: buildVersion})
 }
 
 // printConfigWarnings prints non-fatal config.Warnings for app to stderr,

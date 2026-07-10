@@ -79,6 +79,13 @@ jobs:
             throw "Expected installer output not found at $exe"
           }
 
+          # This sidecar guards against corrupted/truncated downloads and
+          # naive tampering in transit - it does NOT guard against a
+          # genuinely malicious release published by whoever controls this
+          # repo's release pipeline (they could just as easily publish a
+          # matching checksum for a malicious binary). That's a code-signing
+          # problem, a different trust root, and out of scope here. See
+          # docs/update-mechanism-plan.md Section 4 for the full writeup.
           $hash = Get-FileHash -Algorithm SHA256 $exe
           $sidecar = "$exe.sha256"
           "$($hash.Hash.ToLower())  opal-downloader-setup.exe" | Out-File -Encoding ascii -NoNewline $sidecar

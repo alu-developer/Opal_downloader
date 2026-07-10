@@ -157,8 +157,7 @@ listed.
 
 - **Update mechanism: T2 ("prompted, one-click apply")** is the committed
   v2 update mechanism — see `docs/update-mechanism-plan.md` for the full
-  tradeoff analysis (T1/T2/T3) and design sketch. Not built yet: no
-  `internal/updater` package, no GUI update banner/routes. Version-embedding
+  tradeoff analysis (T1/T2/T3) and design sketch. Version-embedding
   (`buildVersion` / `-X ...buildVersion=`, PR #37) and the release workflow
   are both done as of `add-release-build-workflow`
   (2026-07-10): `.github/workflows/release.yml` triggers on `v*` tags,
@@ -167,9 +166,28 @@ listed.
   as GitHub Release assets — see `docs/installer-plan.md` Section 9 Task 4
   and `docs/update-mechanism-plan.md` Section 6 Task 2 for the full
   writeup and the tag/asset-naming conventions (`vX.Y.Z` tags, unversioned
-  asset name) a future `internal/updater` package should assume. Gated on
-  1-2 manual releases happening through this workflow first, per that
-  doc's Section 7.
+  asset name).
+  - **`internal/updater` package built (2026-07-10, task
+    `add-internal-updater-package`)**: `CheckLatest(ctx, currentVersion)`
+    hits the unauthenticated `GET
+    https://api.github.com/repos/alu-developer/Opal_downloader/releases/latest`,
+    parses `tag_name`, does a hand-rolled `.`-split integer comparison
+    against the `currentVersion` the caller passes in (no import of
+    `cmd/opal-downloader.buildVersion` — that would be a cycle), and picks
+    the `opal-downloader-setup.exe` / `opal-downloader-setup.exe.sha256`
+    assets by exact name match, matching release.yml's real (unversioned)
+    asset shape. `Download(ctx, url, destPath)` streams the asset to disk;
+    `VerifyChecksum(path, expectedSHA256)` and `VerifyChecksumSidecar(path,
+    sidecarBytes)` check a SHA-256 digest, the latter parsing release.yml's
+    exact sidecar format (`Get-FileHash`'s one-line, no-trailing-newline,
+    two-space-separated `<hex>  <filename>`). Fully unit-tested against
+    `httptest.Server` (no live GitHub/network dependency, no
+    Playwright/browser dependency). **Not yet wired into anything** — no
+    GUI banner/routes, no CLI footer line; this is just the package itself,
+    see `internal/updater/updater.go`'s doc comment and `Example` in
+    `updater_test.go` for the intended call pattern. Wiring it into
+    `internal/gui` (Section 2.3/2.4 of the plan) is separate, not-yet-queued
+    work.
 - **Installer bundles Chromium** — `docs/installer-plan.md` Section 3
   originally decided *against* bundling (to keep `setup.exe` small and
   avoid an assumed version-sync tax), but that call was reversed

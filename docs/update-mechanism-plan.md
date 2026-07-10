@@ -299,10 +299,17 @@ direct mitigation for that shift (Section 3).
 **Mitigation: checksum verification.** Recommended, as defense-in-depth,
 with an honest scope statement:
 
-- The release build step publishes a SHA-256 of `opal-downloader-setup.exe`
-  (a `.sha256` sidecar file as a second release asset, or inline in the
-  release notes — either is fine; a sidecar file is easier for
-  `internal/updater` to fetch and parse programmatically).
+- **Implemented (2026-07-10, task `add-release-checksum-publishing`):**
+  `.github/workflows/release.yml`'s "Build installer" step computes the
+  SHA-256 of `opal-downloader-setup.exe` via `Get-FileHash` and writes it to
+  `opal-downloader-setup.exe.sha256` in the canonical `sha256sum` line
+  format (`<lowercase-hex-hash>  <filename>`, two spaces), uploaded as a
+  second `gh release create` asset alongside the installer. This is a plain
+  public release asset — fetching it needs no GitHub API scope beyond the
+  same unauthenticated, public-repo access `internal/updater`'s
+  `CheckLatest`/`Download` already use (Section 5), and its fixed two-token
+  line format is trivially parsed (split on whitespace, take the first
+  token) without a dedicated parser dependency.
 - `internal/updater.VerifyChecksum` computes the downloaded file's SHA-256
   and compares it before allowing `/update/start` to launch the installer;
   mismatch aborts with a clear error shown in the GUI rather than silently
@@ -397,6 +404,14 @@ Sections 2.2/2.3 above were written against as assumptions:
 
 See `docs/installer-plan.md` Section 9's Task 4 note and that task's PR for
 the full write-up and live-verification status.
+
+**Task 5 update (2026-07-10, task `add-release-checksum-publishing`):**
+already fully done as a side effect of Task 2's own predictable-asset-shape
+goal — `release.yml` was writing the `.sha256` sidecar from the start, this
+task just confirmed it meets both of this table row's acceptance criteria
+(public unauthenticated fetch, no new API scope; canonical
+easily-parsed line format) and added the explicit threat-model note above
+in Section 4. No workflow changes were needed.
 
 ## 7. Should any of this be pulled into v1?
 

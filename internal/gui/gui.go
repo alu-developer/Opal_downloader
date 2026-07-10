@@ -11,12 +11,15 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/updater"
 )
 
 // Options configures the GUI server.
@@ -28,11 +31,18 @@ type Options struct {
 	// state file, browser settings). Defaults to "config.yaml" in the
 	// current working directory when empty.
 	ConfigPath string
+	// Version is the running binary's build version (cmd/opal-downloader's
+	// buildVersion, e.g. "dev" or "0.2.0"), passed in explicitly to avoid an
+	// import cycle between internal/gui and cmd/opal-downloader. Used only
+	// for the update-checker banner. Defaults to "dev" when empty, matching
+	// cmd/opal-downloader's own default.
+	Version string
 }
 
 // server holds the shared state needed by the GUI's HTTP handlers.
 type server struct {
-	configPath string
+	configPath   string
+	buildVersion string
 
 	// loginMu serializes login attempts and guards loginActive. Login runs
 	// synchronously from the caller's perspective (v1 scope): a request to
@@ -40,6 +50,41 @@ type server struct {
 	// or fails.
 	loginMu     sync.Mutex
 	loginActive bool
+
+	// updateMu guards the cached result of the one-time startup update
+	// check (see checkForUpdateOnce). This is a short-lived local tool, not
+	// a daemon, so the check runs once per process start rather than on a
+	// recurring ticker - updateChecked flips true once the single check
+	// completes (success or failure) and updateResult/updateErr hold its
+	// outcome for the rest of the process's life.
+	updateMu       sync.Mutex
+	updateChecked  bool
+	updateResult   updater.Release
+	updateErr      error
+	updateDevBuild bool
+
+	// updaterClient overrides the updater package's default GitHub API
+	// client. nil (the zero value used in production) means "use the real
+	// github.com API via the package-level updater.CheckLatest/Download
+	// functions"; tests set this to a *updater.Client pointed at an
+	// httptest.Server to fake both the release-check and asset/checksum
+	// downloads without any network dependency.
+	updaterClient *updater.Client
+
+	// launchInstaller and exitProcess together perform the installer
+	// hand-off (see handleUpdateStart): launchInstaller starts the
+	// downloaded setup.exe as a detached process and reports whether that
+	// succeeded (see defaultLaunchInstaller), and exitProcess - only called
+	// once launchInstaller has confirmed success - terminates this GUI
+	// process (see defaultExitProcess) so Inno Setup's upgrade-in-place
+	// isn't fighting a running instance of the app it's replacing. Split
+	// into two fields (rather than one "launch and exit" func) so a launch
+	// failure can be reported back to the HTTP response instead of exiting
+	// a process that never actually handed off to anything. Both
+	// overridable in tests so `go test` doesn't spawn a real process or
+	// call os.Exit.
+	launchInstaller func(installerPath string) error
+	exitProcess     func()
 }
 
 // Run starts the local web UI server and blocks until it is stopped via
@@ -55,13 +100,28 @@ func Run(opts Options) error {
 		configPath = "config.yaml"
 	}
 
-	srv := &server{configPath: configPath}
+	version := opts.Version
+	if version == "" {
+		version = "dev"
+	}
+
+	srv := &server{configPath: configPath, buildVersion: version, launchInstaller: defaultLaunchInstaller, exitProcess: defaultExitProcess}
+
+	// Check for an update once per process start (not a recurring ticker -
+	// this is a short-lived local tool, not a daemon). Launched right after
+	// the listener starts so the check runs concurrently with GUI startup
+	// instead of delaying it; handleLanding/handleUpdatePage read whatever
+	// updateChecked/updateResult look like at request time, so a request
+	// that races the check simply sees "not checked yet" until it finishes.
+	go srv.checkForUpdateOnce(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.handleLanding)
 	mux.HandleFunc("/settings", handleSettings(configPath))
 	mux.HandleFunc("/login", srv.handleLoginPage)
 	mux.HandleFunc("/login/start", srv.handleLoginStart)
+	mux.HandleFunc("/update", srv.handleUpdatePage)
+	mux.HandleFunc("/update/start", srv.handleUpdateStart)
 	registerSyncRoutes(mux, configPath)
 
 	httpServer := &http.Server{Handler: mux}
@@ -159,11 +219,28 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 		{{end}}
 	</div>
 
+	{{if .UpdateChecked}}
+	<div class="status {{if .UpdateAvailable}}warn{{else}}ok{{end}}">
+		{{if .UpdateAvailable}}
+			An update is available: <code>{{.CurrentVersion}}</code> &rarr; <code>{{.LatestVersion}}</code>.
+			<form method="post" action="/update/start" style="margin-top: 0.5rem;">
+				<button type="submit">Download &amp; install</button>
+			</form>
+			{{if .ChangelogURL}}<p style="margin: 0.5rem 0 0;"><a href="{{.ChangelogURL}}" target="_blank" rel="noopener">Release notes</a></p>{{end}}
+		{{else if .UpdateDevBuild}}
+			Update checks are unavailable for development builds (<code>{{.CurrentVersion}}</code>).
+		{{else}}
+			Running the latest version (<code>{{.CurrentVersion}}</code>).
+		{{end}}
+	</div>
+	{{end}}
+
 	<nav>
 		<ul>
 			<li><a href="/settings">Settings</a></li>
 			<li><a href="/login">Login</a></li>
 			<li><a href="/sync">Sync / List / Dump links</a></li>
+			<li><a href="/update">Check for updates</a></li>
 		</ul>
 	</nav>
 </body>
@@ -174,6 +251,13 @@ type landingData struct {
 	LoggedIn      bool
 	StateFile     string
 	StateModified string
+
+	UpdateChecked   bool
+	UpdateAvailable bool
+	UpdateDevBuild  bool
+	CurrentVersion  string
+	LatestVersion   string
+	ChangelogURL    string
 }
 
 func (s *server) handleLanding(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +266,7 @@ func (s *server) handleLanding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := s.sessionStatus()
+	s.applyUpdateStatus(&data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = landingTemplate.Execute(w, data)
 }
@@ -333,4 +418,316 @@ func (s *server) runLogin() error {
 		return err
 	}
 	return nil
+}
+
+// checkForUpdateOnce hits internal/updater's release-check endpoint exactly
+// once (bounded by a timeout so a slow/unreachable GitHub API can't hang
+// startup indefinitely) and caches the outcome on the server struct. It is
+// launched as a background goroutine right after Run()'s listener starts;
+// handleLanding/handleUpdatePage just read whatever's cached at request
+// time via applyUpdateStatus, so a request racing the still-in-flight check
+// simply sees "not checked yet" (UpdateChecked=false) until this finishes.
+func (s *server) checkForUpdateOnce(ctx context.Context) {
+	// A "dev" buildVersion (the default for anything not built with the
+	// release -ldflags, e.g. `go run .` during development) has no real
+	// version to compare against - skip the network call entirely rather
+	// than let it surface as a confusing "not a parseable numeric version"
+	// error, and don't claim "running the latest version" either, since
+	// that's not actually known. See applyUpdateStatus/handleUpdatePage for
+	// how this is surfaced distinctly from a real check error.
+	if isDevBuildVersion(s.buildVersion) {
+		s.updateMu.Lock()
+		s.updateChecked = true
+		s.updateDevBuild = true
+		s.updateMu.Unlock()
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	rel, err := s.checkLatest(checkCtx)
+
+	s.updateMu.Lock()
+	s.updateChecked = true
+	s.updateResult = rel
+	s.updateErr = err
+	s.updateMu.Unlock()
+}
+
+// isDevBuildVersion reports whether v is the placeholder version used for
+// unreleased/local builds ("dev", cmd/opal-downloader's default when built
+// without -ldflags), which has no real release tag to compare against.
+func isDevBuildVersion(v string) bool {
+	return v == "" || v == "dev"
+}
+
+// checkLatest calls updater.CheckLatest (or, in tests, the injected
+// updaterClient pointed at an httptest.Server) with this server's build
+// version.
+func (s *server) checkLatest(ctx context.Context) (updater.Release, error) {
+	if s.updaterClient != nil {
+		return s.updaterClient.CheckLatest(ctx, s.buildVersion)
+	}
+	return updater.CheckLatest(ctx, s.buildVersion)
+}
+
+// downloadAsset fetches url (an updater.Release's AssetURL or ChecksumURL)
+// to destPath via updater.Download, or the injected updaterClient in tests.
+func (s *server) downloadAsset(ctx context.Context, url, destPath string) error {
+	if s.updaterClient != nil {
+		return s.updaterClient.Download(ctx, url, destPath)
+	}
+	return updater.Download(ctx, url, destPath)
+}
+
+// applyUpdateStatus copies the cached update-check result into data's
+// update fields. Safe to call before the background check has finished
+// (UpdateChecked stays false until it has).
+func (s *server) applyUpdateStatus(data *landingData) {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+
+	data.UpdateChecked = s.updateChecked
+	data.UpdateAvailable = s.updateChecked && s.updateErr == nil && s.updateResult.IsNewer
+	data.UpdateDevBuild = s.updateDevBuild
+	data.CurrentVersion = s.buildVersion
+	data.LatestVersion = s.updateResult.Version
+	data.ChangelogURL = s.updateResult.HTMLURL
+}
+
+// updateSnapshot is a point-in-time, lock-free copy of the cached update
+// check result, used by handleUpdateStart so it doesn't hold updateMu while
+// downloading/verifying/launching the installer.
+type updateSnapshot struct {
+	checked  bool
+	err      error
+	release  updater.Release
+	devBuild bool
+}
+
+func (s *server) snapshotUpdate() updateSnapshot {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	return updateSnapshot{checked: s.updateChecked, err: s.updateErr, release: s.updateResult, devBuild: s.updateDevBuild}
+}
+
+var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Opal Downloader - Update</title>
+<style>` + pageStyle + `</style>
+</head>
+<body>
+	<h1>Check for updates</h1>
+
+	{{if not .Checked}}
+	<div class="status warn">Still checking for updates - refresh this page in a moment.</div>
+	{{else if .DevBuild}}
+	<div class="status warn">Update checks are unavailable for development builds (<code>{{.CurrentVersion}}</code>). Build with <code>-ldflags</code> to embed a real version, or check <a href="https://github.com/alu-developer/Opal_downloader/releases" target="_blank" rel="noopener">GitHub Releases</a> manually.</div>
+	{{else if .Result}}
+	<div class="status warn">Could not check for updates: {{.Result}}</div>
+	{{else if .Available}}
+	<div class="status warn">
+		An update is available: <code>{{.CurrentVersion}}</code> &rarr; <code>{{.LatestVersion}}</code>.
+		{{if .ChangelogURL}}<p><a href="{{.ChangelogURL}}" target="_blank" rel="noopener">Release notes</a></p>{{end}}
+	</div>
+	<form method="post" action="/update/start">
+		<button type="submit">Download &amp; install</button>
+	</form>
+	<p class="soon">This downloads the installer, verifies its checksum, launches it, and then closes this app so the installer can upgrade it in place.</p>
+	{{else}}
+	<div class="status ok">Running the latest version (<code>{{.CurrentVersion}}</code>).</div>
+	{{end}}
+
+	<a class="back" href="/">&larr; Back</a>
+</body>
+</html>
+`))
+
+type updatePageData struct {
+	Checked        bool
+	Available      bool
+	DevBuild       bool
+	CurrentVersion string
+	LatestVersion  string
+	ChangelogURL   string
+	Result         string
+}
+
+func (s *server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+
+	snap := s.snapshotUpdate()
+	data := updatePageData{
+		Checked:        snap.checked,
+		DevBuild:       snap.devBuild,
+		CurrentVersion: s.buildVersion,
+		LatestVersion:  snap.release.Version,
+		ChangelogURL:   snap.release.HTMLURL,
+	}
+	if snap.checked && !snap.devBuild {
+		if snap.err != nil {
+			data.Result = snap.err.Error()
+		} else {
+			data.Available = snap.release.IsNewer
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = updatePageTemplate.Execute(w, data)
+}
+
+var updateStartingTemplate = template.Must(template.New("update-starting").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Opal Downloader - Installing update</title>
+<style>` + pageStyle + `</style>
+</head>
+<body>
+	<h1>Starting installer</h1>
+	<div class="status ok">
+		The installer has been downloaded and verified. It is starting now,
+		and <strong>this app will close</strong> so the installer can
+		upgrade it in place.
+	</div>
+	<p>Once the installer finishes, you can start Opal Downloader again as usual.</p>
+</body>
+</html>
+`))
+
+var updateErrorTemplate = template.Must(template.New("update-error").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Opal Downloader - Update failed</title>
+<style>` + pageStyle + `</style>
+</head>
+<body>
+	<h1>Update failed</h1>
+	<div class="status warn">{{.}}</div>
+	<a class="back" href="/update">&larr; Back</a>
+</body>
+</html>
+`))
+
+// handleUpdateStart downloads the update asset, verifies its checksum, and
+// hands off to the downloaded setup.exe: it renders a "starting installer,
+// this app will close now" page, flushes it to the client, then - in a
+// background goroutine so the flush above isn't racing process exit -
+// launches the installer as a detached process and exits this GUI process.
+// See launchAndExit/defaultLaunchAndExit for why the process must exit
+// rather than keep running: Inno Setup's upgrade-in-place needs the app
+// it's replacing to not be holding its own files open.
+func (s *server) handleUpdateStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	snap := s.snapshotUpdate()
+	if !snap.checked || snap.err != nil || !snap.release.IsNewer {
+		s.renderUpdateError(w, http.StatusBadRequest, fmt.Errorf("no update is available to install"))
+		return
+	}
+	if snap.release.AssetURL == "" {
+		s.renderUpdateError(w, http.StatusBadRequest, fmt.Errorf("release %s has no %s asset", snap.release.TagName, updater.AssetName))
+		return
+	}
+
+	destPath := filepath.Join(os.TempDir(), updater.AssetName)
+	if err := s.downloadAsset(r.Context(), snap.release.AssetURL, destPath); err != nil {
+		s.renderUpdateError(w, http.StatusBadGateway, fmt.Errorf("downloading installer: %w", err))
+		return
+	}
+
+	if snap.release.ChecksumURL != "" {
+		checksumPath := destPath + ".sha256"
+		if err := s.downloadAsset(r.Context(), snap.release.ChecksumURL, checksumPath); err != nil {
+			s.renderUpdateError(w, http.StatusBadGateway, fmt.Errorf("downloading checksum: %w", err))
+			return
+		}
+		sidecar, err := os.ReadFile(checksumPath)
+		_ = os.Remove(checksumPath)
+		if err != nil {
+			s.renderUpdateError(w, http.StatusInternalServerError, fmt.Errorf("reading downloaded checksum: %w", err))
+			return
+		}
+		if err := updater.VerifyChecksumSidecar(destPath, sidecar); err != nil {
+			_ = os.Remove(destPath)
+			s.renderUpdateError(w, http.StatusBadGateway, fmt.Errorf("checksum verification failed: %w", err))
+			return
+		}
+	}
+
+	// Start the installer *before* telling the user this app is closing:
+	// cmd.Start() only blocks on the initial CreateProcess call (it does
+	// not wait for the installer to finish), so this stays effectively
+	// synchronous from the request's perspective, but it means a launch
+	// failure - e.g. Windows requiring elevation the calling process can't
+	// silently grant, confirmed live during this task's spike (see PR
+	// description) - surfaces as a real error page instead of a "closing
+	// now" page that lies about what happened.
+	launchInstaller := s.launchInstaller
+	if launchInstaller == nil {
+		launchInstaller = defaultLaunchInstaller
+	}
+	if err := launchInstaller(destPath); err != nil {
+		s.renderUpdateError(w, http.StatusInternalServerError, fmt.Errorf(
+			"could not start the installer automatically (%w). The installer was downloaded and verified at %s - you can run it manually", err, destPath))
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = updateStartingTemplate.Execute(w, nil)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	if s.exitProcess != nil {
+		go s.exitProcess()
+	}
+}
+
+func (s *server) renderUpdateError(w http.ResponseWriter, status int, err error) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_ = updateErrorTemplate.Execute(w, err.Error())
+}
+
+// defaultLaunchInstaller is the production implementation of
+// server.launchInstaller: start installerPath as a detached child process
+// (exec.Command(...).Start(), deliberately never Wait()'d - the point is
+// that the installer must keep running after this process is gone). It
+// returns whatever error CreateProcess reports rather than swallowing it,
+// so handleUpdateStart can tell the user the installer didn't actually
+// start instead of claiming this app is closing when it isn't.
+func defaultLaunchInstaller(installerPath string) error {
+	cmd := exec.Command(installerPath)
+	return cmd.Start()
+}
+
+// defaultExitProcess is the production implementation of
+// server.exitProcess, run in a background goroutine right after
+// handleUpdateStart has confirmed the installer started and flushed the
+// "this app will close now" response. It terminates this GUI process so
+// Inno Setup's upgrade-in-place isn't fighting a running instance of the
+// app it's replacing. Live-verified on Windows (see this task's PR
+// description) that a process started via defaultLaunchInstaller survives
+// this process's exit with no orphaned/zombie state, using a plain
+// manifested Win32 executable as the stand-in installer.
+//
+// The short sleep before os.Exit gives the HTTP response written by
+// handleUpdateStart a moment to actually reach the client (browser tab or
+// the native webview window, see window_windows.go) before the process
+// disappears out from under the connection.
+func defaultExitProcess() {
+	time.Sleep(500 * time.Millisecond)
+	os.Exit(0)
 }

@@ -487,7 +487,7 @@ func runGUI(args []string) error {
 		}
 	}
 
-	return gui.Run(gui.Options{Port: port, ConfigPath: configPath})
+	return gui.Run(gui.Options{Port: port, ConfigPath: configPath, Version: buildVersion})
 }
 
 // printUpdateFooter does a best-effort, short-timeout check against

@@ -210,12 +210,60 @@ listed.
     exact sidecar format (`Get-FileHash`'s one-line, no-trailing-newline,
     two-space-separated `<hex>  <filename>`). Fully unit-tested against
     `httptest.Server` (no live GitHub/network dependency, no
-    Playwright/browser dependency). **Not yet wired into anything** — no
-    GUI banner/routes, no CLI footer line; this is just the package itself,
-    see `internal/updater/updater.go`'s doc comment and `Example` in
-    `updater_test.go` for the intended call pattern. Wiring it into
-    `internal/gui` (Section 2.3/2.4 of the plan) is separate, not-yet-queued
-    work.
+    Playwright/browser dependency). See `internal/updater/updater.go`'s doc
+    comment and `Example` in `updater_test.go` for the intended call
+    pattern.
+  - **GUI wiring built (2026-07-10, task
+    `add-gui-update-checker-ui`)**: `internal/gui`'s `Run()` launches one
+    `go srv.checkForUpdateOnce(ctx)` goroutine right after the listener
+    starts (a one-shot check per process start, not a ticker — this is a
+    short-lived local tool, not a daemon), caches the result on the
+    `server` struct (`updateMu`/`updateResult`/`updateChecked`, same
+    pattern as `loginActive`), and the landing page gets a second
+    `.status` banner (same pattern as the login-state banner) plus a
+    dedicated `/update` page when a newer release is available. `POST
+    /update/start` downloads the asset and checksum sidecar via
+    `internal/updater`, verifies the checksum, and only then attempts the
+    installer hand-off.
+  - **Installer hand-off finding: `cmd.Start()` can fail with "the
+    requested operation requires elevation," and the code now handles this
+    instead of assuming success.** The original design (start the
+    installer, then unconditionally render "this app will close now" and
+    exit) was live-tested with a stand-in installer executable and hit
+    exactly this failure: launching an unsigned/unmanifested downloaded
+    .exe from a non-elevated process can trigger Windows's
+    installer-detection heuristic, which returns `ERROR_ELEVATION_REQUIRED`
+    from `CreateProcess` outright when there's no interactive
+    desktop/session available to show a UAC consent prompt (rather than
+    showing that prompt, which is what would happen on a real interactive
+    desktop session if the real `opal-downloader-setup.exe` requests
+    admin — Inno Setup's default `PrivilegesRequired=admin` unless
+    configured otherwise). The fix: `handleUpdateStart` now calls
+    `launchInstaller` (wraps `exec.Command(path).Start()`) *before*
+    rendering any response, and only renders "closing now" + calls
+    `exitProcess` (the `os.Exit(0)` step) if that succeeded; a failure
+    renders a real error page naming the downloaded-and-verified installer
+    path so the user can run it manually, and leaves the GUI process
+    running. The detach-and-survive-parent-exit mechanic itself (a process
+    started via `.Start()` and never `.Wait()`'d does outlive the parent's
+    `os.Exit`) was separately confirmed live with a plain manifested Win32
+    executable.
+  - **Follow-up (2026-07-10, queue-review live desktop verification): the
+    elevation concern above does not apply to this project's real
+    installer, and the full handoff has now been live-verified end-to-end.**
+    `installer/opal-downloader.iss` sets `PrivilegesRequired=lowest` (installs
+    per-user to `%LocalAppData%\Programs\...`, no admin needed) — the
+    "requires elevation" failure only reproduced with an unmanifested
+    stand-in exe that Windows's installer-detection heuristic assumed needed
+    admin. Serving a real build of the `.iss` script from a local fake
+    GitHub API and clicking "Download & install" in the actual native GUI
+    window downloaded it, verified its checksum, and launched the real Inno
+    Setup wizard with no UAC prompt at all, confirmed by the maintainer on
+    their own desktop. Also found and fixed in the same pass: a "dev"
+    `buildVersion` (unreleased/local builds) surfaced a raw "not a parseable
+    numeric version" error on `/update` while the landing page simultaneously
+    claimed "Running the latest version" - both now show a distinct, honest
+    "Update checks are unavailable for development builds" message instead.
 - **Installer bundles Chromium** — `docs/installer-plan.md` Section 3
   originally decided *against* bundling (to keep `setup.exe` small and
   avoid an assumed version-sync tax), but that call was reversed

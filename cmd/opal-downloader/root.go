@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/gui"
+	"github.com/alu-developer/opal-downloader/internal/procguard"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 	"github.com/alu-developer/opal-downloader/internal/timing"
@@ -44,6 +46,14 @@ var updaterCheckLatest = updater.CheckLatest
 var buildVersion = "dev"
 
 func Execute() {
+	// Make sure any Chromium/Brave process Playwright launches (login/sync/
+	// list/dump-links/gui all go through internal/scraper) dies with this
+	// process, even if this process is killed abruptly (crash, `taskkill
+	// /F`, a queue-run force-stop) rather than exiting normally - see
+	// internal/procguard's doc comment for the full story. Must run before
+	// any subcommand has a chance to launch a browser.
+	procguard.EnsureChildProcessesDieWithParent()
+
 	// Running the binary with no subcommand at all launches the GUI - the
 	// web UI is the primary/default way most users interact with
 	// opal-downloader (see docs/gui-concept.md Section 5). All CLI
@@ -240,6 +250,7 @@ func runLogin(args []string) error {
 	sc := scraper.New(credentials.URL, credentials.StateFile, credentials.BrowserExecutable, credentials.BrowserUserDataDir, credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
+	defer closeBrowserOnInterrupt(sc)()
 
 	fmt.Println("Opening OPAL for login...")
 	fmt.Println("Please log in using TU-Fast (2FA is supported).")
@@ -304,6 +315,7 @@ func runList(args []string) error {
 	sc.SetDeveloperMode(devMode)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	defer sc.Close()
+	defer closeBrowserOnInterrupt(sc)()
 
 	totalTimer := timing.StartTimer()
 	err = syncer.ListAvailableCourses(sc)
@@ -379,6 +391,7 @@ func runSync(args []string) error {
 	sc.SetDeveloperMode(devMode)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	defer sc.Close()
+	defer closeBrowserOnInterrupt(sc)()
 
 	fmt.Printf("Download path: %s\n", loaded.App.DownloadPath)
 	fmt.Printf("Course patterns: %s\n", strings.Join(loaded.App.Courses, ", "))
@@ -452,6 +465,7 @@ func runDumpLinks(args []string) error {
 	sc := scraper.New(credentials.URL, credentials.StateFile, credentials.BrowserExecutable, credentials.BrowserUserDataDir, credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
+	defer closeBrowserOnInterrupt(sc)()
 
 	if err := sc.DumpPageLinks(targetURL, outputPath); err != nil {
 		return err
@@ -488,6 +502,38 @@ func runGUI(args []string) error {
 	}
 
 	return gui.Run(gui.Options{Port: port, ConfigPath: configPath, Version: buildVersion})
+}
+
+// closeBrowserOnInterrupt is a belt-and-suspenders companion to
+// procguard.EnsureChildProcessesDieWithParent (see its doc comment): that
+// guarantees a Chromium/Brave process launched by sc never outlives this
+// process even on a hard kill, but a graceful Ctrl-C should still close the
+// browser window immediately and let the interrupted command return a clean
+// error, rather than leaving the visible window open until the job-object
+// kill fires. It mirrors the same os.Interrupt-triggered sc.Close() pattern
+// internal/gui/gui.go's Run and window_windows.go's openNativeWindow already
+// use for the GUI's own window. Closing sc.Close() causes whatever
+// Playwright call is currently blocked (page.Goto/WaitForSelector/etc.) to
+// return an error promptly, which propagates up through the normal
+// error-returning path - no separate os.Exit needed here.
+//
+// Returns a stop func that must be deferred by the caller to release the
+// signal channel once the command finishes normally.
+func closeBrowserOnInterrupt(sc *scraper.OpalScraper) (stop func()) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-sigCh:
+			_ = sc.Close()
+		case <-done:
+		}
+	}()
+	return func() {
+		close(done)
+		signal.Stop(sigCh)
+	}
 }
 
 // printUpdateFooter does a best-effort, short-timeout check against

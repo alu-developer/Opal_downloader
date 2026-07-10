@@ -363,7 +363,7 @@ No server-side component is needed, now or foreseeably:
 | Task | Effort | Depends on |
 |---|---|---|
 | 1. Fix hardcoded version string — add `-ldflags` injection (Section 2.1) | Small | None; also useful independent of this plan (accurate `--version` output today is arguably already a small bug) |
-| 2. Establish an actual release-build process that produces predictably-named GitHub Release assets (currently **does not exist** — `ci.yml` only tests/vets/builds, no tag-triggered release job) | Medium | Installer existing (installer-plan.md tasks 1–4); this plan's checker is only as reliable as this process's asset-naming consistency |
+| 2. Establish an actual release-build process that produces predictably-named GitHub Release assets | Medium | Installer existing (installer-plan.md tasks 1–4); this plan's checker is only as reliable as this process's asset-naming consistency — **done**, see below |
 | 3. `internal/updater` package: GitHub API client, version comparison, download, checksum verify (Section 2.2) | Medium | Task 1 |
 | 4. GUI integration: banner on landing page, `/update` + `/update/start` routes, process-handoff-then-exit spike (Section 2.4) | Medium (the process-handoff piece is the main uncertainty) | Task 3 |
 | 5. Checksum publishing as part of the release process (Section 4) | Small | Task 2 |
@@ -376,6 +376,27 @@ exist at all yet and this plan is implicitly depending on it, and (b) the
 Windows process-handoff behavior in task 4 ("launch installer, exit self
 cleanly") needs a short live spike before committing to an effort number,
 not just this design.
+
+**Task 2 update (2026-07-10, task `add-release-build-workflow`):** the
+release-build process this whole plan was implicitly depending on now
+exists — `.github/workflows/release.yml`, triggered on `v*` tag pushes.
+It builds `opal-downloader.exe` with `-ldflags` version injection, fetches
+a matching Chromium via the pinned `playwright-go` driver, invokes
+`scripts/build-installer.ps1` to produce `opal-downloader-setup.exe`, and
+publishes it (plus a `.sha256` sidecar) as a GitHub Release asset via
+`gh release create`. Concretely, this confirms the two things
+Sections 2.2/2.3 above were written against as assumptions:
+
+- **Tag format is `vX.Y.Z`** (e.g. `v0.2.0`) — `tag_name` in the
+  `/releases/latest` response will always have the leading `v` this
+  section's version-comparison code needs to strip.
+- **Asset name is the unversioned `opal-downloader-setup.exe`** — exactly
+  the name Section 2.2 already used as its example, so `CheckLatest`'s
+  asset-picking logic can hardcode this string rather than pattern-match
+  a version into the filename.
+
+See `docs/installer-plan.md` Section 9's Task 4 note and that task's PR for
+the full write-up and live-verification status.
 
 ## 7. Should any of this be pulled into v1?
 

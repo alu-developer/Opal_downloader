@@ -1,0 +1,99 @@
+name: release
+
+# Tag-triggered release build: produces opal-downloader-setup.exe (with a
+# bundled Chromium matching the pinned playwright-go version, see
+# installer/opal-downloader.iss) and publishes it as a GitHub Release asset.
+#
+# Tag format: vX.Y.Z (e.g. v0.2.0). This is not an arbitrary choice - it's
+# the format docs/update-mechanism-plan.md's planned internal/updater
+# package already assumes (Section 2.2: parses the release's `tag_name`,
+# strips a leading "v", compares against buildVersion). Push a tag in any
+# other shape and that comparison - and this workflow's own -ldflags
+# version string - will be wrong.
+#
+# Asset naming: the compiled installer is uploaded UNVERSIONED as
+# "opal-downloader-setup.exe" (not e.g. "opal-downloader-setup-v0.2.0.exe").
+# This matches docs/update-mechanism-plan.md Section 2.2's existing example
+# ("Picks the release asset matching the expected name pattern (e.g.
+# opal-downloader-setup.exe)") - an unversioned name means the future
+# updater can always look up the same fixed asset name on
+# GET .../releases/latest without also having to parse the version back out
+# of the filename. A ".sha256" sidecar (plain `Get-FileHash` output, one
+# line) is uploaded alongside it; a separate queued task refines checksum
+# publishing further - this is just enough to unblock a stable asset shape.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Inno Setup
+        # Chocolatey ships preinstalled on GitHub-hosted Windows runners.
+        # scripts/build-installer.ps1 already knows how to find ISCC.exe at
+        # its default install locations (see its "Resolve iscc.exe" step),
+        # including the one this installs to.
+        run: choco install innosetup -y --no-progress
+        shell: pwsh
+
+      - name: Fetch Playwright Chromium
+        # A fresh windows-latest runner has no local Playwright cache at
+        # all, unlike a dev machine that may have already run
+        # `opal-downloader.exe setup`. This populates
+        # %LOCALAPPDATA%\ms-playwright the same way that command does
+        # (it shells out to the same `playwright install` driver command -
+        # see runSetup in cmd/opal-downloader/root.go), using the exact
+        # playwright-go version pinned in go.mod so the fetched Chromium
+        # revision matches what the built opal-downloader.exe expects at
+        # runtime. Installing the full driver (not just "chromium") is
+        # intentional: it's what guarantees both "chromium-<rev>" AND
+        # "chromium_headless_shell-<rev>" land in the cache - see
+        # installer/opal-downloader.iss's header comment for why both are
+        # required (headless list/sync session reuse resolves to
+        # chrome-headless-shell.exe, not chrome.exe).
+        run: go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
+        shell: pwsh
+
+      - name: Build installer
+        id: build
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          ./scripts/build-installer.ps1 -Version $tag
+
+          $exe = Join-Path $PWD "installer\output\opal-downloader-setup.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Expected installer output not found at $exe"
+          }
+
+          $hash = Get-FileHash -Algorithm SHA256 $exe
+          $sidecar = "$exe.sha256"
+          "$($hash.Hash.ToLower())  opal-downloader-setup.exe" | Out-File -Encoding ascii -NoNewline $sidecar
+
+          "exe_path=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sidecar_path=$sidecar" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Create GitHub Release and upload assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release create $tag `
+            "${{ steps.build.outputs.exe_path }}" `
+            "${{ steps.build.outputs.sidecar_path }}" `
+            --title $tag `
+            --generate-notes

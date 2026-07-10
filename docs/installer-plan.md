@@ -247,11 +247,36 @@ Rough sizing, assuming Inno Setup and the decisions above:
 | 1. Fix `runSetup`'s Playwright install to not require a Go toolchain on the target machine (call `playwright-go`'s install API directly instead of `exec.Command("go", "run", ...)`) | Small–Medium | None — this is a prerequisite bug, not installer-specific, worth fixing regardless of the installer |
 | 2. Write the `.iss` script: file list (binary, GUI assets, `config.example.yaml`, LICENSE), wizard pages (install dir, shortcuts), post-install `[Run]` entries (`setup`, then `gui`) | Medium | Task 1 (so the post-install hook actually works without Go installed) |
 | 3. Add the Brave/Chrome detection informational page (Section 5) | Small | Task 2 |
-| 4. Wire installer build into a release process (manual `iscc` invocation is fine for v1; CI automation is explicitly out of scope per this task's constraints, but worth a follow-up) | Small | Task 2 |
+| 4. Wire installer build into a release process (manual `iscc` invocation is fine for v1; CI automation is explicitly out of scope per this task's constraints, but worth a follow-up) | Small | Task 2 — **done**, see below |
 | 5. Wait on / land `gui-primary-entrypoint` before the first public release of `setup.exe` (Section 8) | N/A (blocked externally) | `gui-login-trigger` PR #17 merging first |
 | 6. Document the SmartScreen workaround in the release notes / README | Trivial | Task 2 (done — see `README.md`'s "Download & Install" section and `docs/release-notes-template.md`) |
 | 7. (Later, optional) In-app update checker | Medium | A second release existing to update to |
 | 8. (Later, optional) Suggested-profile-path prefill from browser detection into the GUI (Section 5) | Small | Task 3 |
+
+**Task 4 update (2026-07-10, task `add-release-build-workflow`):** a tag-triggered
+release workflow now exists at `.github/workflows/release.yml` (a new
+workflow file, not a job added to `ci.yml`, to keep the tag-only trigger
+cleanly separate from the existing push/PR test job). On a `v*` tag push it:
+builds `opal-downloader.exe` with the tag injected via `-ldflags` (the
+`buildVersion` mechanism from PR #37); fetches a Chromium cache matching the
+pinned `playwright-go` version (`go.mod`) via the same driver command
+`runSetup` uses, since a fresh GitHub-hosted Windows runner has no
+pre-existing `%LOCALAPPDATA%\ms-playwright`; installs Inno Setup via
+Chocolatey (preinstalled on `windows-latest`); invokes
+`scripts/build-installer.ps1` to stage the cache and run `iscc`; and uploads
+the resulting `opal-downloader-setup.exe` plus a `.sha256` sidecar as GitHub
+Release assets via `gh release create`.
+
+**Conventions this establishes** (also documented in the workflow's own
+header comments): tag format is `vX.Y.Z` (e.g. `v0.2.0`); the installer
+asset is uploaded **unversioned** as `opal-downloader-setup.exe` (not
+`opal-downloader-setup-v0.2.0.exe`), matching the name
+`docs/update-mechanism-plan.md` Section 2.2 already assumed for the planned
+`internal/updater` package, so that package can always fetch the same fixed
+asset name off `GET .../releases/latest` without parsing a version out of
+the filename. Live end-to-end verification (pushing a real tag and watching
+the run) status is recorded in that task's PR — see there before relying on
+this workflow for a real release if it wasn't marked verified.
 
 **Overall estimate: small-to-medium** for a working v1 installer (tasks 1–4,
 6) — roughly a few days of focused work for someone already familiar with

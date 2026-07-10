@@ -53,9 +53,74 @@ files, `config.example.yaml`), and (b) Playwright's Chromium browser cache
 (`%LOCALAPPDATA%\ms-playwright`, historically 150–300+ MB depending on
 Chromium version).
 
-**Decision: do not bundle Chromium. Trigger `opal-downloader.exe setup`
-(already exists, see `cmd/opal-downloader/root.go`'s `runSetup`) as a
-post-install step, downloaded over the internet at install time.**
+**Decision (revised 2026-07-09, overrides the original "do not bundle"
+call below): bundle Chromium into `setup.exe`.** The maintainer weighed the
+original rationale and rejected it — see "Why this was revisited" below.
+The installer copies the pinned Chromium build into
+`%LOCALAPPDATA%\ms-playwright` (or wherever `playwright-go` v0.6100.0
+expects it) as a normal `[Files]` entry, so a fresh install needs no
+Chromium download step and works fully offline after the `setup.exe`
+download completes.
+
+Consequences for the rest of this plan:
+
+- `runSetup`'s Playwright-install step (Section 9 task 1) becomes a
+  **skip-if-already-present** check rather than the primary install path
+  for installer-based installs — it stays as-is for the manual
+  clone-and-build dev flow (where bundling doesn't apply), but the
+  installer's post-install `[Run]` step no longer needs it to succeed.
+- The release-build process (Section 9 task 4, and the CI job this plan
+  assumes exists per `docs/update-mechanism-plan.md` Section 6 task 2) must
+  fetch the Chromium build matching the pinned `playwright-go` version
+  *before* compiling `setup.exe`, and embed it as a `[Files]` source. This
+  is a bounded, one-time addition to a release workflow that doesn't exist
+  yet anyway (see task 4b below) — not an ongoing tax beyond what already
+  exists today, since the pin only changes when the maintainer deliberately
+  bumps it, same as any other dependency bump that would already trigger a
+  new release.
+- Installer size grows by roughly the Chromium cache size (150–300+ MB) —
+  accepted; a one-time larger download is judged worth it against the
+  friction of a fresh install silently depending on a second internet
+  fetch that can fail, stall, or degrade with no visible progress.
+- The offline-degradation handling from the rejected design (skip/report
+  Chromium as failed, tell the user to re-run `setup` later) is no longer
+  needed for the installer path, since Chromium ships in the package. It's
+  kept for the manual dev-build path, where `setup` is still how Chromium
+  gets installed.
+
+### Why this was revisited
+
+Original rationale (kept below for the record) argued bundling would (a)
+roughly triple-plus the installer size, and (b) create an ongoing
+maintenance tax of "keeping bundled Chromium in lockstep with the
+`playwright-go` version pin." On review:
+
+- (a) was judged an acceptable trade — installer size in the low hundreds
+  of MB is unremarkable for a one-time download in 2026, and this project
+  has no bandwidth/hosting cost constraint (GitHub Releases hosting is
+  free).
+- (b) does not actually hold up: the "lockstep with the pin" sync cost
+  exists identically whether Chromium is bundled or fetched at
+  install-time — either way, whenever `playwright-go`'s pin bumps, *some*
+  process has to fetch the new Chromium build that matches it. Bundling
+  only moves *when* that fetch happens (CI build time, once per release)
+  rather than *whether* it happens (user's install time, once per
+  install). Moving it to build time is arguably less fragile: one fetch
+  per release instead of one fetch per user-machine, with no
+  offline/flaky-network failure mode exposed to end users at all.
+
+Given ease-of-use is this project's explicitly stated top priority
+(`CLAUDE.md`'s "Project philosophy" section), removing a second
+internet-dependent, silently-failable step from first install is worth
+more than the avoided installer size — so the decision is reversed.
+
+<details>
+<summary>Original (2026-xx-xx) rationale — superseded, kept for history</summary>
+
+**Original decision: do not bundle Chromium. Trigger
+`opal-downloader.exe setup` (already exists, see
+`cmd/opal-downloader/root.go`'s `runSetup`) as a post-install step,
+downloaded over the internet at install time.**
 
 Rationale:
 
@@ -88,6 +153,8 @@ Rationale:
   `opal-downloader.exe setup` from a shortcut or terminal. This mirrors how
   `setup` already degrades today (it's rerunnable/idempotent per its
   existing "skip if exists" pattern for config).
+
+</details>
 
 ## 4. Config bootstrap during install
 
@@ -223,20 +290,16 @@ update *to* — flagged in Section 8, not designed further here.
   all`, etc.) keep using the existing README instructions unchanged — the
   installer is an end-user distribution artifact built *from* a contributor's
   `go build`, not a replacement for the build process itself.
-- **Independent of `gui-primary-entrypoint`** (`.claude/queue/blocked/
-  gui-primary-entrypoint.md`), which is currently blocked on PR #17. This
-  plan does not depend on that task landing — the installer can launch
-  `opal-downloader.exe gui` explicitly as its post-install action regardless
-  of whether running the bare binary with no subcommand later also defaults
-  to `gui`. **However, the installer itself should not actually ship
-  (i.e. no GitHub Release of `setup.exe` for end users) until
-  `gui-primary-entrypoint` lands** — shipping an installer whose entire
-  pitch is "double-click, get the GUI" while the GUI is still one extra
-  subcommand away from being the default undercuts the "no CLI knowledge
-  needed" promise this installer is meant to deliver. The installer's
-  post-install `[Run]` step can explicitly invoke `opal-downloader.exe gui`
-  either way, so this is a release-gating decision, not a technical
-  dependency.
+- **`gui-primary-entrypoint` has since landed** (PR #31, commit `5fcccd0`,
+  `.claude/queue/done/gui-primary-entrypoint.md`) — running the bare binary
+  with no subcommand now defaults to `gui`, not just `opal-downloader.exe
+  gui` explicitly. This section originally noted the installer's pitch
+  ("double-click, get the GUI") would be undercut if the GUI were still one
+  extra subcommand away from default, and treated that as a release-gating
+  condition, not a technical dependency — that condition is now satisfied,
+  so it's no longer a reason to hold back a public release once the
+  installer itself exists. The installer's post-install `[Run]` step can
+  still invoke `opal-downloader.exe gui` explicitly either way.
 
 ## 9. Effort/complexity estimate and suggested follow-up order
 
@@ -244,11 +307,12 @@ Rough sizing, assuming Inno Setup and the decisions above:
 
 | Task | Effort | Depends on |
 |---|---|---|
-| 1. Fix `runSetup`'s Playwright install to not require a Go toolchain on the target machine (call `playwright-go`'s install API directly instead of `exec.Command("go", "run", ...)`) | Small–Medium | None — this is a prerequisite bug, not installer-specific, worth fixing regardless of the installer |
-| 2. Write the `.iss` script: file list (binary, GUI assets, `config.example.yaml`, LICENSE), wizard pages (install dir, shortcuts), post-install `[Run]` entries (`setup`, then `gui`) | Medium | Task 1 (so the post-install hook actually works without Go installed) |
+| 1. Fix `runSetup`'s Playwright install to not require a Go toolchain on the target machine (call `playwright-go`'s install API directly instead of `exec.Command("go", "run", ...)`) | Small–Medium | None — this is a prerequisite bug, not installer-specific, worth fixing regardless of the installer; still needed for the manual dev-build path even though the installer itself no longer depends on it (Section 3 revision) |
+| 2. Write the `.iss` script: file list (binary, GUI assets, `config.example.yaml`, LICENSE, **bundled Chromium cache**, per Section 3's revised decision), wizard pages (install dir, shortcuts), post-install `[Run]` entries (`gui`; `setup` only as a skip-if-present fallback) | Medium | None (no longer gated on Task 1, since the installer bundles Chromium instead of depending on the post-install fetch working) |
 | 3. Add the Brave/Chrome detection informational page (Section 5) | Small | Task 2 |
 | 4. Wire installer build into a release process (manual `iscc` invocation is fine for v1; CI automation is explicitly out of scope per this task's constraints, but worth a follow-up) | Small | Task 2 — **done**, see below |
-| 5. Wait on / land `gui-primary-entrypoint` before the first public release of `setup.exe` (Section 8) | N/A (blocked externally) | `gui-login-trigger` PR #17 merging first |
+| 4b. Release-build step: fetch the Chromium build matching the pinned `playwright-go` version and stage it for the `.iss` `[Files]` entry (Section 3) | Small–Medium | Task 4 — folded into the release workflow's Chromium-fetch step, see below |
+| 5. ~~Wait on / land `gui-primary-entrypoint` before the first public release of `setup.exe`~~ — **done**, landed via PR #31 (commit `5fcccd0`); no longer a gate | N/A | — |
 | 6. Document the SmartScreen workaround in the release notes / README | Trivial | Task 2 (done — see `README.md`'s "Download & Install" section and `docs/release-notes-template.md`) |
 | 7. (Later, optional) In-app update checker | Medium | A second release existing to update to |
 | 8. (Later, optional) Suggested-profile-path prefill from browser detection into the GUI (Section 5) | Small | Task 3 |

@@ -138,6 +138,64 @@ is speculative — no evidence BPS actually has this configured — but it's a
 real, documented mechanism that would produce a "PROPFIND doesn't work for
 my script but works in WinSCP" symptom.
 
+## Finding 6: live-tested, 2026-07-09 — auth succeeds, then every request/path/method returns a blank 200
+
+This is a live test, not inference from documentation like Findings 1-5. A
+real WebDAV credential was obtained from Mein OPAL → Profil und
+Einstellungen → WebDAV-Zugang (confirms Finding 3's username format exactly:
+`<opal-username>@tu-dresden.de`) and used with `curl` against
+`https://bildungsportal.sachsen.de/opal/webdav/`:
+
+- **Auth is genuinely checked and works.** No `Authorization` header → `401`
+  with `WWW-Authenticate: Basic realm="OPAL WebDAV"`. Correct
+  username/password → `200`. Deliberately wrong password → `401` again. This
+  rules out Finding 3 (credential format) as a live blocker — the documented
+  format is correct and a freshly-set WebDAV password authenticates fine.
+- **But every authenticated request returns `HTTP/1.1 200` with
+  `Content-Length: 0` — completely empty, regardless of:**
+  - HTTP method: `GET`, `OPTIONS`, and `PROPFIND` (with `Depth: 1`, both with
+    and without an explicit `<D:propfind><D:allprop/></D:propfind>` body) all
+    behave identically.
+  - Path: `coursefolders/`, `groupfolders/`, `home/`, the bare
+    `/opal/webdav/` root, and — critically — a **nonexistent path that
+    cannot possibly exist** (`/opal/webdav/this-path-does-not-exist-xyz123/`)
+    all return the exact same blank `200`. A real WebDAV backend would 404 a
+    garbage path; getting an identical response for a real folder and a
+    made-up one means nothing behind the auth check is actually doing
+    path/method dispatch.
+  - User-Agent: tried default `curl/8.16.0`, a spoofed
+    `Microsoft-WebDAV-MiniRedir/10.0.19041` (Windows' native WebDAV client
+    UA), and a spoofed desktop-browser UA — no difference. This weighs
+    against Finding 5 (User-Agent-based client blocking) as the explanation:
+    a UA blocklist would be expected to produce a different status for a
+    blocked vs. allowed UA (e.g. `403` for curl, real content for the
+    Windows client string), not the same blank `200` for every UA tried.
+  - `OPTIONS` returned no `Allow` or `DAV` header at all, which a working
+    WebDAV endpoint is expected to advertise (e.g. `DAV: 1,2` and
+    `Allow: OPTIONS, GET, PROPFIND, ...`).
+
+**Interpretation:** this looks like Apache is still terminating Basic Auth
+for `/opal/webdav/*` and validating real OPAL credentials against it (so the
+endpoint is "live" in the narrow sense Finding 1 describes — it hasn't been
+un-published from Apache's config), but nothing behind that auth check
+implements WebDAV/HTTP method or path semantics anymore — every verb and
+every path, real or fake, produces the identical empty `200`. That's
+consistent with the backend WebDAV servlet having been decommissioned or
+disconnected while the front-door auth gate was left in place, rather than
+with a permissions wall (Finding 2 would produce `401`/`403` or a real-but-empty
+multistatus body, not an identical response for a real folder and a garbage
+path) or client filtering (Finding 5 would differ by User-Agent). This is the
+single most concrete data point gathered on this question to date — it
+directly rules out credential format and User-Agent filtering as the
+*current* cause, and points at a broken/disconnected backend rather than a
+permissions wall, though it doesn't fully prove that theory (an
+institution-side proxy quirk that swallows all WebDAV responses identically
+is a less likely but not impossible alternative reading of the same data).
+
+The WebDAV password used for this test was supplied directly by the
+maintainer for this one-off check and was not written to any file in this
+repository.
+
 ## What wasn't found
 
 - No captured HTTP status code, response body, or exception traceback from
@@ -159,48 +217,47 @@ my script but works in WinSCP" symptom.
 ## Recommendation
 
 **DOM scraping via Playwright is correctly the pragmatic path forward; a
-WebDAV retry is not recommended as the next thing to build**, but for
-reasons different from what the terse commit message implies:
+WebDAV retry is not recommended as the next thing to build.** This is now
+backed by a live test (Finding 6, 2026-07-09), not just inference:
 
-- This research found no evidence that WebDAV was removed or is
-  unsupported by the platform (Finding 1) — so if it's retried, it isn't
-  fighting a shrinking/removed feature.
-- The much more likely explanation for the original failure is **not** a
-  protocol bug at all: it's that a student/participant OPAL account simply
-  isn't granted WebDAV access to `coursefolders` unless Bildungsportal
-  Sachsen has opted in to participant-level access (Finding 2), which nothing
-  in this research can confirm or rule out without a live WebDAV credential
-  test. If that's the cause, no amount of client-library fixing would help —
-  it's a permissions wall, not a bug.
-- Even if permissions turned out fine, WebDAV would still need: the correct
-  institution-suffixed username (Finding 3), tolerance for a
-  cookie/token-based auth layer some stateless clients may not handle well
-  (Finding 4), and the possibility of User-Agent filtering (Finding 5) —
-  each an independent thing that would need to be verified with a real
-  WebDAV credential before it's worth writing code against.
+- Live-testing ruled out two of the five hypothesized causes outright:
+  credential format (Finding 3) is correct and authenticates successfully,
+  and User-Agent filtering (Finding 5) shows no difference across three
+  tried UAs including a real Windows WebDAV client string.
+- The live evidence points at something closer to **a decommissioned/
+  disconnected backend behind a still-active auth gate** than at a
+  permissions wall (Finding 2): a pure permissions problem would be expected
+  to produce `401`/`403` or an empty-but-real multistatus response, not an
+  identical blank `200` for a real course folder *and* a path that cannot
+  possibly exist. That said, this is this project's account only — it
+  doesn't rule out Finding 2 as *also* true, and it's not a certainty, just
+  the better-fitting explanation for the specific response pattern observed.
+- Practically, this closes the loop opened by commit `0cf0e07`: the original
+  "Propfind requests didn't work" almost certainly wasn't a client-library
+  bug (Finding 4 concerns are moot if nothing behind the auth gate responds
+  to any method at all), and it's very unlikely a config fix on
+  opal-downloader's side would change the outcome today.
 - Meanwhile DOM scraping already works end-to-end today (see
   `internal/scraper/`, verified per `CLAUDE.md`) using the same SSO session
-  the user already has, with no separate WebDAV credential/setup step and
-  no dependency on an institution enabling a participant-access flag that
-  may or may not be on. It also naturally handles anything WebDAV wouldn't
-  expose the same way (show-all/paginated file lists, per-subfolder
-  destinations — see `docs/OPERATIONS.md`).
+  the user already has, with no separate WebDAV credential/setup step. It
+  also naturally handles anything WebDAV wouldn't expose the same way
+  (show-all/paginated file lists, per-subfolder destinations — see
+  `docs/OPERATIONS.md`).
 
-**If someone wants to actually re-open this**, the productive next step
-isn't more code — it's five minutes with a real WebDAV credential and
-`curl`/`curl -v --digest` doing a manual `PROPFIND` against
-`https://bildungsportal.sachsen.de/opal/webdav/coursefolders/` with
-`Depth: 1`, to see the actual status code and response body. That single
-data point would confirm or eliminate Findings 2–5 immediately, which nothing
-short of a live test can do. Absent that, DOM scraping remains the only
-approach this project has actually verified works.
+**If someone wants to actually re-open this**, the productive next step is no
+longer "get a live credential and test it" (done — see Finding 6). It would
+be reporting the dead-backend-behind-live-auth-gate behavior to Bildungsportal
+Sachsen/OPAL support, since from the outside this reads as a platform bug
+(an advertised, documented feature that authenticates but serves nothing) —
+not something fixable from opal-downloader's side.
 
 ## Evidence-confidence summary
 
 | Finding | Confidence |
 |---|---|
 | WebDAV not removed/deprecated by OPAL/OLAT | Well-evidenced (current official docs, no removal notices found) — but absence-of-evidence, not a positive removal-never-happened statement |
-| Role-gating (student accounts lack default coursefolders access) | Well-evidenced from official OpenOLAT admin/user docs; **not confirmed** as the actual historical cause (no live test against this project's account) |
-| Institution-suffixed username requirement | Well-evidenced as a real requirement; whether it caused *this* failure is speculative |
-| Fragile/legacy WebDAV auth stack (cookie/token layering) | Documented general characteristic of OLAT's WebDAV; link to this specific failure is speculative |
-| User-Agent client blocking | Documented as an available admin feature; whether BPS uses it is unknown/speculative |
+| Role-gating (student accounts lack default coursefolders access) | Live test (Finding 6) doesn't fit this cleanly — a pure permissions wall would more likely 401/403 than return an identical blank 200 for a real vs. nonexistent path. Not ruled out, but no longer the best-fitting explanation |
+| Institution-suffixed username requirement | **Confirmed correct and sufficient to authenticate** — live-tested 2026-07-09 (Finding 6) |
+| Fragile/legacy WebDAV auth stack (cookie/token layering) | Documented general characteristic of OLAT's WebDAV; live test found no auth-layer failure (auth succeeds cleanly) — so this specifically isn't the blocker, though it says nothing about the empty-response behavior found instead |
+| User-Agent client blocking | **Ruled out for this account** — live-tested 2026-07-09 with 3 different UAs (Finding 6), no difference in response |
+| Backend WebDAV servlet decommissioned/disconnected behind a still-live auth gate | New, live-evidenced (Finding 6, 2026-07-09) — best-fitting explanation for the observed identical-blank-200-for-any-path/method pattern, though not independently confirmed against OPAL/BPS support |

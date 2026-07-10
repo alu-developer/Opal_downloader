@@ -32,6 +32,10 @@ installer/output/
 
 # Local task queue
 .claude/queue/
+.claude/settings.local.json
+
+# Scratch dumps from manual scraping/debug runs
+tmp/
 
 # IDE / OS
 .idea/

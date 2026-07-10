@@ -18,11 +18,13 @@ This document does **not** re-litigate:
 
 ## 0. Where this sits relative to the installer
 
-No installer exists yet — `installer-plan.md` is itself still planning-only,
-gated on `gui-primary-entrypoint` landing before any release. That matters
-here in one concrete way: **a fully automatic "download the new setup.exe
-and run it" flow has no artifact to update yet**, and more importantly, no
-established *release process* to consume. Today's `.github/workflows/ci.yml`
+No installer exists yet — `installer-plan.md` is itself still planning-only.
+It was originally also gated on `gui-primary-entrypoint` landing before any
+release; that has since happened (PR #31, commit `5fcccd0`), so the
+remaining gap is purely "no installer has been built yet," not a GUI
+dependency. That matters here in one concrete way: **a fully automatic
+"download the new setup.exe and run it" flow has no artifact to update
+yet**, and more importantly, no established *release process* to consume. Today's `.github/workflows/ci.yml`
 only runs tests/vet/build on push/PR — there is no job that tags a release,
 builds `opal-downloader-setup.exe`, or uploads it as a GitHub Release asset.
 Any update checker that parses release names/assets is implicitly depending

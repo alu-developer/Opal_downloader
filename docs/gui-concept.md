@@ -1,8 +1,15 @@
 # GUI Concept & Decision Groundwork
 
-Status: exploratory. No implementation, no dependency changes, no scaffolding.
-This document exists so a future "add a GUI" task can start from an informed
-starting point instead of a blank page.
+Status: **superseded — the GUI has fully shipped.** This document predates
+implementation; the decision it explored (local web UI) was made and built,
+and the GUI is now the default entrypoint, driving settings, login, and
+`sync`/`list`/`dump-links` with live progress — see `docs/HISTORY.md`'s "GUI:
+technology choice and rollout to primary interface" for what actually
+happened and which queue tasks shipped it. Kept here as reference for the
+options analysis below (Fyne/Wails/local-web-UI tradeoffs), which may be
+useful again if packaging is ever reconsidered — but treat every "open
+question" and "not yet decided" statement past this point as historical
+framing, not live status.
 
 ## 1. Why this document exists
 

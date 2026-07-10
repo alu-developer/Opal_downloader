@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "opal-gui",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", ".", "gui", "--port", "8734"],
+      "port": 8734
+    }
+  ]
+}

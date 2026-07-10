@@ -68,11 +68,19 @@ session_state_file: "~/.opal_storage_state.json"
 # Leave empty to use Playwright's bundled browser.
 # Example Brave executable on Windows:
 # browser_executable: "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
+# Example Brave executable on Linux:
+# browser_executable: "/usr/bin/brave-browser"
+# Example Brave executable on macOS:
+# browser_executable: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
 browser_executable: ""
 
 # Optional: browser user-data directory (profile root). Needed if extension should come from your real profile.
 # Example Brave user-data directory on Windows:
 # browser_user_data_dir: "C:/Users/<YOU>/AppData/Local/BraveSoftware/Brave-Browser/User Data"
+# Example Brave user-data directory on Linux:
+# browser_user_data_dir: "~/.config/BraveSoftware/Brave-Browser"
+# Example Brave user-data directory on macOS:
+# browser_user_data_dir: "~/Library/Application Support/BraveSoftware/Brave-Browser"
 #
 # opal-downloader launches Playwright directly against this directory - there is no
 # working copy. An earlier design copied the profile into a private working copy so your

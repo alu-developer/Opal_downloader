@@ -249,7 +249,7 @@ Rough sizing, assuming Inno Setup and the decisions above:
 | 3. Add the Brave/Chrome detection informational page (Section 5) | Small | Task 2 |
 | 4. Wire installer build into a release process (manual `iscc` invocation is fine for v1; CI automation is explicitly out of scope per this task's constraints, but worth a follow-up) | Small | Task 2 |
 | 5. Wait on / land `gui-primary-entrypoint` before the first public release of `setup.exe` (Section 8) | N/A (blocked externally) | `gui-login-trigger` PR #17 merging first |
-| 6. Document the SmartScreen workaround in the release notes / README | Trivial | Task 2 |
+| 6. Document the SmartScreen workaround in the release notes / README | Trivial | Task 2 (done — see `README.md`'s "Download & Install" section and `docs/release-notes-template.md`) |
 | 7. (Later, optional) In-app update checker | Medium | A second release existing to update to |
 | 8. (Later, optional) Suggested-profile-path prefill from browser detection into the GUI (Section 5) | Small | Task 3 |
 

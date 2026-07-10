@@ -17,10 +17,40 @@ import (
 // and a sync.Map of pending callbacks (see playwright-go's connection.go),
 // so it is not tied to a single page/tab the way page navigation is.
 //
-// If the fast path doesn't return a direct, non-HTML 200 response, it falls
-// back to downloadFileViaBrowser, which drives the single shared s.page and
-// therefore must not run concurrently with itself or with any other
-// navigation of s.page. That fallback is serialized behind
+// Fast-path root cause (queue task click-wait-audit-and-speedup, item 4,
+// 2026-07-10 live investigation): the fast path misses for nearly every
+// file, and it is not a headers/auth/Referer problem - a Referer header
+// matching the file's section page was tried and made no measurable
+// difference live. Direct curl testing against the same session's cookies
+// (bypassing this codebase entirely) showed why: every OPAL URL, including
+// plain section pages (visible throughout the --debug-clicks audit log as a
+// "?<number>" suffix on every page URL, e.g. ".../RepositoryEntry/123?411"),
+// carries a session-wide, server-side incrementing "history stack position"
+// counter that advances on *every* request in the session, not just
+// navigation to that specific resource. Requesting a file URL whose embedded
+// position no longer matches the session's current counter (which is
+// essentially guaranteed by the time downloads start, since discovery has
+// already made hundreds of other requests to crawl the course tree first)
+// gets a 302 redirect to a URL with the *current* counter - and that
+// redirected response is consistently a generic HTML page, not the file,
+// confirmed with curl following the redirect chain outside any Playwright
+// involvement. The browser-fallback path below works not because it's a
+// real browser, but because clickCandidateLinkOnPage re-navigates to the
+// file's section page first, which re-renders the file link with a
+// currently-valid counter, and then clicks *that* freshly rendered element.
+// There is no equivalent "refresh the counter" step in the fast path today;
+// building one would mean re-fetching the section page immediately before
+// every file GET, which defeats most of the point of a stateless HTTP fast
+// path and is out of scope for this task's "targeted fix, not a pipeline
+// redesign" mandate - left for separate follow-up. This is why the fast
+// path exists at all as an optimization rather than the only path: some
+// files (particularly ones downloaded very soon after being discovered,
+// before much other session traffic happens) do still hit it.
+//
+// When the fast path doesn't return a direct, non-HTML 200 response, it
+// falls back to downloadFileViaBrowser, which drives the single shared
+// s.page and therefore must not run concurrently with itself or with any
+// other navigation of s.page. That fallback is serialized behind
 // s.browserDownloadMu so callers are free to invoke DownloadFile from a
 // worker pool for the common (fast-path) case.
 func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {

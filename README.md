@@ -216,6 +216,12 @@ If TU-Fast is only installed in Brave, configure `browser_executable` and `brows
 This gives the browser access to your real Brave profile so existing extensions can be used.
 If TU-Fast is installed in `Profile 1` (or another non-default profile), also set `browser_profile_directory`.
 
+`browser_user_data_dir` is Windows-shaped in the example above, but the same option works
+on Linux (`~/.config/BraveSoftware/Brave-Browser`) and macOS
+(`~/Library/Application Support/BraveSoftware/Brave-Browser`) - see `config.example.yaml`
+for the full set of per-OS examples. Note: this direct-profile-launch design has only been
+live-verified on Windows so far.
+
 **How the profile is used:** opal-downloader launches Playwright directly against
 `browser_user_data_dir` - there is no working copy. An earlier design copied the profile
 into a private working copy so your everyday Brave could stay open at the same time, but

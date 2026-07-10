@@ -118,6 +118,12 @@ below work exactly as before - the web UI does not replace or change them.
 # also bootstrap a missing config.yaml, see "Quick Start" above)
 ./opal-downloader init
 
+# Set up browser login: for TU-Fast auto-login without ever locking your
+# everyday browser, see docs/browser-profile-strategy.md (recommended); or
+# leave browser_user_data_dir empty / point it at your everyday profile if
+# you'd rather skip that setup and log in manually or reuse an existing
+# TU-Fast install
+
 # Interactive one-time login (opens browser)
 ./opal-downloader login
 
@@ -207,36 +213,47 @@ browser_profile_directory: ""
 
 ### TU-Fast / Brave Setup
 
-If TU-Fast is only installed in Brave, configure `browser_executable` and `browser_user_data_dir` in `config.yaml` and run:
+TU-Fast (TU Dresden's Shibboleth/2FA auto-login extension) needs a real Chromium browser
+profile to live in - `browser_user_data_dir` in `config.yaml` points opal-downloader at
+one. There are two supported ways to set this up; full rationale and trade-offs are in
+[`docs/browser-profile-strategy.md`](docs/browser-profile-strategy.md).
 
-```bash
-./opal-downloader login
-```
+**Recommended: a dedicated profile just for opal-downloader.** Set up once, and your
+everyday browser is never locked or closed by opal-downloader again:
 
-This gives the browser access to your real Brave profile so existing extensions can be used.
-If TU-Fast is installed in `Profile 1` (or another non-default profile), also set `browser_profile_directory`.
+1. Create an empty directory, e.g. `~/.opal-downloader/login-profile`.
+2. Launch Brave against it once: `brave.exe --user-data-dir="<path>"` (opens a fresh,
+   empty profile, separate from your everyday one).
+3. In that window, install TU-Fast from the Chrome Web Store and log into OPAL/Shibboleth
+   once to complete 2FA/device registration for TU-Fast in this profile.
+4. Close that window, then set `browser_user_data_dir` to the same path (and
+   `browser_profile_directory: "Default"`) in `config.yaml`.
 
-`browser_user_data_dir` is Windows-shaped in the example above, but the same option works
+**Alternative: point at your real Brave/Chrome profile**, if you already have TU-Fast
+working there - configure `browser_executable` and `browser_user_data_dir` to your real
+profile's paths (also set `browser_profile_directory` if TU-Fast lives in a non-default
+profile like `Profile 1`). This costs no extra setup if TU-Fast is already installed, but
+means `login`/`sync`/`list` require your browser to be **fully closed** first - if
+`browser_user_data_dir` is still open in another Brave window, opal-downloader exits with
+a clear "please fully close Brave first" error instead of crashing.
+
+`browser_user_data_dir` is Windows-shaped in the examples above, but the same option works
 on Linux (`~/.config/BraveSoftware/Brave-Browser`) and macOS
 (`~/Library/Application Support/BraveSoftware/Brave-Browser`) - see `config.example.yaml`
-for the full set of per-OS examples. Note: this direct-profile-launch design has only been
-live-verified on Windows so far.
+for the full set of per-OS examples.
 
 **How the profile is used:** opal-downloader launches Playwright directly against
-`browser_user_data_dir` - there is no working copy. An earlier design copied the profile
-into a private working copy so your everyday Brave could stay open at the same time, but
-that was removed: Chromium's `Secure Preferences` file is integrity-protected (HMAC) in a
-way that detects a copied user-data-dir and strips extension permissions (including
-TU-Fast's) as soon as Chromium loads the copy - confirmed by live testing, with no
-practical way found to avoid it (see `CLAUDE.md`'s "Key design decisions" section for the
-technical detail). Practical implications:
+`browser_user_data_dir` - there is no working copy (an earlier copy-based design was tried
+and doesn't work: Chromium's `Secure Preferences` file is integrity-protected (HMAC) in a
+way that detects a copied user-data-dir and strips extension permissions, including
+TU-Fast's, as soon as Chromium loads the copy - see `CLAUDE.md`'s "Key design decisions"
+section for the technical detail). There is nothing to "re-copy" after installing/updating
+TU-Fast either way - opal-downloader always reads the profile directly, so the latest
+extension/login state is picked up automatically.
 
-- **Close Brave fully before running `login`/`sync`/`list`.** If `browser_user_data_dir` is
-  still open in another Brave window when opal-downloader starts, it exits with a clear
-  "please fully close Brave first" error instead of crashing.
-- There is nothing to "re-copy" after installing/updating TU-Fast - opal-downloader always
-  reads the real profile directly, so the latest extension state is picked up automatically
-  next run.
+Run `opal-downloader status` any time to check the configured browser profile is healthy
+(directory exists, looks like a real profile, TU-Fast detected) without launching a
+browser.
 
 ## Notes and Limitations
 

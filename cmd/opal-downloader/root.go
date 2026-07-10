@@ -130,8 +130,13 @@ func runInit(args []string) error {
 	}
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Edit config.yaml with your download path and course patterns")
-	fmt.Println("  2. Run: opal-downloader login")
-	fmt.Println("  3. Run: opal-downloader sync")
+	fmt.Println("  2. Set up browser login: for TU-Fast auto-login without ever locking your")
+	fmt.Println("     everyday browser, see docs/browser-profile-strategy.md (recommended);")
+	fmt.Println("     or leave browser_user_data_dir empty / point it at your everyday")
+	fmt.Println("     profile if you'd rather skip that setup and log in manually or reuse")
+	fmt.Println("     an existing TU-Fast install")
+	fmt.Println("  3. Run: opal-downloader login")
+	fmt.Println("  4. Run: opal-downloader sync")
 	return nil
 }
 
@@ -183,7 +188,12 @@ func runSetup(args []string) error {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Edit config.yaml with your download path and course patterns")
-	fmt.Println("  2. Run: opal-downloader login")
+	fmt.Println("  2. Set up browser login: for TU-Fast auto-login without ever locking your")
+	fmt.Println("     everyday browser, see docs/browser-profile-strategy.md (recommended);")
+	fmt.Println("     or leave browser_user_data_dir empty / point it at your everyday")
+	fmt.Println("     profile if you'd rather skip that setup and log in manually or reuse")
+	fmt.Println("     an existing TU-Fast install")
+	fmt.Println("  3. Run: opal-downloader login")
 	return nil
 }
 
@@ -212,6 +222,10 @@ func runStatus(args []string) error {
 	fmt.Printf("OPAL URL: %s\n", loaded.Credentials.URL)
 	fmt.Printf("Download path: %s\n", loaded.App.DownloadPath)
 
+	if loaded.Credentials.BrowserUserDataDir != "" {
+		checkBrowserProfileHealth(loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
+	}
+
 	info, statErr := os.Stat(loaded.Credentials.StateFile)
 	if statErr != nil || info.Size() == 0 {
 		fmt.Println()
@@ -222,6 +236,49 @@ func runStatus(args []string) error {
 	fmt.Println()
 	fmt.Printf("Logged in: session state file present (%s)\n", loaded.Credentials.StateFile)
 	return nil
+}
+
+// tuFastExtensionID is TU-Fast's Chrome Web Store extension ID
+// (confirmed live in the task that first wired up TU-Fast auto-login -
+// see docs/browser-profile-strategy.md's Health-check design section).
+// This is a heuristic tied to the current TU-Fast build, not a stable
+// protocol guarantee: if TU-Fast's extension ID ever changes, or a
+// different Bildungsportal-Sachsen-instance-specific extension is used
+// instead, this check degrades to "soft warning always fires" - never a
+// false hard failure.
+const tuFastExtensionID = "aheogihliekaafikeepfjngfegbnimbk"
+
+// checkBrowserProfileHealth performs the filesystem-only pre-flight checks
+// described in docs/browser-profile-strategy.md's "Health-check design"
+// section for whichever browser_user_data_dir is configured. It applies
+// identically to both supported strategies (a dedicated second profile or
+// pointing directly at a real Brave/Chrome profile) - see that doc for why
+// this isn't strategy-specific. No browser is launched; this only stats a
+// few paths, keeping `status` fast and offline.
+func checkBrowserProfileHealth(userDataDir, profileDir string) {
+	if _, err := os.Stat(userDataDir); err != nil {
+		fmt.Println()
+		fmt.Printf("browser_user_data_dir is set to %s but that directory doesn't exist. If you were following the dedicated browser-profile setup, re-run the one-time setup steps in docs/browser-profile-strategy.md.\n", userDataDir)
+		return
+	}
+
+	profile := profileDir
+	if profile == "" {
+		profile = "Default"
+	}
+
+	preferencesPath := filepath.Join(userDataDir, profile, "Preferences")
+	if _, err := os.Stat(preferencesPath); err != nil {
+		fmt.Println()
+		fmt.Printf("browser_user_data_dir is set to %s but %s wasn't found, so this doesn't look like a real browser profile. If you were following the dedicated browser-profile setup, re-run the one-time setup steps in docs/browser-profile-strategy.md.\n", userDataDir, preferencesPath)
+		return
+	}
+
+	extensionPath := filepath.Join(userDataDir, profile, "Extensions", tuFastExtensionID)
+	if _, err := os.Stat(extensionPath); err != nil {
+		fmt.Println()
+		fmt.Println("Note: TU-Fast extension not detected in this browser profile. Logins will need manual 2FA each time. If you expected TU-Fast to be set up here, see docs/browser-profile-strategy.md.")
+	}
 }
 
 func runLogin(args []string) error {

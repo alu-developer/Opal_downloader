@@ -1,8 +1,10 @@
 package scraper
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
@@ -96,7 +98,14 @@ func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, selectorTime
 	if page == nil {
 		return
 	}
-	if _, err := page.WaitForSelector("a[href], [onclick], [data-href], [data-url]", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(selectorTimeoutMs)}); err != nil {
+	const selector = "a[href], [onclick], [data-href], [data-url]"
+	start := time.Now()
+	if _, err := page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(selectorTimeoutMs)}); err != nil {
+		s.auditLog("wait-selector-timeout", page, selector, fmt.Sprintf("selector wait did not resolve within %v (waited %s); falling back to fixed %v ms wait", selectorTimeoutMs, time.Since(start), fallbackWaitMs))
+		fallbackStart := time.Now()
 		page.WaitForTimeout(fallbackWaitMs)
+		s.auditLog("wait-fallback-done", page, selector, fmt.Sprintf("fixed fallback wait took %s", time.Since(fallbackStart)))
+	} else {
+		s.auditLog("wait-selector-resolved", page, selector, fmt.Sprintf("selector resolved after %s", time.Since(start)))
 	}
 }

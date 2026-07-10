@@ -42,6 +42,26 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 		}
 	}
 
+	// Fast HTTP-GET path missed (non-200 status, request error, or a
+	// text/html response instead of the file) - log why, since this
+	// determines whether a file falls through to the serialized
+	// browser-fallback path below, which queue task
+	// click-wait-audit-and-speedup's audit is specifically meant to
+	// diagnose (see performance-assessment-report.md's finding that the
+	// fallback rate is the single biggest measured slowdown cause).
+	if s.debugClicks {
+		status := -1
+		contentType := ""
+		reqErr := ""
+		if err != nil {
+			reqErr = err.Error()
+		} else if response != nil {
+			status = response.Status()
+			contentType = strings.ToLower(response.Headers()["content-type"])
+		}
+		s.auditLog("fast-path-miss", nil, fileURL, fmt.Sprintf("status=%d content-type=%q err=%q -> falling back to browser download for %s", status, contentType, reqErr, localPath))
+	}
+
 	s.browserDownloadMu.Lock()
 	defer s.browserDownloadMu.Unlock()
 	return s.downloadFileViaBrowser(fileURL, localPath)
@@ -124,19 +144,23 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 
 	if targetFragment != "" {
 		selector := hrefContainsSelector(targetFragment)
+		s.auditLog("click", page, selector, "download fallback href-match attempt for "+localPath)
 		download, clickErr := page.ExpectDownload(func() error {
 			return page.Locator(selector).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)})
 		}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
 		if clickErr == nil {
+			s.auditLog("click-success", page, selector, "download fallback href-match succeeded for "+localPath)
 			return download.SaveAs(localPath)
 		}
 	}
 
 	if candidate.LinkText != "" {
+		s.auditLog("click", page, candidate.LinkText, "download fallback text-match attempt for "+localPath)
 		download, clickErr := page.ExpectDownload(func() error {
 			return page.GetByText(candidate.LinkText, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)})
 		}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
 		if clickErr == nil {
+			s.auditLog("click-success", page, candidate.LinkText, "download fallback text-match succeeded for "+localPath)
 			return download.SaveAs(localPath)
 		}
 	}

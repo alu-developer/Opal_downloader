@@ -57,10 +57,11 @@ type server struct {
 	// recurring ticker - updateChecked flips true once the single check
 	// completes (success or failure) and updateResult/updateErr hold its
 	// outcome for the rest of the process's life.
-	updateMu      sync.Mutex
-	updateChecked bool
-	updateResult  updater.Release
-	updateErr     error
+	updateMu       sync.Mutex
+	updateChecked  bool
+	updateResult   updater.Release
+	updateErr      error
+	updateDevBuild bool
 
 	// updaterClient overrides the updater package's default GitHub API
 	// client. nil (the zero value used in production) means "use the real
@@ -226,6 +227,8 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 				<button type="submit">Download &amp; install</button>
 			</form>
 			{{if .ChangelogURL}}<p style="margin: 0.5rem 0 0;"><a href="{{.ChangelogURL}}" target="_blank" rel="noopener">Release notes</a></p>{{end}}
+		{{else if .UpdateDevBuild}}
+			Update checks are unavailable for development builds (<code>{{.CurrentVersion}}</code>).
 		{{else}}
 			Running the latest version (<code>{{.CurrentVersion}}</code>).
 		{{end}}
@@ -251,6 +254,7 @@ type landingData struct {
 
 	UpdateChecked   bool
 	UpdateAvailable bool
+	UpdateDevBuild  bool
 	CurrentVersion  string
 	LatestVersion   string
 	ChangelogURL    string
@@ -424,6 +428,21 @@ func (s *server) runLogin() error {
 // time via applyUpdateStatus, so a request racing the still-in-flight check
 // simply sees "not checked yet" (UpdateChecked=false) until this finishes.
 func (s *server) checkForUpdateOnce(ctx context.Context) {
+	// A "dev" buildVersion (the default for anything not built with the
+	// release -ldflags, e.g. `go run .` during development) has no real
+	// version to compare against - skip the network call entirely rather
+	// than let it surface as a confusing "not a parseable numeric version"
+	// error, and don't claim "running the latest version" either, since
+	// that's not actually known. See applyUpdateStatus/handleUpdatePage for
+	// how this is surfaced distinctly from a real check error.
+	if isDevBuildVersion(s.buildVersion) {
+		s.updateMu.Lock()
+		s.updateChecked = true
+		s.updateDevBuild = true
+		s.updateMu.Unlock()
+		return
+	}
+
 	checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
@@ -434,6 +453,13 @@ func (s *server) checkForUpdateOnce(ctx context.Context) {
 	s.updateResult = rel
 	s.updateErr = err
 	s.updateMu.Unlock()
+}
+
+// isDevBuildVersion reports whether v is the placeholder version used for
+// unreleased/local builds ("dev", cmd/opal-downloader's default when built
+// without -ldflags), which has no real release tag to compare against.
+func isDevBuildVersion(v string) bool {
+	return v == "" || v == "dev"
 }
 
 // checkLatest calls updater.CheckLatest (or, in tests, the injected
@@ -464,6 +490,7 @@ func (s *server) applyUpdateStatus(data *landingData) {
 
 	data.UpdateChecked = s.updateChecked
 	data.UpdateAvailable = s.updateChecked && s.updateErr == nil && s.updateResult.IsNewer
+	data.UpdateDevBuild = s.updateDevBuild
 	data.CurrentVersion = s.buildVersion
 	data.LatestVersion = s.updateResult.Version
 	data.ChangelogURL = s.updateResult.HTMLURL
@@ -473,15 +500,16 @@ func (s *server) applyUpdateStatus(data *landingData) {
 // check result, used by handleUpdateStart so it doesn't hold updateMu while
 // downloading/verifying/launching the installer.
 type updateSnapshot struct {
-	checked bool
-	err     error
-	release updater.Release
+	checked  bool
+	err      error
+	release  updater.Release
+	devBuild bool
 }
 
 func (s *server) snapshotUpdate() updateSnapshot {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
-	return updateSnapshot{checked: s.updateChecked, err: s.updateErr, release: s.updateResult}
+	return updateSnapshot{checked: s.updateChecked, err: s.updateErr, release: s.updateResult, devBuild: s.updateDevBuild}
 }
 
 var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE html>
@@ -496,6 +524,8 @@ var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE h
 
 	{{if not .Checked}}
 	<div class="status warn">Still checking for updates - refresh this page in a moment.</div>
+	{{else if .DevBuild}}
+	<div class="status warn">Update checks are unavailable for development builds (<code>{{.CurrentVersion}}</code>). Build with <code>-ldflags</code> to embed a real version, or check <a href="https://github.com/alu-developer/Opal_downloader/releases" target="_blank" rel="noopener">GitHub Releases</a> manually.</div>
 	{{else if .Result}}
 	<div class="status warn">Could not check for updates: {{.Result}}</div>
 	{{else if .Available}}
@@ -519,6 +549,7 @@ var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE h
 type updatePageData struct {
 	Checked        bool
 	Available      bool
+	DevBuild       bool
 	CurrentVersion string
 	LatestVersion  string
 	ChangelogURL   string
@@ -534,11 +565,12 @@ func (s *server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	snap := s.snapshotUpdate()
 	data := updatePageData{
 		Checked:        snap.checked,
+		DevBuild:       snap.devBuild,
 		CurrentVersion: s.buildVersion,
 		LatestVersion:  snap.release.Version,
 		ChangelogURL:   snap.release.HTMLURL,
 	}
-	if snap.checked {
+	if snap.checked && !snap.devBuild {
 		if snap.err != nil {
 			data.Result = snap.err.Error()
 		} else {

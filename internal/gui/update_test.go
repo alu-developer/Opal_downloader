@@ -118,6 +118,78 @@ func (s *server) debugUpdateState() (checked, available bool, latest string) {
 	return s.updateChecked, s.updateChecked && s.updateErr == nil && s.updateResult.IsNewer, s.updateResult.Version
 }
 
+// TestCheckForUpdateOnce_DevBuildSkipsNetworkCall reproduces a bug found
+// during manual live verification: a "dev" buildVersion (the default for
+// anything not built with the release -ldflags) can't be compared against a
+// real release tag, and calling updater.CheckLatest with it surfaced a raw
+// "not a parseable numeric version" error - shown verbatim on /update while
+// the landing page simultaneously claimed "Running the latest version",
+// which is misleading since the check never actually succeeded. The fix
+// short-circuits before any network call and records a distinct
+// updateDevBuild state instead.
+func TestCheckForUpdateOnce_DevBuildSkipsNetworkCall(t *testing.T) {
+	// No updaterClient set: if checkForUpdateOnce didn't short-circuit for
+	// "dev", this would panic dialing the real github.com API in a unit
+	// test, catching a regression immediately rather than just visually.
+	s := &server{buildVersion: "dev"}
+	s.checkForUpdateOnce(context.Background())
+
+	s.updateMu.Lock()
+	checked, devBuild, err := s.updateChecked, s.updateDevBuild, s.updateErr
+	s.updateMu.Unlock()
+
+	if !checked {
+		t.Fatal("expected updateChecked to be true after checkForUpdateOnce")
+	}
+	if !devBuild {
+		t.Error("expected updateDevBuild to be true for buildVersion \"dev\"")
+	}
+	if err != nil {
+		t.Errorf("expected no error recorded for the dev-build case, got %v", err)
+	}
+}
+
+func TestHandleLanding_DevBuildShowsNeitherErrorNorFalseUpToDateClaim(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	s := &server{configPath: configPath, buildVersion: "dev"}
+	s.checkForUpdateOnce(context.Background())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	s.handleLanding(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Update checks are unavailable for development builds") {
+		t.Errorf("expected the dev-build explanation in landing page body, got:\n%s", body)
+	}
+	if strings.Contains(body, "Running the latest version") {
+		t.Errorf("dev build must not falsely claim to be up to date, got:\n%s", body)
+	}
+	if strings.Contains(body, "not a parseable") {
+		t.Errorf("dev build must not surface the raw parse error, got:\n%s", body)
+	}
+}
+
+func TestHandleUpdatePage_DevBuildShowsNeitherErrorNorFalseUpToDateClaim(t *testing.T) {
+	s := &server{buildVersion: "dev"}
+	s.checkForUpdateOnce(context.Background())
+
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	rr := httptest.NewRecorder()
+	s.handleUpdatePage(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Update checks are unavailable for development builds") {
+		t.Errorf("expected the dev-build explanation on /update, got:\n%s", body)
+	}
+	if strings.Contains(body, "Running the latest version") {
+		t.Errorf("dev build must not falsely claim to be up to date on /update, got:\n%s", body)
+	}
+	if strings.Contains(body, "not a parseable") {
+		t.Errorf("dev build must not surface the raw parse error on /update, got:\n%s", body)
+	}
+}
+
 func TestHandleLanding_ShowsUpdateBanner(t *testing.T) {
 	srv := fakeGitHub(t, "v9.9.9", "fake installer bytes")
 

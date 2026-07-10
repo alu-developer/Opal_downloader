@@ -70,6 +70,16 @@ func (s *OpalScraper) newCourseFileCollector() func(CourseRef) (courseCrawlResul
 		if crawlErr != nil {
 			return courseCrawlResult{}, crawlErr
 		}
+		if len(files) == 0 {
+			// Not necessarily a bug (a course can genuinely have no files yet),
+			// but crawl.go's own per-section warnings only fire on Goto/extraction
+			// failure - a course whose visited sections all "succeeded" but never
+			// contained a recognizable file/folder link produces zero files with
+			// no other diagnostic at all. Surfacing it here is what let the
+			// fix-list-flaky-missing-files investigation notice a course silently
+			// dropping to 0 files on some runs.
+			fmt.Printf("  Warning: course %q crawled successfully but found 0 files - verify this course actually has no content\n", course.Title)
+		}
 		return courseCrawlResult{files: files, downloadCandidates: downloadCandidates}, nil
 	}
 }

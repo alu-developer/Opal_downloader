@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 	"github.com/alu-developer/opal-downloader/internal/timing"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // buildVersion holds the released version string. It defaults to "dev" for
@@ -125,10 +125,16 @@ func runSetup(args []string) error {
 	}
 
 	fmt.Println("Installing Playwright browser binaries...")
-	cmd := exec.Command("go", "run", "github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0", "install")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	// Use playwright-go's own Install() API instead of shelling out to
+	// `go run github.com/mxschmitt/playwright-go/cmd/playwright ... install`.
+	// The shell-out required a Go toolchain on PATH, which a plain compiled
+	// opal-downloader.exe (no Go, no git) does not have - it broke the
+	// installer's post-install [Run] fallback and any `setup` rerun on a
+	// machine without Go. See docs/installer-plan.md Section 9.
+	if err := playwright.Install(&playwright.RunOptions{
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return fmt.Errorf("playwright install failed: %w", err)
 	}
 	fmt.Println("Playwright browsers ready.")

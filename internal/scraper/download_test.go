@@ -93,3 +93,63 @@ func TestTryCandidatePagesInOrderStopsOnFirstSuccess(t *testing.T) {
 		t.Fatalf("tryPage called with %v, want single call to %q", gotCalls, candidate.SourceURL)
 	}
 }
+
+// TestHrefSelectorFragmentKeepsPercentEncodingForNonASCIINames covers the root cause
+// found while investigating queue-task fix-download-fallback-html-errors-post-pr11:
+// a live sync consistently failed to download "ÜB10.pdf" via the browser-fallback
+// click path even though the file's link was correctly discovered and recorded as a
+// download candidate. clickCandidateLinkOnPage used to reduce an absolute LinkTarget
+// to url.URL.Path, which percent-decodes escapes (e.g. "%C3%9C" -> "Ü"); the actual
+// href attribute rendered in the DOM stays percent-encoded, so the resulting
+// a[href*='...'] CSS selector searched for a literal "Ü" that could never match,
+// confirmed live via a direct Playwright Locator.Count() against the real page
+// (count=0 with the old .Path-derived fragment). hrefSelectorFragment must instead
+// preserve the encoding via EscapedPath so the selector matches what is actually in
+// the DOM.
+func TestHrefSelectorFragmentKeepsPercentEncodingForNonASCIINames(t *testing.T) {
+	tests := []struct {
+		name       string
+		linkTarget string
+		want       string
+	}{
+		{
+			name:       "absolute URL with percent-encoded umlaut stays encoded",
+			linkTarget: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/2/%C3%9CB10.pdf",
+			want:       "/opal/auth/RepositoryEntry/1/CourseNode/2/%C3%9CB10.pdf",
+		},
+		{
+			name:       "absolute URL with plain ASCII name is unaffected",
+			linkTarget: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/2/Vorlesung_11.pdf",
+			want:       "/opal/auth/RepositoryEntry/1/CourseNode/2/Vorlesung_11.pdf",
+		},
+		{
+			name:       "relative target is used verbatim (not parsed as a URL)",
+			linkTarget: "/opal/goto.php?target=file_55&cmd=sendfile",
+			want:       "/opal/goto.php?target=file_55&cmd=sendfile",
+		},
+		{
+			name:       "empty target stays empty",
+			linkTarget: "   ",
+			want:       "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hrefSelectorFragment(tt.linkTarget); got != tt.want {
+				t.Fatalf("hrefSelectorFragment(%q) = %q, want %q", tt.linkTarget, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHrefContainsSelectorEscapesSingleQuotes confirms the CSS attribute selector
+// built for the click fallback can't be broken out of by a single quote in the
+// fragment (e.g. present in an unusual filename).
+func TestHrefContainsSelectorEscapesSingleQuotes(t *testing.T) {
+	got := hrefContainsSelector("/opal/goto.php?target=file_1'2")
+	want := "a[href*='/opal/goto.php?target=file_1\\'2']"
+	if got != want {
+		t.Fatalf("hrefContainsSelector(...) = %q, want %q", got, want)
+	}
+}

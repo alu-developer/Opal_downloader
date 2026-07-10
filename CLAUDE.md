@@ -157,11 +157,19 @@ listed.
 
 - **Update mechanism: T2 ("prompted, one-click apply")** is the committed
   v2 update mechanism — see `docs/update-mechanism-plan.md` for the full
-  tradeoff analysis (T1/T2/T3) and design sketch. Not built: no
-  `internal/updater` package, no version-embedding (`--version` is still a
-  hardcoded literal in `root.go`), no release workflow in `ci.yml`. Gated
-  on the installer below shipping first and 1-2 manual releases happening,
-  per that doc's Section 7.
+  tradeoff analysis (T1/T2/T3) and design sketch. Not built yet: no
+  `internal/updater` package, no GUI update banner/routes. Version-embedding
+  (`buildVersion` / `-X ...buildVersion=`, PR #37) and the release workflow
+  are both done as of `add-release-build-workflow`
+  (2026-07-10): `.github/workflows/release.yml` triggers on `v*` tags,
+  builds the installer via `scripts/build-installer.ps1`, and publishes
+  `opal-downloader-setup.exe` (unversioned name) plus a `.sha256` sidecar
+  as GitHub Release assets — see `docs/installer-plan.md` Section 9 Task 4
+  and `docs/update-mechanism-plan.md` Section 6 Task 2 for the full
+  writeup and the tag/asset-naming conventions (`vX.Y.Z` tags, unversioned
+  asset name) a future `internal/updater` package should assume. Gated on
+  1-2 manual releases happening through this workflow first, per that
+  doc's Section 7.
 - **Installer bundles Chromium** — `docs/installer-plan.md` Section 3
   originally decided *against* bundling (to keep `setup.exe` small and
   avoid an assumed version-sync tax), but that call was reversed

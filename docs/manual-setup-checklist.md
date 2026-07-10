@@ -27,6 +27,35 @@ don't paste them into a chat, screenshot them, or commit them.
 
 Record start time here so you can note total setup time at the end: `___________`
 
+## Step 0: browser profile setup (one-time)
+
+Before running `login` for the first time, decide which browser-profile
+strategy you're using - see `docs/browser-profile-strategy.md` for the full
+write-up and rationale.
+
+- **Option A (recommended for new users):** set up a dedicated, never-used-
+  for-anything-else browser profile just for opal-downloader, so your
+  everyday browser is never locked or closed:
+  1. Create an empty directory, e.g. `~/.opal-downloader/login-profile`.
+  2. Launch Brave against it once:
+     `brave.exe --user-data-dir="<path>"` (opens a completely fresh, empty
+     profile - separate from your everyday one).
+  3. In that window, install TU-Fast from the Chrome Web Store and log into
+     OPAL/Shibboleth once to complete 2FA/device registration for TU-Fast in
+     this profile.
+  4. Close that window, then point `config.yaml`'s `browser_user_data_dir` at
+     the same path (and `browser_profile_directory: "Default"`) - no other
+     config or code changes required.
+- **Option B (if you already use TU-Fast in your everyday browser):** just
+  set `browser_user_data_dir` / `browser_profile_directory` to your real
+  profile's paths. Note that you'll need to fully close your browser before
+  running `login`, or whenever a saved session expires and `login` falls
+  back to interactive.
+
+- [ ] Run `opal-downloader status` and confirm it reports the browser
+      profile as healthy (no "doesn't exist" / "doesn't look like a real
+      browser profile" error) before proceeding to Step 1.
+
 ## Step 1: `login`
 
 Run:

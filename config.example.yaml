@@ -74,26 +74,33 @@ session_state_file: "~/.opal_storage_state.json"
 # browser_executable: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
 browser_executable: ""
 
-# Optional: browser user-data directory (profile root). Needed if extension should come from your real profile.
-# Example Brave user-data directory on Windows:
-# browser_user_data_dir: "C:/Users/<YOU>/AppData/Local/BraveSoftware/Brave-Browser/User Data"
-# Example Brave user-data directory on Linux:
-# browser_user_data_dir: "~/.config/BraveSoftware/Brave-Browser"
-# Example Brave user-data directory on macOS:
-# browser_user_data_dir: "~/Library/Application Support/BraveSoftware/Brave-Browser"
+# Optional: browser user-data directory (profile root). Needed if TU-Fast/2FA should be
+# available automatically instead of logging in manually every time. opal-downloader
+# launches Playwright directly against this directory - there is no working copy (a
+# copy-based approach was tried and doesn't work: Chromium's "Secure Preferences" file is
+# integrity-protected (HMAC) in a way that detects a copied user-data-dir and strips
+# extension permissions, including TU-Fast's, as soon as Chromium loads the copy).
 #
-# opal-downloader launches Playwright directly against this directory - there is no
-# working copy. An earlier design copied the profile into a private working copy so your
-# normal Brave window could stay open at the same time, but that was removed: Chromium's
-# "Secure Preferences" file is integrity-protected (HMAC) in a way that detects a copied
-# user-data-dir and strips extension permissions (including TU-Fast's) as soon as Chromium
-# loads the copy. This means:
-#   - Close Brave (or whichever browser owns this profile) fully before running
-#     login/sync/list. If this directory is still open in another instance,
+# Two supported ways to fill this in - pick one:
+#
+#   - Recommended: point this at a dedicated profile such as
+#     "~/.opal-downloader/login-profile" that you set up once, following
+#     docs/browser-profile-strategy.md. Your everyday browser is never locked or closed by
+#     opal-downloader, because it's not the profile opal-downloader uses.
+#   - Alternative: point this at your real Brave/Chrome profile directly, if you already
+#     have TU-Fast working there. Example Brave user-data directories:
+#       Windows: "C:/Users/<YOU>/AppData/Local/BraveSoftware/Brave-Browser/User Data"
+#       Linux:   "~/.config/BraveSoftware/Brave-Browser"
+#       macOS:   "~/Library/Application Support/BraveSoftware/Brave-Browser"
+#     With this option, `login` and any session-expiry fallback require your browser to be
+#     fully closed first - if this directory is still open in another instance,
 #     opal-downloader fails with a clear "please fully close Brave first" error instead of
-#     crashing.
-#   - There's nothing to re-copy after installing/updating TU-Fast - opal-downloader always
-#     reads this directory directly, so it always sees your latest extension/login state.
+#     crashing. There's nothing to re-copy after installing/updating TU-Fast either way -
+#     opal-downloader always reads this directory directly, so it always sees your latest
+#     extension/login state.
+#
+# Leave empty (default) to use Playwright's bundled browser with no extensions - works out
+# of the box, but every login needs manual 2FA.
 browser_user_data_dir: ""
 
 # Optional: profile directory inside browser_user_data_dir (e.g. "Default", "Profile 1").

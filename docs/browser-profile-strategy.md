@@ -346,7 +346,21 @@ than blocking on the broader plan.
 ## Non-goals reaffirmed
 
 This plan does not re-open whether the copy-based approach (PR #6) could be
-revived (conclusively ruled out already), and does not attempt to automate
-the dedicated profile's one-time TU-Fast install + OPAL login (both are
-consent/identity actions on the user's own account that cannot and should
-not be scripted).
+revived, and does not attempt to automate the dedicated profile's one-time
+TU-Fast install + OPAL login (both are consent/identity actions on the
+user's own account that cannot and should not be scripted).
+
+The copy-based approach *was* re-litigated once more after this plan merged
+(task `revisit-copy-based-browser-profile-approach`, 2026-07-09): the
+maintainer asked whether the HMAC/`Secure Preferences` block could be worked
+around (e.g. by recomputing the MAC after copying) rather than accepted as
+final. Live re-testing on the real machine reconfirmed PR #20's result —
+copying `Default/Secure Preferences` + `Extensions` + `Local State` into a
+fresh directory and launching Brave against the copy still strips TU-Fast's
+permissions the instant Chromium loads it. Research also turned up that the
+HMAC seed and device-ID inputs are, in principle, forgeable (published
+academic/red-team work has reverse-engineered both), but both are
+undocumented Chromium/Brave binary internals that can silently change on any
+browser update — not a foundation this project should build its login path
+on. See CLAUDE.md's "Key design decisions" section for the full write-up.
+Treat "conclusively ruled out" as reaffirmed, not just asserted.

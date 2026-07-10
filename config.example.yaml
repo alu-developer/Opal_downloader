@@ -74,22 +74,18 @@ browser_executable: ""
 # Example Brave user-data directory on Windows:
 # browser_user_data_dir: "C:/Users/<YOU>/AppData/Local/BraveSoftware/Brave-Browser/User Data"
 #
-# opal-downloader never launches directly against this directory. On first use
-# it copies the parts needed for cookies/logins/extensions (NOT caches or
-# history) into its own working profile under
-# "<your home directory>/.opal-downloader/browser-profile" and launches
-# against that copy instead. This means:
-#   - You can keep using your normal Brave window while opal-downloader runs;
-#     there's no profile-lock conflict.
-#   - The copy is one-time. If you install/update the TU-Fast extension (or
-#     log into OPAL again) in your real browser afterwards, delete the
-#     "<home>/.opal-downloader/browser-profile" folder so opal-downloader
-#     re-copies the profile on its next run.
-#   - If this directory is already open in Brave (or another Chromium-based
-#     browser) when opal-downloader starts, opal-downloader still detects that
-#     and fails with a clear error rather than crashing - closing Brave isn't
-#     required for opal-downloader to work, but the check exists as a safety
-#     net in case the copy step itself races with a browser launch.
+# opal-downloader launches Playwright directly against this directory - there is no
+# working copy. An earlier design copied the profile into a private working copy so your
+# normal Brave window could stay open at the same time, but that was removed: Chromium's
+# "Secure Preferences" file is integrity-protected (HMAC) in a way that detects a copied
+# user-data-dir and strips extension permissions (including TU-Fast's) as soon as Chromium
+# loads the copy. This means:
+#   - Close Brave (or whichever browser owns this profile) fully before running
+#     login/sync/list. If this directory is still open in another instance,
+#     opal-downloader fails with a clear "please fully close Brave first" error instead of
+#     crashing.
+#   - There's nothing to re-copy after installing/updating TU-Fast - opal-downloader always
+#     reads this directory directly, so it always sees your latest extension/login state.
 browser_user_data_dir: ""
 
 # Optional: profile directory inside browser_user_data_dir (e.g. "Default", "Profile 1").

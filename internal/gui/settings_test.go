@@ -54,13 +54,11 @@ course_concurrency: 2
 	// what loadedToViewData would have pre-filled from `before`), which is
 	// the normal "just click Save" path that must not be destructive.
 	form := url.Values{}
-	form.Set("opal_url", before.Credentials.URL)
-	form.Set("session_state_file", before.Credentials.StateFile)
 	form.Set("browser_executable", before.Credentials.BrowserExecutable)
 	form.Set("browser_user_data_dir", before.Credentials.BrowserUserDataDir)
 	form.Set("browser_profile_directory", before.Credentials.BrowserProfileDir)
 	form.Set("download_path", before.App.DownloadPath)
-	form.Set("courses", "*")
+	form.Set("sync_all_courses", "on")
 	form.Set("sync", "on")
 	form.Set("default_course_folder", before.App.DefaultCourseFolder)
 
@@ -138,10 +136,8 @@ session_state_file: ./state.json
 	}
 
 	form := url.Values{}
-	form.Set("opal_url", before.Credentials.URL)
-	form.Set("session_state_file", before.Credentials.StateFile)
 	form.Set("download_path", before.App.DownloadPath)
-	form.Set("courses", "*")
+	form.Set("sync_all_courses", "on")
 	form.Set("sync", "on")
 	form.Set("use_section_subfolders", "on")
 	form["section_folder_pattern[]"] = []string{"Vorlesung", "Uebung"}
@@ -205,10 +201,8 @@ session_state_file: ./state.json
 	}
 
 	form := url.Values{}
-	form.Set("opal_url", "https://bildungsportal.sachsen.de/opal/")
-	form.Set("session_state_file", "./state.json")
 	form.Set("download_path", "./downloads")
-	form.Set("courses", "*")
+	form.Set("sync_all_courses", "on")
 	form.Set("sync", "on")
 	// use_section_subfolders intentionally omitted (unchecked checkbox).
 	form["section_folder_pattern[]"] = []string{"Vorlesung"}
@@ -237,5 +231,97 @@ session_state_file: ./state.json
 	warnings := config.Warnings(after.App)
 	if len(warnings) != 1 {
 		t.Fatalf("expected exactly one config warning after save, got %v", warnings)
+	}
+}
+
+// TestHandleSettingsPostMergedCourseTableSingleCourse is a regression test
+// for the merged "Courses" table (course name + optional folder override in
+// one row) replacing the old separate Courses textarea and Course folder
+// rules table. Entering one course name with one folder override, with
+// "sync all courses" unchecked, must produce the same config.yaml shape the
+// old two-field form produced: courses: [name] and
+// course_folders: {name: folder}.
+func TestHandleSettingsPostMergedCourseTableSingleCourse(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	form := url.Values{}
+	form.Set("download_path", "./downloads")
+	form.Set("sync", "on")
+	// sync_all_courses intentionally omitted (unchecked): one specific
+	// course only.
+	form["course_row_name[]"] = []string{"Analysis I"}
+	form["course_row_folder[]"] = []string{"Mathematik/Analysis"}
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSettings(configPath)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	after, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config after save: %v", err)
+	}
+
+	wantCourses := []string{"Analysis I"}
+	if !reflect.DeepEqual(after.App.Courses, wantCourses) {
+		t.Errorf("courses mismatch: got %+v, want %+v", after.App.Courses, wantCourses)
+	}
+	wantFolders := map[string]string{"Analysis I": "Mathematik/Analysis"}
+	if !reflect.DeepEqual(after.App.CourseFolders, wantFolders) {
+		t.Errorf("course_folders mismatch: got %+v, want %+v", after.App.CourseFolders, wantFolders)
+	}
+
+	// OpalURL/SessionStateFile are no longer form fields - saving must
+	// always fall back to the package defaults rather than leaving the
+	// credentials empty/invalid.
+	if after.Credentials.URL != config.DefaultOPALURL {
+		t.Errorf("expected opal_url to default to %q, got %q", config.DefaultOPALURL, after.Credentials.URL)
+	}
+}
+
+// TestHandleSettingsPostSyncAllCoursesIgnoresCourseNames verifies that
+// checking "sync all courses" produces courses: ["*"] regardless of what
+// (if anything) is in the merged course table's name column, while still
+// preserving any folder overrides from that table.
+func TestHandleSettingsPostSyncAllCoursesIgnoresCourseNames(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	form := url.Values{}
+	form.Set("download_path", "./downloads")
+	form.Set("sync", "on")
+	form.Set("sync_all_courses", "on")
+	form["course_row_name[]"] = []string{"Analysis I"}
+	form["course_row_folder[]"] = []string{"Mathematik/Analysis"}
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSettings(configPath)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	after, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config after save: %v", err)
+	}
+
+	if !reflect.DeepEqual(after.App.Courses, []string{"*"}) {
+		t.Errorf("expected courses to be [\"*\"], got %+v", after.App.Courses)
+	}
+	wantFolders := map[string]string{"Analysis I": "Mathematik/Analysis"}
+	if !reflect.DeepEqual(after.App.CourseFolders, wantFolders) {
+		t.Errorf("course_folders mismatch: got %+v, want %+v", after.App.CourseFolders, wantFolders)
 	}
 }

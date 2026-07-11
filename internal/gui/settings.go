@@ -1,20 +1,26 @@
 package gui
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 )
 
-// courseFolderRow is one editable row of the course_folders map, rendered as
-// a pattern/folder pair. Rows are indexed so the form can add/remove them.
-type courseFolderRow struct {
-	Pattern string
-	Folder  string
+// courseRow is one editable row of the merged courses table: a course
+// name/pattern plus an optional per-course folder override. This replaces
+// the old separate "Courses" textarea and "Course folder rules" table -
+// having the user type each course name twice (once to select it for sync,
+// once to give it a custom folder) was pure friction for the common case of
+// one course with one specific folder.
+type courseRow struct {
+	Name   string
+	Folder string
 }
 
 // sectionFolderRow is one editable row of the section_folder_names map: an
@@ -34,35 +40,76 @@ type subfolderDestinationRow struct {
 }
 
 // settingsViewData is passed to the settings template.
+//
+// OpalURL and SessionStateFile are deliberately not exposed here: OPAL only
+// has one real-world instance in practice, and the session state file path
+// is an internal implementation detail. Both are always saved/loaded using
+// config.DefaultOPALURL / config.DefaultStateFile - see parseSettingsForm.
+// Advanced users who need something different can still hand-edit
+// config.yaml directly; the GUI just won't show or round-trip those fields.
 type settingsViewData struct {
 	ConfigPath string
 	Error      string
 	Saved      bool
 	Warnings   []string
 
-	OpalURL            string
-	SessionStateFile   string
 	BrowserExecutable  string
 	BrowserUserDataDir string
 	BrowserProfileDir  string
 
 	DownloadPath        string
-	Courses             string // newline-separated for the textarea
+	SyncAllCourses      bool
+	CourseRows          []courseRow
 	Sync                bool
 	DefaultCourseFolder string
-	CourseFolders       []courseFolderRow
 
 	UseSectionSubfolders  bool
 	SectionFolderNames    []sectionFolderRow
 	SubfolderDestinations []subfolderDestinationRow
 }
 
-func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData {
-	rows := make([]courseFolderRow, 0, len(loaded.App.CourseFolders))
-	for pattern, folder := range loaded.App.CourseFolders {
-		rows = append(rows, courseFolderRow{Pattern: pattern, Folder: folder})
+// isSyncAllCourses reports whether courses is the "sync everything" sentinel
+// (a single "*" entry), matching config.CourseMatches' own treatment of it.
+func isSyncAllCourses(courses []string) bool {
+	return len(courses) == 1 && strings.TrimSpace(courses[0]) == "*"
+}
+
+// buildCourseRows merges the Courses list and CourseFolders map back into
+// the single-table shape the settings form edits. When syncAll is true, the
+// Courses list itself is just the "*" sentinel and carries no per-course
+// information, so only CourseFolders entries are shown (still useful: a
+// folder override can apply to a specific course even while syncing
+// everything). When syncAll is false, one row is emitted per course, with
+// its folder filled in from CourseFolders on an exact-name match; any
+// CourseFolders entries that don't exactly match a listed course (e.g. glob
+// patterns) are appended as extra rows so switching sync-all on and off
+// never silently drops data.
+func buildCourseRows(courses []string, courseFolders map[string]string) []courseRow {
+	var rows []courseRow
+	seen := map[string]bool{}
+
+	if !isSyncAllCourses(courses) {
+		for _, c := range courses {
+			rows = append(rows, courseRow{Name: c, Folder: courseFolders[c]})
+			seen[c] = true
+		}
 	}
 
+	extraKeys := make([]string, 0, len(courseFolders))
+	for k := range courseFolders {
+		if !seen[k] {
+			extraKeys = append(extraKeys, k)
+		}
+	}
+	sort.Strings(extraKeys)
+	for _, k := range extraKeys {
+		rows = append(rows, courseRow{Name: k, Folder: courseFolders[k]})
+	}
+
+	return rows
+}
+
+func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData {
 	sectionRows := make([]sectionFolderRow, 0, len(loaded.App.SectionFolderNames))
 	for pattern, folder := range loaded.App.SectionFolderNames {
 		sectionRows = append(sectionRows, sectionFolderRow{Pattern: pattern, Folder: folder})
@@ -77,17 +124,15 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 		ConfigPath: configPath,
 		Warnings:   config.Warnings(loaded.App),
 
-		OpalURL:            loaded.Credentials.URL,
-		SessionStateFile:   loaded.Credentials.StateFile,
 		BrowserExecutable:  loaded.Credentials.BrowserExecutable,
 		BrowserUserDataDir: loaded.Credentials.BrowserUserDataDir,
 		BrowserProfileDir:  loaded.Credentials.BrowserProfileDir,
 
 		DownloadPath:        loaded.App.DownloadPath,
-		Courses:             strings.Join(loaded.App.Courses, "\n"),
+		SyncAllCourses:      isSyncAllCourses(loaded.App.Courses),
+		CourseRows:          buildCourseRows(loaded.App.Courses, loaded.App.CourseFolders),
 		Sync:                loaded.App.Sync,
 		DefaultCourseFolder: loaded.App.DefaultCourseFolder,
-		CourseFolders:       rows,
 
 		UseSectionSubfolders:  loaded.App.UseSectionSubfolders,
 		SectionFolderNames:    sectionRows,
@@ -110,6 +155,10 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 // and SubfolderDestinations *are* form fields (see the "Subfolder
 // organization" section) and are always overwritten from the submission,
 // same as course_folders.
+//
+// Credentials.URL and Credentials.StateFile are always set to
+// config.DefaultOPALURL / config.DefaultStateFile - the Settings form no
+// longer exposes either for editing (see settingsViewData's doc comment).
 func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (settingsViewData, config.Loaded) {
 	_ = r.ParseForm()
 
@@ -117,29 +166,37 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 		return strings.TrimSpace(r.FormValue(name))
 	}
 
-	var courses []string
-	for _, line := range strings.Split(r.FormValue("courses"), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			courses = append(courses, trimmed)
+	syncAll := r.FormValue("sync_all_courses") == "on"
+
+	rowNames := r.PostForm["course_row_name[]"]
+	rowFolders := r.PostForm["course_row_folder[]"]
+	courseFolders := map[string]string{}
+	var courseNames []string
+	rows := make([]courseRow, 0, len(rowNames))
+	for i, rawName := range rowNames {
+		name := strings.TrimSpace(rawName)
+		folder := ""
+		if i < len(rowFolders) {
+			folder = strings.TrimSpace(rowFolders[i])
+		}
+		if name == "" && folder == "" {
+			continue
+		}
+		rows = append(rows, courseRow{Name: name, Folder: folder})
+		if name == "" {
+			continue
+		}
+		courseNames = append(courseNames, name)
+		if folder != "" {
+			courseFolders[name] = folder
 		}
 	}
 
-	patterns := r.PostForm["course_folder_pattern[]"]
-	folders := r.PostForm["course_folder_folder[]"]
-	courseFolders := map[string]string{}
-	rows := make([]courseFolderRow, 0, len(patterns))
-	for i := range patterns {
-		pattern := strings.TrimSpace(patterns[i])
-		folder := ""
-		if i < len(folders) {
-			folder = strings.TrimSpace(folders[i])
-		}
-		rows = append(rows, courseFolderRow{Pattern: pattern, Folder: folder})
-		if pattern == "" && folder == "" {
-			continue
-		}
-		courseFolders[pattern] = folder
+	var courses []string
+	if syncAll {
+		courses = []string{"*"}
+	} else {
+		courses = courseNames
 	}
 
 	sectionPatterns := r.PostForm["section_folder_pattern[]"]
@@ -182,17 +239,15 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	view := settingsViewData{
 		ConfigPath: configPath,
 
-		OpalURL:            get("opal_url"),
-		SessionStateFile:   get("session_state_file"),
 		BrowserExecutable:  get("browser_executable"),
 		BrowserUserDataDir: get("browser_user_data_dir"),
 		BrowserProfileDir:  get("browser_profile_directory"),
 
 		DownloadPath:        get("download_path"),
-		Courses:             r.FormValue("courses"),
+		SyncAllCourses:      syncAll,
+		CourseRows:          rows,
 		Sync:                syncEnabled,
 		DefaultCourseFolder: get("default_course_folder"),
-		CourseFolders:       rows,
 
 		UseSectionSubfolders:  useSectionSubfolders,
 		SectionFolderNames:    sectionRows,
@@ -208,8 +263,8 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	loaded.App.UseSectionSubfolders = useSectionSubfolders
 	loaded.App.SectionFolderNames = sectionFolderNames
 	loaded.App.SubfolderDestinations = subfolderDestinations
-	loaded.Credentials.URL = view.OpalURL
-	loaded.Credentials.StateFile = view.SessionStateFile
+	loaded.Credentials.URL = config.DefaultOPALURL
+	loaded.Credentials.StateFile = config.DefaultStateFile
 	loaded.Credentials.BrowserExecutable = view.BrowserExecutable
 	loaded.Credentials.BrowserUserDataDir = view.BrowserUserDataDir
 	loaded.Credentials.BrowserProfileDir = view.BrowserProfileDir
@@ -291,6 +346,31 @@ func renderSettings(w http.ResponseWriter, data settingsViewData) {
 	}
 }
 
+// handleBrowseFolder opens a native folder-picker dialog on the machine
+// running the GUI server and returns the chosen path as JSON. This exists
+// because a browser's <input type=file webkitdirectory> cannot return a
+// real filesystem path (sandboxed), which doesn't work for a local desktop
+// tool that needs the user to point it at a real folder on disk. Since this
+// GUI's server and the browser tab showing it always run on the same
+// machine, shelling out to a native dialog server-side is the practical fix
+// - see browseForFolder (window_windows.go / window_other.go) for the
+// platform split.
+func handleBrowseFolder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	path, err := browseForFolder()
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]string{"path": path})
+}
+
 var settingsTemplateFuncs = template.FuncMap{
 	"add1": func(i int) int { return i + 1 },
 	"itoa": strconv.Itoa,
@@ -311,6 +391,9 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	textarea { min-height: 4.5rem; font-family: ui-monospace, monospace; }
 	.checkbox-row { display: flex; align-items: center; gap: 0.5rem; }
 	.checkbox-row label { margin: 0; font-weight: 600; }
+	.path-field { display: flex; gap: 0.4rem; }
+	.path-field input[type=text] { flex: 1; }
+	.browse-btn { padding: 0.4rem 0.7rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; font: inherit; white-space: nowrap; }
 	table.folders { width: 100%; border-collapse: collapse; margin-bottom: 0.5rem; }
 	table.folders th { text-align: left; font-size: 0.8rem; color: #666; font-weight: 600; padding-bottom: 0.25rem; }
 	table.folders td { padding: 0.2rem 0.4rem 0.2rem 0; }
@@ -322,7 +405,6 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 </head>
 <body>
 	<h1>Settings</h1>
-	<p class="hint">Editing <code>{{.ConfigPath}}</code>. A backup of the previous version is kept as <code>{{.ConfigPath}}.bak</code> on save.</p>
 
 	{{if .Error}}<div class="error"><strong>Could not save:</strong> {{.Error}}</div>{{end}}
 	{{if .Saved}}<div class="success">Saved.</div>{{end}}
@@ -337,19 +419,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<form method="post" action="/settings" id="settings-form">
 
-	<h2>Connection &amp; browser</h2>
-
-	<div class="field">
-		<label for="opal_url">OPAL URL</label>
-		<input type="text" id="opal_url" name="opal_url" value="{{.OpalURL}}">
-		<p class="hint">Base URL of your Bildungsportal Sachsen OPAL instance.</p>
-	</div>
-
-	<div class="field">
-		<label for="session_state_file">Session state file</label>
-		<input type="text" id="session_state_file" name="session_state_file" value="{{.SessionStateFile}}">
-		<p class="hint">Where the browser session (login cookies) is persisted between runs.</p>
-	</div>
+	<h2>Browser</h2>
 
 	<div class="field">
 		<label for="browser_executable">Browser executable (optional)</label>
@@ -373,14 +443,11 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<div class="field">
 		<label for="download_path">Download path</label>
-		<input type="text" id="download_path" name="download_path" value="{{.DownloadPath}}">
+		<div class="path-field">
+			<input type="text" id="download_path" name="download_path" value="{{.DownloadPath}}">
+			<button type="button" class="browse-btn" id="browse-download-path">Browse...</button>
+		</div>
 		<p class="hint">Local destination folder for downloaded course files.</p>
-	</div>
-
-	<div class="field">
-		<label for="courses">Courses (one per line)</label>
-		<textarea id="courses" name="courses">{{.Courses}}</textarea>
-		<p class="hint">Exact course names to sync, case-insensitive. Use <code>*</code> alone to match every course.</p>
 	</div>
 
 	<div class="field checkbox-row">
@@ -391,25 +458,35 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<div class="field">
 		<label for="default_course_folder">Default course folder (optional)</label>
 		<input type="text" id="default_course_folder" name="default_course_folder" value="{{.DefaultCourseFolder}}">
-		<p class="hint">Used when no course-folder rule below matches. If empty, the course name itself is used.</p>
+		<p class="hint">Used when a course below has no folder override. If empty, the course name itself is used.</p>
 	</div>
 
-	<div class="field">
-		<label>Course folder rules</label>
-		<p class="hint">Maps a course-name pattern (glob, e.g. <code>*Analysis*</code>) to a target folder. First match wins.</p>
-		<table class="folders" id="folders-table">
-			<thead><tr><th>Pattern</th><th>Folder</th><th></th></tr></thead>
+	<div class="field checkbox-row">
+		<input type="checkbox" id="sync_all_courses" name="sync_all_courses" {{if .SyncAllCourses}}checked{{end}}>
+		<label for="sync_all_courses">Sync all courses</label>
+	</div>
+
+	<div class="field" id="courses-field">
+		<label>Courses</label>
+		<p class="hint">One row per course to sync, with an optional folder override for that course. Exact name match, case-insensitive.</p>
+		<table class="folders" id="courses-table">
+			<thead><tr><th>Course name</th><th>Folder (optional)</th><th></th></tr></thead>
 			<tbody>
-			{{range $i, $row := .CourseFolders}}
+			{{range $i, $row := .CourseRows}}
 				<tr>
-					<td><input type="text" name="course_folder_pattern[]" value="{{$row.Pattern}}" placeholder="*Analysis*"></td>
-					<td><input type="text" name="course_folder_folder[]" value="{{$row.Folder}}" placeholder="Mathematik/Analysis"></td>
+					<td><input type="text" name="course_row_name[]" value="{{$row.Name}}" placeholder="Analysis I"></td>
+					<td>
+						<div class="path-field">
+							<input type="text" name="course_row_folder[]" value="{{$row.Folder}}" placeholder="Mathematik/Analysis">
+							<button type="button" class="browse-btn">Browse...</button>
+						</div>
+					</td>
 					<td><button type="button" class="remove-row-btn" onclick="this.closest('tr').remove()">Remove</button></td>
 				</tr>
 			{{end}}
 			</tbody>
 		</table>
-		<button type="button" class="add-row-btn" id="add-folder-row">+ Add rule</button>
+		<button type="button" class="add-row-btn" id="add-course-row">+ Add course</button>
 	</div>
 
 	<h2>Subfolder organization</h2>
@@ -447,7 +524,12 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			{{range $i, $row := .SubfolderDestinations}}
 				<tr>
 					<td><input type="text" name="subfolder_dest_key[]" value="{{$row.Key}}" placeholder="*Analysis*/*Vorlesung*"></td>
-					<td><input type="text" name="subfolder_dest_path[]" value="{{$row.Destination}}" placeholder="D:/Elsewhere/AnalysisSlides"></td>
+					<td>
+						<div class="path-field">
+							<input type="text" name="subfolder_dest_path[]" value="{{$row.Destination}}" placeholder="D:/Elsewhere/AnalysisSlides">
+							<button type="button" class="browse-btn">Browse...</button>
+						</div>
+					</td>
 					<td><button type="button" class="remove-row-btn" onclick="this.closest('tr').remove()">Remove</button></td>
 				</tr>
 			{{end}}
@@ -462,11 +544,20 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<p class="back"><a href="/">&larr; Back</a></p>
 
 	<script>
-		document.getElementById('add-folder-row').addEventListener('click', function () {
-			var tbody = document.querySelector('#folders-table tbody');
+		var syncAllCheckbox = document.getElementById('sync_all_courses');
+		var coursesField = document.getElementById('courses-field');
+		function updateCoursesVisibility() {
+			coursesField.style.display = syncAllCheckbox.checked ? 'none' : '';
+		}
+		syncAllCheckbox.addEventListener('change', updateCoursesVisibility);
+		updateCoursesVisibility();
+
+		document.getElementById('add-course-row').addEventListener('click', function () {
+			var tbody = document.querySelector('#courses-table tbody');
 			var tr = document.createElement('tr');
-			tr.innerHTML = '<td><input type="text" name="course_folder_pattern[]" placeholder="*Analysis*"></td>' +
-				'<td><input type="text" name="course_folder_folder[]" placeholder="Mathematik/Analysis"></td>' +
+			tr.innerHTML = '<td><input type="text" name="course_row_name[]" placeholder="Analysis I"></td>' +
+				'<td><div class="path-field"><input type="text" name="course_row_folder[]" placeholder="Mathematik/Analysis">' +
+				'<button type="button" class="browse-btn">Browse...</button></div></td>' +
 				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
 			tbody.appendChild(tr);
 		});
@@ -484,9 +575,37 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			var tbody = document.querySelector('#subfolder-dest-table tbody');
 			var tr = document.createElement('tr');
 			tr.innerHTML = '<td><input type="text" name="subfolder_dest_key[]" placeholder="*Analysis*/*Vorlesung*"></td>' +
-				'<td><input type="text" name="subfolder_dest_path[]" placeholder="D:/Elsewhere/AnalysisSlides"></td>' +
+				'<td><div class="path-field"><input type="text" name="subfolder_dest_path[]" placeholder="D:/Elsewhere/AnalysisSlides">' +
+				'<button type="button" class="browse-btn">Browse...</button></div></td>' +
 				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
 			tbody.appendChild(tr);
+		});
+
+		function browseInto(inputEl) {
+			fetch('/settings/browse-folder', { method: 'POST' })
+				.then(function (r) { return r.json(); })
+				.then(function (j) {
+					if (j.path) { inputEl.value = j.path; }
+					else if (j.error) { alert(j.error); }
+				})
+				.catch(function (err) { alert('Browse failed: ' + err); });
+		}
+
+		document.getElementById('browse-download-path').addEventListener('click', function () {
+			browseInto(document.getElementById('download_path'));
+		});
+
+		// Event delegation for the "Browse..." buttons inside dynamic table
+		// rows (course folder overrides, subfolder destination paths) - this
+		// covers rows added later by the "+ Add ..." buttons too, since it's
+		// attached to the document rather than the individual buttons.
+		document.addEventListener('click', function (e) {
+			var btn = e.target.closest ? e.target.closest('.path-field .browse-btn') : null;
+			if (!btn) { return; }
+			var input = btn.previousElementSibling;
+			if (input && input.tagName === 'INPUT') {
+				browseInto(input);
+			}
 		});
 	</script>
 </body>

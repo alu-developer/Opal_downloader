@@ -118,6 +118,7 @@ func Run(opts Options) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.handleLanding)
 	mux.HandleFunc("/settings", handleSettings(configPath))
+	mux.HandleFunc("/settings/browse-folder", handleBrowseFolder)
 	mux.HandleFunc("/login", srv.handleLoginPage)
 	mux.HandleFunc("/login/start", srv.handleLoginStart)
 	mux.HandleFunc("/update", srv.handleUpdatePage)

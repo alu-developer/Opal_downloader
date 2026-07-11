@@ -301,12 +301,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 <head>
 <meta charset="utf-8">
 <title>Opal Downloader - Settings</title>
-<style>
-	body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
-	h1 { margin-bottom: 0.25rem; }
-	h2 { margin-top: 2.5rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
-	.back { font-size: 0.9rem; }
-	.hint { color: #666; font-size: 0.85rem; margin: 0.15rem 0 0.6rem; }
+<style>` + pageStyle + `
 	.field { margin-bottom: 1.1rem; }
 	label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
 	input[type=text], input[type=url], textarea {
@@ -316,10 +311,6 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	textarea { min-height: 4.5rem; font-family: ui-monospace, monospace; }
 	.checkbox-row { display: flex; align-items: center; gap: 0.5rem; }
 	.checkbox-row label { margin: 0; font-weight: 600; }
-	.error { background: #fdecea; border: 1px solid #d93025; color: #7a1712; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
-	.success { background: #e6f4ea; border: 1px solid #34a853; color: #1e4620; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
-	.warning { background: #fff8e1; border: 1px solid #e0c46c; color: #6b5300; border-radius: 6px; padding: 0.6rem 1rem; margin: 0.75rem 0; font-size: 0.9rem; }
-	.warning ul { margin: 0.25rem 0 0; padding-left: 1.2rem; }
 	table.folders { width: 100%; border-collapse: collapse; margin-bottom: 0.5rem; }
 	table.folders th { text-align: left; font-size: 0.8rem; color: #666; font-weight: 600; padding-bottom: 0.25rem; }
 	table.folders td { padding: 0.2rem 0.4rem 0.2rem 0; }
@@ -327,16 +318,14 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	.remove-row-btn { background: none; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; color: #a00; padding: 0.3rem 0.6rem; }
 	.add-row-btn, .save-btn { padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; font: inherit; }
 	.save-btn { background: #1a73e8; color: #fff; border-color: #1a73e8; margin-top: 1.5rem; font-weight: 600; }
-	code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
 </style>
 </head>
 <body>
-	<p class="back"><a href="/">&larr; back</a></p>
 	<h1>Settings</h1>
-	<p class="hint">Editing <code>{{.ConfigPath}}</code>. Saving validates the form and writes this file directly (a <code>.bak</code> copy of the previous version is kept).</p>
+	<p class="hint">Editing <code>{{.ConfigPath}}</code>. A backup of the previous version is kept as <code>{{.ConfigPath}}.bak</code> on save.</p>
 
 	{{if .Error}}<div class="error"><strong>Could not save:</strong> {{.Error}}</div>{{end}}
-	{{if .Saved}}<div class="success">Saved. Config written to {{.ConfigPath}} (previous version backed up to {{.ConfigPath}}.bak).</div>{{end}}
+	{{if .Saved}}<div class="success">Saved.</div>{{end}}
 	{{if .Warnings}}
 	<div class="warning">
 		<strong>Heads up:</strong>
@@ -371,7 +360,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<div class="field">
 		<label for="browser_user_data_dir">Browser user data directory (optional)</label>
 		<input type="text" id="browser_user_data_dir" name="browser_user_data_dir" value="{{.BrowserUserDataDir}}">
-		<p class="hint">Your real browser's profile root. Never opened directly - a private working copy is made on first use.</p>
+		<p class="hint">Your real browser's profile root. Opened directly, so close that browser before logging in/syncing.</p>
 	</div>
 
 	<div class="field">
@@ -429,11 +418,11 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<input type="checkbox" id="use_section_subfolders" name="use_section_subfolders" {{if .UseSectionSubfolders}}checked{{end}}>
 		<label for="use_section_subfolders">Organize downloads into a subfolder per OPAL section</label>
 	</div>
-	<p class="hint">When enabled, files are placed in <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code> instead of flat <code>&lt;course&gt;/&lt;file&gt;</code>. The two editors below only take effect while this is checked - otherwise they are saved but ignored (see warning above if that happens).</p>
+	<p class="hint">Places files in <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code> instead of flat <code>&lt;course&gt;/&lt;file&gt;</code>. The two editors below only apply while this is checked.</p>
 
 	<div class="field">
 		<label>Section folder names</label>
-		<p class="hint">Renames an OPAL section name (glob pattern, e.g. <code>*Exercises*</code>) to a custom local folder name, e.g. <code>Übungen</code>. Unmatched sections keep OPAL's own (sanitized) name.</p>
+		<p class="hint">Rename an OPAL section (e.g. <code>*Exercises*</code>) to a custom folder name (e.g. <code>Übungen</code>). Unmatched sections keep OPAL's own name.</p>
 		<table class="folders" id="section-folders-table">
 			<thead><tr><th>OPAL section pattern</th><th>Local folder name</th><th></th></tr></thead>
 			<tbody>
@@ -451,7 +440,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<div class="field">
 		<label>Subfolder destination overrides</label>
-		<p class="hint">Redirects one course's specific section to an arbitrary destination path (may be outside the download path). Key is <code>&lt;course pattern&gt;/&lt;subfolder pattern&gt;</code>, e.g. <code>*Analysis*/*Vorlesung*</code>; both halves use the same pattern rules as course folder rules above.</p>
+		<p class="hint">Sends one course's specific section to a different destination path. Key is <code>&lt;course pattern&gt;/&lt;subfolder pattern&gt;</code>, e.g. <code>*Analysis*/*Vorlesung*</code>.</p>
 		<table class="folders" id="subfolder-dest-table">
 			<thead><tr><th>Course pattern / subfolder pattern</th><th>Destination path</th><th></th></tr></thead>
 			<tbody>
@@ -469,6 +458,8 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>
+
+	<p class="back"><a href="/">&larr; Back</a></p>
 
 	<script>
 		document.getElementById('add-folder-row').addEventListener('click', function () {

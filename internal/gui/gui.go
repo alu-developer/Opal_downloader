@@ -173,27 +173,42 @@ func Run(opts Options) error {
 	}
 }
 
+// disclaimerHTML is shown on the landing and login pages, where it's
+// load-bearing: it tells the user a *second*, separate browser window will
+// open for OPAL login/sync automation, so closing one window doesn't affect
+// the other.
 const disclaimerHTML = `<div class="disclaimer">
-		<strong>Note:</strong> this window is just this app's local UI.
-		It is separate from the Playwright-controlled browser window that
-		opens for OPAL login/sync automation. Closing this window does not
-		affect an in-progress sync's automation browser, and closing the
-		automation browser does not affect this window.
+		A separate browser window opens for OPAL login/sync. Closing this
+		window does not stop it, and closing it does not close this window.
 	</div>`
 
+// pageStyle is the shared look for every GUI page (landing, login, update,
+// settings, sync): same fonts/spacing/colors for headings, status boxes,
+// buttons, hints, and the back link, so no page looks structurally
+// different from another. Page-specific templates append their own extra
+// rules (forms, tables, log view, etc.) after this.
 const pageStyle = `
-	body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
+	body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
 	h1 { margin-bottom: 0.25rem; }
+	h2 { margin-top: 2.5rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
 	.disclaimer { background: #fff8e1; border: 1px solid #e0c46c; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.9rem; margin: 1.5rem 0; }
+	.hint { color: #666; font-size: 0.85rem; margin: 0.15rem 0 0.6rem; }
 	nav ul { list-style: none; padding: 0; }
 	nav li { padding: 0.5rem 0; border-bottom: 1px solid #eee; }
 	.soon { color: #888; font-size: 0.85rem; }
 	.status { border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
 	.status.ok { background: #e6f4ea; border: 1px solid #8cc98f; }
 	.status.warn { background: #fdecea; border: 1px solid #e0a6a6; }
+	.error { background: #fdecea; border: 1px solid #d93025; color: #7a1712; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
+	.success { background: #e6f4ea; border: 1px solid #34a853; color: #1e4620; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
+	.warning { background: #fff8e1; border: 1px solid #e0c46c; color: #6b5300; border-radius: 6px; padding: 0.6rem 1rem; margin: 0.75rem 0; font-size: 0.9rem; }
+	.warning ul { margin: 0.25rem 0 0; padding-left: 1.2rem; }
 	button { font: inherit; padding: 0.6rem 1.2rem; border-radius: 6px; border: 1px solid #2a6fb0; background: #2a6fb0; color: #fff; cursor: pointer; }
 	button:hover { background: #1f588f; }
-	a.back { display: inline-block; margin-top: 1.5rem; color: #2a6fb0; }
+	button:disabled { opacity: 0.5; cursor: not-allowed; }
+	code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
+	.back { margin-top: 1.5rem; font-size: 0.9rem; }
+	.back a { color: #2a6fb0; }
 `
 
 var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
@@ -205,17 +220,14 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 </head>
 <body>
 	<h1>Opal Downloader</h1>
-	<p>Local web UI, served only on 127.0.0.1.</p>
 
 	` + disclaimerHTML + `
 
 	<div class="status {{if .LoggedIn}}ok{{else}}warn{{end}}">
 		{{if .LoggedIn}}
-			Session state found: <code>{{.StateFile}}</code>{{if .StateModified}} (last updated {{.StateModified}}){{end}}.
-			This looks like a saved OPAL login, but it can still be expired -
-			the real check happens the next time <code>sync</code>/<code>list</code> runs.
+			Logged in (session saved {{if .StateModified}}{{.StateModified}}{{else}}earlier{{end}}). May still need a fresh login if it expired.
 		{{else}}
-			Not logged in yet. No session state file found at <code>{{.StateFile}}</code>.
+			Not logged in yet.
 		{{end}}
 	</div>
 
@@ -305,9 +317,9 @@ var loginPageTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE htm
 
 	<div class="status {{if .LoggedIn}}ok{{else}}warn{{end}}">
 		{{if .LoggedIn}}
-			Session state found: <code>{{.StateFile}}</code>{{if .StateModified}} (last updated {{.StateModified}}){{end}}.
+			Logged in (session saved{{if .StateModified}} {{.StateModified}}{{end}}, <code>{{.StateFile}}</code>).
 		{{else}}
-			Not logged in yet. No session state file found at <code>{{.StateFile}}</code>.
+			Not logged in yet (<code>{{.StateFile}}</code> not found).
 		{{end}}
 	</div>
 
@@ -315,18 +327,16 @@ var loginPageTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE htm
 	<div class="status {{if .ResultOK}}ok{{else}}warn{{end}}">{{.Result}}</div>
 	{{end}}
 
-	<p>
-		Clicking "Log in" opens a <strong>separate, visible browser window</strong>
-		controlled by this app (not this window) where you complete the OPAL
-		login, including TU-Fast/2FA if required. This window will wait and
-		update once that browser window reports login succeeded or failed.
+	<p class="hint">
+		A separate browser window opens to complete the OPAL login (including
+		TU-Fast/2FA if needed). This page waits and updates once it's done.
 	</p>
 
 	<form method="post" action="/login/start">
 		<button type="submit">Log in</button>
 	</form>
 
-	<a class="back" href="/">&larr; Back</a>
+	<p class="back"><a href="/">&larr; Back</a></p>
 </body>
 </html>
 `))
@@ -541,7 +551,7 @@ var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE h
 	<div class="status ok">Running the latest version (<code>{{.CurrentVersion}}</code>).</div>
 	{{end}}
 
-	<a class="back" href="/">&larr; Back</a>
+	<p class="back"><a href="/">&larr; Back</a></p>
 </body>
 </html>
 `))
@@ -611,7 +621,7 @@ var updateErrorTemplate = template.Must(template.New("update-error").Parse(`<!DO
 <body>
 	<h1>Update failed</h1>
 	<div class="status warn">{{.}}</div>
-	<a class="back" href="/update">&larr; Back</a>
+	<p class="back"><a href="/update">&larr; Back</a></p>
 </body>
 </html>
 `))

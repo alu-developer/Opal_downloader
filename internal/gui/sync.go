@@ -325,16 +325,10 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>Opal Downloader - Sync</title>
-<style>
-	body { font-family: system-ui, sans-serif; max-width: 50rem; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
-	h1 { margin-bottom: 0.25rem; }
-	.back { font-size: 0.9rem; }
-	.hint { color: #666; font-size: 0.85rem; margin: 0.15rem 0 0.6rem; }
+<style>` + pageStyle + `
 	.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; align-items: center; }
-	button { padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; font: inherit; }
-	button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 600; }
+	button.primary { background: #1a73e8; border-color: #1a73e8; font-weight: 600; }
 	button.stop { background: #d93025; color: #fff; border-color: #d93025; }
-	button:disabled { opacity: 0.5; cursor: not-allowed; }
 	label.opt { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; }
 	input[type=text] { padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
 	#status { font-weight: 600; margin: 0.5rem 0; }
@@ -349,9 +343,8 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 </style>
 </head>
 <body>
-	<p class="back"><a href="/">&larr; back</a></p>
 	<h1>Sync</h1>
-	<p class="hint">Config: <code>{{.ConfigPath}}</code>. Triggers the same code path as the CLI's <code>sync</code>/<code>list</code>/<code>dump-links</code> commands, streaming progress here via Server-Sent Events instead of stdout.</p>
+	<p class="hint">Config: <code>{{.ConfigPath}}</code>. Progress is shown live below.</p>
 
 	<div class="actions">
 		<button class="primary" id="btn-sync">Sync</button>
@@ -370,6 +363,8 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	<div id="status">Idle.</div>
 	<div id="summary"></div>
 	<div id="log"></div>
+
+	<p class="back"><a href="/">&larr; Back</a></p>
 
 	<script>
 	(function () {

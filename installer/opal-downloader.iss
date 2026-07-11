@@ -149,3 +149,70 @@ begin
   end;
   Result := not Found;
 end;
+
+{ Brave/Chrome detection, per docs/installer-plan.md Section 5. Purely
+  informational: a directory-existence check only, no writes, no config
+  changes, and no attempt to install/configure Brave, Chrome, or the
+  TU-Fast extension. login/sync need one of these with TU-Fast installed
+  and logged in, but that setup is explicitly out of scope for this
+  installer - this only tells the user so, if neither is found. }
+function BrowserDetected: Boolean;
+begin
+  Result :=
+    DirExists(ExpandConstant('{localappdata}\BraveSoftware\Brave-Browser')) or
+    DirExists(ExpandConstant('{localappdata}\Google\Chrome'));
+end;
+
+var
+  BrowserInfoPage: TWizardPage;
+
+procedure InitializeWizard;
+var
+  InfoLabel: TNewStaticText;
+  LinkLabel: TNewStaticText;
+begin
+  { Created unconditionally; ShouldSkipPage below decides at wizard-run time
+    whether it's actually shown, since BrowserDetected can only be evaluated
+    once the installer is running on the target machine. }
+  BrowserInfoPage := CreateCustomPage(wpSelectTasks,
+    'Browser Requirement', 'Brave or Chrome not found');
+
+  InfoLabel := TNewStaticText.Create(BrowserInfoPage);
+  InfoLabel.Parent := BrowserInfoPage.Surface;
+  InfoLabel.Left := 0;
+  InfoLabel.Top := 0;
+  InfoLabel.Width := BrowserInfoPage.SurfaceWidth;
+  InfoLabel.AutoSize := False;
+  InfoLabel.WordWrap := True;
+  InfoLabel.Caption :=
+    'Opal Downloader could not find Brave or Chrome installed on this ' +
+    'computer.' + #13#10#13#10 +
+    'The "login" and "sync" features need Brave or Chrome, with the ' +
+    'TU-Fast browser extension installed and logged in, to sign in to ' +
+    'OPAL. This installer does not install or configure Brave, Chrome, ' +
+    'or TU-Fast for you - that has to be done separately.' + #13#10#13#10 +
+    'You can continue installing Opal Downloader now and set up the ' +
+    'browser later, before you first use "login" or "sync". See the ' +
+    'manual setup checklist for details:';
+  InfoLabel.Height := ScaleY(170);
+
+  LinkLabel := TNewStaticText.Create(BrowserInfoPage);
+  LinkLabel.Parent := BrowserInfoPage.Surface;
+  LinkLabel.Left := 0;
+  LinkLabel.Top := InfoLabel.Top + InfoLabel.Height + ScaleY(8);
+  LinkLabel.Width := BrowserInfoPage.SurfaceWidth;
+  LinkLabel.AutoSize := False;
+  LinkLabel.WordWrap := True;
+  LinkLabel.Caption := '{#MyAppURL}/blob/master/docs/manual-setup-checklist.md';
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  { Skip this informational page entirely when either browser is present -
+    proceed as normal, no page shown at all. When neither is found, the
+    page shows with a plain Next button (non-blocking, not a hard gate). }
+  if PageID = BrowserInfoPage.ID then
+    Result := BrowserDetected
+  else
+    Result := False;
+end;

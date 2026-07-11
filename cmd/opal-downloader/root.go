@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/gui"
 	"github.com/alu-developer/opal-downloader/internal/procguard"
+	"github.com/alu-developer/opal-downloader/internal/report"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 	"github.com/alu-developer/opal-downloader/internal/timing"
@@ -45,7 +47,23 @@ var updaterCheckLatest = updater.CheckLatest
 // -ldflags is separate follow-up work.
 var buildVersion = "dev"
 
+// Execute is the CLI entry point (called from main()). It recovers from any
+// panic that escapes a subcommand rather than letting Go print a bare
+// panic+stack dump and exit: best-effort crash capture per this task's
+// scope (see CLAUDE.md "Reliability over features" - a crash should be a
+// reported incident, not a silent/confusing exit). The recovered report is
+// printed to stderr only; unlike the GUI's Feedback page (internal/gui's
+// feedback.go), the CLI never opens a browser on the user's behalf - the
+// user pastes the printed text into a new GitHub issue themselves if they
+// choose to.
 func Execute() {
+	defer func() {
+		if rec := recover(); rec != nil {
+			printCrashReport(rec, debug.Stack())
+			os.Exit(1)
+		}
+	}()
+
 	// Make sure any Chromium/Brave process Playwright launches (login/sync/
 	// list/dump-links/gui all go through internal/scraper) dies with this
 	// process, even if this process is killed abruptly (crash, `taskkill
@@ -88,6 +106,12 @@ func Execute() {
 		err = runDumpLinks(args)
 	case "gui":
 		err = runGUI(args)
+	case "__panic-test":
+		// Undocumented, not listed in printHelp: exists solely so the panic
+		// recovery wired up in Execute (see its doc comment) can be
+		// live-verified end-to-end - `opal-downloader __panic-test` - without
+		// needing a real bug to trigger a crash on demand.
+		panic("intentional panic for __panic-test")
 	case "--help", "-h", "help":
 		printHelp()
 		return
@@ -620,6 +644,19 @@ func printUpdateFooter() {
 	}
 
 	fmt.Printf("\nA newer version (v%s) is available: %s\n", rel.Version, rel.HTMLURL)
+}
+
+// printCrashReport prints a report.CrashReport (version, OS/arch, Go
+// runtime, panic value, stack trace) to stderr, followed by a one-line
+// instruction to paste it into a new GitHub issue. See Execute's doc
+// comment for why this only prints (no browser-opening) unlike the GUI's
+// equivalent Feedback flow.
+func printCrashReport(rec any, stack []byte) {
+	fmt.Fprintln(os.Stderr, "opal-downloader crashed unexpectedly.")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprint(os.Stderr, report.CrashReport(buildVersion, rec, stack))
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "Please report this at %s (paste the text above into the issue).\n", report.IssuesNewURL)
 }
 
 // printConfigWarnings prints non-fatal config.Warnings for app to stderr,

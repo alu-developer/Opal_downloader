@@ -57,6 +57,16 @@ type settingsViewData struct {
 	BrowserUserDataDir string
 	BrowserProfileDir  string
 
+	// BrowserUserDataDirSuggested reports whether BrowserUserDataDir's
+	// current value is only a detected suggestion (from the installer's
+	// Brave/Chrome detection, see Options.SuggestedBrowserUserDataDir in
+	// gui.go) rather than a value the user actually chose/saved. It's used
+	// purely to show a "detected, not saved yet" hint next to the field -
+	// BrowserUserDataDir itself is a completely ordinary, editable text
+	// input either way, and nothing is written to config.yaml unless the
+	// user submits the form.
+	BrowserUserDataDirSuggested bool
+
 	DownloadPath        string
 	SyncAllCourses      bool
 	CourseRows          []courseRow
@@ -109,7 +119,13 @@ func buildCourseRows(courses []string, courseFolders map[string]string) []course
 	return rows
 }
 
-func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData {
+// loadedToViewData builds the settings view from a loaded config.
+// suggestedBrowserUserDataDir is the installer-detected Brave/Chrome
+// profile path (empty if none was passed to the GUI, or none was
+// detected) - it only ever fills in BrowserUserDataDir when that field is
+// otherwise empty, and is always still just the plain editable form value,
+// never written anywhere until the user submits the form.
+func loadedToViewData(configPath string, loaded config.Loaded, suggestedBrowserUserDataDir string) settingsViewData {
 	sectionRows := make([]sectionFolderRow, 0, len(loaded.App.SectionFolderNames))
 	for pattern, folder := range loaded.App.SectionFolderNames {
 		sectionRows = append(sectionRows, sectionFolderRow{Pattern: pattern, Folder: folder})
@@ -120,13 +136,21 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 		destRows = append(destRows, subfolderDestinationRow{Key: key, Destination: dest})
 	}
 
+	browserUserDataDir := loaded.Credentials.BrowserUserDataDir
+	suggested := false
+	if strings.TrimSpace(browserUserDataDir) == "" && strings.TrimSpace(suggestedBrowserUserDataDir) != "" {
+		browserUserDataDir = suggestedBrowserUserDataDir
+		suggested = true
+	}
+
 	return settingsViewData{
 		ConfigPath: configPath,
 		Warnings:   config.Warnings(loaded.App),
 
-		BrowserExecutable:  loaded.Credentials.BrowserExecutable,
-		BrowserUserDataDir: loaded.Credentials.BrowserUserDataDir,
-		BrowserProfileDir:  loaded.Credentials.BrowserProfileDir,
+		BrowserExecutable:           loaded.Credentials.BrowserExecutable,
+		BrowserUserDataDir:          browserUserDataDir,
+		BrowserProfileDir:           loaded.Credentials.BrowserProfileDir,
+		BrowserUserDataDirSuggested: suggested,
 
 		DownloadPath:        loaded.App.DownloadPath,
 		SyncAllCourses:      isSyncAllCourses(loaded.App.Courses),
@@ -274,7 +298,7 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	return view, loaded
 }
 
-func handleSettings(configPath string) http.HandlerFunc {
+func handleSettings(configPath string, suggestedBrowserUserDataDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/settings" {
 			http.NotFound(w, r)
@@ -299,7 +323,7 @@ func handleSettings(configPath string) http.HandlerFunc {
 							URL:       config.DefaultOPALURL,
 							StateFile: config.DefaultStateFile,
 						},
-					}))
+					}, suggestedBrowserUserDataDir))
 					return
 				}
 				renderSettings(w, settingsViewData{
@@ -308,7 +332,7 @@ func handleSettings(configPath string) http.HandlerFunc {
 				})
 				return
 			}
-			renderSettings(w, loadedToViewData(configPath, loaded))
+			renderSettings(w, loadedToViewData(configPath, loaded, suggestedBrowserUserDataDir))
 
 		case http.MethodPost:
 			// Load the currently-persisted config first so fields the
@@ -431,6 +455,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<label for="browser_user_data_dir">Browser user data directory (optional)</label>
 		<input type="text" id="browser_user_data_dir" name="browser_user_data_dir" value="{{.BrowserUserDataDir}}">
 		<p class="hint">Your real browser's profile root. Opened directly, so close that browser before logging in/syncing.</p>
+		{{if .BrowserUserDataDirSuggested}}<p class="hint"><strong>Suggested:</strong> a Brave/Chrome profile was detected on this computer and filled in above. Nothing is saved until you press "Save settings" below - check it's correct (or clear it) first.</p>{{end}}
 	</div>
 
 	<div class="field">

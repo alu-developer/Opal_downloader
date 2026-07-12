@@ -39,6 +39,20 @@ type Options struct {
 	// for the update-checker banner. Defaults to "dev" when empty, matching
 	// cmd/opal-downloader's own default.
 	Version string
+	// SuggestedBrowserUserDataDir is an optional detected Brave/Chrome
+	// profile root (e.g. from the installer's Brave/Chrome detection in
+	// installer/opal-downloader.iss, passed through via the "gui"
+	// subcommand's --suggested-browser-user-data-dir flag - see
+	// runGUI in cmd/opal-downloader/root.go). When set, and the settings
+	// page's browser_user_data_dir field is otherwise empty, the Settings
+	// page pre-fills this value as an editable suggestion only - it is
+	// never written to config.yaml unless the user explicitly submits the
+	// settings form. See docs/installer-plan.md Section 5's last bullet and
+	// CLAUDE.md's "Key design decisions" for why this must stay a
+	// suggestion, not an auto-applied value: the browser-profile constraint
+	// (real profile only, no copies) means a wrong guess here should never
+	// silently become config.
+	SuggestedBrowserUserDataDir string
 }
 
 // server holds the shared state needed by the GUI's HTTP handlers.
@@ -98,6 +112,10 @@ type server struct {
 	// openInDefaultBrowser"; tests set this to a fake so `go test` never
 	// actually launches a browser.
 	openBrowser func(url string) error
+
+	// suggestedBrowserUserDataDir carries through Options.
+	// SuggestedBrowserUserDataDir - see that field's doc comment.
+	suggestedBrowserUserDataDir string
 }
 
 // Run starts the local web UI server and blocks until it is stopped via
@@ -118,7 +136,14 @@ func Run(opts Options) error {
 		version = "dev"
 	}
 
-	srv := &server{configPath: configPath, buildVersion: version, launchInstaller: defaultLaunchInstaller, exitProcess: defaultExitProcess, feedback: &feedbackState{}}
+	srv := &server{
+		configPath:                  configPath,
+		buildVersion:                version,
+		launchInstaller:             defaultLaunchInstaller,
+		exitProcess:                 defaultExitProcess,
+		feedback:                    &feedbackState{},
+		suggestedBrowserUserDataDir: opts.SuggestedBrowserUserDataDir,
+	}
 
 	// Check for an update once per process start (not a recurring ticker -
 	// this is a short-lived local tool, not a daemon). Launched right after
@@ -130,7 +155,7 @@ func Run(opts Options) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.withRecover(srv.handleLanding))
-	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
+	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath, srv.suggestedBrowserUserDataDir)))
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
 	mux.HandleFunc("/login", srv.withRecover(srv.handleLoginPage))
 	mux.HandleFunc("/login/start", srv.withRecover(srv.handleLoginStart))

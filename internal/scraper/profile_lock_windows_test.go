@@ -5,8 +5,10 @@ package scraper
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -158,5 +160,120 @@ func TestIsWindowsSingletonWindowPresent_NoWindowPresent(t *testing.T) {
 	}
 	if present {
 		t.Fatal("expected no singleton window to be found for an unused profile dir")
+	}
+}
+
+// TestIsWindowsSingletonWindowPresent_UnresponsiveWindowDoesNotHang
+// reproduces the original bug: a message-only window that exists but whose
+// owning thread never pumps messages (i.e. never calls GetMessage/
+// PeekMessage), the same way a hung/frozen desktop application would look
+// from the outside. Before the SendMessageTimeoutW fix, getWindowTextW used
+// GetWindowTextW/GetWindowTextLengthW directly, which send a synchronous
+// message and block forever waiting for a reply that a non-pumping thread
+// will never send - so isWindowsSingletonWindowPresent (and therefore
+// isUserDataDirLocked, which gates every launchBrowser call) could hang
+// indefinitely on any unrelated hung window anywhere on the desktop. This
+// test creates exactly that kind of window - on a dedicated goroutine that
+// creates it and then deliberately blocks without ever entering a message
+// loop - and asserts the scan still returns within a small bounded time
+// instead of hanging.
+func TestIsWindowsSingletonWindowPresent_UnresponsiveWindowDoesNotHang(t *testing.T) {
+	dir := t.TempDir()
+
+	readyCh := make(chan uintptr, 1)
+	unblockCh := make(chan struct{})
+	ownerDoneCh := make(chan struct{})
+
+	go func() {
+		defer close(ownerDoneCh)
+		// Locking this goroutine to its OS thread and then never running a
+		// message loop on it is what makes the window "unresponsive": Win32
+		// only delivers cross-thread SendMessage calls when the owning
+		// thread is pumping messages, so a thread that never calls
+		// GetMessage/PeekMessage will never reply to one.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		classPtr, err := syscall.UTF16PtrFromString("STATIC")
+		if err != nil {
+			close(readyCh)
+			return
+		}
+		titlePtr, err := syscall.UTF16PtrFromString(dir)
+		if err != nil {
+			close(readyCh)
+			return
+		}
+		procCreateWindowExW := user32.NewProc("CreateWindowExW")
+		hwnd, _, _ := procCreateWindowExW.Call(
+			0,
+			uintptr(unsafe.Pointer(classPtr)),
+			uintptr(unsafe.Pointer(titlePtr)),
+			0,
+			0, 0, 0, 0,
+			hwndMessage,
+			0,
+			0,
+			0,
+		)
+		readyCh <- hwnd
+		if hwnd == 0 {
+			return
+		}
+
+		// Deliberately do NOT pump messages here - just block, simulating a
+		// hung GUI thread. Once the test signals it's done, clean up the
+		// window.
+		<-unblockCh
+		procDestroyWindow := user32.NewProc("DestroyWindow")
+		procDestroyWindow.Call(hwnd)
+	}()
+	t.Cleanup(func() {
+		close(unblockCh)
+		<-ownerDoneCh
+	})
+
+	hwnd := <-readyCh
+	if hwnd == 0 {
+		t.Fatal("setup: failed to create unresponsive test window")
+	}
+
+	type scanResult struct {
+		present bool
+		err     error
+	}
+	resultCh := make(chan scanResult, 1)
+	start := time.Now()
+	go func() {
+		present, err := isWindowsSingletonWindowPresent(dir)
+		resultCh <- scanResult{present, err}
+	}()
+
+	// The fix bounds each window's per-message wait to windowTextTimeoutMs
+	// (300ms) with SMTO_ABORTIFHUNG, and this scenario only has one such
+	// window, so the whole scan should complete in well under a second.
+	// Before the fix this would hang forever (or until the original 10-
+	// minute go test default timeout, as observed live during
+	// ease-second-profile-tufast-setup testing) - 5s is a generous bound
+	// that still fails fast and decisively if the fix regresses.
+	select {
+	case res := <-resultCh:
+		elapsed := time.Since(start)
+		t.Logf("scan completed in %v", elapsed)
+		if res.err != nil {
+			t.Fatalf("unexpected error: %v", res.err)
+		}
+		// The unresponsive window never actually reports a title (its
+		// WM_GETTEXT/WM_GETTEXTLENGTH replies time out), so it can never be
+		// matched as a "locked" singleton window - it should just be
+		// skipped, not misreported as present.
+		if res.present {
+			t.Fatal("an unresponsive window with no readable title should not be reported as a singleton match")
+		}
+		if elapsed > 5*time.Second {
+			t.Fatalf("scan took %v - expected the SendMessageTimeoutW fix to bound the wait to roughly 2*windowTextTimeoutMs", elapsed)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("isWindowsSingletonWindowPresent hung on an unresponsive window - SendMessageTimeoutW/SMTO_ABORTIFHUNG did not bound the wait as expected")
 	}
 }

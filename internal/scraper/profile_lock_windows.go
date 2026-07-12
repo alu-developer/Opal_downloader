@@ -67,10 +67,9 @@ func normalizeProfilePathForCompare(p string) string {
 }
 
 var (
-	user32                = syscall.NewLazyDLL("user32.dll")
-	procFindWindowExW     = user32.NewProc("FindWindowExW")
-	procGetWindowTextW    = user32.NewProc("GetWindowTextW")
-	procGetWindowTextLenW = user32.NewProc("GetWindowTextLengthW")
+	user32                 = syscall.NewLazyDLL("user32.dll")
+	procFindWindowExW      = user32.NewProc("FindWindowExW")
+	procSendMessageTimeout = user32.NewProc("SendMessageTimeoutW")
 )
 
 // hwndMessage is HWND_MESSAGE, the special parent handle ((HWND)-3) used for
@@ -79,15 +78,63 @@ var (
 // parent.
 const hwndMessage = ^uintptr(2)
 
+// Windows message and SendMessageTimeout constants used by getWindowTextW.
+// WM_GETTEXTLENGTH/WM_GETTEXT are the messages GetWindowTextLengthW/
+// GetWindowTextW send under the hood; SMTO_ABORTIFHUNG makes
+// SendMessageTimeoutW return immediately (rather than waiting out the full
+// timeout) once Windows has already flagged the target window as not
+// responding.
+const (
+	wmGetTextLength     = 0x000E
+	wmGetText           = 0x000D
+	smtoAbortIfHung     = 0x0002
+	windowTextTimeoutMs = 300
+)
+
+// sendMessageTimeout wraps user32!SendMessageTimeoutW. It returns the
+// message result and whether the call completed (false if the target
+// window's message queue didn't respond within timeoutMs, e.g. because the
+// owning process is hung) - see getWindowTextW for why this matters.
+func sendMessageTimeout(hwnd uintptr, msg uintptr, wParam uintptr, lParam uintptr, timeoutMs uintptr) (result uintptr, ok bool) {
+	var out uintptr
+	ret, _, _ := procSendMessageTimeout.Call(
+		hwnd, msg, wParam, lParam,
+		smtoAbortIfHung, timeoutMs,
+		uintptr(unsafe.Pointer(&out)),
+	)
+	if ret == 0 {
+		// SendMessageTimeoutW returns 0 both on a real send failure and on a
+		// timeout (GetLastError would distinguish them, but either way the
+		// window isn't answering right now) - treat both as "no result",
+		// which the caller treats as "not a match" rather than an error.
+		return 0, false
+	}
+	return out, true
+}
+
+// getWindowTextW fetches a window's title the same way GetWindowTextW/
+// GetWindowTextLengthW do, but via SendMessageTimeoutW with
+// SMTO_ABORTIFHUNG so a single unresponsive window (belonging to some
+// unrelated hung process elsewhere on the desktop) can't block
+// isWindowsSingletonWindowPresent's enumeration forever. GetWindowTextW and
+// GetWindowTextLengthW both work by synchronously sending WM_GETTEXT/
+// WM_GETTEXTLENGTH to the target window and blocking until it replies -
+// with no timeout, a hung window's message queue never replies and the call
+// never returns. Sending the same messages ourselves via
+// SendMessageTimeoutW gets the same information with a bounded wait.
+//
+// A timed-out or empty-title window is reported as "" with no error, which
+// the caller (isWindowsSingletonWindowPresent) treats as "not a match" and
+// moves on to the next window, rather than failing the whole scan.
 func getWindowTextW(hwnd uintptr) (string, error) {
-	length, _, _ := procGetWindowTextLenW.Call(hwnd)
-	if length == 0 {
+	length, ok := sendMessageTimeout(hwnd, wmGetTextLength, 0, 0, windowTextTimeoutMs)
+	if !ok || length == 0 {
 		return "", nil
 	}
 	buf := make([]uint16, length+1)
-	n, _, callErr := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-	if n == 0 {
-		return "", callErr
+	n, ok := sendMessageTimeout(hwnd, wmGetText, uintptr(len(buf)), uintptr(unsafe.Pointer(&buf[0])), windowTextTimeoutMs)
+	if !ok || n == 0 {
+		return "", nil
 	}
 	return syscall.UTF16ToString(buf[:n]), nil
 }

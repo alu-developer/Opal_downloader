@@ -68,7 +68,15 @@ func (s *OpalScraper) extractSectionContentCandidates(page playwright.Page) ([]m
 						// parseRowModified below) - unlike rootText (the whole
 						// section), this is scoped to just this file's row so the
 						// parsed size/date actually belongs to this link.
-						rowText: row ? (row.textContent || '').trim() : ''
+						rowText: row ? (row.textContent || '').trim() : '',
+						// className backs looksLikeShowAllControl's primary check (see
+						// its doc comment): OPAL's real "show all" pagination toggle is
+						// reliably identified by the class "pager-showall", confirmed
+						// live against this account's Analysis course - a far more
+						// stable hook than matching the link's visible text, which
+						// toggles between "Alle anzeigen" (collapsed) and "Seiten"
+						// (expanded) depending on state.
+						className: (el.getAttribute('class') || '').trim()
 					};
 					const key = JSON.stringify(item);
 					if (seen.has(key)) {
@@ -258,13 +266,32 @@ func looksLikeSectionFolderLink(href, title string) bool {
 	return containsAny(hrefL, []string{"target=fold_", "target=grp_", "target=crs_", "goto.php?target=fold_", "goto.php?target=grp_", "goto.php?target=crs_", "/coursenode/", "/repositoryentry/"})
 }
 
+// showAllControlClassNeedle is the confirmed, structural CSS class OPAL/OLAT
+// (Apache Wicket-based) renders on its table-pagination "show all" toggle
+// link. Confirmed live 2026-07-12 (queue task
+// fix-show-all-pagination-unverified-guesswork) by inspecting the real DOM of
+// this account's "Analysis" course "Übungsblätter" section, which has 28
+// files (more than the ~20-item default page size): the toggle renders as
+// <a class="pager-showall" href="javascript:;"><span>Alle anzeigen</span></a>
+// before expansion. This is the primary, structural signal
+// looksLikeShowAllControl checks - unlike the visible text (see
+// showAllControlTextNeedles below), the class name does not change when the
+// control's own label toggles between "Alle anzeigen" (collapsed/paginated)
+// and "Seiten" (expanded/showing everything, click again to re-paginate), so
+// it stays a reliable match regardless of which state a section happens to
+// be in when this runs.
+const showAllControlClassNeedle = "pager-showall"
+
 // showAllControlTextNeedles lists case-insensitive substrings that identify an
 // OPAL/ILIAS "expand the paginated list" affordance by its visible link/button text.
-// This is a best-effort guess based on common OPAL/ILIAS UI copy (German and English
-// variants); it has not been verified against a live OPAL instance, since this
-// environment has no OPAL login available. A human should confirm the exact wording
-// against a real course with a paginated (>20 item) file list and extend this list if
-// needed.
+// The first entry, "alle anzeigen", is confirmed live (see
+// showAllControlClassNeedle's doc comment for the exact capture) as the real
+// collapsed-state label OPAL renders for this control. The rest of this list
+// (other German phrasings, the English variants) remains an unverified
+// best-effort guess for OPAL deployments/locales this account hasn't been
+// able to exercise - kept as a secondary fallback behind the class-based
+// check above, in case a future OPAL render changes the class name but not
+// the wording.
 var showAllControlTextNeedles = []string{
 	"alle anzeigen",
 	"alle einträge anzeigen",
@@ -276,10 +303,15 @@ var showAllControlTextNeedles = []string{
 }
 
 // showAllControlHrefNeedles lists substrings in an href/onclick/data-* target that
-// indicate a direct link to a "show everything, no pagination" URL variant, as seen in
-// ILIAS/DataTables-style table pagination (e.g. a DataTables length selector wired to
-// length=-1, or a bespoke showAll flag). Also a best-effort guess pending live
-// verification.
+// would indicate a direct link to a "show everything, no pagination" URL variant, as
+// seen in ILIAS/DataTables-style table pagination (e.g. a DataTables length selector
+// wired to length=-1, or a bespoke showAll flag). Confirmed live NOT to be how this
+// account's real OPAL/OLAT instance renders the control - the actual href is the inert
+// "javascript:;" (see showAllControlClassNeedle's doc comment), with expansion instead
+// driven by a Wicket AJAX behavior attached to the element, not a navigable URL
+// parameter. Kept as a low-cost fallback in case some other OPAL section/deployment
+// does render a plain paginated-vs-all URL variant, but this is unverified and,
+// based on what was actually found, unlikely to ever match in practice.
 var showAllControlHrefNeedles = []string{
 	"length=-1",
 	"showall=true",
@@ -292,11 +324,16 @@ var showAllControlHrefNeedles = []string{
 // looksLikeShowAllControl decides whether a candidate anchor/button found on a
 // section or folder page is OPAL's "Alle anzeigen" ("show all") pagination control,
 // which expands a truncated (commonly capped at ~20 items) file listing to show every
-// entry. The exact OPAL markup could not be verified live in this environment (no OPAL
-// login available here), so this matches on common OPAL/ILIAS UI text and known
-// "no pagination" URL parameter shapes; a human should verify against a real course
-// known to have more than 20 files in one section.
-func looksLikeShowAllControl(linkTarget, text, title string) bool {
+// entry. Confirmed live 2026-07-12 against this account's "Analysis" course (see
+// showAllControlClassNeedle's doc comment): the primary, most reliable signal is the
+// "pager-showall" CSS class, checked first; the visible-text and href/onclick checks
+// below it are kept as fallbacks for OPAL renders/locales this account hasn't
+// exercised.
+func looksLikeShowAllControl(linkTarget, text, title, className string) bool {
+	classL := strings.ToLower(strings.TrimSpace(className))
+	if classL != "" && containsAny(classL, []string{showAllControlClassNeedle}) {
+		return true
+	}
 	textL := strings.ToLower(strings.TrimSpace(defaultString(text, title)))
 	hrefL := strings.ToLower(strings.TrimSpace(linkTarget))
 	if containsAny(textL, showAllControlTextNeedles) {
@@ -315,7 +352,7 @@ func looksLikeShowAllControl(linkTarget, text, title string) bool {
 func findShowAllTarget(candidates []map[string]string) (linkTarget string, found bool) {
 	for _, candidate := range candidates {
 		target := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
-		if !looksLikeShowAllControl(target, candidate["text"], candidate["title"]) {
+		if !looksLikeShowAllControl(target, candidate["text"], candidate["title"], candidate["className"]) {
 			continue
 		}
 		return target, true

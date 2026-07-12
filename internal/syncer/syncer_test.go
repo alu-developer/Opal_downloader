@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -159,21 +158,35 @@ func TestResolveRemoteTargetPathAbsoluteDefaultCourseFolder(t *testing.T) {
 	// maintainer's real config.yaml shape) with no matching course_folders
 	// entry must NOT be joined onto cfg.DownloadPath - that produced a
 	// doubled/broken path like "<download_path>\<Course>\C:\Users\...".
+	//
+	// The absolute paths here are built from t.TempDir() rather than
+	// hardcoded Windows-style literals ("C:\Users\...") on purpose: the
+	// fix's absolute-path detection (filepath.IsAbs) is OS-native, which is
+	// correct for this project's real (Windows-only) execution environment,
+	// but a hardcoded "C:\..." string is not actually absolute when this
+	// test runs on Linux CI (go test runs on ubuntu-latest per
+	// .github/workflows/ci.yml, even though the shipped binary is
+	// Windows-only). Using t.TempDir() gives a real, OS-native absolute
+	// path on whatever platform the test runs on, so this genuinely
+	// exercises the IsAbs branch everywhere instead of only on Windows.
 	file := scraper.RemoteFile{Name: "sheet.pdf", Course: "Analysis I"}
 
+	downloadRoot := t.TempDir()
+	absoluteDefaultFolder := filepath.Join(t.TempDir(), "Default_downloads")
+
 	cfg := config.App{
-		DownloadPath:        `C:\Users\alois\OneDrive`,
-		DefaultCourseFolder: `C:\Users\alois\OneDrive\Default_downloads`,
+		DownloadPath:        downloadRoot,
+		DefaultCourseFolder: absoluteDefaultFolder,
 		CourseFolders:       map[string]string{},
 	}
 	resolved := resolveRemoteTargetPath(cfg, file)
 
-	wantLocal := filepath.Join(`C:\Users\alois\OneDrive\Default_downloads`, "Analysis I", "sheet.pdf")
+	wantLocal := filepath.Join(absoluteDefaultFolder, "Analysis I", "sheet.pdf")
 	if resolved.LocalPath != wantLocal {
 		t.Fatalf("expected absolute default_course_folder to be used directly, got %s, want %s", resolved.LocalPath, wantLocal)
 	}
-	if filepath.IsAbs(resolved.ManifestKey) || strings.Contains(resolved.ManifestKey, `C:\`) {
-		t.Fatalf("expected relative manifest key with no drive prefix, got %s", resolved.ManifestKey)
+	if filepath.IsAbs(resolved.ManifestKey) {
+		t.Fatalf("expected relative manifest key with no absolute prefix, got %s", resolved.ManifestKey)
 	}
 	if filepath.ToSlash(resolved.ManifestKey) != "Analysis I/sheet.pdf" {
 		t.Fatalf("expected manifest key to fall back to course-name shape, got %s", filepath.ToSlash(resolved.ManifestKey))
@@ -182,24 +195,30 @@ func TestResolveRemoteTargetPathAbsoluteDefaultCourseFolder(t *testing.T) {
 
 func TestResolveRemoteTargetPathAbsoluteCourseFoldersEntry(t *testing.T) {
 	// Same doubled-path bug can occur via an explicit course_folders mapping
-	// (not just default_course_folder) if that mapped value is absolute.
+	// (not just default_course_folder) if that mapped value is absolute. See
+	// the comment in TestResolveRemoteTargetPathAbsoluteDefaultCourseFolder
+	// for why t.TempDir() is used instead of a hardcoded Windows-style path
+	// literal (this test must also pass on Linux CI).
 	file := scraper.RemoteFile{Name: "slides.pdf", Course: "Analysis I", SectionTitle: "Vorlesung"}
 
+	downloadRoot := t.TempDir()
+	elsewhereFolder := filepath.Join(t.TempDir(), "Elsewhere", "Analysis")
+
 	cfg := config.App{
-		DownloadPath: `C:\Users\alois\OneDrive`,
+		DownloadPath: downloadRoot,
 		CourseFolders: map[string]string{
-			"*Analysis*": `D:\Elsewhere\Analysis`,
+			"*Analysis*": elsewhereFolder,
 		},
 		UseSectionSubfolders: true,
 	}
 	resolved := resolveRemoteTargetPath(cfg, file)
 
-	wantLocal := filepath.Join(`D:\Elsewhere\Analysis`, "Vorlesung", "slides.pdf")
+	wantLocal := filepath.Join(elsewhereFolder, "Vorlesung", "slides.pdf")
 	if resolved.LocalPath != wantLocal {
 		t.Fatalf("expected absolute course_folders value to be used directly, got %s, want %s", resolved.LocalPath, wantLocal)
 	}
-	if filepath.IsAbs(resolved.ManifestKey) || strings.Contains(resolved.ManifestKey, `D:\`) {
-		t.Fatalf("expected relative manifest key with no drive prefix, got %s", resolved.ManifestKey)
+	if filepath.IsAbs(resolved.ManifestKey) {
+		t.Fatalf("expected relative manifest key with no absolute prefix, got %s", resolved.ManifestKey)
 	}
 	if filepath.ToSlash(resolved.ManifestKey) != "Analysis I/Vorlesung/slides.pdf" {
 		t.Fatalf("expected manifest key to fall back to course-name shape, got %s", filepath.ToSlash(resolved.ManifestKey))

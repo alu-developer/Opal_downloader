@@ -350,15 +350,20 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 		<button class="primary" id="btn-sync">Sync</button>
 		<button id="btn-list">List courses</button>
 		<button class="stop" id="btn-cancel" disabled>Cancel</button>
-		<label class="opt"><input type="checkbox" id="opt-force"> force (ignore manifest)</label>
+		<label class="opt"><input type="checkbox" id="opt-force"> Force re-download (ignore previous sync history)</label>
 		<label class="opt"><input type="checkbox" id="opt-dev"> dev mode (visible browser)</label>
 	</div>
+	<p class="hint">Normally, files already downloaded are skipped. Check this to re-download everything regardless.</p>
 
-	<div class="dump-form">
-		<label for="dump-url">Dump links for URL:</label>
-		<input type="text" id="dump-url" placeholder="https://bildungsportal.sachsen.de/opal/...">
-		<button id="btn-dump">Dump links</button>
-	</div>
+	<details>
+		<summary>Advanced / debugging tools</summary>
+		<div class="dump-form">
+			<label for="dump-url">Debug: dump detected file links for a URL</label>
+			<input type="text" id="dump-url" placeholder="https://bildungsportal.sachsen.de/opal/...">
+			<button id="btn-dump">Dump links</button>
+		</div>
+		<p class="hint">Advanced/debugging tool - scrapes one OPAL page and writes every file link it finds to a JSON file. Not needed for normal syncing.</p>
+	</details>
 
 	<div id="status">Idle.</div>
 	<div id="summary"></div>
@@ -471,6 +476,8 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			start('/sync/dump-links/start', params.join('&'));
 		});
 		btnCancel.addEventListener('click', function () {
+			btnCancel.disabled = true;
+			statusEl.textContent = 'Cancelling...';
 			fetch('/sync/cancel', { method: 'POST' }).then(function () {
 				statusEl.textContent = 'Cancel requested...';
 			});

@@ -14,10 +14,12 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/report"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/updater"
 )
@@ -85,6 +87,17 @@ type server struct {
 	// call os.Exit.
 	launchInstaller func(installerPath string) error
 	exitProcess     func()
+
+	// feedback holds the most recent panic recovered from a request handler
+	// (see withRecover/renderPanicPage), so the Feedback page can offer to
+	// include it. See feedback.go.
+	feedback *feedbackState
+
+	// openBrowser overrides openInDefaultBrowser (used by handleFeedbackOpen
+	// to open a prefilled GitHub issue link). nil in production means "use
+	// openInDefaultBrowser"; tests set this to a fake so `go test` never
+	// actually launches a browser.
+	openBrowser func(url string) error
 }
 
 // Run starts the local web UI server and blocks until it is stopped via
@@ -105,7 +118,7 @@ func Run(opts Options) error {
 		version = "dev"
 	}
 
-	srv := &server{configPath: configPath, buildVersion: version, launchInstaller: defaultLaunchInstaller, exitProcess: defaultExitProcess}
+	srv := &server{configPath: configPath, buildVersion: version, launchInstaller: defaultLaunchInstaller, exitProcess: defaultExitProcess, feedback: &feedbackState{}}
 
 	// Check for an update once per process start (not a recurring ticker -
 	// this is a short-lived local tool, not a daemon). Launched right after
@@ -116,14 +129,16 @@ func Run(opts Options) error {
 	go srv.checkForUpdateOnce(context.Background())
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", srv.handleLanding)
-	mux.HandleFunc("/settings", handleSettings(configPath))
-	mux.HandleFunc("/settings/browse-folder", handleBrowseFolder)
-	mux.HandleFunc("/login", srv.handleLoginPage)
-	mux.HandleFunc("/login/start", srv.handleLoginStart)
-	mux.HandleFunc("/update", srv.handleUpdatePage)
-	mux.HandleFunc("/update/start", srv.handleUpdateStart)
-	registerSyncRoutes(mux, configPath)
+	mux.HandleFunc("/", srv.withRecover(srv.handleLanding))
+	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
+	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
+	mux.HandleFunc("/login", srv.withRecover(srv.handleLoginPage))
+	mux.HandleFunc("/login/start", srv.withRecover(srv.handleLoginStart))
+	mux.HandleFunc("/update", srv.withRecover(srv.handleUpdatePage))
+	mux.HandleFunc("/update/start", srv.withRecover(srv.handleUpdateStart))
+	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
+	mux.HandleFunc("/feedback/open", srv.withRecover(srv.handleFeedbackOpen))
+	registerSyncRoutes(mux, srv, configPath)
 
 	httpServer := &http.Server{Handler: mux}
 
@@ -172,6 +187,56 @@ func Run(opts Options) error {
 		}
 		return nil
 	}
+}
+
+// withRecover wraps an HTTP handler so a panic inside it doesn't crash the
+// whole GUI process (see CLAUDE.md's "Reliability over features" principle)
+// - it recovers, records the panic+stack as this server's latest crash
+// report (see feedback.go's feedbackState), and renders an error page
+// linking to the Feedback page with that report pre-attached. The mux
+// itself, and any other in-flight/future requests, are unaffected: Go's
+// net/http already runs each request in its own goroutine, so a recovered
+// panic here only ever aborts the one request that triggered it.
+func (s *server) withRecover(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				stack := debug.Stack()
+				s.feedback.setCrash(report.CrashReport(s.buildVersion, rec, stack))
+				renderPanicPage(w, rec)
+			}
+		}()
+		next(w, r)
+	}
+}
+
+var panicPageTemplate = template.Must(template.New("panic").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Opal Downloader - Something went wrong</title>
+<style>` + pageStyle + `</style>
+</head>
+<body>
+	<h1>Something went wrong</h1>
+	<div class="error">
+		This page hit an unexpected error: <code>{{.}}</code>
+	</div>
+	<p>The rest of the app is still running - you can go back and try again.</p>
+	<p><a href="/feedback?crash=1">Report this crash</a> (opens a prefilled GitHub issue with the error details - nothing is sent automatically).</p>
+	<p class="back"><a href="/">&larr; Back to start</a></p>
+</body>
+</html>
+`))
+
+// renderPanicPage writes the recovered-panic error page. It always responds
+// with 500 and never itself panics (html/template.Execute on this fixed
+// template with a plain fmt.Stringer-able value cannot fail in a way worth
+// handling here).
+func renderPanicPage(w http.ResponseWriter, rec any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusInternalServerError)
+	_ = panicPageTemplate.Execute(w, fmt.Sprintf("%v", rec))
 }
 
 // disclaimerHTML is shown on the landing and login pages, where it's
@@ -254,6 +319,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			<li><a href="/login">Login</a></li>
 			<li><a href="/sync">Sync / List / Dump links</a></li>
 			<li><a href="/update">Check for updates</a></li>
+			<li><a href="/feedback">Feedback / Problem melden</a></li>
 		</ul>
 	</nav>
 </body>

@@ -28,6 +28,15 @@
 // reason, including a hard kill. Nested jobs are supported since Windows 8
 // (this project's practical minimum), so this works even though Chromium
 // creates its own job objects for sandboxing its child processes.
+//
+// This behavior - specifically, that a descendant process actually dies
+// when the process that called EnsureChildProcessesDieWithParent is
+// force-killed (not just when it exits gracefully) - is covered by an
+// automated regression test: see
+// TestEnsureChildProcessesDieWithParent_KillsGrandchildOnForceKill in
+// procguard_windows_test.go. It force-kills a helper subprocess and asserts
+// a grandchild process it spawned dies too, reproducing the exact scenario
+// PR #53 (commit 30f5fd0) fixed and previously only verified once by hand.
 package procguard
 
 import (

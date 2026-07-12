@@ -28,13 +28,13 @@ func newSyncPage(configPath string) *syncPage {
 	return &syncPage{configPath: configPath, job: newJob()}
 }
 
-func registerSyncRoutes(mux *http.ServeMux, configPath string) {
+func registerSyncRoutes(mux *http.ServeMux, srv *server, configPath string) {
 	sp := newSyncPage(configPath)
-	mux.HandleFunc("/sync", sp.handlePage)
-	mux.HandleFunc("/sync/stream", sp.handleStream)
-	mux.HandleFunc("/sync/start", sp.handleStart)
-	mux.HandleFunc("/sync/cancel", sp.handleCancel)
-	mux.HandleFunc("/sync/dump-links/start", sp.handleDumpLinksStart)
+	mux.HandleFunc("/sync", srv.withRecover(sp.handlePage))
+	mux.HandleFunc("/sync/stream", srv.withRecover(sp.handleStream))
+	mux.HandleFunc("/sync/start", srv.withRecover(sp.handleStart))
+	mux.HandleFunc("/sync/cancel", srv.withRecover(sp.handleCancel))
+	mux.HandleFunc("/sync/dump-links/start", srv.withRecover(sp.handleDumpLinksStart))
 }
 
 // handleStart launches a full sync (mirrors `opal-downloader sync`) in a

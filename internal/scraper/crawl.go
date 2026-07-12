@@ -23,12 +23,19 @@ var courseNodeSectionKeyRe = regexp.MustCompile(`(?i)/coursenode/(\d+)(/[^?#]*)?
 // downloadCandidates map is local to this call; callers are responsible for
 // merging it into any shared state (concurrent writes to a single shared map
 // from here would race).
-func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef) ([]FileRef, map[string]downloadCandidate, error) {
+//
+// The first return value is always the page the caller should now consider
+// "current" for this course - ordinarily the same page passed in, but a
+// different (freshly opened) one if a mid-crawl browser crash was recovered
+// from (see isPageCrashError/recoverFromPageCrash in navigation.go). Callers
+// must close that returned page themselves (not the original one) once
+// they're done with it, since a recovered crash already closed the original.
+func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef) (playwright.Page, []FileRef, map[string]downloadCandidate, error) {
 	if page == nil {
-		return nil, nil, errors.New("no page available")
+		return page, nil, nil, errors.New("no page available")
 	}
 	if course.RepoID == "" {
-		return nil, nil, errors.New("course repo id is required")
+		return page, nil, nil, errors.New("course repo id is required")
 	}
 
 	files := make([]FileRef, 0)
@@ -67,11 +74,26 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		visited[currentKey] = struct{}{}
 
 		if _, err := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
-			// Retry once after a short wait: net::ERR_ABORTED and similar are
-			// commonly transient (a competing in-page navigation/redirect
-			// racing our Goto), confirmed live - the same section often
-			// succeeds on a second attempt.
-			page.WaitForTimeout(contentFallbackWaitMs)
+			if isPageCrashError(err) {
+				// A crashed page is permanently unusable - retrying on it (like
+				// the transient-error branch below does) would just crash again
+				// and, worse, keep using the same dead page for every remaining
+				// section in this course. See isPageCrashError's doc comment for
+				// the live-confirmed cascade this caused. Recover onto a fresh
+				// tab before retrying.
+				newPage, recErr := s.recoverFromPageCrash(page)
+				if recErr != nil {
+					fmt.Printf("  Warning: skipping section %q (%s): browser tab crashed and could not be recovered: %v (original error: %v)\n", sectionTitles[currentKey], currentURL, recErr, err)
+					continue
+				}
+				page = newPage
+			} else {
+				// Retry once after a short wait: net::ERR_ABORTED and similar are
+				// commonly transient (a competing in-page navigation/redirect
+				// racing our Goto), confirmed live - the same section often
+				// succeeds on a second attempt.
+				page.WaitForTimeout(contentFallbackWaitMs)
+			}
 			if _, retryErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
 				fmt.Printf("  Warning: skipping section %q (%s): navigation failed after retry: %v\n", sectionTitles[currentKey], currentURL, retryErr)
 				continue
@@ -81,11 +103,27 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 
 		candidates, err := s.extractSectionContentCandidates(page)
 		if err != nil {
-			// Same transient-race class as the Goto retry above: "execution
-			// context was destroyed" happens when the page is still settling
-			// (e.g. a client-side redirect) when we evaluate - confirmed live
-			// to often succeed on a second attempt after a short wait.
-			page.WaitForTimeout(contentFallbackWaitMs)
+			if isPageCrashError(err) {
+				newPage, recErr := s.recoverFromPageCrash(page)
+				if recErr != nil {
+					fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed and the tab could not be recovered: %v (original error: %v)\n", sectionTitles[currentKey], currentURL, recErr, err)
+					continue
+				}
+				page = newPage
+				// The replacement tab starts blank; it has to be navigated back
+				// to currentURL before there is anything for extraction to read.
+				if _, gotoErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); gotoErr != nil {
+					fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed; re-navigating the replacement tab failed: %v\n", sectionTitles[currentKey], currentURL, gotoErr)
+					continue
+				}
+				s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+			} else {
+				// Same transient-race class as the Goto retry above: "execution
+				// context was destroyed" happens when the page is still settling
+				// (e.g. a client-side redirect) when we evaluate - confirmed live
+				// to often succeed on a second attempt after a short wait.
+				page.WaitForTimeout(contentFallbackWaitMs)
+			}
 			candidates, err = s.extractSectionContentCandidates(page)
 			if err != nil {
 				fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitles[currentKey], currentURL, err)
@@ -98,16 +136,23 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 			if retryErr == nil && len(retryCandidates) > 0 {
 				candidates = retryCandidates
 			} else if retryErr != nil {
+				if isPageCrashError(retryErr) {
+					if newPage, recErr := s.recoverFromPageCrash(page); recErr == nil {
+						page = newPage
+					}
+				}
 				fmt.Printf("  Warning: section %q (%s) returned no content and retry failed: %v\n", sectionTitles[currentKey], currentURL, retryErr)
 			} else {
 				fmt.Printf("  Warning: section %q (%s) returned no content even after retry; it may be genuinely empty, or files may have been dropped\n", sectionTitles[currentKey], currentURL)
 			}
 		}
 
-		showAllURL := ""
-		if expanded, expandedURL, ok := s.expandShowAllInSection(page, currentURL, candidates); ok {
-			candidates = expanded
-			showAllURL = expandedURL
+		var showAllURL string
+		var showAllCandidates []map[string]string
+		var expandedShowAll bool
+		page, showAllCandidates, showAllURL, expandedShowAll = s.expandShowAllInSection(page, currentURL, candidates)
+		if expandedShowAll {
+			candidates = showAllCandidates
 		}
 
 		sectionTitle := sectionTitles[currentKey]
@@ -123,7 +168,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		fmt.Printf("  Warning: course %q hit the %d-section crawl cap with %d section(s) still queued; some content may be missing\n", course.Title, maxPages, len(queue))
 	}
 
-	return files, downloadCandidates, nil
+	return page, files, downloadCandidates, nil
 }
 
 // expandShowAllInSection looks for OPAL's "Alle anzeigen" ("show all") pagination
@@ -144,11 +189,12 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 // parameter). A human should manually verify this against a real OPAL course known to
 // have more than 20 files in one section once this lands.
 //
-// It returns the re-extracted candidate list, the resolved "show all" URL (when the
-// expansion was reached via direct navigation to a distinct URL rather than a click on
-// a javascript:/onclick-driven control), and true when a "show all" control was found
-// and acted on; otherwise it returns (nil, "", false) and the caller keeps using the
-// candidates it already had.
+// It returns the page the caller should now consider "current" (see below), the
+// re-extracted candidate list, the resolved "show all" URL (when the expansion was
+// reached via direct navigation to a distinct URL rather than a click on a
+// javascript:/onclick-driven control), and true when a "show all" control was found
+// and acted on; otherwise it returns (page, nil, "", false) and the caller keeps using
+// the candidates it already had.
 //
 // The returned URL lets callers record where files revealed only by this expansion can
 // be found again later (e.g. for a browser-fallback download click). This function
@@ -160,14 +206,20 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 // whatever URL it dequeues next - so nothing downstream ever reads page's location
 // between here and that next Goto. Do not reintroduce the navigate-back without first
 // checking that invariant still holds.
-func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL string, candidates []map[string]string) ([]map[string]string, string, bool) {
+//
+// The returned page is ordinarily the same one passed in, but a freshly recovered one
+// if a Playwright crash (isPageCrashError) was hit while expanding - see
+// recoverAndReturnToSection below. Callers must use the returned page for anything
+// after this call, not the one they passed in, the same way collectCourseFiles's main
+// loop already does for its own Goto/extraction crash recovery.
+func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL string, candidates []map[string]string) (playwright.Page, []map[string]string, string, bool) {
 	if page == nil {
-		return nil, "", false
+		return page, nil, "", false
 	}
 
 	linkTarget, found := findShowAllTarget(candidates)
 	if !found {
-		return nil, "", false
+		return page, nil, "", false
 	}
 
 	absURL := resolveURL(s.opalURL, linkTarget)
@@ -176,8 +228,12 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		// Prefer navigating directly to the "show all" URL over clicking: it's a
 		// plain link with a resolvable href, and direct navigation is more robust
 		// in headless mode than dispatching a click event.
-		if _, err := page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err == nil {
+		_, err := page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
+		switch {
+		case err == nil:
 			navigated = true
+		case isPageCrashError(err):
+			return s.recoverAndReturnToSection(page, currentURL)
 		}
 	}
 
@@ -186,24 +242,34 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		for _, needle := range showAllControlTextNeedles {
 			locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
 			s.auditLog("click", page, needle, "show-all expand attempt for section "+currentURL)
-			if err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)}); err == nil {
+			err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)})
+			if err == nil {
 				s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+currentURL)
 				clicked = true
 				break
+			}
+			if isPageCrashError(err) {
+				return s.recoverAndReturnToSection(page, currentURL)
 			}
 		}
 		if !clicked {
 			// Could not click or navigate to the control; keep whatever candidates
 			// the caller already extracted rather than failing the whole section.
-			return nil, "", false
+			return page, nil, "", false
 		}
 	}
 
 	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
 	expanded, err := s.extractSectionContentCandidates(page)
-	if err != nil || len(expanded) == 0 {
-		return nil, "", false
+	if err != nil {
+		if isPageCrashError(err) {
+			return s.recoverAndReturnToSection(page, currentURL)
+		}
+		return page, nil, "", false
+	}
+	if len(expanded) == 0 {
+		return page, nil, "", false
 	}
 
 	// Record the show-all URL (when distinct from currentURL) so the caller can point
@@ -215,7 +281,33 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		showAllURL = absURL
 	}
 
-	return expanded, showAllURL, true
+	return page, expanded, showAllURL, true
+}
+
+// recoverAndReturnToSection is expandShowAllInSection's crash path: it opens a fresh
+// replacement page/tab (closing the crashed one - see recoverFromPageCrash) and
+// re-navigates it back to currentURL, so the crawl loop's next section visit starts
+// from a known-good page instead of continuing to drive a Playwright Page object whose
+// renderer process has already died (see isPageCrashError's doc comment for the
+// cascading-failure history this caused). The show-all expansion itself is abandoned
+// for this section - the caller already has its un-expanded candidates from before this
+// call and keeps using those.
+func (s *OpalScraper) recoverAndReturnToSection(page playwright.Page, currentURL string) (playwright.Page, []map[string]string, string, bool) {
+	newPage, recErr := s.recoverFromPageCrash(page)
+	if recErr != nil {
+		// Nothing more we can do here; hand back the original (crashed) page - the
+		// crawl loop's next navigation attempt will hit the same crash error and
+		// go through its own recovery attempt there.
+		return page, nil, "", false
+	}
+	if _, err := newPage.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
+		// Recovered a fresh page but couldn't get back to currentURL; still hand it
+		// back so the crawl loop continues on a healthy page rather than the
+		// crashed one, even though this section's show-all expansion is lost.
+		return newPage, nil, "", false
+	}
+	s.waitForInteractiveLinks(newPage, contentFallbackWaitMs)
+	return newPage, nil, "", false
 }
 
 // looksLikeNavigableShowAllURL reports whether a "show all" control's link target is

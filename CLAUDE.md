@@ -148,6 +148,34 @@ confidently.
   (`isBoilerplateCourseTitle`, `looksLikeFileLink`, `looksLikeShowAllControl`,
   etc. in `discovery.go`/`files.go`) — expect to need selector fixes whenever
   OPAL's UI changes. See `docs/OPERATIONS.md` for the incident playbook.
+- **`course_concurrency` defaults to 1 (serial), not a higher "parallel tabs"
+  value, because raising it causes real data loss, not just a rate-limiting
+  risk.** Live-tested 2026-07-12 against the real TU Dresden account (8
+  courses, 341 real files, verified via a serial ground-truth run):
+  `course_concurrency=3` (the old default) silently returned 0 files for 2
+  whole courses that actually had 38 and 34 files (21% of all files lost,
+  logged only as a generic "found 0 files" line, not an error);
+  `course_concurrency=5` lost 76% of files. This is an AJAX-render race in
+  concurrent course crawling that PR #64 only partially fixed (that PR fixed
+  show-all pagination specifically; this is a broader instance of the same
+  class of race that can drop a course's content entirely, not just
+  undercount it). Only `course_concurrency=1` produced correct, complete
+  results across 3 separate live runs. Don't raise this default again until
+  the underlying race is fixed and re-verified live - "kept conservative to
+  avoid rate-limiting" was the old (untested) reasoning for this knob; the
+  real constraint turned out to be correctness, not OPAL's tolerance for
+  parallel requests. `download_concurrency` (fast HTTP download path,
+  separate from course crawling) stays at 3 - no rate-limiting or
+  correctness issue was found there, but higher values weren't cleanly
+  tested either, because of an unrelated bug (see below).
+- **Separate bug found during the above testing, not yet fixed:** a
+  meaningful fraction of a course's files (43 of 198 in the tested course)
+  fail the fast HTTP download path and then also fail the serialized
+  browser-fallback path with "response is HTML, browser fallback click did
+  not find downloadable link" - each such failure costs many seconds
+  serially, and dominated observed sync wall-clock time far more than
+  `download_concurrency` did. Needs investigation before download timing can
+  be meaningfully re-measured.
 
 ## Login/session automation
 

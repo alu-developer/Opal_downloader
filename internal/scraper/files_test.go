@@ -222,24 +222,34 @@ func TestLooksLikeShowAllControlMatchesKnownOpalStylePatterns(t *testing.T) {
 		linkTarget string
 		text       string
 		title      string
+		className  string
 		want       bool
 	}{
-		{name: "german show all text", linkTarget: "/opal/goto.php?target=fold_1234", text: "Alle anzeigen", title: "", want: true},
-		{name: "german show all text uppercase", linkTarget: "", text: "ALLE ANZEIGEN", title: "", want: true},
-		{name: "german show all entries text", linkTarget: "", text: "Alle Einträge anzeigen", title: "", want: true},
-		{name: "english show all text via title", linkTarget: "", text: "", title: "Show all", want: true},
-		{name: "length=-1 query param", linkTarget: "/opal/coursenode/123?7-1.-tbl-length=-1", text: "20", title: "", want: true},
-		{name: "showAll url flag", linkTarget: "/opal/coursenode/123?showAll=true", text: "", title: "", want: true},
-		{name: "unrelated file link", linkTarget: "/opal/goto.php?target=file_55&cmd=sendfile", text: "Folien Woche 1.pdf", title: "", want: false},
-		{name: "unrelated folder link", linkTarget: "/opal/goto.php?target=fold_1234", text: "Materialien", title: "", want: false},
-		{name: "empty candidate", linkTarget: "", text: "", title: "", want: false},
-		{name: "pagination next link is not show all", linkTarget: "/opal/coursenode/123?page=2", text: "Nächste Seite", title: "", want: false},
+		// Confirmed live 2026-07-12 (queue task
+		// fix-show-all-pagination-unverified-guesswork) against this account's
+		// real "Analysis" course: OPAL/OLAT renders the show-all toggle as
+		// <a class="pager-showall" href="javascript:;"><span>Alle
+		// anzeigen</span></a>. The class-only and text-only cases below each
+		// exercise one of looksLikeShowAllControl's two independent checks.
+		{name: "real opal pager-showall class, inert href, no matching text", linkTarget: "javascript:;", text: "Seiten", title: "", className: "pager-showall", want: true},
+		{name: "real opal pager-showall class with mixed other classes", linkTarget: "javascript:;", text: "Alle anzeigen", title: "", className: "btn btn-link pager-showall", want: true},
+		{name: "german show all text", linkTarget: "/opal/goto.php?target=fold_1234", text: "Alle anzeigen", title: "", className: "", want: true},
+		{name: "german show all text uppercase", linkTarget: "", text: "ALLE ANZEIGEN", title: "", className: "", want: true},
+		{name: "german show all entries text", linkTarget: "", text: "Alle Einträge anzeigen", title: "", className: "", want: true},
+		{name: "english show all text via title", linkTarget: "", text: "", title: "Show all", className: "", want: true},
+		{name: "length=-1 query param", linkTarget: "/opal/coursenode/123?7-1.-tbl-length=-1", text: "20", title: "", className: "", want: true},
+		{name: "showAll url flag", linkTarget: "/opal/coursenode/123?showAll=true", text: "", title: "", className: "", want: true},
+		{name: "unrelated file link", linkTarget: "/opal/goto.php?target=file_55&cmd=sendfile", text: "Folien Woche 1.pdf", title: "", className: "", want: false},
+		{name: "unrelated folder link", linkTarget: "/opal/goto.php?target=fold_1234", text: "Materialien", title: "", className: "", want: false},
+		{name: "empty candidate", linkTarget: "", text: "", title: "", className: "", want: false},
+		{name: "pagination next link is not show all", linkTarget: "/opal/coursenode/123?page=2", text: "Nächste Seite", title: "", className: "", want: false},
+		{name: "unrelated class name is not show all", linkTarget: "javascript:;", text: "", title: "", className: "pager-next", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := looksLikeShowAllControl(tt.linkTarget, tt.text, tt.title); got != tt.want {
-				t.Fatalf("looksLikeShowAllControl(%q, %q, %q) = %v, want %v", tt.linkTarget, tt.text, tt.title, got, tt.want)
+			if got := looksLikeShowAllControl(tt.linkTarget, tt.text, tt.title, tt.className); got != tt.want {
+				t.Fatalf("looksLikeShowAllControl(%q, %q, %q, %q) = %v, want %v", tt.linkTarget, tt.text, tt.title, tt.className, got, tt.want)
 			}
 		})
 	}

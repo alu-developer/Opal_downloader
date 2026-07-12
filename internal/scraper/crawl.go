@@ -182,12 +182,22 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 // crawl loop's visited/queued dedupe (keyed by sectionKey) is untouched and this
 // cannot cause a requeue or infinite loop.
 //
-// NOTE: the exact OPAL markup for this control could not be verified against a live
-// OPAL instance in this environment (no OPAL login available here). The detection in
-// looksLikeShowAllControl is a best-effort guess based on common OPAL/ILIAS UI
-// patterns (German "Alle anzeigen"-style link text, or a length=-1/showAll-style URL
-// parameter). A human should manually verify this against a real OPAL course known to
-// have more than 20 files in one section once this lands.
+// CONFIRMED LIVE 2026-07-12 (queue task fix-show-all-pagination-unverified-guesswork,
+// against this account's real "Analysis" course, whose "Übungsblätter" section has 28
+// files - more than the ~20-item default page size): the control really is a text link
+// reading "Alle anzeigen" pre-expansion, and clicking it really does work - both the
+// text-needle match and the .Click() call in the loop below succeeded, live, exactly as
+// originally guessed. The actual bug was not a wrong selector: it was that the fixed
+// contentFallbackWaitMs wait used after the click was sometimes not long enough for the
+// Wicket-AJAX-driven expansion to finish rendering the extra rows before extraction ran
+// - confirmed by comparing an isolated single-course crawl (captured all 28 files) against
+// the original bug report's concurrent course_concurrency=3 `list` run (captured only the
+// pre-expansion 20), i.e. a timing race that gets worse under crawl concurrency/load, not
+// a detection failure. See showAllControlClassNeedle's doc comment (files.go) for the
+// confirmed "pager-showall" CSS class - now the primary detection/click signal, since it
+// (unlike the text, which toggles to "Seiten" once expanded) does not depend on which
+// state the control happens to be in - and waitForStableExpandedCandidates below for the
+// polling fix that replaced the single fixed wait.
 //
 // It returns the page the caller should now consider "current" (see below), the
 // re-extracted candidate list, the resolved "show all" URL (when the expansion was
@@ -239,17 +249,34 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 
 	if !navigated {
 		clicked := false
-		for _, needle := range showAllControlTextNeedles {
-			locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
-			s.auditLog("click", page, needle, "show-all expand attempt for section "+currentURL)
-			err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)})
-			if err == nil {
-				s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+currentURL)
-				clicked = true
-				break
-			}
-			if isPageCrashError(err) {
-				return s.recoverAndReturnToSection(page, currentURL)
+		// Try the confirmed structural CSS class first (showAllControlClassNeedle,
+		// files.go) - more robust than the text-needle fallback below, which depends
+		// on exact wording/locale and stops matching once the control's own label
+		// toggles from "Alle anzeigen" to "Seiten" after a successful expansion.
+		classSelector := "." + showAllControlClassNeedle
+		classLocator := page.Locator(classSelector).First()
+		s.auditLog("click", page, classSelector, "show-all expand attempt (class) for section "+currentURL)
+		switch err := classLocator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)}); {
+		case err == nil:
+			s.auditLog("click-success", page, classSelector, "show-all expand succeeded (class) for section "+currentURL)
+			clicked = true
+		case isPageCrashError(err):
+			return s.recoverAndReturnToSection(page, currentURL)
+		}
+
+		if !clicked {
+			for _, needle := range showAllControlTextNeedles {
+				locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
+				s.auditLog("click", page, needle, "show-all expand attempt for section "+currentURL)
+				err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)})
+				if err == nil {
+					s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+currentURL)
+					clicked = true
+					break
+				}
+				if isPageCrashError(err) {
+					return s.recoverAndReturnToSection(page, currentURL)
+				}
 			}
 		}
 		if !clicked {
@@ -261,7 +288,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 
 	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
-	expanded, err := s.extractSectionContentCandidates(page)
+	expanded, err := s.waitForStableExpandedCandidates(page)
 	if err != nil {
 		if isPageCrashError(err) {
 			return s.recoverAndReturnToSection(page, currentURL)
@@ -282,6 +309,65 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	}
 
 	return page, expanded, showAllURL, true
+}
+
+// showAllExpansionPollIntervalMs/showAllExpansionMaxPolls bound
+// waitForStableExpandedCandidates below: up to an extra ~4s (10 * 400ms), on
+// top of the initial contentFallbackWaitMs wait, spent re-extracting until
+// the candidate count stops growing. See expandShowAllInSection's doc
+// comment for the live-confirmed race this fixes - a fixed-duration wait
+// after a successful "show all" click is not reliably enough time for
+// OPAL's Wicket-AJAX-driven row expansion to finish rendering, especially
+// under concurrent multi-course crawl load.
+const showAllExpansionPollIntervalMs = 400.0
+const showAllExpansionMaxPolls = 10
+
+// waitForStableExpandedCandidates re-extracts page's candidates repeatedly
+// (up to showAllExpansionMaxPolls times, showAllExpansionPollIntervalMs
+// apart) until a read comes back no larger than the previous one, and
+// returns the largest set seen. This replaces trusting a single
+// fixed-duration wait to be enough for a "show all" expansion's AJAX-loaded
+// content to finish rendering (see expandShowAllInSection's doc comment for
+// the live-confirmed case this was silently undercounting: a course crawled
+// in isolation captured all 28 files in a paginated section, but the same
+// section crawled concurrently with two other courses captured only the
+// pre-expansion 20 - the click succeeded both times, but the fixed wait
+// alone was not always enough for the extra rows to render before
+// extraction ran).
+//
+// A transient extraction error mid-poll is treated as "no progress this
+// round" rather than fatal, so one flaky Evaluate call can't throw away an
+// already-successful expansion; a page-crash error is still returned
+// immediately so the caller's existing recovery path (recoverAndReturnToSection)
+// runs.
+func (s *OpalScraper) waitForStableExpandedCandidates(page playwright.Page) ([]map[string]string, error) {
+	best, err := s.extractSectionContentCandidates(page)
+	if err != nil {
+		if isPageCrashError(err) {
+			return nil, err
+		}
+		best = nil
+	}
+
+	for i := 0; i < showAllExpansionMaxPolls; i++ {
+		page.WaitForTimeout(showAllExpansionPollIntervalMs)
+		next, err := s.extractSectionContentCandidates(page)
+		if err != nil {
+			if isPageCrashError(err) {
+				return nil, err
+			}
+			continue
+		}
+		if len(next) <= len(best) {
+			// This round didn't grow the candidate set - the AJAX update has
+			// settled (or never happens to grow further). best already holds
+			// the largest read seen, so stop polling rather than overwriting
+			// it with this equal-or-smaller round.
+			break
+		}
+		best = next
+	}
+	return best, nil
 }
 
 // recoverAndReturnToSection is expandShowAllInSection's crash path: it opens a fresh

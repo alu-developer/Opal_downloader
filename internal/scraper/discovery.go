@@ -34,12 +34,30 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 
 	for _, sourceURL := range sourcePages {
 		if _, err := page.Goto(sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
-			continue
+			// Retry once after a short wait, mirroring the transient-nav-failure
+			// retry pattern already used throughout crawl.go (queue task
+			// fix-course-level-crawl-flakiness, 2026-07-13). Before this, a single
+			// failed Goto here silently dropped this entire source page's
+			// contribution to the discovered course list with no log at all -
+			// discovered courses are the union of what all sourcePages entries
+			// surface, so a course that only appears on the page that failed
+			// (e.g. only in the auth/home "Favoriten" widget, not in "Meine
+			// Kurse") would vanish from the list entirely with nothing to
+			// indicate why. This was not live-reproduced in the concurrency=1
+			// re-baseline done for that task (8/8 courses found on two
+			// back-to-back live runs), but the acceptance criteria calls for
+			// hardening this regardless since it's a real, if rarer, gap.
+			page.WaitForTimeout(contentFallbackWaitMs)
+			if _, retryErr := page.Goto(sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); retryErr != nil {
+				fmt.Printf("  Warning: course discovery source %s failed to load after retry: %v (courses only listed on this page may be missing from the result)\n", sourceURL, retryErr)
+				continue
+			}
 		}
 		s.waitForCourseEntries(sourceURL)
 
 		candidates, err := s.extractCourseCardsFromCurrentPage()
 		if err != nil {
+			fmt.Printf("  Warning: course discovery source %s failed to extract course cards: %v (courses only listed on this page may be missing from the result)\n", sourceURL, err)
 			continue
 		}
 		appendDiscoveredCourses(discovered, candidates, s.opalURL, courseFilter)

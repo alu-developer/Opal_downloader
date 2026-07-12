@@ -42,6 +42,36 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 	downloadCandidates := map[string]downloadCandidate{}
 	fileSeen := map[string]struct{}{}
 	visited := map[string]struct{}{}
+	// sectionsVisited/sectionsFailed distinguish a genuinely empty course (every
+	// attempted section page loaded and was extracted, just had no file/folder
+	// links) from a course whose crawl silently failed outright (queue task
+	// fix-course-level-crawl-flakiness, 2026-07-13). Before this, a section that
+	// hit the Goto-retry-fails or extraction-retry-fails branches below just
+	// logged a "Warning: skipping section" line and `continue`d - if that
+	// happened to be the *only* URL ever queued for this course (most commonly
+	// the root section, before any subfolder links could be discovered from it),
+	// the loop then exited with files still empty and no error, which is
+	// indistinguishable downstream from a real 0-file course (see
+	// newCourseFileCollector's "crawled successfully but found 0 files" warning
+	// in orchestrator.go). sectionsVisited only increments once a section's
+	// Goto+extraction actually succeeded (even if it then had zero candidates -
+	// that's a legitimate empty-section result, not a failure); sectionsFailed
+	// increments on each `continue` below. If every attempted section failed
+	// (sectionsVisited stays 0 while sectionsFailed > 0), that's reported as a
+	// real error instead of a clean empty result - see the check after the loop.
+	//
+	// NOTE: live testing 2026-07-12/13 (queue task fix-course-level-crawl-flakiness)
+	// ran this exact crawl twice in a row at course_concurrency=1 against the real
+	// TU Dresden account and got byte-identical per-course file counts both times,
+	// with zero section-level Goto/extraction failures - the originally reported
+	// "0 files" flakiness for a course with real content did not reproduce at
+	// concurrency=1. That flakiness was root-caused by PR #64/#65 to an AJAX-render
+	// race specific to *concurrent* course crawling, not to this per-section
+	// retry logic. This hardening covers a latent gap the acceptance criteria
+	// still calls for (a genuinely-failed root section reporting the same as a
+	// genuinely-empty course), not a live-reproduced bug in this retry logic itself.
+	sectionsVisited := 0
+	sectionsFailed := 0
 	rootKey := sectionKey(course.URL, course.RepoID)
 	queue := []string{course.URL}
 	queued := map[string]struct{}{rootKey: {}}
@@ -84,6 +114,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				newPage, recErr := s.recoverFromPageCrash(page)
 				if recErr != nil {
 					fmt.Printf("  Warning: skipping section %q (%s): browser tab crashed and could not be recovered: %v (original error: %v)\n", sectionTitles[currentKey], currentURL, recErr, err)
+					sectionsFailed++
 					continue
 				}
 				page = newPage
@@ -96,6 +127,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 			}
 			if _, retryErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
 				fmt.Printf("  Warning: skipping section %q (%s): navigation failed after retry: %v\n", sectionTitles[currentKey], currentURL, retryErr)
+				sectionsFailed++
 				continue
 			}
 		}
@@ -107,6 +139,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				newPage, recErr := s.recoverFromPageCrash(page)
 				if recErr != nil {
 					fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed and the tab could not be recovered: %v (original error: %v)\n", sectionTitles[currentKey], currentURL, recErr, err)
+					sectionsFailed++
 					continue
 				}
 				page = newPage
@@ -114,6 +147,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				// to currentURL before there is anything for extraction to read.
 				if _, gotoErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); gotoErr != nil {
 					fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed; re-navigating the replacement tab failed: %v\n", sectionTitles[currentKey], currentURL, gotoErr)
+					sectionsFailed++
 					continue
 				}
 				s.waitForInteractiveLinks(page, contentFallbackWaitMs)
@@ -127,9 +161,16 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 			candidates, err = s.extractSectionContentCandidates(page)
 			if err != nil {
 				fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitles[currentKey], currentURL, err)
+				sectionsFailed++
 				continue
 			}
 		}
+		// Reaching here means this section's Goto and extraction both
+		// succeeded (candidates may still legitimately be empty - see the
+		// len(candidates) == 0 handling below, which does not `continue` and
+		// so is not counted as a failure). See sectionsVisited's doc comment
+		// above for what this distinction is for.
+		sectionsVisited++
 		if len(candidates) == 0 {
 			page.WaitForTimeout(contentFallbackWaitMs)
 			retryCandidates, retryErr := s.extractSectionContentCandidates(page)
@@ -166,6 +207,19 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 
 	if len(queue) > 0 && len(visited) >= maxPages {
 		fmt.Printf("  Warning: course %q hit the %d-section crawl cap with %d section(s) still queued; some content may be missing\n", course.Title, maxPages, len(queue))
+	}
+
+	if sectionsVisited == 0 && sectionsFailed > 0 {
+		// Every section this course attempted to visit (most commonly just the
+		// root section, since a failed root never gets to queue any subfolder
+		// links) hit a Goto/extraction failure - see sectionsVisited's doc
+		// comment above. Reporting this as a real error (rather than returning
+		// nil the way a genuinely empty/successfully-crawled course does) makes
+		// newCourseFileCollector (orchestrator.go) log a distinct "Course crawl
+		// error" instead of the misleading "crawled successfully but found 0
+		// files" line, and drops the course from the results entirely rather
+		// than silently reporting it as confirmed-empty.
+		return page, files, downloadCandidates, fmt.Errorf("course %q: all %d attempted section page(s) failed to load or extract - result is incomplete, not a confirmed empty course", course.Title, sectionsFailed)
 	}
 
 	return page, files, downloadCandidates, nil

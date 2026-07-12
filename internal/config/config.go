@@ -18,16 +18,35 @@ const (
 	DefaultStateFile = "~/.opal_storage_state.json"
 
 	// DefaultDownloadConcurrency is the default number of files downloaded
-	// concurrently during sync. Kept conservative (not "max parallelism") to
-	// avoid tripping OPAL's rate-limiting/bot-detection.
+	// concurrently during sync via the fast HTTP path. Live-tested
+	// 2026-07-12 against the real TU Dresden OPAL account: no
+	// rate-limiting/bot-detection signal was observed at 3, but a separate,
+	// unrelated bug (some files fail the fast path and then also fail the
+	// serialized browser-fallback download, each failure costing many
+	// seconds) dominated wall-clock time badly enough that higher values
+	// couldn't be cleanly compared in the time available. Left unchanged at
+	// 3 pending a re-test once that fallback bug is fixed.
 	DefaultDownloadConcurrency = 3
 
 	// DefaultCourseConcurrency is the default number of courses crawled
 	// concurrently during discovery, each on its own browser tab/page.
-	// Kept conservative for the same reason as DefaultDownloadConcurrency:
-	// avoid tripping OPAL's rate-limiting/bot-detection with too much
-	// parallelism.
-	DefaultCourseConcurrency = 3
+	// Live-tested 2026-07-12 against the real TU Dresden OPAL account
+	// (8 courses, 341 real files via a serial course_concurrency=1 ground
+	// truth): course_concurrency=3 (the old default) silently returned 0
+	// files for 2 whole courses that actually had 38 and 34 files
+	// respectively (21% of all files silently lost, no error/warning beyond
+	// a generic "found 0 files" log line); course_concurrency=5 lost 76% of
+	// files, including a 198-file course dropping to 0 and other courses
+	// returning wrong (partial) counts. This is not rate-limiting - it's an
+	// AJAX-render race in concurrent course crawling that PR #64 only
+	// partially fixed (that PR fixed show-all pagination specifically; this
+	// is a broader instance of the same race that can drop a course's
+	// content entirely). Only course_concurrency=1 (serial) produced
+	// correct, complete file counts across 3 separate runs, so that is now
+	// the default. Do not raise this until the underlying race is fixed;
+	// raising it trades speed for silently missing files, which is worse
+	// than slow.
+	DefaultCourseConcurrency = 1
 )
 
 type Credentials struct {

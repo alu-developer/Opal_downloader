@@ -45,16 +45,21 @@ courses:
 sync: true
 
 # (Optional) Maximum number of files downloaded concurrently during sync via
-# the fast HTTP path. Keep this conservative - a large value increases the
-# chance of tripping OPAL's rate-limiting/bot-detection. Can also be set with
-# --concurrency on the sync command. Defaults to 3.
+# the fast HTTP path. Live-tested 2026-07-12: no rate-limiting/bot-detection
+# signal observed at 3, but higher values weren't cleanly comparable due to
+# an unrelated bug (some files fail the fast path and the browser fallback
+# both). Can also be set with --concurrency on the sync command. Defaults to 3.
 download_concurrency: 3
 
 # (Optional) Maximum number of courses crawled concurrently during discovery,
-# each on its own browser tab. Keep this conservative for the same reason as
-# download_concurrency. Can also be set with --course-concurrency on the
-# list/sync commands. Defaults to 3.
-course_concurrency: 3
+# each on its own browser tab. Live-tested 2026-07-12 against a real OPAL
+# account: raising this above 1 causes an AJAX-render race that silently
+# drops entire courses' files (0 files logged instead of an error) - the old
+# default of 3 lost 21% of files, 5 lost 76%. Only 1 (serial) gave correct,
+# complete results. Do not raise this until that race is fixed upstream. Can
+# also be set with --course-concurrency on the list/sync commands. Defaults
+# to 1.
+course_concurrency: 1
 
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.
 # Only change if you're using a different Bildungsportal Sachsen instance.

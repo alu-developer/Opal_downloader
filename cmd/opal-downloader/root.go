@@ -721,7 +721,7 @@ func printHelp() {
 	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
 	fmt.Println("  --debug-clicks          Log every click and navigation/interactive-link wait with timestamp, page URL, selector, and reason (diagnostic tool)")
 	fmt.Println("  --concurrency n         Max concurrent file downloads for sync (default 3, overrides config.yaml)")
-	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 3, overrides config.yaml)")
+	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 1, overrides config.yaml)")
 }
 
 func copyFile(source, target string) error {

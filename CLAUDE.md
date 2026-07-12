@@ -105,7 +105,10 @@ confidently.
   `os.Args[1]` (no CLI framework/Cobra — three direct Go deps total:
   `playwright-go`, `x/text`, `yaml.v3`). Subcommands: `init`, `setup`,
   `status`, `login`, `list`, `sync`, `dump-links`, `gui`. Running with no
-  subcommand at all launches the GUI (see "Open questions" above).
+  subcommand at all launches the GUI (see "Open questions" above). Also has
+  a hidden `__panic-test` subcommand (intentionally left out of
+  `printHelp`) that just panics on demand, so the panic-recovery wrapper in
+  `Execute` can be live-verified without a real bug.
 - `internal/gui/` — the local web GUI: HTTP server, settings page
   (read/write `config.yaml`), login trigger, sync/list/dump-links page with
   live progress.

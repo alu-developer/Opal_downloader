@@ -355,16 +355,21 @@ func ListAvailableCourses(sc *scraper.OpalScraper) error {
 
 // resolvedTarget describes where a remote file should land on disk.
 //
-// ManifestKey is always relative to cfg.DownloadPath - it is used as the
-// manifest's dedup/change-tracking key regardless of where the file
-// physically lands, so files redirected to a subfolder_destinations override
-// still get their own stable manifest entry.
+// ManifestKey is always a relative path - it is used as the manifest's
+// dedup/change-tracking key regardless of where the file physically lands,
+// so files redirected to a subfolder_destinations override (or to an
+// absolute default_course_folder/course_folders value) still get their own
+// stable, portable manifest entry with no drive letter or absolute prefix.
 //
 // LocalPath is the actual filesystem path to download to. For the common
-// case (no override) it is filepath.Join(cfg.DownloadPath, ManifestKey). When
-// a subfolder_destinations override applies, LocalPath instead points
-// directly at the configured destination (which may be outside
-// cfg.DownloadPath entirely), bypassing the normal course folder.
+// case (a relative course folder, no override) it is
+// filepath.Join(cfg.DownloadPath, ManifestKey). When a subfolder_destinations
+// override applies, or the resolved course folder is itself absolute,
+// LocalPath instead points directly at that absolute location (which may be
+// outside cfg.DownloadPath entirely), bypassing the normal
+// cfg.DownloadPath-relative join - joining an absolute path onto
+// cfg.DownloadPath would otherwise silently produce a doubled, broken path
+// (e.g. "<download_path>\<Course>\C:\Users\...").
 type resolvedTarget struct {
 	ManifestKey string
 	LocalPath   string
@@ -381,7 +386,8 @@ func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) reso
 			// this file under its normal course/subfolder-relative location so
 			// change detection stays stable even though the file physically lives
 			// elsewhere.
-			manifestKey := filepath.Join(resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName), remoteFile.Name)
+			_, manifestBase := resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName)
+			manifestKey := filepath.Join(manifestBase, remoteFile.Name)
 			return resolvedTarget{
 				ManifestKey: manifestKey,
 				LocalPath:   filepath.Join(destination, remoteFile.Name),
@@ -389,20 +395,36 @@ func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) reso
 		}
 	}
 
-	base := resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName)
-	manifestKey := filepath.Join(base, remoteFile.Name)
+	localBase, manifestBase := resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName)
+	manifestKey := filepath.Join(manifestBase, remoteFile.Name)
+
+	localPath := filepath.Join(localBase, remoteFile.Name)
+	if !filepath.IsAbs(localBase) {
+		// Relative course folder (the documented, common case): LocalPath is
+		// download_path + the same relative path used as the manifest key.
+		localPath = filepath.Join(cfg.DownloadPath, manifestKey)
+	}
+
 	return resolvedTarget{
 		ManifestKey: manifestKey,
-		LocalPath:   filepath.Join(cfg.DownloadPath, manifestKey),
+		LocalPath:   localPath,
 	}
 }
 
-// resolveCourseSubfolderBase computes the course-folder-relative directory a
-// file belongs in, applying section subfolders when enabled and a matching
-// section name is available. This is shared between the manifest key
-// computation and the default (non-override) local path computation so both
-// stay in sync.
-func resolveCourseSubfolderBase(cfg config.App, courseName, sectionName string) string {
+// resolveCourseSubfolderBase computes the course-folder directory a file
+// belongs in, applying section subfolders when enabled and a matching
+// section name is available. It returns two variants:
+//
+//   - localBase is used to build LocalPath. It carries the resolved course
+//     folder verbatim, so it is absolute whenever default_course_folder or a
+//     matched course_folders entry is itself configured as an absolute path.
+//   - manifestBase is always relative, for use as (part of) the manifest's
+//     dedup/change-tracking key. When localBase is absolute, manifestBase
+//     falls back to the sanitized course name (the same shape used when no
+//     course folder mapping applies at all) instead of embedding the
+//     absolute path, so manifest keys never carry a drive letter/absolute
+//     prefix and existing relative-path users see no change in key shape.
+func resolveCourseSubfolderBase(cfg config.App, courseName, sectionName string) (localBase string, manifestBase string) {
 	folder, explicit := config.ResolveCourseFolder(cfg, courseName)
 
 	var base string
@@ -414,14 +436,21 @@ func resolveCourseSubfolderBase(cfg config.App, courseName, sectionName string) 
 		base = folder
 	}
 
+	manifestBase = base
+	if filepath.IsAbs(base) {
+		manifestBase = config.SanitizePathComponent(courseName)
+	}
+	localBase = base
+
 	if cfg.UseSectionSubfolders && sectionName != "" {
 		subfolder := config.ResolveSectionFolderName(cfg, sectionName)
 		if subfolder != "" {
-			base = filepath.Join(base, subfolder)
+			localBase = filepath.Join(localBase, subfolder)
+			manifestBase = filepath.Join(manifestBase, subfolder)
 		}
 	}
 
-	return base
+	return localBase, manifestBase
 }
 
 func fileChanged(remote scraper.RemoteFile, hasPrevious bool, previous FileRecord) bool {

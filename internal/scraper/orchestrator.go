@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/timing"
@@ -62,11 +63,33 @@ func (s *OpalScraper) newCourseFileCollector() func(CourseRef) (courseCrawlResul
 
 		page, err := ctx.NewPage()
 		if err != nil {
-			return courseCrawlResult{}, fmt.Errorf("failed to open browser tab for course %q: %w", course.Title, err)
+			// A dying-but-not-yet-fully-dead browser process (see
+			// isPageCrashError's doc comment in navigation.go for the crash
+			// class that can lead here - confirmed live surfacing as "target
+			// closed: could not read protocol padding: EOF") can make even
+			// opening a new tab fail transiently. One short retry before
+			// giving up on this course entirely mirrors the wait-and-retry
+			// pattern already used throughout crawl.go/navigation.go for
+			// other transient Playwright failures.
+			time.Sleep(1 * time.Second)
+			page, err = ctx.NewPage()
+			if err != nil {
+				return courseCrawlResult{}, fmt.Errorf("failed to open browser tab for course %q: %w", course.Title, err)
+			}
 		}
-		defer page.Close()
 
-		files, downloadCandidates, crawlErr := s.collectCourseFiles(page, course)
+		finalPage, files, downloadCandidates, crawlErr := s.collectCourseFiles(page, course)
+		// collectCourseFiles may have recovered from one or more mid-crawl
+		// browser crashes by swapping in a replacement tab (see
+		// recoverFromPageCrash in navigation.go), in which case finalPage is a
+		// different Playwright Page object than the one opened above (which
+		// recovery already closed). Close whichever page is actually still
+		// open rather than unconditionally closing the original.
+		if finalPage != nil {
+			_ = finalPage.Close()
+		} else {
+			_ = page.Close()
+		}
 		if crawlErr != nil {
 			return courseCrawlResult{}, crawlErr
 		}

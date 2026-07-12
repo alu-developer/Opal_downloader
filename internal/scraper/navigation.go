@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -148,4 +149,60 @@ func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWait
 	start := time.Now()
 	page.WaitForTimeout(fallbackWaitMs)
 	s.auditLog("wait-fixed", page, selector, fmt.Sprintf("fixed wait took %s (no selector early-exit attempted - see contentFallbackWaitMs doc comment)", time.Since(start)))
+}
+
+// isPageCrashError reports whether err is Playwright's "Target crashed"/
+// "Page crashed" class of error, signalling that the underlying Chromium
+// renderer process for a page has died. Confirmed live against real OPAL
+// courses (queue task fix-playwright-page-crashes-during-crawl, e.g. course
+// "TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik -
+// Iterationsverfahren"): once this happens, the Playwright Page object is
+// permanently unusable - every further call on it (Goto, Evaluate, Click,
+// ...) fails immediately with the same crashed error, rather than being a
+// one-off transient hiccup like net::ERR_ABORTED. Retrying an operation on
+// the same page after this error is pointless and, worse, is what turned one
+// real renderer crash into a cascade of "skipping section" warnings across
+// every remaining section in that course: collectCourseFiles reuses a single
+// page for the whole course crawl, so a crashed page stayed crashed for
+// every subsequent Goto/extraction in the loop. Callers that see this error
+// must recover onto a fresh page/tab (recoverFromPageCrash below) instead of
+// retrying in place.
+func isPageCrashError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "target crashed") || strings.Contains(msg, "page crashed")
+}
+
+// recoverFromPageCrash opens a fresh replacement page/tab in the same
+// browser context as the crashed page and best-effort closes the crashed
+// one (its underlying renderer process is already gone, so Close() failing
+// here is expected and ignored - there is nothing left to clean up on the
+// Playwright side beyond what the browser process teardown already handles).
+// It is safe to call concurrently from multiple course-crawl goroutines:
+// ctx.NewPage() is already relied on for exactly that concurrent pattern by
+// newCourseFileCollector (orchestrator.go), which opens one page per course
+// across a worker pool.
+//
+// The returned page has the same default timeouts applied as any other
+// freshly opened crawl page (see launchBrowser/newCourseFileCollector) -
+// pages opened during a concurrent crawl don't get this from the ctx.OnPage
+// hook, since page-tracking is suspended for the duration of the concurrent
+// crawl (see pageTrackingSuspended's doc comment in scraper.go).
+func (s *OpalScraper) recoverFromPageCrash(crashedPage playwright.Page) (playwright.Page, error) {
+	ctx := s.getContext()
+	if ctx == nil {
+		return nil, errors.New("no browser context available to open a replacement tab after a page crash")
+	}
+	newPage, err := ctx.NewPage()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open replacement browser tab after crash: %w", err)
+	}
+	newPage.SetDefaultTimeout(15000)
+	newPage.SetDefaultNavigationTimeout(20000)
+	if crashedPage != nil {
+		_ = crashedPage.Close()
+	}
+	return newPage, nil
 }

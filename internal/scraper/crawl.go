@@ -77,7 +77,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				continue
 			}
 		}
-		s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
+		s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
 		candidates, err := s.extractSectionContentCandidates(page)
 		if err != nil {
@@ -199,7 +199,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		}
 	}
 
-	s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
+	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
 	expanded, err := s.extractSectionContentCandidates(page)
 	if err != nil || len(expanded) == 0 {

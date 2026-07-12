@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
@@ -276,14 +277,26 @@ const courseLinkSelector = "a[href*='crs_'], a[href*='course'], a[href*='Reposit
 func (s *OpalScraper) waitForLoggedInCourseLink() error {
 	for attempt := 0; attempt < 2; attempt++ {
 		waitingOn := s.getPage()
+		start := time.Now()
 		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(300000)})
 		if err == nil {
+			// Logged for --debug-clicks completeness (queue task
+			// click-audit-analysis-and-cleanup closed this gap - this wait was
+			// previously not audited at all). This is a one-time,
+			// once-per-login wait for interactive TU-Fast/2FA completion, not
+			// a per-section crawl-loop cost, so unlike
+			// navigation.go's/discovery.go's waits it was never a slowness
+			// suspect and its long 300s timeout is intentional (human
+			// attention span), not dead weight to trim.
+			s.auditLog("wait-selector-resolved", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link resolved after %s", time.Since(start)))
 			return nil
 		}
 		if attempt == 0 && s.getPage() != nil && s.getPage() != waitingOn {
 			// The active page changed while we were waiting; retry on it.
+			s.auditLog("wait-selector-retargeted", waitingOn, courseLinkSelector, fmt.Sprintf("active page changed after %s; retrying wait on new page", time.Since(start)))
 			continue
 		}
+		s.auditLog("wait-selector-timeout", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link did not resolve within 300000ms (waited %s): %v", time.Since(start), err))
 		return err
 	}
 	return nil

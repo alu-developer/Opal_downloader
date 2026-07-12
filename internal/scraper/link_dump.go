@@ -63,7 +63,7 @@ func (s *OpalScraper) DumpPageLinks(targetURL, outputPath string) error {
 	if _, err := page.Goto(targetURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 		return err
 	}
-	s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
+	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
 	value, err := page.Evaluate(`() => {
 			const selectors = 'a[href], [onclick], [data-href], [data-url]';

@@ -95,3 +95,49 @@ If sync suddenly returns too few files:
 2. Re-authenticate with `opal-downloader login`.
 3. Check OPAL page changes and update selectors in `internal/scraper/scraper.go`.
 4. Run one forced sync: `opal-downloader sync --force`.
+
+### "Course crawled successfully but found 0 files" / a course is missing from `Found N course links`
+
+**Check `course_concurrency` in `config.yaml` first, before re-investigating
+from scratch.** This exact pair of symptoms (a course reporting 0 files
+despite genuinely having content, or a whole course vanishing from
+discovery) was root-caused (PR #64/#65, live-tested against the real TU
+Dresden account) to an AJAX-render race specific to *concurrent* course
+crawling - not to a per-section retry bug. `course_concurrency=3` (the old
+default) silently lost 21% of files across 2 whole courses; `=5` lost 76%.
+The code default is `course_concurrency=1` (serial) since PR #65, and queue
+task `fix-course-level-crawl-flakiness` (2026-07-13) re-confirmed this live:
+three consecutive `list --dev --profile --debug-clicks --course-concurrency
+1` runs against the real account produced byte-identical per-course file
+counts every time (341 files, same 8 courses discovered, same 7
+content-bearing courses), with zero section-level Goto/extraction failures
+in any run.
+
+**A config.yaml with an explicit `course_concurrency: 3` (or higher) silently
+overrides the safer code default** - `internal/config/config.go`'s `Load()`
+only substitutes `DefaultCourseConcurrency` when the field is unset or
+non-positive, so an old config file written before PR #65 keeps running at
+the data-lossy concurrency level even though a fresh/default config
+wouldn't. This was found live during the above investigation: the
+maintainer's own real `config.yaml` still had `course_concurrency: 3`. If
+you're chasing this symptom, check the actual `course_concurrency` value in
+the config file being used (not just the code default) before assuming it's
+already at the safe setting.
+
+If flakiness genuinely reproduces at `course_concurrency=1` (not just at a
+higher, already-known-unsafe value), that is a *new* finding distinct from
+the above and needs fresh live investigation - don't assume it's already
+covered by this section.
+
+Separately, `internal/scraper/crawl.go`'s `collectCourseFiles` and
+`internal/scraper/discovery.go`'s `discoverCourseLinks` were both hardened
+(same task) so a section/source-page whose Goto or extraction fails outright
+no longer looks identical to a genuinely empty/complete result: a course
+where *every* attempted section failed now surfaces as a distinct crawl
+error (see `sectionsVisited`/`sectionsFailed` in crawl.go) instead of "0
+files, crawled successfully", and a discovery source page now retries once
+and logs a warning instead of silently dropping its courses from the list.
+Neither failure path was live-triggered during this task's testing (OPAL was
+stable across all 3 runs), so this hardening is defensive/untested-live, not
+a fix for a reproduced bug - it closes a gap the acceptance criteria called
+for regardless.

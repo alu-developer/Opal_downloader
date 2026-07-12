@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -150,6 +151,108 @@ func TestResolveRemoteTargetPathSubfolderDestinationOverride(t *testing.T) {
 	// independent of the override destination.
 	if filepath.ToSlash(resolved.ManifestKey) != "Analysis I/Vorlesung/slides.pdf" {
 		t.Fatalf("expected manifest key to reflect normal course path, got %s", filepath.ToSlash(resolved.ManifestKey))
+	}
+}
+
+func TestResolveRemoteTargetPathAbsoluteDefaultCourseFolder(t *testing.T) {
+	// Regression test: default_course_folder set to an absolute path (the
+	// maintainer's real config.yaml shape) with no matching course_folders
+	// entry must NOT be joined onto cfg.DownloadPath - that produced a
+	// doubled/broken path like "<download_path>\<Course>\C:\Users\...".
+	file := scraper.RemoteFile{Name: "sheet.pdf", Course: "Analysis I"}
+
+	cfg := config.App{
+		DownloadPath:        `C:\Users\alois\OneDrive`,
+		DefaultCourseFolder: `C:\Users\alois\OneDrive\Default_downloads`,
+		CourseFolders:       map[string]string{},
+	}
+	resolved := resolveRemoteTargetPath(cfg, file)
+
+	wantLocal := filepath.Join(`C:\Users\alois\OneDrive\Default_downloads`, "Analysis I", "sheet.pdf")
+	if resolved.LocalPath != wantLocal {
+		t.Fatalf("expected absolute default_course_folder to be used directly, got %s, want %s", resolved.LocalPath, wantLocal)
+	}
+	if filepath.IsAbs(resolved.ManifestKey) || strings.Contains(resolved.ManifestKey, `C:\`) {
+		t.Fatalf("expected relative manifest key with no drive prefix, got %s", resolved.ManifestKey)
+	}
+	if filepath.ToSlash(resolved.ManifestKey) != "Analysis I/sheet.pdf" {
+		t.Fatalf("expected manifest key to fall back to course-name shape, got %s", filepath.ToSlash(resolved.ManifestKey))
+	}
+}
+
+func TestResolveRemoteTargetPathAbsoluteCourseFoldersEntry(t *testing.T) {
+	// Same doubled-path bug can occur via an explicit course_folders mapping
+	// (not just default_course_folder) if that mapped value is absolute.
+	file := scraper.RemoteFile{Name: "slides.pdf", Course: "Analysis I", SectionTitle: "Vorlesung"}
+
+	cfg := config.App{
+		DownloadPath: `C:\Users\alois\OneDrive`,
+		CourseFolders: map[string]string{
+			"*Analysis*": `D:\Elsewhere\Analysis`,
+		},
+		UseSectionSubfolders: true,
+	}
+	resolved := resolveRemoteTargetPath(cfg, file)
+
+	wantLocal := filepath.Join(`D:\Elsewhere\Analysis`, "Vorlesung", "slides.pdf")
+	if resolved.LocalPath != wantLocal {
+		t.Fatalf("expected absolute course_folders value to be used directly, got %s, want %s", resolved.LocalPath, wantLocal)
+	}
+	if filepath.IsAbs(resolved.ManifestKey) || strings.Contains(resolved.ManifestKey, `D:\`) {
+		t.Fatalf("expected relative manifest key with no drive prefix, got %s", resolved.ManifestKey)
+	}
+	if filepath.ToSlash(resolved.ManifestKey) != "Analysis I/Vorlesung/slides.pdf" {
+		t.Fatalf("expected manifest key to fall back to course-name shape, got %s", filepath.ToSlash(resolved.ManifestKey))
+	}
+}
+
+func TestSyncCoursesAbsoluteDefaultCourseFolderLandsOnDisk(t *testing.T) {
+	// End-to-end regression test using the real filesystem (t.TempDir), not
+	// just the path-string computation: mirrors the maintainer's real
+	// config.yaml shape (download_path set, default_course_folder an
+	// absolute path, course_folders empty) and confirms SyncCourses actually
+	// writes the file to the correct, non-doubled location on disk.
+	downloadRoot := t.TempDir()
+	absoluteDefaultFolder := filepath.Join(t.TempDir(), "Default_downloads")
+
+	cfg := config.App{
+		DownloadPath:        downloadRoot,
+		DefaultCourseFolder: absoluteDefaultFolder,
+		CourseFolders:       map[string]string{},
+		DownloadConcurrency: 1,
+	}
+
+	fd := &fakeDownloader{
+		files: []scraper.RemoteFile{
+			{Name: "sheet.pdf", Course: "Analysis I", Path: "sheet.pdf"},
+		},
+	}
+
+	stats, err := SyncCourses(fd, cfg, false)
+	if err != nil {
+		t.Fatalf("SyncCourses returned error: %v", err)
+	}
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected 1 file downloaded, got %d (errors=%d)", stats.Downloaded, stats.Errors)
+	}
+
+	wantPath := filepath.Join(absoluteDefaultFolder, "Analysis I", "sheet.pdf")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected file at %s, stat failed: %v", wantPath, err)
+	}
+
+	// Guard against the specific doubled-path bug: the file must not have
+	// been written anywhere under downloadRoot (that would mean the absolute
+	// folder got joined onto DownloadPath instead of used directly).
+	var foundUnderDownloadRoot bool
+	_ = filepath.Walk(downloadRoot, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && info.Name() == "sheet.pdf" {
+			foundUnderDownloadRoot = true
+		}
+		return nil
+	})
+	if foundUnderDownloadRoot {
+		t.Fatalf("file was written under download_path (%s) instead of the absolute default_course_folder - doubled-path bug regressed", downloadRoot)
 	}
 }
 

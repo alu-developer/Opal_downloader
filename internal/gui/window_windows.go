@@ -3,10 +3,13 @@
 package gui
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 
 	webview2 "github.com/jchv/go-webview2"
 )
@@ -69,4 +72,33 @@ func openNativeWindow(url string) error {
 	w.Navigate(url)
 	w.Run()
 	return nil
+}
+
+// browseForFolder opens a native Windows folder-picker dialog and returns
+// the chosen absolute path, or ("", nil) if the user cancelled.
+//
+// Browsers cannot return a real filesystem path from
+// <input type=file webkitdirectory> (sandboxed - it returns a fake path
+// only), so this shells out to a small PowerShell snippet that drives
+// System.Windows.Forms.FolderBrowserDialog instead. That only works because
+// this GUI's HTTP server and the browser tab showing it always run on the
+// same machine (a local desktop tool, not a hosted web app) - see
+// handleBrowseFolder in settings.go for the HTTP handler that calls this.
+// -STA is required because WinForms dialogs need a single-threaded
+// apartment; PowerShell's default apartment state does not guarantee that.
+func browseForFolder() (string, error) {
+	const script = `Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+	Write-Output $dialog.SelectedPath
+}`
+
+	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-Command", script)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("opening folder picker: %w (%s)", err, strings.TrimSpace(out.String()))
+	}
+	return strings.TrimSpace(out.String()), nil
 }

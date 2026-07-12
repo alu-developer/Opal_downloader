@@ -423,7 +423,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			es.addEventListener('state', function (ev) {
 				var data = JSON.parse(ev.data);
 				setRunning(data.running);
-				statusEl.textContent = data.running ? ('Running: ' + data.kind : 'Idle.');
+				statusEl.textContent = data.running ? ('Running: ' + data.kind) : 'Idle.';
 			});
 			['course_started','file_downloaded','file_skipped','error','log','done','cancelled','failed'].forEach(function (kind) {
 				es.addEventListener(kind, function (ev) { handleEvent(JSON.parse(ev.data)); });

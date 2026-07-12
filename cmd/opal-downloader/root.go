@@ -567,6 +567,7 @@ func runDumpLinks(args []string) error {
 func runGUI(args []string) error {
 	port := 0
 	configPath := filepath.Join(projectDir(), "config.yaml")
+	suggestedBrowserUserDataDir := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--port":
@@ -585,12 +586,23 @@ func runGUI(args []string) error {
 				return fmt.Errorf("--config requires a path")
 			}
 			configPath = args[i]
+		case "--suggested-browser-user-data-dir":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--suggested-browser-user-data-dir requires a path")
+			}
+			suggestedBrowserUserDataDir = args[i]
 		default:
 			return fmt.Errorf("unknown option for gui: %s", args[i])
 		}
 	}
 
-	return gui.Run(gui.Options{Port: port, ConfigPath: configPath, Version: buildVersion})
+	return gui.Run(gui.Options{
+		Port:                        port,
+		ConfigPath:                  configPath,
+		Version:                     buildVersion,
+		SuggestedBrowserUserDataDir: suggestedBrowserUserDataDir,
+	})
 }
 
 // closeBrowserOnInterrupt is a belt-and-suspenders companion to
@@ -700,7 +712,7 @@ func printHelp() {
 	fmt.Println("  init --config <path>")
 	fmt.Println("  setup --config <path>")
 	fmt.Println("  status --config <path>")
-	fmt.Println("  gui [--port <port>] [--config <path>]")
+	fmt.Println("  gui [--port <port>] [--config <path>] [--suggested-browser-user-data-dir <path>]")
 	fmt.Println("  login --config <path> [--dev]")
 	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>]")
 	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>]")

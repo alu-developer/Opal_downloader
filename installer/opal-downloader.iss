@@ -133,7 +133,13 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameter
 ; wasn't detected at its expected path after install.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "setup"; StatusMsg: "Bundled Chromium not found - attempting to install Playwright browsers (requires internet and Go)..."; Flags: runhidden skipifsilent; Check: NeedsPlaywrightSetup
 ; Primary post-install action: launch the GUI in the user's browser.
-Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; Description: "Launch {#MyAppName}"; Flags: postinstall shellexec skipifsilent nowait
+; {code:GetSuggestedBrowserProfileArg} expands (via GetSuggestedBrowserProfileArg
+; below) to either an empty string or a --suggested-browser-user-data-dir=...
+; flag carrying the detected Brave/Chrome profile root, per
+; docs/installer-plan.md Section 9 task 8 (Section 5's last bullet). This is
+; informational only - see that function's doc comment for why it's safe
+; under the "no auto-configuring the browser profile" constraint.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "gui {code:GetSuggestedBrowserProfileArg}"; Description: "Launch {#MyAppName}"; Flags: postinstall shellexec skipifsilent nowait
 
 [Code]
 function NeedsPlaywrightSetup: Boolean;
@@ -161,6 +167,36 @@ begin
   Result :=
     DirExists(ExpandConstant('{localappdata}\BraveSoftware\Brave-Browser')) or
     DirExists(ExpandConstant('{localappdata}\Google\Chrome'));
+end;
+
+{ GetSuggestedBrowserProfileArg (docs/installer-plan.md Section 9 task 8,
+  Section 5's last bullet - explicitly "later, optional"): if Brave's or
+  Chrome's default profile *root* ("User Data", not a specific profile
+  folder inside it - matches config.example.yaml's browser_user_data_dir
+  documentation) exists on disk, return a --suggested-browser-user-data-dir
+  flag carrying that path for the post-install "gui" [Run] step below to
+  pass through. Brave is checked first and wins if both are present, since
+  TU-Fast/OPAL support has historically been documented/tested against
+  Brave in this project (see CLAUDE.md).
+
+  This is a pure directory-existence check with no side effects - same
+  no-writes, no-assumptions-baked-into-config posture as BrowserDetected
+  above. The GUI (internal/gui) only ever uses this value to pre-fill the
+  Settings page's browser_user_data_dir *text input* when that field is
+  otherwise empty; the user still has to look at it and press "Save
+  settings" themselves before it becomes real config, exactly like Section
+  5 requires - this installer script never writes config.yaml itself. }
+function GetSuggestedBrowserProfileArg(Param: String): String;
+var
+  BravePath, ChromePath: String;
+begin
+  Result := '';
+  BravePath := ExpandConstant('{localappdata}\BraveSoftware\Brave-Browser\User Data');
+  ChromePath := ExpandConstant('{localappdata}\Google\Chrome\User Data');
+  if DirExists(BravePath) then
+    Result := '--suggested-browser-user-data-dir="' + BravePath + '"'
+  else if DirExists(ChromePath) then
+    Result := '--suggested-browser-user-data-dir="' + ChromePath + '"';
 end;
 
 var

@@ -105,3 +105,36 @@ func TestPageTrackingSuspendedIgnoresNewPages(t *testing.T) {
 		t.Fatalf("expected s.page to remain unchanged while tracking suspended, got %#v", s.getPage())
 	}
 }
+
+// TestShouldRelaunchHeadlessAfterInteractiveLogin covers the branch in
+// ensureSession that was wrongly taken before this fix: sync/list
+// (ensureSession(false)) falling back to an interactive login (because the
+// saved session was missing or expired) must relaunch headlessly afterward
+// so the crawl that follows doesn't run in the same visible window, while
+// the standalone `login` command (forceInteractive) and explicit --dev
+// tracing (developerMode) must not, since forceInteractive has no
+// subsequent crawl to protect and developerMode explicitly wants a visible
+// browser. See queue task investigate-sync-list-not-headless.
+func TestShouldRelaunchHeadlessAfterInteractiveLogin(t *testing.T) {
+	cases := []struct {
+		name             string
+		forceInteractive bool
+		developerMode    bool
+		wantRelaunch     bool
+	}{
+		{"sync/list fallback login, normal mode", false, false, true},
+		{"sync/list fallback login, dev mode", false, true, false},
+		{"standalone login command, normal mode", true, false, false},
+		{"standalone login command, dev mode", true, true, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldRelaunchHeadlessAfterInteractiveLogin(tc.forceInteractive, tc.developerMode)
+			if got != tc.wantRelaunch {
+				t.Fatalf("shouldRelaunchHeadlessAfterInteractiveLogin(forceInteractive=%v, developerMode=%v) = %v, want %v",
+					tc.forceInteractive, tc.developerMode, got, tc.wantRelaunch)
+			}
+		})
+	}
+}

@@ -17,49 +17,54 @@ import (
 // and a sync.Map of pending callbacks (see playwright-go's connection.go),
 // so it is not tied to a single page/tab the way page navigation is.
 //
-// Fast-path root cause (queue task click-wait-audit-and-speedup, item 4,
-// 2026-07-10 live investigation): the fast path misses for nearly every
-// file, and it is not a headers/auth/Referer problem - a Referer header
-// matching the file's section page was tried and made no measurable
-// difference live. Direct curl testing against the same session's cookies
-// (bypassing this codebase entirely) showed why: every OPAL URL, including
-// plain section pages (visible throughout the --debug-clicks audit log as a
-// "?<number>" suffix on every page URL, e.g. ".../RepositoryEntry/123?411"),
-// carries a session-wide, server-side incrementing "history stack position"
-// counter that advances on *every* request in the session, not just
-// navigation to that specific resource. Requesting a file URL whose embedded
-// position no longer matches the session's current counter (which is
-// essentially guaranteed by the time downloads start, since discovery has
-// already made hundreds of other requests to crawl the course tree first)
-// gets a 302 redirect to a URL with the *current* counter - and that
-// redirected response is consistently a generic HTML page, not the file,
-// confirmed with curl following the redirect chain outside any Playwright
-// involvement. The browser-fallback path below works not because it's a
-// real browser, but because clickCandidateLinkOnPage re-navigates to the
-// file's section page first, which re-renders the file link with a
-// currently-valid counter, and then clicks *that* freshly rendered element.
-// There is no equivalent "refresh the counter" step in the fast path today;
-// building one would mean re-fetching the section page immediately before
-// every file GET, which defeats most of the point of a stateless HTTP fast
-// path and is out of scope for this task's "targeted fix, not a pipeline
-// redesign" mandate - left for separate follow-up. This is why the fast
-// path exists at all as an optimization rather than the only path: some
-// files (particularly ones downloaded very soon after being discovered,
-// before much other session traffic happens) do still hit it.
+// Fast-path root cause, corrected (queue task
+// fix-fast-path-download-history-counter, 2026-07-12 live investigation):
+// queue task click-wait-audit-and-speedup (2026-07-10) first identified that
+// the fast path misses for nearly every file and traced it to OPAL's
+// session-wide incrementing "history stack position" counter, theorizing
+// that the file URL's embedded counter goes stale by download time. Live
+// investigation for *this* task refined that finding: the plain,
+// discovery-time file URL (".../CourseNode/<id>/<name>.pdf") actually embeds
+// no counter at all, and requesting it directly - confirmed live both via a
+// raw HTTP GET *and* via a real page.Goto() navigation - always
+// 302-redirects to a counter-suffixed URL that serves a generic HTML page,
+// never the file, regardless of how "fresh" the request is. What a real
+// browser click does differently: OPAL wires each file row's link to a
+// Wicket AJAX "click" behavior (present in the section page's own HTML as a
+// `Wicket.Ajax.ajax({"u":"...","c":"<anchor id>",...,"e":"click",...})`
+// script snippet - a row's anchor commonly has more than one such behavior,
+// e.g. a hover/powertip preview alongside the real click-download one, so
+// the "e":"click" one specifically must be selected, see
+// findClickAjaxURL in download_refresh.go). Invoking that behavior's "u" URL
+// with the right Wicket-Ajax headers (confirmed live: all three of
+// Wicket-Ajax/Wicket-Ajax-BaseURL/X-Requested-With are required together,
+// see wicketAjaxHeaders) returns an XML ajax-response whose body sets
+// `window.location` to a one-time `downloadering?fibercode=<token>` URL -
+// *that* URL is what actually serves the file (confirmed live: also
+// reusable, a second GET of the same fibercode URL returned identical
+// bytes). refreshCounterURL (download_refresh.go) implements exactly this:
+// re-fetch the section page fresh, locate the file's click-behavior URL in
+// that fresh HTML, invoke it, and extract the fibercode URL - all via the
+// same stateless, concurrency-safe APIRequestContext used here, no browser
+// tab involved. DownloadFile tries this refresh as a second attempt, below,
+// before falling back to the browser-click path.
 //
-// When the fast path doesn't return a direct, non-HTML 200 response, it
-// falls back to downloadFileViaBrowser, which drives the single shared
-// s.page and therefore must not run concurrently with itself or with any
-// other navigation of s.page. That fallback is serialized behind
+// When neither the original fast GET nor the counter-refresh retry returns a
+// direct, non-HTML 200 response, DownloadFile falls back to
+// downloadFileViaBrowser, which drives the single shared s.page and
+// therefore must not run concurrently with itself or with any other
+// navigation of s.page. That fallback is serialized behind
 // s.browserDownloadMu so callers are free to invoke DownloadFile from a
-// worker pool for the common (fast-path) case.
+// worker pool for the common (fast-path/refresh) case.
 func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 	ctx := s.getContext()
 	if ctx == nil {
 		return errors.New("no authenticated browser context available")
 	}
 
-	response, err := ctx.Request().Get(fileURL)
+	reqCtx := ctx.Request()
+
+	response, err := reqCtx.Get(fileURL)
 	if err == nil && response != nil && response.Status() == 200 {
 		headers := response.Headers()
 		contentType := strings.ToLower(headers["content-type"])
@@ -72,9 +77,32 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 		}
 	}
 
-	// Fast HTTP-GET path missed (non-200 status, request error, or a
-	// text/html response instead of the file) - log why, since this
-	// determines whether a file falls through to the serialized
+	// Fast HTTP-GET path missed on the discovery-time URL (non-200 status,
+	// request error, or a text/html response instead of the file) - before
+	// falling back to the slow, serialized browser-click path, retry once
+	// via the counter-refresh dance (see this function's doc comment and
+	// download_refresh.go): re-fetch the file's section page, locate its
+	// click-triggered Wicket AJAX behavior there, invoke it, and try the
+	// one-time downloadering URL it returns. This stays entirely on the
+	// concurrency-safe APIRequestContext (no browser tab), so it's free to
+	// run from every download worker just like the first attempt above.
+	if candidate, ok := s.downloadCandidates[fileURL]; ok {
+		if refreshedURL, refreshErr := s.refreshCounterURL(reqCtx, candidate); refreshErr == nil {
+			if handled, dlErr := attemptDirectDownload(reqCtx, refreshedURL, localPath); handled {
+				if s.debugClicks {
+					s.auditLog("fast-path-refresh-hit", nil, fileURL, fmt.Sprintf("counter-refresh retry succeeded via %s", refreshedURL))
+				}
+				return dlErr
+			} else if s.debugClicks {
+				s.auditLog("fast-path-refresh-miss", nil, fileURL, fmt.Sprintf("counter-refresh retry produced %s but it still wasn't a direct file response -> falling back to browser download for %s", refreshedURL, localPath))
+			}
+		} else if s.debugClicks {
+			s.auditLog("fast-path-refresh-error", nil, fileURL, fmt.Sprintf("counter-refresh retry failed: %v", refreshErr))
+		}
+	}
+
+	// Log why the fast path (including the refresh retry above) missed,
+	// since this determines whether a file falls through to the serialized
 	// browser-fallback path below, which queue task
 	// click-wait-audit-and-speedup's audit is specifically meant to
 	// diagnose (see performance-assessment-report.md's finding that the
@@ -95,6 +123,35 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 	s.browserDownloadMu.Lock()
 	defer s.browserDownloadMu.Unlock()
 	return s.downloadFileViaBrowser(fileURL, localPath)
+}
+
+// attemptDirectDownload performs a stateless HTTP GET against requestURL
+// and, if the response is a genuine direct file (200, non-text/html), writes
+// it to localPath. handled=false (err=nil) means "not a direct file
+// response - try the next fallback step"; handled=true means a definitive
+// outcome was reached (a successful write, or a definitive failure like a
+// corrupt PDF payload) and the caller should stop trying further steps and
+// return err as-is. Mirrors the original fast-path GET's own success/PDF
+// -validity logic in DownloadFile above, factored out so the counter-refresh
+// retry (which GETs a different, refreshed URL) can share it exactly rather
+// than duplicating slightly-different logic.
+func attemptDirectDownload(reqCtx playwright.APIRequestContext, requestURL, localPath string) (handled bool, err error) {
+	response, reqErr := reqCtx.Get(requestURL)
+	if reqErr != nil || response == nil || response.Status() != 200 {
+		return false, nil
+	}
+	contentType := strings.ToLower(response.Headers()["content-type"])
+	if strings.Contains(contentType, "text/html") {
+		return false, nil
+	}
+	body, bodyErr := response.Body()
+	if bodyErr != nil {
+		return false, nil
+	}
+	if strings.HasSuffix(strings.ToLower(localPath), ".pdf") && !strings.HasPrefix(string(body), "%PDF") {
+		return true, fmt.Errorf("downloaded payload is not a valid PDF")
+	}
+	return true, os.WriteFile(localPath, body, 0o644)
 }
 
 func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {

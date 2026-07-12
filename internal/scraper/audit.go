@@ -18,13 +18,28 @@ func (s *OpalScraper) SetDebugClicks(enabled bool) {
 
 // auditLog prints one diagnostic line for every .Click() call site
 // (crawl.go's "show all" expansion, download.go's browser-fallback download
-// link click) and every wait call in navigation.go's waitForInteractiveLinks,
-// when debugClicks is enabled. It exists to answer two recurring questions
-// from queue task click-wait-audit-and-speedup: "why does the crawler click
-// on X" and "how long do the fixed waits in navigation.go actually take on a
-// real OPAL instance" - each line carries a timestamp, the page's current
-// URL, the selector/text that was matched (or attempted), and a short reason
-// string identifying which candidate/file/section triggered the call.
+// link click) and every significant wait call in the crawl/discovery/login
+// path, when debugClicks is enabled. It exists to answer recurring questions
+// from queue tasks click-wait-audit-and-speedup and
+// click-audit-analysis-and-cleanup: "why does the crawler click on X" and
+// "how long do the fixed waits actually take on a real OPAL instance" - each
+// line carries a timestamp, the page's current URL, the selector/text that
+// was matched (or attempted), and a short reason string identifying which
+// candidate/file/section triggered the call.
+//
+// Coverage as of click-audit-analysis-and-cleanup (2026-07-12, confirmed by
+// grepping internal/scraper for every .Click()/WaitFor*() call site): all
+// three .Click() sites (crawl.go's show-all expansion, download.go's two
+// browser-fallback attempts) and all Wait*() calls in the crawl/discovery
+// path are logged - navigation.go's waitForInteractiveLinks (crawl.go's and
+// download.go's per-section content wait), discovery.go's
+// waitForCourseEntries (previously a real gap - added in this task), and
+// session.go's waitForLoggedInCourseLink (previously a gap too; low-impact
+// since it is a one-time per-login wait, added anyway for completeness).
+// discovery.go's extractCourseCardsFromCurrentPage and files.go's
+// extractSectionContentCandidates run entirely inside page.Evaluate() (pure
+// JS DOM reads, no Playwright Click/Wait calls at all), so there is nothing
+// to instrument there.
 //
 // This is meant to stay in the codebase as an always-available diagnostic
 // flag, not a temporary patch - see SetDebugClicks and the --debug-clicks

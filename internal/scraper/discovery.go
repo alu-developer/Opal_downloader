@@ -2,8 +2,10 @@ package scraper
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
@@ -142,6 +144,20 @@ func (s *OpalScraper) extractCourseCardsFromCurrentPage() ([]map[string]string, 
 	return toStringMapSlice(value), nil
 }
 
+// waitForCourseEntries was previously not covered by the --debug-clicks
+// audit at all (queue task click-audit-analysis-and-cleanup, 2026-07-12,
+// found this gap: audit.go's doc comment claimed to cover "every wait call
+// in navigation.go's waitForInteractiveLinks" but this discovery.go function
+// - called 3 times per discoverCourseLinks run, once per sourcePages entry -
+// had no auditLog calls at all). Logging is now added below, matching
+// navigation.go's wait-selector-timeout/wait-selector-resolved/
+// wait-fallback-done kinds, so a future --debug-clicks run can show whether
+// this wait's WaitForSelector calls ever resolve early the way
+// waitForInteractiveLinks's turned out never to (see contentFallbackWaitMs's
+// doc comment in navigation.go) - that was not re-verified live here since
+// this function runs 3x per discoverCourseLinks call versus
+// waitForInteractiveLinks's 300+, so it was not the reported slowness; a
+// live audit log gap fix is still owed regardless of impact.
 func (s *OpalScraper) waitForCourseEntries(pageURL string) {
 	page := s.getPage()
 	if page == nil {
@@ -161,11 +177,15 @@ func (s *OpalScraper) waitForCourseEntries(pageURL string) {
 	}
 
 	for _, selector := range selectors {
+		start := time.Now()
 		if _, err := page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(timeoutMs)}); err == nil {
+			s.auditLog("wait-selector-resolved", page, selector, fmt.Sprintf("course-entries selector resolved after %s for %s", time.Since(start), pageURL))
 			page.WaitForTimeout(800)
 			return
 		}
+		s.auditLog("wait-selector-timeout", page, selector, fmt.Sprintf("course-entries selector did not resolve within %v (waited %s) for %s", timeoutMs, time.Since(start), pageURL))
 	}
+	s.auditLog("wait-fallback-done", page, strings.Join(selectors, " | "), fmt.Sprintf("no course-entries selector resolved for %s; fixed 1500ms fallback wait", pageURL))
 	page.WaitForTimeout(1500)
 }
 

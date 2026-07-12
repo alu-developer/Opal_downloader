@@ -168,7 +168,7 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	// candidate link. See PR #11 follow-up investigation (queue task
 	// fix-download-fallback-html-errors-post-pr11) for the live-observed flake
 	// this addresses.
-	s.waitForInteractiveLinks(page, contentSelectorTimeoutMs, contentFallbackWaitMs)
+	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
 	targetFragment := hrefSelectorFragment(candidate.LinkTarget)
 

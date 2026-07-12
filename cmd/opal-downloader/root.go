@@ -262,16 +262,6 @@ func runStatus(args []string) error {
 	return nil
 }
 
-// tuFastExtensionID is TU-Fast's Chrome Web Store extension ID
-// (confirmed live in the task that first wired up TU-Fast auto-login -
-// see docs/browser-profile-strategy.md's Health-check design section).
-// This is a heuristic tied to the current TU-Fast build, not a stable
-// protocol guarantee: if TU-Fast's extension ID ever changes, or a
-// different Bildungsportal-Sachsen-instance-specific extension is used
-// instead, this check degrades to "soft warning always fires" - never a
-// false hard failure.
-const tuFastExtensionID = "aheogihliekaafikeepfjngfegbnimbk"
-
 // checkBrowserProfileHealth performs the filesystem-only pre-flight checks
 // described in docs/browser-profile-strategy.md's "Health-check design"
 // section for whichever browser_user_data_dir is configured. It applies
@@ -298,7 +288,7 @@ func checkBrowserProfileHealth(userDataDir, profileDir string) {
 		return
 	}
 
-	extensionPath := filepath.Join(userDataDir, profile, "Extensions", tuFastExtensionID)
+	extensionPath := filepath.Join(userDataDir, profile, "Extensions", scraper.TUFastExtensionID)
 	if _, err := os.Stat(extensionPath); err != nil {
 		fmt.Println()
 		fmt.Println("Note: TU-Fast extension not detected in this browser profile. Logins will need manual 2FA each time. If you expected TU-Fast to be set up here, see docs/browser-profile-strategy.md.")

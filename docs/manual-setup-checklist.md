@@ -33,19 +33,34 @@ Before running `login` for the first time, decide which browser-profile
 strategy you're using - see `docs/browser-profile-strategy.md` for the full
 write-up and rationale.
 
-- **Option A (recommended for new users):** set up a dedicated, never-used-
-  for-anything-else browser profile just for opal-downloader, so your
-  everyday browser is never locked or closed:
-  1. Create an empty directory, e.g. `~/.opal-downloader/login-profile`.
-  2. Launch Brave against it once:
-     `brave.exe --user-data-dir="<path>"` (opens a completely fresh, empty
-     profile - separate from your everyday one).
-  3. In that window, install TU-Fast from the Chrome Web Store and log into
-     OPAL/Shibboleth once to complete 2FA/device registration for TU-Fast in
-     this profile.
-  4. Close that window, then point `config.yaml`'s `browser_user_data_dir` at
-     the same path (and `browser_profile_directory: "Default"`) - no other
-     config or code changes required.
+- **Option A (recommended for new users, fewer clicks via the GUI):** set up
+  a dedicated, never-used-for-anything-else browser profile just for
+  opal-downloader, so your everyday browser is never locked or closed.
+  - **Via the GUI (fastest):** open the app, go to Settings, click "Set up a
+    dedicated TU-Fast browser profile" (`/tufast-setup`), then "Create
+    folder & open TU-Fast in the Chrome Web Store". This creates the
+    directory for you and opens a browser window already pointed at TU-Fast's
+    Web Store listing - you only need to click "Add to Chrome"/"Add to
+    Brave" and then log into OPAL/Shibboleth once to complete 2FA/device
+    registration (both are consent/identity actions and stay manual). If
+    TU-Fast is *already* installed and logged in in another browser profile
+    on this same computer (e.g. your everyday Brave/Chrome), the same page
+    also offers "Copy TU-Fast login data" - a local, offline copy of just
+    TU-Fast's stored login/2FA data (never its extension install, never
+    anything else in that profile) that skips the second 2FA login entirely.
+    See docs/browser-profile-strategy.md's "Transplanting TU-Fast login
+    data" section for what this does and doesn't cover (same-machine only).
+  - **Manually (no GUI):**
+    1. Create an empty directory, e.g. `~/.opal-downloader/login-profile`.
+    2. Launch Brave against it once:
+       `brave.exe --user-data-dir="<path>"` (opens a completely fresh, empty
+       profile - separate from your everyday one).
+    3. In that window, install TU-Fast from the Chrome Web Store and log into
+       OPAL/Shibboleth once to complete 2FA/device registration for TU-Fast in
+       this profile.
+    4. Close that window, then point `config.yaml`'s `browser_user_data_dir` at
+       the same path (and `browser_profile_directory: "Default"`) - no other
+       config or code changes required.
 - **Option B (if you already use TU-Fast in your everyday browser):** just
   set `browser_user_data_dir` / `browser_profile_directory` to your real
   profile's paths. Note that you'll need to fully close your browser before

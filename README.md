@@ -219,7 +219,18 @@ one. There are two supported ways to set this up; full rationale and trade-offs 
 [`docs/browser-profile-strategy.md`](docs/browser-profile-strategy.md).
 
 **Recommended: a dedicated profile just for opal-downloader.** Set up once, and your
-everyday browser is never locked or closed by opal-downloader again:
+everyday browser is never locked or closed by opal-downloader again.
+
+**Fastest path: the GUI.** Settings → "Set up a dedicated TU-Fast browser profile"
+(`/tufast-setup`) creates the folder for you and opens a browser window already at
+TU-Fast's Chrome Web Store listing - you only click "Add to Chrome"/"Add to Brave" and
+log into OPAL/Shibboleth once. If TU-Fast is already installed and logged in in another
+browser profile on this same computer, the same page can copy just its stored login/2FA
+data into the new profile instead, skipping that login step entirely (same-machine only -
+see [`docs/browser-profile-strategy.md`](docs/browser-profile-strategy.md)'s
+"Transplanting TU-Fast login data" section).
+
+**Manual path (no GUI):**
 
 1. Create an empty directory, e.g. `~/.opal-downloader/login-profile`.
 2. Launch Brave against it once: `brave.exe --user-data-dir="<path>"` (opens a fresh,

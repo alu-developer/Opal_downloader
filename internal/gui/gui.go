@@ -116,6 +116,23 @@ type server struct {
 	// suggestedBrowserUserDataDir carries through Options.
 	// SuggestedBrowserUserDataDir - see that field's doc comment.
 	suggestedBrowserUserDataDir string
+
+	// launchBrowserAt overrides defaultLaunchBrowserAt (used by
+	// handleTUFastSetupOpen to open a browser window against the dedicated
+	// profile directory at TU-Fast's Web Store listing). nil in production
+	// means "use defaultLaunchBrowserAt"; tests set this to a fake so
+	// `go test` never actually launches a browser.
+	launchBrowserAt func(browserExecutable, userDataDir, profileDirectory, url string) error
+
+	// detectBrowser overrides detectBrowserExecutable (used by
+	// handleTUFastSetupOpen when the request/config didn't specify a
+	// browser executable). nil in production means "use
+	// detectBrowserExecutable"; tests set this so the outcome doesn't depend
+	// on whether Brave/Chrome happens to be installed on the machine running
+	// `go test` - without this, a test asserting the "no browser found"
+	// error path would flake (or worse, actually launch a real browser) on
+	// any dev machine that does have one installed.
+	detectBrowser func() string
 }
 
 // Run starts the local web UI server and blocks until it is stopped via
@@ -159,6 +176,9 @@ func Run(opts Options) error {
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
 	mux.HandleFunc("/login", srv.withRecover(srv.handleLoginPage))
 	mux.HandleFunc("/login/start", srv.withRecover(srv.handleLoginStart))
+	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
+	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))
+	mux.HandleFunc("/tufast-setup/copy", srv.withRecover(srv.handleTUFastSetupCopy))
 	mux.HandleFunc("/update", srv.withRecover(srv.handleUpdatePage))
 	mux.HandleFunc("/update/start", srv.withRecover(srv.handleUpdateStart))
 	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
@@ -341,6 +361,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 	<nav>
 		<ul>
 			<li><a href="/settings">Settings</a></li>
+			<li><a href="/tufast-setup">TU-Fast browser profile setup</a></li>
 			<li><a href="/login">Login</a></li>
 			<li><a href="/sync">Sync / List / Dump links</a></li>
 			<li><a href="/update">Check for updates</a></li>

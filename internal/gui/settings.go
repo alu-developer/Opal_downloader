@@ -445,6 +445,8 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<h2>Browser</h2>
 
+	<p class="hint">First time? <a href="/tufast-setup">Set up a dedicated TU-Fast browser profile</a> (fewer clicks, and an optional shortcut if TU-Fast is already logged in elsewhere on this computer).</p>
+
 	<div class="field">
 		<label for="browser_executable">Browser executable (optional)</label>
 		<input type="text" id="browser_executable" name="browser_executable" value="{{.BrowserExecutable}}">

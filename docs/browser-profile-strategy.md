@@ -1,9 +1,14 @@
 # Browser-profile strategy for new-user onboarding
 
-Status: **recommendation, not yet implemented**. This document is the output
-of a planning task; no code has been changed. See
-`.claude/queue/todo/plan-default-browser-profile-strategy.md` (if present) or
-the queue history for the task that produced this.
+Status: **implemented**. The dedicated-second-profile default, the
+`status`/`checkBrowserProfileHealth` pre-flight check, and (as of task
+`ease-second-profile-tufast-setup`, 2026-07-12) a GUI page at
+`/tufast-setup` that both cuts Step 0's manual clicks and offers an optional
+TU-Fast login-data copy shortcut are all live in `master`. What follows below
+was originally written as a planning document before implementation; it's
+kept as the design rationale/trade-off record rather than rewritten, but
+treat anything phrased as a future recommendation as already shipped unless
+a later section (search for "2026-07-1" dates) says otherwise.
 
 ## Recommendation, up front
 
@@ -343,12 +348,84 @@ rejects them). This should be fixed regardless of the Strategy 1 vs. 2
 decision above, and is small enough to be its own short follow-up rather
 than blocking on the broader plan.
 
+## Transplanting TU-Fast login data into a fresh dedicated profile (2026-07-12 finding)
+
+Task `ease-second-profile-tufast-setup` investigated a narrower question than
+the copy-based-approach re-litigations above: **not** "can a whole copied
+profile work" (already conclusively ruled out — see "Non-goals reaffirmed"
+below), but "if a user already has TU-Fast logged in somewhere on this same
+computer, can just TU-Fast's own stored login/2FA data be copied into a
+*freshly and properly initialized* dedicated profile (empty dir, TU-Fast
+installed fresh via the Web Store — so `Secure Preferences` stays
+self-consistent for that profile) to skip redoing the OPAL/Shibboleth 2FA
+setup?"
+
+**Yes — this works, live-verified, and now ships as an optional GUI action**
+(Settings → "Set up a dedicated TU-Fast browser profile" → "Copy TU-Fast
+login data", `internal/scraper.TransplantTUFastLoginData`).
+
+What was found, reading TU-Fast's own bundled extension source
+(`modules/credentials.js`, `modules/otp.js`) from a real installed copy at
+extension ID `aheogihliekaafikeepfjngfegbnimbk`:
+
+- TU-Fast's "device registration" for 2FA is **not** a server-side token or
+  certificate at all — it's a plain client-side TOTP (RFC 6238) implementation.
+  TU-Fast stores the OPAL/Shibboleth username, password, and the TOTP shared
+  secret entirely in `chrome.storage.local` (persisted by Chromium as a
+  leveldb directory at `<profile>/Local Extension Settings/<extension-id>`)
+  and computes 6-digit codes itself, offline, whenever it auto-fills the
+  Shibboleth IdP login form.
+- That stored data is AES-CBC encrypted, but the key is derived via
+  `SHA256(JSON(chrome.system.cpu.getInfo() minus volatile fields) +
+  JSON(chrome.runtime.getPlatformInfo()))` — both are pure OS/hardware facts
+  (CPU model, architecture, etc.), **identical across every Chromium/Brave
+  profile on the same physical machine**. The derivation never references the
+  profile directory path, a Chromium-generated device ID, or anything else
+  that would differ between two profiles on one PC. This is exactly why the
+  encrypted blob is portable across profile directories on the same
+  machine — it isn't incidental, it's how the encryption key is constructed.
+- Live round-trip test (same machine, `~/.opal-downloader/login-profile`,
+  which already had a real, working TU-Fast install from the original
+  second-profile investigation): backed up
+  `Default/Local Extension Settings/aheogihliekaafikeepfjngfegbnimbk`, deleted
+  it (leaving `Preferences`/`Secure Preferences`/`Local State`/`Extensions`
+  completely untouched), relaunched Brave against that profile — TU-Fast
+  loaded fine, no HMAC/corruption warning, but showed a fresh/logged-out
+  state (AutoLogin toggle off, stats reset to 0). Restored the backed-up
+  folder, relaunched again — TU-Fast immediately showed AutoLogin on, prior
+  usage stats, and course shortcuts again, with **no re-login, no 2FA, no
+  reinstall**. This confirms extension-storage data is not part of the
+  `Secure Preferences` HMAC chain at all (only copying `Preferences`/`Secure
+  Preferences`/`Local State`/`Extensions` themselves breaks that check, per
+  the existing PR #20/#41 finding above) — copying *just* TU-Fast's own data
+  folder is a completely different, safe operation.
+
+**Scope/caveat this finding does not cover:** the round-trip test above was
+same-directory (delete + restore in place), not a literal second, brand-new
+directory with TU-Fast installed via a live Web Store click — installing an
+extension is a consent action this investigation deliberately did not
+script (see "Non-goals reaffirmed" below). The AES-key analysis is what
+extends the same-directory result to "this should also work copying into a
+*different* directory on the same machine" — nothing in TU-Fast's key
+derivation is directory-specific, so there's no mechanical reason the outcome
+would differ. **This does not extend to a different physical machine** —
+moving to different hardware changes `chrome.system.cpu.getInfo()`'s output,
+which changes the derived key, which will fail to decrypt. The shipped
+"Copy TU-Fast login data" GUI action is documented as same-machine-only for
+this reason, and never touches the network, matching CLAUDE.md's
+"credentials/session data never leave the machine unscrubbed" principle.
+
 ## Non-goals reaffirmed
 
 This plan does not re-open whether the copy-based approach (PR #6) could be
 revived, and does not attempt to automate the dedicated profile's one-time
 TU-Fast install + OPAL login (both are consent/identity actions on the
-user's own account that cannot and should not be scripted).
+user's own account that cannot and should not be scripted). The TU-Fast
+login-*data* transplant above is a different thing: it still requires the
+target profile to have TU-Fast genuinely, manually installed via the Web
+Store first (a real "install" event so `Secure Preferences` stays
+self-consistent) — it only skips redoing the *2FA/device-registration login*
+after that, never the install itself.
 
 The copy-based approach *was* re-litigated once more after this plan merged
 (task `revisit-copy-based-browser-profile-approach`, 2026-07-09): the

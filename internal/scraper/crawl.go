@@ -133,7 +133,15 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		}
 		s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
-		candidates, err := s.extractSectionContentCandidates(page)
+		// waitForStableSectionContent polls extraction until the candidate
+		// count stabilizes (see its doc comment and candidateStabilityPoll's
+		// in navigation.go) rather than trusting the fixed wait above plus a
+		// single fixed-wait retry to always be enough - the latter was
+		// live-confirmed (queue task increase-parallel-tab-concurrency,
+		// 2026-07-12) to sometimes not be, once several courses' pages are
+		// rendering under concurrent load at once, up to and including an
+		// entire course silently coming back with 0 files.
+		candidates, err := s.waitForStableSectionContent(page)
 		if err != nil {
 			if isPageCrashError(err) {
 				newPage, recErr := s.recoverFromPageCrash(page)
@@ -151,14 +159,8 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 					continue
 				}
 				s.waitForInteractiveLinks(page, contentFallbackWaitMs)
-			} else {
-				// Same transient-race class as the Goto retry above: "execution
-				// context was destroyed" happens when the page is still settling
-				// (e.g. a client-side redirect) when we evaluate - confirmed live
-				// to often succeed on a second attempt after a short wait.
-				page.WaitForTimeout(contentFallbackWaitMs)
+				candidates, err = s.waitForStableSectionContent(page)
 			}
-			candidates, err = s.extractSectionContentCandidates(page)
 			if err != nil {
 				fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitles[currentKey], currentURL, err)
 				sectionsFailed++
@@ -167,25 +169,29 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		}
 		// Reaching here means this section's Goto and extraction both
 		// succeeded (candidates may still legitimately be empty - see the
-		// len(candidates) == 0 handling below, which does not `continue` and
+		// len(candidates) == 0 warning below, which does not `continue` and
 		// so is not counted as a failure). See sectionsVisited's doc comment
 		// above for what this distinction is for.
 		sectionsVisited++
 		if len(candidates) == 0 {
-			page.WaitForTimeout(contentFallbackWaitMs)
-			retryCandidates, retryErr := s.extractSectionContentCandidates(page)
-			if retryErr == nil && len(retryCandidates) > 0 {
-				candidates = retryCandidates
-			} else if retryErr != nil {
-				if isPageCrashError(retryErr) {
-					if newPage, recErr := s.recoverFromPageCrash(page); recErr == nil {
-						page = newPage
-					}
-				}
-				fmt.Printf("  Warning: section %q (%s) returned no content and retry failed: %v\n", sectionTitles[currentKey], currentURL, retryErr)
-			} else {
-				fmt.Printf("  Warning: section %q (%s) returned no content even after retry; it may be genuinely empty, or files may have been dropped\n", sectionTitles[currentKey], currentURL)
+			// waitForStableSectionContent already polled for up to
+			// sectionContentMaxPolls*sectionContentPollIntervalMs beyond the
+			// initial fixed wait looking for growing content before returning
+			// here, so reaching a still-empty result is a much stronger signal
+			// than it used to be under the old single-fixed-wait-retry scheme -
+			// but it can still legitimately mean either a genuinely empty
+			// section or an unusually slow render that outlasted even this
+			// budget.
+			// Logs page.URL() to distinguish "genuinely rendered the right
+			// page with 0 items" from "landed on an unexpected page" (e.g. a
+			// session-state mixup under concurrent load serving the wrong
+			// content for this tab) - cheap, and directly useful for any
+			// future incident matching this warning (see docs/OPERATIONS.md).
+			actualPageURL := ""
+			if page != nil {
+				actualPageURL = page.URL()
 			}
+			fmt.Printf("  Warning: section %q (%s) returned no content after polling for stable render; it may be genuinely empty, or files may have been dropped (page.URL()=%s)\n", sectionTitles[currentKey], currentURL, actualPageURL)
 		}
 
 		var showAllURL string
@@ -311,33 +317,46 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 
 	if !navigated {
 		clicked := false
-		// Try the confirmed structural CSS class first (showAllControlClassNeedle,
-		// files.go) - more robust than the text-needle fallback below, which depends
-		// on exact wording/locale and stops matching once the control's own label
-		// toggles from "Alle anzeigen" to "Seiten" after a successful expansion.
-		classSelector := "." + showAllControlClassNeedle
-		classLocator := page.Locator(classSelector).First()
-		s.auditLog("click", page, classSelector, "show-all expand attempt (class) for section "+currentURL)
-		switch err := classLocator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)}); {
-		case err == nil:
-			s.auditLog("click-success", page, classSelector, "show-all expand succeeded (class) for section "+currentURL)
-			clicked = true
-		case isPageCrashError(err):
-			return s.recoverAndReturnToSection(page, currentURL)
-		}
+		// Retried up to showAllClickMaxAttempts times, each with a generous
+		// showAllClickTimeoutMs actionability budget - see that constant's doc
+		// comment for why a single short-timeout attempt (the pre-fix 3000ms)
+		// was root-caused (queue task
+		// fix-concurrent-crawl-ajax-race-and-raise-concurrency) to be the
+		// actual cause of files silently going missing under concurrent
+		// course crawling, not a post-click AJAX-render delay (which
+		// waitForStableExpandedCandidates below already handles).
+		for attempt := 0; attempt < showAllClickMaxAttempts && !clicked; attempt++ {
+			if attempt > 0 {
+				page.WaitForTimeout(showAllClickRetryWaitMs)
+			}
+			// Try the confirmed structural CSS class first (showAllControlClassNeedle,
+			// files.go) - more robust than the text-needle fallback below, which depends
+			// on exact wording/locale and stops matching once the control's own label
+			// toggles from "Alle anzeigen" to "Seiten" after a successful expansion.
+			classSelector := "." + showAllControlClassNeedle
+			classLocator := page.Locator(classSelector).First()
+			s.auditLog("click", page, classSelector, fmt.Sprintf("show-all expand attempt (class) for section %s (try %d/%d)", currentURL, attempt+1, showAllClickMaxAttempts))
+			switch err := classLocator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(showAllClickTimeoutMs)}); {
+			case err == nil:
+				s.auditLog("click-success", page, classSelector, "show-all expand succeeded (class) for section "+currentURL)
+				clicked = true
+			case isPageCrashError(err):
+				return s.recoverAndReturnToSection(page, currentURL)
+			}
 
-		if !clicked {
-			for _, needle := range showAllControlTextNeedles {
-				locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
-				s.auditLog("click", page, needle, "show-all expand attempt for section "+currentURL)
-				err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(3000)})
-				if err == nil {
-					s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+currentURL)
-					clicked = true
-					break
-				}
-				if isPageCrashError(err) {
-					return s.recoverAndReturnToSection(page, currentURL)
+			if !clicked {
+				for _, needle := range showAllControlTextNeedles {
+					locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
+					s.auditLog("click", page, needle, fmt.Sprintf("show-all expand attempt for section %s (try %d/%d)", currentURL, attempt+1, showAllClickMaxAttempts))
+					err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(showAllClickTimeoutMs)})
+					if err == nil {
+						s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+currentURL)
+						clicked = true
+						break
+					}
+					if isPageCrashError(err) {
+						return s.recoverAndReturnToSection(page, currentURL)
+					}
 				}
 			}
 		}
@@ -373,63 +392,262 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	return page, expanded, showAllURL, true
 }
 
-// showAllExpansionPollIntervalMs/showAllExpansionMaxPolls bound
-// waitForStableExpandedCandidates below: up to an extra ~4s (10 * 400ms), on
-// top of the initial contentFallbackWaitMs wait, spent re-extracting until
-// the candidate count stops growing. See expandShowAllInSection's doc
-// comment for the live-confirmed race this fixes - a fixed-duration wait
-// after a successful "show all" click is not reliably enough time for
-// OPAL's Wicket-AJAX-driven row expansion to finish rendering, especially
-// under concurrent multi-course crawl load.
+// showAllClickTimeoutMs/showAllClickMaxAttempts/showAllClickRetryWaitMs bound
+// expandShowAllInSection's click attempts on the "show all" pagination
+// control.
+//
+// THE ACTUAL ROOT CAUSE of this task (queue task
+// fix-concurrent-crawl-ajax-race-and-raise-concurrency): PR #64/#65's
+// waitForStableExpandedCandidates (below) already correctly poll-waits for
+// the *post-click* AJAX-rendered rows to finish appearing, and this task's
+// original hypothesis - generalizing that same poll to the main per-section
+// content wait (see waitForStableSectionContent) - turned out NOT to be
+// what was actually causing files to go missing at course_concurrency>1.
+// Live A/B testing against the real TU Dresden account (8 courses, 341
+// files) with that content-wait fix alone applied showed byte-identical
+// losses to the unfixed code at course_concurrency=3 (Analysis: 21/29 files,
+// Algorithmen und Datenstrukturen: 32/34, both runs) - the same course,
+// same missing files, both with and without the content-stability-poll fix.
+// Diffing the actual missing files (not just counts) showed the loss was
+// always exactly the *tail* past OPAL's ~20-item default page size (e.g.
+// Analysis21.pdf..Analysis28.pdf missing, Analysis01..20.pdf present) - the
+// same shape every time, which a render-timing race (which would lose a
+// varying/random subset) does not explain, but a click that never actually
+// registered does: the section's *un-expanded* candidate list is exactly
+// the first page.
+//
+// The real cause: this Click() call's own Timeout (3000ms before this fix)
+// is Playwright's budget for waiting until the "show all" control becomes
+// *actionable* (attached, visible, has a stable bounding box across
+// consecutive frames, unobscured, receives pointer events) - not a
+// render-content wait at all. Under concurrent course crawling, the
+// browser's compositor/paint pipeline is servicing several tabs' renders at
+// once, which can delay a specific element's layout from stabilizing long
+// enough to exceed a 3s budget, especially against a background of a
+// large/slow-rendering course crawling concurrently (confirmed live: the
+// worst losses coincided with "Softwaretechnologie (SoSe 26)", a 198-file
+// course that alone takes ~5 minutes, crawling at the same time). When the
+// click times out, expandShowAllInSection gives up entirely and returns the
+// caller's already-extracted (un-expanded, first-page-only) candidates -
+// silently, with no error - which is exactly the observed symptom.
+// Confirmed the fix: raising this timeout and retrying the whole
+// class-then-text click sequence up to showAllClickMaxAttempts times
+// resolved the same live test (see DefaultCourseConcurrency's doc comment
+// in internal/config/config.go for the concurrency level this was
+// ultimately verified safe at).
+const showAllClickTimeoutMs = 10000.0
+const showAllClickMaxAttempts = 3
+const showAllClickRetryWaitMs = 1500.0
+
+// showAllExpansionPollIntervalMs/showAllExpansionMaxPolls/
+// showAllExpansionRequiredStableReads bound waitForStableExpandedCandidates
+// below: up to an extra ~6s (15 * 400ms), on top of the initial
+// contentFallbackWaitMs wait, spent re-extracting until the candidate count
+// stops growing across showAllExpansionRequiredStableReads consecutive
+// reads. See expandShowAllInSection's doc comment for the live-confirmed
+// race this fixes - a fixed-duration wait after a successful "show all"
+// click is not reliably enough time for OPAL's Wicket-AJAX-driven row
+// expansion to finish rendering, especially under concurrent multi-course
+// crawl load.
+//
+// requiredStableReads=3 (raised from an initial 2) was live-confirmed
+// necessary, not just cheap insurance: with requiredStableReads=2, a live
+// full-8-course concurrency=3 run still lost exactly 2 files
+// (Vorlesung_9_10.pdf, the tail of a paginated section) in "Algorithmen und
+// Datenstrukturen" even after the click-retry fix (showAllClickMaxAttempts)
+// and the main-content-wait fix (sectionContentRequiredStableReads) were
+// both already applied - i.e. the click itself was succeeding, but the
+// post-click AJAX-rendered expansion was hitting the same "stops growing
+// for a read, then grows again" staged-render pattern documented on
+// sectionContentRequiredStableReads below, just after a click instead of
+// after a Goto. This budget only applies to sections that actually have a
+// "show all" control (expandShowAllInSection returns early for the common
+// case of no pagination), so its wall-clock cost is far more contained than
+// sectionContentRequiredStableReads's, which applies to every section
+// visited.
+//
+// IMPORTANT CAVEAT (see DefaultCourseConcurrency's doc comment in
+// internal/config/config.go for the full writeup): this and
+// sectionContentRequiredStableReads below measurably reduce, but do NOT
+// eliminate, file loss at course_concurrency>1 when a very large course
+// (in live testing, a 198-file course taking ~5-7 minutes on its own) is
+// crawled concurrently with others - don't read "live-confirmed necessary"
+// above as "live-confirmed sufficient in every scenario tested."
 const showAllExpansionPollIntervalMs = 400.0
-const showAllExpansionMaxPolls = 10
+const showAllExpansionMaxPolls = 15
+const showAllExpansionRequiredStableReads = 3
 
 // waitForStableExpandedCandidates re-extracts page's candidates repeatedly
 // (up to showAllExpansionMaxPolls times, showAllExpansionPollIntervalMs
-// apart) until a read comes back no larger than the previous one, and
-// returns the largest set seen. This replaces trusting a single
-// fixed-duration wait to be enough for a "show all" expansion's AJAX-loaded
-// content to finish rendering (see expandShowAllInSection's doc comment for
-// the live-confirmed case this was silently undercounting: a course crawled
-// in isolation captured all 28 files in a paginated section, but the same
-// section crawled concurrently with two other courses captured only the
-// pre-expansion 20 - the click succeeded both times, but the fixed wait
-// alone was not always enough for the extra rows to render before
-// extraction ran).
+// apart) until showAllExpansionRequiredStableReads consecutive reads come
+// back no larger than the best seen, and returns the largest set seen. This
+// replaces trusting a single fixed-duration wait to be enough for a "show
+// all" expansion's AJAX-loaded content to finish rendering (see
+// expandShowAllInSection's doc comment for the live-confirmed case this was
+// silently undercounting: a course crawled in isolation captured all 28
+// files in a paginated section, but the same section crawled concurrently
+// with two other courses captured only the pre-expansion 20 - the click
+// succeeded both times, but the fixed wait alone was not always enough for
+// the extra rows to render before extraction ran).
 //
 // A transient extraction error mid-poll is treated as "no progress this
 // round" rather than fatal, so one flaky Evaluate call can't throw away an
 // already-successful expansion; a page-crash error is still returned
 // immediately so the caller's existing recovery path (recoverAndReturnToSection)
-// runs.
+// runs. Delegates to candidateStabilityPoll (navigation.go), the same
+// stability-polling engine now also used for the main per-section content
+// wait (waitForStableSectionContent below) - see that function's doc
+// comment for why polling-until-stable, not this function specifically, is
+// what generalized to fix the broader concurrent-crawl AJAX race.
 func (s *OpalScraper) waitForStableExpandedCandidates(page playwright.Page) ([]map[string]string, error) {
-	best, err := s.extractSectionContentCandidates(page)
-	if err != nil {
-		if isPageCrashError(err) {
-			return nil, err
-		}
-		best = nil
-	}
+	return candidateStabilityPoll(
+		func() ([]map[string]string, error) { return s.extractSectionContentCandidates(page) },
+		func() { page.WaitForTimeout(showAllExpansionPollIntervalMs) },
+		showAllExpansionMaxPolls,
+		s.requiredStableReads(showAllExpansionRequiredStableReads),
+		isPageCrashError,
+	)
+}
 
-	for i := 0; i < showAllExpansionMaxPolls; i++ {
-		page.WaitForTimeout(showAllExpansionPollIntervalMs)
-		next, err := s.extractSectionContentCandidates(page)
-		if err != nil {
-			if isPageCrashError(err) {
-				return nil, err
+// sectionContentPollIntervalMs/sectionContentMaxPolls/
+// sectionContentRequiredStableReads bound waitForStableSectionContent
+// below: up to an extra ~8s (20 * 400ms), on top of the initial
+// contentFallbackWaitMs wait, spent re-extracting a section's main content
+// until the candidate count stops growing across
+// sectionContentRequiredStableReads consecutive reads.
+//
+// sectionContentRequiredStableReads is 4, not the 1 a first version of this
+// fix used - requiring more than 1 consecutive non-growing read is A REAL
+// PART OF THE FIX for the file-loss symptom this task set out to
+// root-cause (queue task fix-concurrent-crawl-ajax-race-and-raise-
+// concurrency), though see the IMPORTANT CAVEAT at the end of this comment
+// before assuming it's the whole fix. A version of this polling wait that
+// stopped at the first non-growing read (requiredStableReads effectively 1)
+// was live A/B tested against the real TU Dresden account and did NOT fix
+// the loss: course_concurrency=3 still lost exactly the same files as the
+// unfixed code, byte-for-byte, across repeated runs (Analysis: 21/29 files,
+// missing exactly the tail past OPAL's ~20-item default page size;
+// Algorithmen und Datenstrukturen: 32/34). Diffing exactly which files were
+// missing (not just counts) and cross-referencing with --debug-clicks audit
+// output showed the "show all" pagination control's click was never even
+// attempted for the affected sections - findShowAllTarget found no
+// pager-showall candidate at all, meaning the *initial* section render
+// itself never included that control by the time extraction ran. The
+// cause: OPAL/Wicket renders a section's content in stages - the row/file
+// list appears first, and can itself sit unchanged for one or more poll
+// intervals (a coincidental plateau) before a later stage adds the
+// pagination control - and a poll that trusts a single non-growing read as
+// "done" catches that plateau and stops before the later stage ever fires,
+// especially under concurrent-crawl contention where that later stage is
+// delayed further. Requiring multiple consecutive non-growing reads (not
+// just 1) before trusting a "stable" count measurably helped in repeated
+// live re-tests, at both light and moderate concurrent load.
+//
+// IMPORTANT CAVEAT: this does NOT fully eliminate the race in the worst
+// case actually present in the maintainer's real account - a single course
+// with radically more content than the others (198 files, ~5-7 minutes to
+// crawl on its own) run concurrently with smaller courses that have
+// paginated sections. Live re-tested repeatedly (course_concurrency 2 and
+// 3, full 8-course account, this exact constant raised as high as 8 with
+// an 8x-longer showAllExpansionRequiredStableReads companion change) and
+// this specific combination intermittently still lost a small number of
+// files (2-8 of 341, ~1-2%) even at the most generous budgets tried - while
+// wall-clock time for the whole crawl grew substantially (~2.4-2.6x versus
+// the course_concurrency=1 baseline) purely from every section paying this
+// polling insurance cost, whether or not it was actually contended. Pushing
+// this budget higher did not reliably close the gap and made the common
+// case significantly slower, so this was deliberately tuned back down to a
+// more moderate value rather than chasing full reliability at any wall-clock
+// cost. See DefaultCourseConcurrency's doc comment in
+// internal/config/config.go for why the default stays at 1 given this, and
+// docs/OPERATIONS.md for the current incident-playbook guidance.
+const sectionContentPollIntervalMs = 400.0
+const sectionContentMaxPolls = 20
+const sectionContentRequiredStableReads = 4
+
+// waitForStableSectionContent extracts page's main-content candidates
+// (extractSectionContentCandidates) repeatedly until the read stabilizes,
+// replacing the fixed-wait-then-extract-with-one-retry-on-empty scheme
+// collectCourseFiles's main loop used before this. See
+// candidateStabilityPoll's doc comment (navigation.go) and
+// sectionContentRequiredStableReads's doc comment above for the root cause
+// this fixes: a fixed wait (or a single-non-growing-read poll) tuned for a
+// single course rendering alone is not reliably enough/robust once several
+// courses' pages are rendering under concurrent load, because OPAL's
+// staged rendering can produce a false-stable plateau before all content
+// (notably pagination controls) has actually appeared.
+//
+// Callers should still call waitForInteractiveLinks first (as
+// collectCourseFiles's main loop does) - the initial fixed wait remains
+// cheap insurance against the very first extraction attempt reading a
+// completely blank page, before there is anything to measure growth
+// against.
+//
+// A page-crash error is returned immediately (isPageCrashError) so the
+// caller's existing recovery path runs, exactly as the pre-existing
+// extraction-error handling in collectCourseFiles's main loop already
+// expected; any other error is retried within the poll budget rather than
+// surfaced, so this can also return a nil error with a shorter-than-hoped
+// candidates slice if every retry within budget kept failing transiently -
+// callers must still treat a persistently empty/erroring result the same
+// way as before (see the sectionsVisited/sectionsFailed accounting around
+// this call in collectCourseFiles).
+func (s *OpalScraper) waitForStableSectionContent(page playwright.Page) ([]map[string]string, error) {
+	// Logs each poll's candidate count under --debug-clicks (audit.go), so a
+	// stuck-at-N-forever plateau can be distinguished from "never reached
+	// the poll loop at all" - this is exactly the diagnostic that found the
+	// staged-render/false-plateau root cause documented on
+	// sectionContentRequiredStableReads above (queue task
+	// fix-concurrent-crawl-ajax-race-and-raise-concurrency), so it's kept as
+	// a permanent diagnostic rather than removed, matching audit.go's
+	// "always-available diagnostic flag, not a temporary patch" philosophy.
+	pollNum := 0
+	extractFn := func() ([]map[string]string, error) {
+		candidates, err := s.extractSectionContentCandidates(page)
+		if s.debugClicks {
+			pollNum++
+			errStr := "nil"
+			if err != nil {
+				errStr = err.Error()
 			}
-			continue
+			s.auditLog("section-content-poll", page, "", fmt.Sprintf("poll #%d: %d candidates, err=%s", pollNum, len(candidates), errStr))
 		}
-		if len(next) <= len(best) {
-			// This round didn't grow the candidate set - the AJAX update has
-			// settled (or never happens to grow further). best already holds
-			// the largest read seen, so stop polling rather than overwriting
-			// it with this equal-or-smaller round.
-			break
-		}
-		best = next
+		return candidates, err
 	}
-	return best, nil
+	return candidateStabilityPoll(
+		extractFn,
+		func() { page.WaitForTimeout(sectionContentPollIntervalMs) },
+		sectionContentMaxPolls,
+		s.requiredStableReads(sectionContentRequiredStableReads),
+		isPageCrashError,
+	)
+}
+
+// requiredStableReads returns patient (the concurrency-aware constant
+// passed in by the caller - sectionContentRequiredStableReads or
+// showAllExpansionRequiredStableReads) when this crawl is actually running
+// with course_concurrency>1, and 1 (the original, already-proven-sufficient
+// single-non-growing-read behavior) otherwise.
+//
+// This matters for wall-clock cost, not just correctness: live-verified
+// (queue task fix-concurrent-crawl-ajax-race-and-raise-concurrency) that
+// unconditionally requiring several consecutive stable reads for every
+// section - even during a purely serial course_concurrency=1 crawl, which
+// never exhibited this race in the first place (see this same task's
+// DefaultCourseConcurrency doc comment in internal/config/config.go) - made
+// a full serial crawl of the real TU Dresden account measurably slower
+// (~999s vs. the ~471s pre-fix baseline, more than 2x) for zero correctness
+// benefit, since the race this patience defends against is specific to
+// concurrent rendering contention that a serial crawl by definition doesn't
+// have. Scoping the extra patience to only when concurrency>1 keeps the
+// default (course_concurrency=1) experience exactly as fast as it always
+// was, while still applying it for anyone who opts into course_concurrency>1
+// via config.yaml or --course-concurrency.
+func (s *OpalScraper) requiredStableReads(patient int) int {
+	if s.effectiveCourseConcurrency() > 1 {
+		return patient
+	}
+	return 1
 }
 
 // recoverAndReturnToSection is expandShowAllInSection's crash path: it opens a fresh

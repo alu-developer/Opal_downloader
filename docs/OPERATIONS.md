@@ -129,6 +129,30 @@ higher, already-known-unsafe value), that is a *new* finding distinct from
 the above and needs fresh live investigation - don't assume it's already
 covered by this section.
 
+**Update (2026-07-13, queue task fix-concurrent-crawl-ajax-race-and-raise-
+concurrency): the race at `course_concurrency>1` was root-caused further and
+substantially (not fully) fixed - don't assume "check course_concurrency,
+done" is still the whole story.** Four distinct bugs behind it were found
+and fixed: a fixed-duration per-section content wait that could elapse
+before OPAL's AJAX-rendered content actually finished under concurrent
+contention; that fix's own initial version (stop at one non-growing read)
+still not being enough because OPAL/Wicket renders a section in stages and
+one non-growing read can land on a false plateau between stages (fixed by
+requiring several *consecutive* non-growing reads); a "show all" pagination
+click timeout too short under concurrent load; and simultaneous multi-tab
+creation worsening contention (now serialized/staggered). See
+`DefaultCourseConcurrency`'s doc comment in `internal/config/config.go` for
+the full writeup and exact code pointers. These fixes hold up in
+light-to-moderate concurrent load, but **repeated live full-account
+re-tests still intermittently lost a small number of files (~1-2% of 341,
+down from the original 21-76%) at `course_concurrency` 2 and 3** when the
+account's one much-larger/slower course (198 files, several minutes) was
+crawling concurrently with smaller courses that have paginated sections -
+so the default stays at 1. If you're chasing this symptom on a config with
+`course_concurrency>1` explicitly set, that residual risk is real and
+expected, not necessarily a new regression; compare against a
+`course_concurrency=1` serial run to confirm before deep-diving further.
+
 Separately, `internal/scraper/crawl.go`'s `collectCourseFiles` and
 `internal/scraper/discovery.go`'s `discoverCourseLinks` were both hardened
 (same task) so a section/source-page whose Goto or extraction fails outright

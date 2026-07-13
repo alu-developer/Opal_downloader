@@ -41,6 +41,13 @@ func (s *OpalScraper) SetDebugClicks(enabled bool) {
 // JS DOM reads, no Playwright Click/Wait calls at all), so there is nothing
 // to instrument there.
 //
+// Extended (2026-07-13, queue task fix-concurrent-crawl-ajax-race-and-
+// raise-concurrency) with a "section-content-poll" kind logged from
+// crawl.go's waitForStableSectionContent, one line per poll iteration with
+// that read's candidate count - this is what let that task tell a
+// stuck-at-N-forever plateau apart from "the poll loop never even ran",
+// and is kept as a permanent diagnostic for the same reason.
+//
 // This is meant to stay in the codebase as an always-available diagnostic
 // flag, not a temporary patch - see SetDebugClicks and the --debug-clicks
 // CLI flag. When debugClicks is false (the default), this is a single bool

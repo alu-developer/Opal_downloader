@@ -149,25 +149,54 @@ confidently.
   etc. in `discovery.go`/`files.go`) — expect to need selector fixes whenever
   OPAL's UI changes. See `docs/OPERATIONS.md` for the incident playbook.
 - **`course_concurrency` defaults to 1 (serial), not a higher "parallel tabs"
-  value, because raising it causes real data loss, not just a rate-limiting
-  risk.** Live-tested 2026-07-12 against the real TU Dresden account (8
-  courses, 341 real files, verified via a serial ground-truth run):
-  `course_concurrency=3` (the old default) silently returned 0 files for 2
-  whole courses that actually had 38 and 34 files (21% of all files lost,
-  logged only as a generic "found 0 files" line, not an error);
-  `course_concurrency=5` lost 76% of files. This is an AJAX-render race in
-  concurrent course crawling that PR #64 only partially fixed (that PR fixed
-  show-all pagination specifically; this is a broader instance of the same
-  class of race that can drop a course's content entirely, not just
-  undercount it). Only `course_concurrency=1` produced correct, complete
-  results across 3 separate live runs. Don't raise this default again until
-  the underlying race is fixed and re-verified live - "kept conservative to
-  avoid rate-limiting" was the old (untested) reasoning for this knob; the
-  real constraint turned out to be correctness, not OPAL's tolerance for
-  parallel requests. `download_concurrency` (fast HTTP download path,
-  separate from course crawling) stays at 3 - no rate-limiting or
-  correctness issue was found there, but higher values weren't cleanly
-  tested either, because of an unrelated bug (see below).
+  value, because raising it can still cause real data loss, not just a
+  rate-limiting risk - though the loss is now much smaller than originally
+  found.** Original finding (2026-07-12): `course_concurrency=3` (the old
+  default) silently returned 0 files for 2 whole courses (21% of all files
+  lost, logged only as a generic "found 0 files" line, not an error);
+  `course_concurrency=5` lost 76%. Root-caused and substantially fixed
+  2026-07-13 (queue task fix-concurrent-crawl-ajax-race-and-raise-
+  concurrency): it's a genuine AJAX-render race in concurrent course
+  crawling (not rate-limiting), and was actually **four** distinct bugs, all
+  live-confirmed and fixed against the real TU Dresden account: (1) the
+  per-section content wait used one fixed-duration sleep tuned for serial
+  rendering, which under real concurrent contention could elapse before a
+  section's content had actually rendered - replaced with condition-based
+  polling (`candidateStabilityPoll`/`waitForStableSectionContent`,
+  `internal/scraper/navigation.go`/`crawl.go`); (2) that polling's first
+  version stopped at a single non-growing read, which live A/B testing
+  showed was insufficient - OPAL/Wicket renders a section in stages (row
+  list, then later a pagination control), and a single non-growing read can
+  land on a false plateau between stages, so it now requires several
+  *consecutive* non-growing reads before trusting "stable"; (3) the "show
+  all" pagination control's click used a 3s timeout too short to reliably
+  become actionable under concurrent rendering load - raised, with retries
+  (`showAllClickTimeoutMs`/`showAllClickMaxAttempts`, `crawl.go`); (4)
+  several workers opening a fresh browser tab at the same instant worsened
+  the race - now serialized/staggered (`newPageMu`/`newPageStaggerMs`,
+  `scraper.go`/`orchestrator.go`). Together these fixed the race in
+  light-to-moderate concurrent load, live-verified repeatedly. **However,
+  the default was still NOT raised**: repeated full-account live re-tests
+  (all 8 courses, including the account's one 198-file course - far larger
+  than the others - crawling concurrently with several smaller courses that
+  have paginated sections) at `course_concurrency` 2 and 3 still
+  intermittently lost a small number of files (2-8 of 341, ~1-2%, down from
+  the original 21-76%) even with generous polling budgets; pushing the
+  budgets further didn't reliably close that gap and roughly doubled
+  wall-clock time even when nothing needed the extra patience. The extra
+  per-section patience these fixes need is scoped to only apply when
+  `course_concurrency>1` is actually in effect (see `requiredStableReads`,
+  `crawl.go`), so `course_concurrency=1`'s own speed is unaffected (~28%
+  slower than the pre-fix baseline from one cheap safety-net poll per
+  section, not the ~2x an earlier unscoped version of this fix measured).
+  See `DefaultCourseConcurrency`'s doc comment in
+  `internal/config/config.go` for the full writeup, including a suggested
+  follow-up direction (a size/duration-aware scheduler that avoids running
+  the single largest/slowest course concurrently with everything else).
+  `download_concurrency` (fast HTTP download path, separate from course
+  crawling) stays at 3 - no rate-limiting or correctness issue was found
+  there, but higher values weren't cleanly tested either, because of an
+  unrelated bug (see below).
 - **Separate bug found during the above testing, not yet fixed:** a
   meaningful fraction of a course's files (43 of 198 in the tested course)
   fail the fast HTTP download path and then also fail the serialized

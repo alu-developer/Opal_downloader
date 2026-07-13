@@ -20,6 +20,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 	"github.com/alu-developer/opal-downloader/internal/timing"
 	"github.com/alu-developer/opal-downloader/internal/updater"
+	"github.com/alu-developer/opal-downloader/internal/visitlog"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -356,6 +357,7 @@ func runList(args []string) error {
 	profile := false
 	debugClicks := false
 	courseConcurrency := 0
+	visitReport := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--config":
@@ -380,6 +382,8 @@ func runList(args []string) error {
 				return fmt.Errorf("--course-concurrency requires a positive integer, got %q", args[i])
 			}
 			courseConcurrency = parsed
+		case "--visit-report":
+			visitReport = true
 		default:
 			return fmt.Errorf("unknown option for list: %s", args[i])
 		}
@@ -395,6 +399,21 @@ func runList(args []string) error {
 		loaded.App.CourseConcurrency = courseConcurrency
 	}
 
+	// --visit-report only reads the persistent cross-run visit-effectiveness
+	// log built up by prior list/sync runs (see internal/visitlog) - it does
+	// not open a browser or touch OPAL at all, so it works offline and
+	// without a login/session.
+	if visitReport {
+		logPath := filepath.Join(loaded.App.DownloadPath, visitlog.FileName)
+		records, loadErr := visitlog.Load(logPath)
+		if loadErr != nil {
+			return loadErr
+		}
+		fmt.Printf("Section visit-effectiveness report (%s)\n\n", logPath)
+		fmt.Print(visitlog.FormatReport(visitlog.Aggregate(records)))
+		return nil
+	}
+
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
@@ -404,12 +423,30 @@ func runList(args []string) error {
 
 	totalTimer := timing.StartTimer()
 	err = syncer.ListAvailableCourses(sc)
+	if visitLogErr := persistVisitLog(sc, loaded.App.DownloadPath); visitLogErr != nil {
+		fmt.Fprintln(os.Stderr, "Warning: failed to update section visit log:", visitLogErr)
+	}
 	fmt.Println()
 	timing.PrintTotalSummary(totalTimer.Elapsed())
 	if err == nil {
 		printUpdateFooter()
 	}
 	return err
+}
+
+// persistVisitLog appends whatever section-visit records sc accumulated
+// during its most recent scrape (see OpalScraper.VisitRecords) into the
+// persistent cross-run visit-effectiveness log at
+// "<download_path>/.opal-visit-log.json", next to the sync manifest. A no-op
+// when sc recorded nothing (e.g. the scrape failed before visiting any
+// section) - see visitlog.Append.
+func persistVisitLog(sc *scraper.OpalScraper, downloadPath string) error {
+	records := sc.VisitRecords()
+	if len(records) == 0 {
+		return nil
+	}
+	logPath := filepath.Join(downloadPath, visitlog.FileName)
+	return visitlog.Append(logPath, records)
 }
 
 func runSync(args []string) error {
@@ -497,6 +534,13 @@ func runSync(args []string) error {
 
 	totalTimer := timing.StartTimer()
 	stats, err := syncer.SyncCourses(sc, loaded.App, force)
+	// Persist whatever section visits were recorded regardless of whether
+	// the sync itself succeeded - even a failed/partial sync's visit data is
+	// useful cross-run history (see internal/visitlog), and this must not
+	// clobber the more important sync error return below.
+	if visitLogErr := persistVisitLog(sc, loaded.App.DownloadPath); visitLogErr != nil {
+		fmt.Fprintln(os.Stderr, "Warning: failed to update section visit log:", visitLogErr)
+	}
 	if err != nil {
 		return err
 	}
@@ -714,7 +758,7 @@ func printHelp() {
 	fmt.Println("  status --config <path>")
 	fmt.Println("  gui [--port <port>] [--config <path>] [--suggested-browser-user-data-dir <path>]")
 	fmt.Println("  login --config <path> [--dev]")
-	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>]")
+	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>] [--visit-report]")
 	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
 	fmt.Println()
@@ -722,6 +766,7 @@ func printHelp() {
 	fmt.Println("  --debug-clicks          Log every click and navigation/interactive-link wait with timestamp, page URL, selector, and reason (diagnostic tool)")
 	fmt.Println("  --concurrency n         Max concurrent file downloads for sync (default 3, overrides config.yaml)")
 	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 1, overrides config.yaml)")
+	fmt.Println("  --visit-report          (list only) Print the cross-run section visit-effectiveness report from .opal-visit-log.json and exit - no browser/login needed")
 }
 
 func copyFile(source, target string) error {

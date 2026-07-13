@@ -4,8 +4,10 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/visitlog"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -112,6 +114,22 @@ type OpalScraper struct {
 	// and is only ever toggled by the single goroutine driving a scrape, not
 	// raced against Close().
 	pageTrackingSuspended atomic.Bool
+
+	// visitLogMu guards visitRecords. collectCourseFiles (crawl.go) records
+	// one entry per successfully-visited section, and runs concurrently
+	// across courses during discovery (see collectCourseFilesConcurrently in
+	// orchestrator.go, each course on its own goroutine) - so appends here
+	// need their own lock, independent of fieldMu above.
+	visitLogMu sync.Mutex
+
+	// visitRecords accumulates every section-visit observation made across
+	// all scrapes run on this OpalScraper so far. It is purely in-memory
+	// during a scrape; callers (cmd/opal-downloader/root.go's runList/
+	// runSync) retrieve it via VisitRecords() once a scrape completes and
+	// persist it into the cross-run visitlog.Log file that sits next to the
+	// sync manifest. See internal/visitlog's package doc for why this is a
+	// separate, cross-run concern from --debug-clicks (audit.go).
+	visitRecords []visitlog.Record
 }
 
 // suspendPageTracking stops trackActivePage's ctx.OnPage hook from
@@ -178,6 +196,36 @@ func (s *OpalScraper) setPw(pw *playwright.Playwright) {
 
 func (s *OpalScraper) SetDeveloperMode(enabled bool) {
 	s.developerMode = enabled
+}
+
+// recordSectionVisit appends one section-visit observation to the
+// in-memory list accumulated during this scrape. Called from
+// collectCourseFiles (crawl.go) once a section's Goto+extraction has
+// actually succeeded (so this reflects a real visit, not a failed
+// navigation attempt) - see VisitRecords for how a caller retrieves these.
+func (s *OpalScraper) recordSectionVisit(course, sectionTitle, sectionURL string, filesFound int) {
+	s.visitLogMu.Lock()
+	defer s.visitLogMu.Unlock()
+	s.visitRecords = append(s.visitRecords, visitlog.Record{
+		Course:       course,
+		SectionTitle: sectionTitle,
+		SectionURL:   sectionURL,
+		FilesFound:   filesFound,
+		Timestamp:    time.Now(),
+	})
+}
+
+// VisitRecords returns every section-visit record accumulated across all
+// scrapes run on this OpalScraper so far (a copy, safe for the caller to
+// keep/mutate independently of further scrapes). Callers persist these into
+// the persistent cross-run visitlog.Log file via visitlog.Append - see
+// cmd/opal-downloader/root.go's persistVisitLog.
+func (s *OpalScraper) VisitRecords() []visitlog.Record {
+	s.visitLogMu.Lock()
+	defer s.visitLogMu.Unlock()
+	out := make([]visitlog.Record, len(s.visitRecords))
+	copy(out, s.visitRecords)
+	return out
 }
 
 // SetCourseConcurrency sets the number of courses crawled concurrently

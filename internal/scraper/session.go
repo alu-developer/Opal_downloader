@@ -11,8 +11,34 @@ import (
 	"github.com/mxschmitt/playwright-go"
 )
 
+// EnsurePlaywrightBrowsersPath defaults PLAYWRIGHT_BROWSERS_PATH to a
+// directory under the user's home (~/.opal-downloader/ms-playwright)
+// instead of leaving playwright-go to fall back to its own default
+// (%LOCALAPPDATA%/ms-playwright on Windows). Found 2026-07-13: on at least
+// one machine, %LOCALAPPDATA%/ms-playwright had silently become an NTFS
+// junction into an unrelated packaged app's private storage (created by
+// that app's own sandboxing, not by opal-downloader or the user), and
+// launching chrome.exe through that junction failed with "the application
+// has failed to start because its side-by-side configuration is
+// incorrect" - an identical copy of the same files launched fine from a
+// plain directory. Installing/launching against a path under the user's
+// home directory instead avoids depending on %LOCALAPPDATA% ever staying a
+// normal (non-redirected) directory. Only sets the var if the user hasn't
+// already set one, so an explicit PLAYWRIGHT_BROWSERS_PATH always wins.
+func EnsurePlaywrightBrowsersPath() {
+	if os.Getenv("PLAYWRIGHT_BROWSERS_PATH") != "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	_ = os.Setenv("PLAYWRIGHT_BROWSERS_PATH", filepath.Join(home, ".opal-downloader", "ms-playwright"))
+}
+
 func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 	if s.getPw() == nil {
+		EnsurePlaywrightBrowsersPath()
 		pw, err := playwright.Run()
 		if err != nil {
 			return err

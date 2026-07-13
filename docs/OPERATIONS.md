@@ -137,6 +137,40 @@ where *every* attempted section failed now surfaces as a distinct crawl
 error (see `sectionsVisited`/`sectionsFailed` in crawl.go) instead of "0
 files, crawled successfully", and a discovery source page now retries once
 and logs a warning instead of silently dropping its courses from the list.
+
+### Chromium fails to launch with "the application has failed to start
+### because its side-by-side configuration is incorrect"
+
+Root-caused 2026-07-13 on the maintainer's machine: `%LOCALAPPDATA%\ms-playwright`
+(Playwright's default browser install directory, which `playwright.Install()`
+and `playwright.Run()` both used implicitly via `PLAYWRIGHT_BROWSERS_PATH`
+being unset) had silently become an NTFS junction into an unrelated packaged
+app's private storage (`...\Packages\<pkg-id>\LocalCache\Local\ms-playwright`)
+- created by that app's own sandboxing, not by opal-downloader, OPAL, or
+anything the user did. Launching `chrome.exe` through that junction failed
+with the SxS error every time; an identical byte-for-byte copy of the same
+`chrome-win64` folder placed in a plain (non-redirected) directory launched
+fine. So this was never Chromium/Playwright corruption or a real Windows
+SxS/WinSxS problem - it was the browser's install directory sitting behind a
+reparse point that broke the OS loader's assembly-manifest resolution for
+that specific process.
+
+Fix (`internal/scraper/session.go`'s `EnsurePlaywrightBrowsersPath`, called
+from both `launchBrowser` and `runSetup` in
+`cmd/opal-downloader/root.go`): default `PLAYWRIGHT_BROWSERS_PATH` to
+`~/.opal-downloader/ms-playwright` whenever the user hasn't already set that
+env var themselves, instead of leaving it to playwright-go's own default of
+`%LOCALAPPDATA%/ms-playwright`. This sidesteps `%LOCALAPPDATA%` entirely, so
+it doesn't matter whether that specific directory is ever redirected again
+by some other app's sandboxing/virtualization on a given machine.
+
+If this resurfaces (same SxS error, any machine): check whether
+`~/.opal-downloader/ms-playwright` (or `$PLAYWRIGHT_BROWSERS_PATH` if the
+user has set it explicitly) itself is a reparse point/junction/symlink
+before assuming a Chromium/Playwright regression - `Get-Item <path> -Force`
+in PowerShell shows `LinkType`/`Target` if it is one. Re-running
+`opal-downloader setup` reinstalls the browsers at whatever path is
+currently active.
 Neither failure path was live-triggered during this task's testing (OPAL was
 stable across all 3 runs), so this hardening is defensive/untested-live, not
 a fix for a reproduced bug - it closes a gap the acceptance criteria called

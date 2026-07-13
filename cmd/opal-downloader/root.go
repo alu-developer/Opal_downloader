@@ -187,6 +187,7 @@ func runSetup(args []string) error {
 	// opal-downloader.exe (no Go, no git) does not have - it broke the
 	// installer's post-install [Run] fallback and any `setup` rerun on a
 	// machine without Go. See docs/installer-plan.md Section 9.
+	scraper.EnsurePlaywrightBrowsersPath()
 	if err := playwright.Install(&playwright.RunOptions{
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,

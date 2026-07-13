@@ -172,3 +172,71 @@ func TestCloseDuringBlockingOperationReturnsPromptly(t *testing.T) {
 
 	<-done
 }
+
+// TestVisitRecordsAccumulatesAndReturnsCopy exercises the in-memory
+// recording side of the visit-effectiveness log (internal/visitlog):
+// recordSectionVisit is called from collectCourseFiles (crawl.go) once per
+// successfully visited section, and VisitRecords is what
+// cmd/opal-downloader/root.go's persistVisitLog reads afterward to append
+// into the persistent cross-run log file. This only exercises the
+// accumulate/copy behavior in isolation (no Playwright/browser needed) -
+// the persistence-across-runs behavior itself is covered by
+// internal/visitlog's own tests.
+func TestVisitRecordsAccumulatesAndReturnsCopy(t *testing.T) {
+	s := New("", "", "", "", "")
+
+	if got := s.VisitRecords(); len(got) != 0 {
+		t.Fatalf("expected no visit records on a fresh scraper, got %d", len(got))
+	}
+
+	s.recordSectionVisit("Analysis", "Übungen", "https://opal/1", 3)
+	s.recordSectionVisit("Analysis", "Forum", "https://opal/2", 0)
+
+	records := s.VisitRecords()
+	if len(records) != 2 {
+		t.Fatalf("expected 2 recorded visits, got %d: %#v", len(records), records)
+	}
+	if records[0].Course != "Analysis" || records[0].SectionTitle != "Übungen" || records[0].SectionURL != "https://opal/1" || records[0].FilesFound != 3 {
+		t.Fatalf("unexpected first record: %#v", records[0])
+	}
+	if records[1].FilesFound != 0 {
+		t.Fatalf("expected second record to have FilesFound=0, got %#v", records[1])
+	}
+
+	// VisitRecords must return an independent copy - mutating the returned
+	// slice must not corrupt the scraper's own accumulated state, since
+	// callers (persistVisitLog) own the slice they get back.
+	records[0].Course = "mutated"
+	if again := s.VisitRecords(); again[0].Course != "Analysis" {
+		t.Fatalf("expected VisitRecords to return a copy, but internal state was mutated: %#v", again[0])
+	}
+}
+
+// TestRecordSectionVisitConcurrentSafe mirrors
+// TestCloseIsSafeDuringConcurrentScrapeFieldAccess above: collectCourseFiles
+// runs concurrently across courses (see collectCourseFilesConcurrently in
+// orchestrator.go, each course on its own goroutine), so
+// recordSectionVisit/VisitRecords must be safe to call from many goroutines
+// at once. Run with `go test -race` to have the race detector confirm this.
+func TestRecordSectionVisitConcurrentSafe(t *testing.T) {
+	s := New("", "", "", "", "")
+
+	const workers = 8
+	const perWorker = 50
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for j := 0; j < perWorker; j++ {
+				s.recordSectionVisit("Course", "Section", "https://opal/section", j%3)
+				_ = s.VisitRecords()
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if got := len(s.VisitRecords()); got != workers*perWorker {
+		t.Fatalf("expected %d accumulated visit records, got %d", workers*perWorker, got)
+	}
+}

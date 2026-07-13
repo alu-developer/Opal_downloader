@@ -201,7 +201,15 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 			sectionTitle = deriveSectionTitleFromURL(course.Title, currentURL)
 		}
 		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
+		filesBeforeSection := len(files)
 		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, s.opalURL, downloadCandidates)
+		// Record this visit for the persistent cross-run visit-effectiveness
+		// log (internal/visitlog) - one entry per section actually reached
+		// (Goto+extraction succeeded, past the `continue`s above), noting how
+		// many *new* files this visit contributed. This is purely
+		// observational (see visitlog's package doc): it does not change
+		// what gets crawled, just records it for later human review.
+		s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection)
 		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles)
 	}
 

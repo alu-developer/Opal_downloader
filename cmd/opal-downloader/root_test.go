@@ -5,11 +5,14 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/updater"
+	"github.com/alu-developer/opal-downloader/internal/visitlog"
 )
 
 // captureStdout redirects os.Stdout for the duration of fn and returns
@@ -123,5 +126,61 @@ func TestPrintUpdateFooter_DoesNotHangOnSlowCheck(t *testing.T) {
 		}
 	case <-time.After(updateCheckTimeout + 2*time.Second):
 		t.Fatal("printUpdateFooter did not return within the expected timeout window")
+	}
+}
+
+// TestPersistVisitLogNoopWhenNoRecords exercises persistVisitLog's early-out
+// for a scraper that recorded nothing (e.g. a scrape that failed before
+// visiting any section) - it must not create a log file at all.
+func TestPersistVisitLogNoopWhenNoRecords(t *testing.T) {
+	dir := t.TempDir()
+	sc := scraper.New("", "", "", "", "")
+
+	if err := persistVisitLog(sc, dir); err != nil {
+		t.Fatalf("persistVisitLog with no records returned error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, visitlog.FileName)); !os.IsNotExist(err) {
+		t.Fatalf("expected no visit log file to be created, stat err: %v", err)
+	}
+}
+
+// TestRunListVisitReportReadsExistingLogWithoutScraping exercises the
+// `list --visit-report` CLI path end-to-end against a real config.yaml and a
+// pre-seeded visit log: it must print the aggregate report and return
+// without ever constructing a scraper (i.e. no browser/login attempted) -
+// confirmed here by the command succeeding entirely offline in a unit test.
+func TestRunListVisitReportReadsExistingLogWithoutScraping(t *testing.T) {
+	dir := t.TempDir()
+	downloadPath := filepath.Join(dir, "downloads")
+	if err := os.MkdirAll(downloadPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll downloadPath: %v", err)
+	}
+
+	logPath := filepath.Join(downloadPath, visitlog.FileName)
+	records := []visitlog.Record{
+		{Course: "Analysis", SectionTitle: "Forum", SectionURL: "https://opal/forum", FilesFound: 0, Timestamp: time.Now()},
+		{Course: "Analysis", SectionTitle: "Forum", SectionURL: "https://opal/forum", FilesFound: 0, Timestamp: time.Now()},
+	}
+	if err := visitlog.Append(logPath, records); err != nil {
+		t.Fatalf("seeding visit log: %v", err)
+	}
+
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := "download_path: " + downloadPath + "\ncourses:\n  - \"*\"\n"
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+		t.Fatalf("writing config.yaml: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runList([]string{"--config", configPath, "--visit-report"}); err != nil {
+			t.Errorf("runList --visit-report returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Forum") {
+		t.Fatalf("expected report to mention the seeded Forum section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "empty on all 2 visit(s)") {
+		t.Fatalf("expected report to flag Forum as always-empty, got:\n%s", out)
 	}
 }

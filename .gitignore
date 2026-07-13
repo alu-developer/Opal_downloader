@@ -1,5 +1,6 @@
 # Secrets and local config
 config.yaml
+config.yaml.*
 
 # Downloaded files and sync state
 .downloads/

@@ -48,7 +48,7 @@ type Options struct {
 	// page pre-fills this value as an editable suggestion only - it is
 	// never written to config.yaml unless the user explicitly submits the
 	// settings form. See docs/installer-plan.md Section 5's last bullet and
-	// CLAUDE.md's "Key design decisions" for why this must stay a
+	// CLAUDE.md's "Login/session automation" for why this must stay a
 	// suggestion, not an auto-applied value: the browser-profile constraint
 	// (real profile only, no copies) means a wrong guess here should never
 	// silently become config.

@@ -439,5 +439,5 @@ HMAC seed and device-ID inputs are, in principle, forgeable (published
 academic/red-team work has reverse-engineered both), but both are
 undocumented Chromium/Brave binary internals that can silently change on any
 browser update — not a foundation this project should build its login path
-on. See CLAUDE.md's "Key design decisions" section for the full write-up.
-Treat "conclusively ruled out" as reaffirmed, not just asserted.
+on. See `docs/HISTORY.md`'s "Browser profile handling" section for the full
+write-up. Treat "conclusively ruled out" as reaffirmed, not just asserted.

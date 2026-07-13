@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'try { & ./scripts/dev.ps1 all } catch { Write-Error $_; exit 2 }; exit 0'",
+            "if": "Bash(git push*)",
+            "timeout": 600,
+            "statusMessage": "Running scripts/dev.ps1 all before git push..."
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'try { & ./scripts/dev.ps1 all } catch { Write-Error $_; exit 2 }; exit 0'",
+            "if": "PowerShell(git push*)",
+            "timeout": 600,
+            "statusMessage": "Running scripts/dev.ps1 all before git push..."
+          }
+        ]
+      }
+    ]
+  }
+}

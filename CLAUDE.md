@@ -104,11 +104,14 @@ maintainer's own repeat use.
 
 Login/sync/list need a Playwright browser session against a real,
 unlocked (browser closed) profile on the machine running them — a profile
-*copy* does not work (HMAC integrity breakage), which is why the direction
-is a dedicated, never-copied second profile rather than reusing the user's
-real Chrome/Brave profile long-term; see `docs/browser-profile-strategy.md`
-and `docs/HISTORY.md` for the reasoning and status. Whichever profile is
-configured, when TU-Fast is installed and working in it, it completes the
+*copy* does not work (HMAC integrity breakage). A dedicated, never-copied
+second profile is shipped and working: one-click setup (CLI and GUI)
+transplants TU-Fast's login/2FA state into a fresh profile without
+repeating the manual install+2FA flow — see
+`docs/browser-profile-strategy.md` and `docs/HISTORY.md`. Not yet the
+default; the user's real everyday Chrome/Brave profile still is, and
+whether/when that changes is undecided. Whichever profile is configured,
+when TU-Fast is installed and working in it, it completes the
 Shibboleth/2FA exchange itself — no human click needed, `ensureSession`
 just waits for the post-login course list. A human is only needed if
 TU-Fast isn't working in that profile or the profile is locked (another

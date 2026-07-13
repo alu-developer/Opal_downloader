@@ -3,9 +3,9 @@
 This file holds detailed narrative for past design decisions — the "how we
 got here" story, split out from `CLAUDE.md` so that file can stay a current
 current-state-plus-direction reference without needing an edit every time
-more history accumulates. `CLAUDE.md`'s "Key design decisions" section keeps
-a short current-state pointer into this file; read here for the full story
-and PR-by-PR reasoning.
+more history accumulates. `CLAUDE.md`'s "Login/session automation" section
+keeps a short current-state pointer into this file; read here for the full
+story and PR-by-PR reasoning.
 
 ## Browser profile handling: copy vs. direct-launch vs. dedicated second profile
 
@@ -14,8 +14,7 @@ and PR-by-PR reasoning.
 opened directly by Playwright — there is no working copy made. This is the
 result of the history below, and a dedicated *second* (never-copied) profile
 is the direction currently being pursued as the friendlier default — see
-`docs/browser-profile-strategy.md` and the open question in `CLAUDE.md`'s
-"Open questions" section.
+`docs/browser-profile-strategy.md` for the current status of that push.
 
 **PR #6 / #15 — the original copy-based approach.** To let the user's
 everyday Brave/Chrome stay open while `opal-downloader` ran, an earlier
@@ -50,8 +49,8 @@ change was needed — `browser_user_data_dir`/`browser_profile_directory`
 already support pointing at this second profile; it's a setup/documentation
 question, not an engineering one. Not yet wired into `init`/onboarding/docs
 as of this writing — see `docs/browser-profile-strategy.md` for the
-recommendation to make it the default, and `CLAUDE.md`'s "Open questions"
-section for the current status of that decision.
+recommendation to make it the default, and `CLAUDE.md`'s "Login/session
+automation" section for the current status of that decision.
 
 ## GUI: technology choice and rollout to primary interface
 

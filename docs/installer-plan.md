@@ -192,7 +192,7 @@ Rationale:
 
 ## 5. Real-browser-profile constraint
 
-Per `CLAUDE.md`'s "Key design decisions" section, `login`/`sync`/`list`
+Per `CLAUDE.md`'s "Login/session automation" section, `login`/`sync`/`list`
 launch Playwright directly against the user's **real** Brave/Chrome profile
 (`browser_user_data_dir`/`browser_profile_directory`) — there is no working
 copy, because copying breaks Chromium's `Secure Preferences` HMAC integrity

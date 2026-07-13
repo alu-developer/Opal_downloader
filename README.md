@@ -257,8 +257,8 @@ for the full set of per-OS examples.
 `browser_user_data_dir` - there is no working copy (an earlier copy-based design was tried
 and doesn't work: Chromium's `Secure Preferences` file is integrity-protected (HMAC) in a
 way that detects a copied user-data-dir and strips extension permissions, including
-TU-Fast's, as soon as Chromium loads the copy - see `CLAUDE.md`'s "Key design decisions"
-section for the technical detail). There is nothing to "re-copy" after installing/updating
+TU-Fast's, as soon as Chromium loads the copy - see `docs/HISTORY.md`'s "Browser profile
+handling" section for the technical detail). There is nothing to "re-copy" after installing/updating
 TU-Fast either way - opal-downloader always reads the profile directly, so the latest
 extension/login state is picked up automatically.
 

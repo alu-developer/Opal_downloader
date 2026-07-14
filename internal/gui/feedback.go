@@ -39,7 +39,7 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 <meta charset="utf-8">
 <title>Opal Downloader - Feedback</title>
 <style>` + pageStyle + `
-	textarea { width: 100%; font: inherit; box-sizing: border-box; padding: 0.5rem; border-radius: 6px; border: 1px solid #ccc; }
+	textarea, input[type=text] { width: 100%; font: inherit; box-sizing: border-box; padding: 0.5rem; border-radius: 6px; border: 1px solid #ccc; }
 	textarea.diagnostics { background: #f7f7f7; color: #444; }
 	label { display: block; font-weight: 600; margin: 1rem 0 0.3rem; }
 </style>
@@ -58,6 +58,9 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 	{{end}}
 
 	<form method="post" action="/feedback/open">
+		<label for="title">Issue title</label>
+		<input type="text" id="title" name="title" value="{{.Title}}">
+
 		<label for="description">What happened?</label>
 		<textarea id="description" name="description" rows="6" placeholder="Describe the problem, what you expected, and what happened instead...">{{.Description}}</textarea>
 
@@ -79,6 +82,7 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 `))
 
 type feedbackPageData struct {
+	Title         string
 	Description   string
 	CrashDetected bool
 	CrashBlock    string
@@ -91,11 +95,12 @@ func (s *server) handleFeedbackPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := feedbackPageData{Diagnostics: report.Diagnostics(s.buildVersion)}
+	data := feedbackPageData{Title: "Feedback", Diagnostics: report.Diagnostics(s.buildVersion)}
 	if r.URL.Query().Get("crash") == "1" {
 		if crash := s.feedback.crash(); crash != "" {
 			data.CrashDetected = true
 			data.CrashBlock = crash
+			data.Title = "Crash report"
 		}
 	}
 
@@ -170,7 +175,12 @@ func (s *server) handleFeedbackOpen(w http.ResponseWriter, r *http.Request) {
 		body = report.FeedbackReport(s.buildVersion, description)
 	}
 
-	issueURL := report.IssueURL("Feedback", body)
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		title = "Feedback"
+	}
+
+	issueURL := report.IssueURL(title, body)
 
 	data := feedbackOpenedData{IssueURL: issueURL, Body: body}
 	openFn := s.openBrowser

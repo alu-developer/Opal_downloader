@@ -430,9 +430,9 @@ var loginPageTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE htm
 
 	<div class="status {{if .LoggedIn}}ok{{else}}warn{{end}}">
 		{{if .LoggedIn}}
-			Logged in (session saved{{if .StateModified}} {{.StateModified}}{{end}}, <code>{{.StateFile}}</code>).
+			Logged in (session saved{{if .StateModified}} {{.StateModified}}{{end}}).
 		{{else}}
-			Not logged in yet (<code>{{.StateFile}}</code> not found).
+			Not logged in yet.
 		{{end}}
 	</div>
 

@@ -484,7 +484,10 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<div class="field">
 		<label for="default_course_folder">Default course folder (optional)</label>
-		<input type="text" id="default_course_folder" name="default_course_folder" value="{{.DefaultCourseFolder}}">
+		<div class="path-field">
+			<input type="text" id="default_course_folder" name="default_course_folder" value="{{.DefaultCourseFolder}}">
+			<button type="button" class="browse-btn" id="browse-default-course-folder">Browse...</button>
+		</div>
 		<p class="hint">Used when a course below has no folder override. If empty, the course name itself is used.</p>
 	</div>
 
@@ -571,6 +574,23 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<p class="back"><a href="/">&larr; Back</a></p>
 
 	<script>
+		// Preserve scroll position across the form's full-page POST/re-render:
+		// without this, a save from e.g. the subfolder-destinations section
+		// near the bottom snaps back to the top on reload, and the "Saved."
+		// banner appears out of view.
+		(function () {
+			var STORAGE_KEY = 'opal-settings-scroll';
+			document.getElementById('settings-form').addEventListener('submit', function () {
+				try { sessionStorage.setItem(STORAGE_KEY, String(window.scrollY)); } catch (e) {}
+			});
+			var saved = null;
+			try { saved = sessionStorage.getItem(STORAGE_KEY); } catch (e) {}
+			if (saved !== null) {
+				try { sessionStorage.removeItem(STORAGE_KEY); } catch (e) {}
+				window.scrollTo(0, parseInt(saved, 10) || 0);
+			}
+		})();
+
 		var syncAllCheckbox = document.getElementById('sync_all_courses');
 		var coursesField = document.getElementById('courses-field');
 		function updateCoursesVisibility() {
@@ -620,6 +640,10 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 		document.getElementById('browse-download-path').addEventListener('click', function () {
 			browseInto(document.getElementById('download_path'));
+		});
+
+		document.getElementById('browse-default-course-folder').addEventListener('click', function () {
+			browseInto(document.getElementById('default_course_folder'));
 		});
 
 		// Event delegation for the "Browse..." buttons inside dynamic table

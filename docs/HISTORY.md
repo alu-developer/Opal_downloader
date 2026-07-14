@@ -56,9 +56,13 @@ automation" section for the current status of that decision.
 
 **Current state** (see `CLAUDE.md`): the local web GUI (`internal/gui/`) is
 the default entrypoint (running the binary with no subcommand launches it)
-and already drives settings, login, and `sync`/`list`/`dump-links` with live
+and already drives settings and `sync`/`list`/`dump-links` with live
 progress (server-sent events to the browser) — not just a settings/onboarding
-helper. The CLI subcommands remain fully functional alongside it.
+helper. The CLI subcommands remain fully functional alongside it. (The GUI's
+own manual "Login" page/trigger, added by `gui-login-trigger` below, was
+later removed by `remove-gui-manual-login-page` once it became clear
+`sync`/`list` already trigger a full interactive login automatically when no
+valid session exists — the CLI `login` subcommand was untouched.)
 
 **The decision (`docs/gui-concept.md`, exploratory groundwork doc):**
 weighed three options — a native Go toolkit (Fyne), a Go-backend-plus-webview

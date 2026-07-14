@@ -288,7 +288,67 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 	if err := s.waitForLoggedInCourseLink(); err != nil {
 		return err
 	}
-	return s.saveState()
+	if err := s.saveState(); err != nil {
+		return err
+	}
+
+	if !shouldRelaunchHeadlessAfterInteractiveLogin(forceInteractive, s.developerMode) {
+		// forceInteractive is only set by the standalone `login` command
+		// (LoginWithBrowser), which has nothing left to do after saving
+		// state - no crawl follows in the same process, so there's no
+		// benefit to relaunching headless here, only extra latency.
+		// developerMode explicitly asked for a visible browser for tracing,
+		// so honor that too.
+		return nil
+	}
+
+	// This is the ensureSession(false) path used by sync/list
+	// (ScrapeWithSavedSession): the saved session state we just checked was
+	// either missing or expired, so login fell through to the interactive,
+	// visible persistent-context browser above (the only way to drive
+	// TU-Fast - see launchBrowser's HMAC/real-profile comment). Without this,
+	// the crawl that ScrapeWithSavedSession runs right after ensureSession
+	// returns would continue in that same visible window, turning a one-time
+	// interactive login step into an entire visible sync/list run. Now that
+	// saveState() has persisted the freshly-authenticated session, close the
+	// visible browser and relaunch headlessly against that saved state - via
+	// the normal anonymous-context + StorageStatePath path (same as the
+	// saved-session branch above), never the persistent-context path - so
+	// the crawl proceeds headless. See queue task
+	// investigate-sync-list-not-headless.
+	_ = s.closeBrowser()
+	if err := s.launchBrowser(true, true); err != nil {
+		return fmt.Errorf("interactive login succeeded and session was saved, but relaunching headless afterward failed: %w", err)
+	}
+	auth, authErr := s.isAuthenticated()
+	if authErr != nil {
+		return fmt.Errorf("interactive login succeeded and session was saved, but verifying the headless relaunch failed: %w", authErr)
+	}
+	if !auth {
+		return errors.New("interactive login succeeded and session was saved, but the headless relaunch did not appear authenticated")
+	}
+	return nil
+}
+
+// shouldRelaunchHeadlessAfterInteractiveLogin reports whether ensureSession
+// should close the visible interactive-login browser (launched via
+// launchBrowser(false, false) against the real browser_user_data_dir, the
+// only way to drive TU-Fast) and relaunch headlessly against the
+// just-saved session state, once that interactive login has succeeded.
+//
+// forceInteractive is true only for the standalone `login` command
+// (LoginWithBrowser) - it has nothing left to do after saving state, so
+// there is no crawl to protect from running in a visible window and no
+// reason to pay for an extra headless relaunch. developerMode is an
+// explicit --dev request for a visible, traceable browser and must be
+// honored the same way. Everywhere else - the ensureSession(false) path
+// used by sync/list (ScrapeWithSavedSession) - a saved-but-expired or
+// missing session falls through to this same interactive login, and
+// without relaunching headless afterward the crawl that follows would run
+// in that same visible window, which is the bug this function's caller
+// fixes. See queue task investigate-sync-list-not-headless.
+func shouldRelaunchHeadlessAfterInteractiveLogin(forceInteractive, developerMode bool) bool {
+	return !forceInteractive && !developerMode
 }
 
 // courseLinkSelector matches links present once the OPAL dashboard/course

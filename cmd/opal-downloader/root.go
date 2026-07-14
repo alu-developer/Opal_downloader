@@ -420,7 +420,7 @@ func runList(args []string) error {
 	defer closeBrowserOnInterrupt(sc)()
 
 	totalTimer := timing.StartTimer()
-	err = syncer.ListAvailableCourses(sc)
+	err = syncer.ListAvailableCourses(context.Background(), sc)
 	if visitLogErr := persistVisitLog(sc, loaded.App.DownloadPath); visitLogErr != nil {
 		fmt.Fprintln(os.Stderr, "Warning: failed to update section visit log:", visitLogErr)
 	}
@@ -538,7 +538,7 @@ func runSync(args []string) error {
 	fmt.Println()
 
 	totalTimer := timing.StartTimer()
-	stats, err := syncer.SyncCourses(sc, loaded.App, force)
+	stats, err := syncer.SyncCourses(context.Background(), sc, loaded.App, force)
 	// Persist whatever section visits were recorded regardless of whether
 	// the sync itself succeeded - even a failed/partial sync's visit data is
 	// useful cross-run history (see internal/visitlog), and this must not

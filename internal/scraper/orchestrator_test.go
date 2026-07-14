@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -126,7 +127,7 @@ func TestCollectCourseFilesConcurrentlyAllFilesPresentRegardlessOfOrder(t *testi
 		}, nil
 	}
 
-	remoteFiles := collectCourseFilesConcurrently(courses, 3, collectFn, nil)
+	remoteFiles := collectCourseFilesConcurrently(context.Background(), courses, 3, collectFn, nil)
 
 	if len(remoteFiles) != len(courses) {
 		t.Fatalf("expected %d files (one per course), got %d: %#v", len(courses), len(remoteFiles), remoteFiles)
@@ -170,7 +171,7 @@ func TestCollectCourseFilesConcurrentlyOneErrorDoesNotDropOthers(t *testing.T) {
 		}, nil
 	}
 
-	remoteFiles := collectCourseFilesConcurrently(courses, 2, collectFn, nil)
+	remoteFiles := collectCourseFilesConcurrently(context.Background(), courses, 2, collectFn, nil)
 
 	if len(remoteFiles) != 2 {
 		t.Fatalf("expected 2 files (broken course excluded, others kept), got %d: %#v", len(remoteFiles), remoteFiles)
@@ -210,7 +211,7 @@ func TestCollectCourseFilesConcurrentlyRespectsConcurrencyCap(t *testing.T) {
 		return courseCrawlResult{files: []FileRef{{CourseRepoID: course.RepoID, CourseTitle: course.Title, Name: "f.pdf", URL: course.URL, Path: course.Title + "/f.pdf"}}}, nil
 	}
 
-	remoteFiles := collectCourseFilesConcurrently(courses, concurrency, collectFn, nil)
+	remoteFiles := collectCourseFilesConcurrently(context.Background(), courses, concurrency, collectFn, nil)
 
 	if len(remoteFiles) != courseCount {
 		t.Fatalf("expected %d files, got %d", courseCount, len(remoteFiles))
@@ -258,7 +259,7 @@ func TestCollectCourseFilesConcurrentlyMergesDownloadCandidatesViaCallback(t *te
 		}
 	}
 
-	collectCourseFilesConcurrently(courses, 2, collectFn, onResult)
+	collectCourseFilesConcurrently(context.Background(), courses, 2, collectFn, onResult)
 
 	if len(merged) != 2 {
 		t.Fatalf("expected 2 merged download candidates (one per successful course), got %d: %#v", len(merged), merged)
@@ -271,6 +272,47 @@ func TestCollectCourseFilesConcurrentlyMergesDownloadCandidatesViaCallback(t *te
 	}
 	if _, ok := merged["https://opal.example/2"]; ok {
 		t.Fatalf("did not expect candidate from broken course 2 to be merged, got: %#v", merged)
+	}
+}
+
+// TestCollectCourseFilesConcurrentlyStopsQueuingAfterCancel is a regression
+// test for the queue task fix-gui-cancel-doesnt-abort-course-loop: before the
+// fix, cancelling the GUI's Sync/List job only closed the browser - the
+// course-dispatch loop here kept queuing (and instant-failing) every
+// remaining course instead of stopping. With concurrency=1, cancelling ctx
+// from inside the first course's collectFn (before it returns) must mean the
+// second course is never dispatched at all.
+func TestCollectCourseFilesConcurrentlyStopsQueuingAfterCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	courses := []CourseRef{
+		{RepoID: "1", Title: "Course A"},
+		{RepoID: "2", Title: "Course B"},
+		{RepoID: "3", Title: "Course C"},
+		{RepoID: "4", Title: "Course D"},
+		{RepoID: "5", Title: "Course E"},
+	}
+
+	var processed int32
+	collectFn := func(course CourseRef) (courseCrawlResult, error) {
+		atomic.AddInt32(&processed, 1)
+		if course.RepoID == "1" {
+			// Simulate the GUI's /sync/cancel handler firing while the first
+			// course is still crawling.
+			cancel()
+		}
+		return courseCrawlResult{
+			files: []FileRef{{CourseRepoID: course.RepoID, CourseTitle: course.Title, Name: "f.pdf", URL: "https://opal.example/" + course.RepoID, Path: course.Title + "/f.pdf"}},
+		}, nil
+	}
+
+	remoteFiles := collectCourseFilesConcurrently(ctx, courses, 1, collectFn, nil)
+
+	if got := atomic.LoadInt32(&processed); got != 1 {
+		t.Fatalf("expected exactly 1 course to be processed before cancellation stopped further dispatch, got %d", got)
+	}
+	if len(remoteFiles) != 1 {
+		t.Fatalf("expected 1 course's files in result, got %d: %#v", len(remoteFiles), remoteFiles)
 	}
 }
 

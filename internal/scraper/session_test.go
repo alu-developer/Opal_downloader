@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -55,7 +56,7 @@ func TestConcurrentCourseCrawlDoesNotClobberSharedPage(t *testing.T) {
 	}
 
 	s.suspendPageTracking()
-	remoteFiles := collectCourseFilesConcurrently(courses, 3, collectFn, nil)
+	remoteFiles := collectCourseFilesConcurrently(context.Background(), courses, 3, collectFn, nil)
 	s.resumePageTracking()
 
 	if len(remoteFiles) != len(courses) {

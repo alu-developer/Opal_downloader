@@ -164,7 +164,7 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 
 	if kind == jobKindList {
 		sp.job.publish(jobEvent{Kind: "log", Message: "Fetching courses from OPAL..."})
-		files, err := sc.ScrapeWithSavedSession([]string{"*"})
+		files, err := sc.ScrapeWithSavedSession(ctx, []string{"*"})
 		if err != nil {
 			sp.publishCancelOrError(ctx, err)
 			return
@@ -208,7 +208,7 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 		}
 	}
 
-	_, err := syncer.SyncCoursesWithProgress(sc, loaded.App, force, progress)
+	_, err := syncer.SyncCoursesWithProgress(ctx, sc, loaded.App, force, progress)
 	if err != nil {
 		sp.publishCancelOrError(ctx, err)
 	}

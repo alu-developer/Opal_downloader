@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -30,9 +31,20 @@ func (s *OpalScraper) effectiveCourseConcurrency() int {
 	return concurrency
 }
 
-func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile, error) {
+// scrapeCoursesBrowser discovers courses matching courseFilter and crawls
+// each for its files. ctx is checked before discovery starts and again after
+// the concurrent crawl (collectCourseFilesConcurrently) finishes - if ctx was
+// cancelled mid-crawl (the GUI's /sync/cancel handler), the crawl's course
+// dispatch loop stops queuing further courses (see
+// collectCourseFilesConcurrently) and this returns whatever partial results
+// were collected alongside ctx.Err(), so callers can tell a cancelled run
+// apart from a genuinely completed or failed one.
+func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []string) ([]RemoteFile, error) {
 	if s.getPage() == nil {
 		return nil, errors.New("no page available")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	discoveryTimer := timing.StartTimer()
@@ -54,12 +66,19 @@ func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile,
 	// pageTrackingSuspended's doc comment in scraper.go.
 	s.suspendPageTracking()
 	fileCollectionTimer := timing.StartTimer()
-	remoteFiles := collectCourseFilesConcurrently(courses, concurrency, s.newCourseFileCollector(), s.mergeDownloadCandidates)
+	remoteFiles := collectCourseFilesConcurrently(ctx, courses, concurrency, s.newCourseFileCollector(), s.mergeDownloadCandidates)
 	fileCollectionElapsed := fileCollectionTimer.Elapsed()
 	s.resumePageTracking()
 	timing.PrintProfileLine("file collection (aggregate): %s", fileCollectionElapsed)
 
 	fmt.Printf("Discovered %d remote files\n", len(remoteFiles))
+	if err := ctx.Err(); err != nil {
+		// Cancelled mid-crawl: report whatever files were actually collected
+		// as the (partial) result, but surface ctx.Err() so the caller
+		// (ultimately publishCancelOrError in internal/gui/sync.go) reports
+		// "cancelled" rather than treating this as a normal completion.
+		return remoteFiles, err
+	}
 	return remoteFiles, nil
 }
 
@@ -195,7 +214,17 @@ type courseWorkerResult struct {
 // successfully crawled course (on the same single goroutine that mutates
 // remoteFiles/remoteFileSeen) with that course's downloadCandidates, so a
 // caller can merge them into shared state without needing its own locking.
-func collectCourseFilesConcurrently(courses []CourseRef, concurrency int, collectFn func(CourseRef) (courseCrawlResult, error), onResult func(map[string]downloadCandidate)) []RemoteFile {
+//
+// ctx cancellation (the GUI's /sync/cancel handler, via cancelFn in
+// internal/gui/sync.go) stops the feeder goroutine from queuing any further
+// not-yet-dispatched course onto jobCh - it does not abort a course crawl
+// already in flight (collectFn/Playwright have no cooperative-cancellation
+// hook), but those in-flight calls return quickly on their own once the
+// caller's Close() has torn down the browser, and no *new* course is queued
+// after cancellation is observed. This is what turns the previous
+// "grind through every remaining course as fast per-course errors after the
+// browser closes" behavior into "stop iterating promptly".
+func collectCourseFilesConcurrently(ctx context.Context, courses []CourseRef, concurrency int, collectFn func(CourseRef) (courseCrawlResult, error), onResult func(map[string]downloadCandidate)) []RemoteFile {
 	remoteFiles := make([]RemoteFile, 0)
 	remoteFileSeen := map[string]struct{}{}
 
@@ -226,17 +255,33 @@ func collectCourseFilesConcurrently(courses []CourseRef, concurrency int, collec
 	}
 
 	go func() {
+		defer close(jobCh)
 		for _, course := range courses {
-			// Printed here (the single feeder goroutine, in course order)
-			// rather than inside the worker, so "Processing: X" lines stay
-			// in deterministic dispatch order even at concurrency=1 - a
-			// worker goroutine printing its own "Processing" line right
-			// after handing a result to resultCh can otherwise race with
-			// the result-draining loop's own print for the previous course.
-			fmt.Printf("  Processing: %s\n", course.Title)
-			jobCh <- course
+			select {
+			case <-ctx.Done():
+				// Cancelled: stop queuing further courses immediately rather
+				// than dispatching the rest of the list only to have each one
+				// fail fast against a closed browser.
+				return
+			default:
+			}
+			select {
+			case jobCh <- course:
+				// Printed here (the single feeder goroutine, in course order),
+				// and only once the send above has actually been received by
+				// a worker, so "Processing: X" reliably means this course was
+				// dispatched - not just attempted before losing a race against
+				// cancellation. Printing from the feeder rather than the
+				// worker also keeps these lines in deterministic dispatch
+				// order even at concurrency=1: a worker printing its own line
+				// right after handing a result to resultCh can otherwise race
+				// with the result-draining loop's print for the previous
+				// course.
+				fmt.Printf("  Processing: %s\n", course.Title)
+			case <-ctx.Done():
+				return
+			}
 		}
-		close(jobCh)
 	}()
 
 	go func() {

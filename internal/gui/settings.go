@@ -53,20 +53,6 @@ type settingsViewData struct {
 	Saved      bool
 	Warnings   []string
 
-	BrowserExecutable  string
-	BrowserUserDataDir string
-	BrowserProfileDir  string
-
-	// BrowserUserDataDirSuggested reports whether BrowserUserDataDir's
-	// current value is only a detected suggestion (from the installer's
-	// Brave/Chrome detection, see Options.SuggestedBrowserUserDataDir in
-	// gui.go) rather than a value the user actually chose/saved. It's used
-	// purely to show a "detected, not saved yet" hint next to the field -
-	// BrowserUserDataDir itself is a completely ordinary, editable text
-	// input either way, and nothing is written to config.yaml unless the
-	// user submits the form.
-	BrowserUserDataDirSuggested bool
-
 	DownloadPath        string
 	SyncAllCourses      bool
 	CourseRows          []courseRow
@@ -119,13 +105,13 @@ func buildCourseRows(courses []string, courseFolders map[string]string) []course
 	return rows
 }
 
-// loadedToViewData builds the settings view from a loaded config.
-// suggestedBrowserUserDataDir is the installer-detected Brave/Chrome
-// profile path (empty if none was passed to the GUI, or none was
-// detected) - it only ever fills in BrowserUserDataDir when that field is
-// otherwise empty, and is always still just the plain editable form value,
-// never written anywhere until the user submits the form.
-func loadedToViewData(configPath string, loaded config.Loaded, suggestedBrowserUserDataDir string) settingsViewData {
+// loadedToViewData builds the settings view from a loaded config. There is
+// no browser-related view data anymore (config.Credentials no longer has a
+// BrowserExecutable/BrowserUserDataDir/BrowserProfileDir concept to show or
+// edit here at all - opal-downloader always launches Playwright's bundled
+// Chromium against the single hardcoded dedicated login profile, see
+// scraper.LoginProfileDir and the /tufast-setup page).
+func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData {
 	sectionRows := make([]sectionFolderRow, 0, len(loaded.App.SectionFolderNames))
 	for pattern, folder := range loaded.App.SectionFolderNames {
 		sectionRows = append(sectionRows, sectionFolderRow{Pattern: pattern, Folder: folder})
@@ -136,21 +122,9 @@ func loadedToViewData(configPath string, loaded config.Loaded, suggestedBrowserU
 		destRows = append(destRows, subfolderDestinationRow{Key: key, Destination: dest})
 	}
 
-	browserUserDataDir := loaded.Credentials.BrowserUserDataDir
-	suggested := false
-	if strings.TrimSpace(browserUserDataDir) == "" && strings.TrimSpace(suggestedBrowserUserDataDir) != "" {
-		browserUserDataDir = suggestedBrowserUserDataDir
-		suggested = true
-	}
-
 	return settingsViewData{
 		ConfigPath: configPath,
 		Warnings:   config.Warnings(loaded.App),
-
-		BrowserExecutable:           loaded.Credentials.BrowserExecutable,
-		BrowserUserDataDir:          browserUserDataDir,
-		BrowserProfileDir:           loaded.Credentials.BrowserProfileDir,
-		BrowserUserDataDirSuggested: suggested,
 
 		DownloadPath:        loaded.App.DownloadPath,
 		SyncAllCourses:      isSyncAllCourses(loaded.App.Courses),
@@ -263,10 +237,6 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	view := settingsViewData{
 		ConfigPath: configPath,
 
-		BrowserExecutable:  get("browser_executable"),
-		BrowserUserDataDir: get("browser_user_data_dir"),
-		BrowserProfileDir:  get("browser_profile_directory"),
-
 		DownloadPath:        get("download_path"),
 		SyncAllCourses:      syncAll,
 		CourseRows:          rows,
@@ -289,16 +259,13 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	loaded.App.SubfolderDestinations = subfolderDestinations
 	loaded.Credentials.URL = config.DefaultOPALURL
 	loaded.Credentials.StateFile = config.DefaultStateFile
-	loaded.Credentials.BrowserExecutable = view.BrowserExecutable
-	loaded.Credentials.BrowserUserDataDir = view.BrowserUserDataDir
-	loaded.Credentials.BrowserProfileDir = view.BrowserProfileDir
 
 	view.Warnings = config.Warnings(loaded.App)
 
 	return view, loaded
 }
 
-func handleSettings(configPath string, suggestedBrowserUserDataDir string) http.HandlerFunc {
+func handleSettings(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/settings" {
 			http.NotFound(w, r)
@@ -323,7 +290,7 @@ func handleSettings(configPath string, suggestedBrowserUserDataDir string) http.
 							URL:       config.DefaultOPALURL,
 							StateFile: config.DefaultStateFile,
 						},
-					}, suggestedBrowserUserDataDir))
+					}))
 					return
 				}
 				renderSettings(w, settingsViewData{
@@ -332,7 +299,7 @@ func handleSettings(configPath string, suggestedBrowserUserDataDir string) http.
 				})
 				return
 			}
-			renderSettings(w, loadedToViewData(configPath, loaded, suggestedBrowserUserDataDir))
+			renderSettings(w, loadedToViewData(configPath, loaded))
 
 		case http.MethodPost:
 			// Load the currently-persisted config first so fields the
@@ -445,26 +412,14 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<h2>Browser</h2>
 
-	<p class="hint">First time? <a href="/tufast-setup">Set up a dedicated TU-Fast browser profile</a> (fewer clicks, and an optional shortcut if TU-Fast is already logged in elsewhere on this computer).</p>
-
-	<div class="field">
-		<label for="browser_executable">Browser executable (optional)</label>
-		<input type="text" id="browser_executable" name="browser_executable" value="{{.BrowserExecutable}}">
-		<p class="hint">e.g. path to Brave, if TU-Fast is only installed there. Leave empty to use Playwright's bundled browser.</p>
-	</div>
-
-	<div class="field">
-		<label for="browser_user_data_dir">Browser user data directory (optional)</label>
-		<input type="text" id="browser_user_data_dir" name="browser_user_data_dir" value="{{.BrowserUserDataDir}}">
-		<p class="hint">Your real browser's profile root. Opened directly, so close that browser before logging in/syncing.</p>
-		{{if .BrowserUserDataDirSuggested}}<p class="hint"><strong>Suggested:</strong> a Brave/Chrome profile was detected on this computer and filled in above. Nothing is saved until you press "Save settings" below - check it's correct (or clear it) first.</p>{{end}}
-	</div>
-
-	<div class="field">
-		<label for="browser_profile_directory">Browser profile directory (optional)</label>
-		<input type="text" id="browser_profile_directory" name="browser_profile_directory" value="{{.BrowserProfileDir}}">
-		<p class="hint">e.g. <code>Default</code> or <code>Profile 1</code>, if not using the default profile.</p>
-	</div>
+	<p class="hint">
+		Login and sync always use Playwright's bundled Chromium against a
+		single dedicated profile (<code>~/.opal-downloader/login-profile</code>)
+		- there's nothing to configure here. First time? Log in manually, or
+		<a href="/tufast-setup">set up TU-Fast</a> once for automatic 2FA on
+		every future login (fewer clicks, and an optional shortcut if TU-Fast
+		is already logged in elsewhere on this computer).
+	</p>
 
 	<h2>Sync behavior &amp; folders</h2>
 

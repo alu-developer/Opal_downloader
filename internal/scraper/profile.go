@@ -2,9 +2,30 @@ package scraper
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
+
+// LoginProfileDir returns the single, hardcoded Playwright Chromium profile
+// directory opal-downloader always logs in and syncs/lists against:
+// ~/.opal-downloader/login-profile. There is no more configurable
+// browser_user_data_dir/browser_executable - Chromium (Playwright's bundled
+// build) is the only browser opal-downloader ever launches, and this
+// dedicated profile is the only place it launches it against, with
+// extensions (specifically TU-Fast) always enabled - see launchBrowser in
+// session.go. The user either logs in manually here or, once, installs
+// TU-Fast from the Chrome Web Store into this same profile (see
+// gui.handleTUFastSetupOpen / OpenInteractiveBrowserAt), after which it
+// auto-completes future logins exactly like it did against a real
+// Brave/Chrome profile before this change.
+func LoginProfileDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home directory for the login profile: %w", err)
+	}
+	return filepath.Join(home, ".opal-downloader", "login-profile"), nil
+}
 
 // profileLockFiles lists the marker files Chromium's *POSIX*
 // (process_singleton_posix.cc) ProcessSingleton creates in a user-data-dir to
@@ -109,7 +130,8 @@ func isSharingViolation(err error) bool {
 	})
 }
 
-// ErrProfileLocked is returned when the configured browser_user_data_dir is
-// currently locked by another running browser instance (e.g. the user's real
-// Brave window).
+// ErrProfileLocked is returned when the dedicated login profile (see
+// LoginProfileDir) is currently locked - in practice, by another
+// opal-downloader process that already has a persistent Chromium context
+// open against it.
 var ErrProfileLocked = errors.New("browser profile is currently in use")

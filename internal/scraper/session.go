@@ -46,28 +46,41 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		s.setPw(pw)
 	}
 
-	if s.browserUserDataDir != "" && !headless && !useSavedState {
-		// Launch directly against the real browser_user_data_dir rather than
-		// a private copy. A copy-based approach was tried (see git history
-		// around "fix-brave-profile-lock-conflict") to let Brave stay usable
-		// while opal-downloader runs, but Chromium's "Secure Preferences"
-		// file is integrity-protected (HMAC'd) specifically to detect
-		// externally-modified extension state: copying it into a new
-		// user-data-dir invalidates that protection, and Chromium resets
-		// TU-Fast's permissions (or drops it entirely) the moment it loads
-		// the copy - confirmed by direct inspection, not just a hunch. There
-		// is no known way to relax that check without disabling Chromium's
-		// tamper-protection outright, so launching against the real profile
-		// (accepting the lock conflict below) is the only way to get a
-		// working TU-Fast.
-		locked, err := isUserDataDirLocked(s.browserUserDataDir)
+	if !headless && !useSavedState {
+		// Interactive login (or an expired-saved-session fallback that
+		// lands here) always launches Playwright's bundled Chromium as a
+		// persistent context against the single, hardcoded dedicated login
+		// profile (~/.opal-downloader/login-profile, see LoginProfileDir),
+		// with extensions enabled so TU-Fast can be installed once and
+		// auto-complete every login after that.
+		//
+		// This used to be conditional on a configurable browser_user_data_dir
+		// pointing at the user's real installed Brave/Chrome profile, with a
+		// bundled-Chromium fallback when that wasn't set. That "point
+		// opal-downloader at your real browser" option has been removed
+		// entirely (queue task chromium-only-login-remove-real-browser, per
+		// the maintainer's explicit decision) - Chromium (Playwright's
+		// bundled build) is now the only browser opal-downloader ever
+		// launches, always against this one dedicated profile, never a real
+		// installed browser executable.
+		profileDir, err := LoginProfileDir()
+		if err != nil {
+			return err
+		}
+
+		// isUserDataDirLocked still matters here even though the profile is
+		// no longer a real everyday browser: it protects against two
+		// opal-downloader processes (e.g. a manual `login` run and a GUI
+		// job) both trying to launch a persistent context against the same
+		// dedicated profile directory at once, which Chromium's own
+		// ProcessSingleton would otherwise reject in a much less legible way.
+		locked, err := isUserDataDirLocked(profileDir)
 		if err != nil {
 			return err
 		}
 		if locked {
-			return fmt.Errorf("%w: %s appears to be open in Brave (or another Chromium-based browser) right now — please fully close Brave before running opal-downloader login/sync, so it can use your real profile (with TU-Fast) directly", ErrProfileLocked, s.browserUserDataDir)
+			return fmt.Errorf("%w: %s appears to be in use by another opal-downloader process right now - close it (or wait for it to finish) before running login/sync here", ErrProfileLocked, profileDir)
 		}
-		launchUserDataDir := s.browserUserDataDir
 
 		opts := playwright.BrowserTypeLaunchPersistentContextOptions{
 			Headless: playwright.Bool(headless),
@@ -76,18 +89,12 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 				"--disable-component-extensions-with-background-pages",
 			},
 		}
-		if s.browserProfileDir != "" {
-			opts.Args = append(opts.Args, "--profile-directory="+s.browserProfileDir)
-		}
 		opts.Args = append(opts.Args, "--enable-extensions")
-		if s.browserExecutable != "" {
-			opts.ExecutablePath = playwright.String(s.browserExecutable)
-		}
-		ctx, err := s.getPw().Chromium.LaunchPersistentContext(launchUserDataDir, opts)
+		ctx, err := s.getPw().Chromium.LaunchPersistentContext(profileDir, opts)
 		if err != nil {
-			return fmt.Errorf("launching browser with profile %s: %w", launchUserDataDir, err)
+			return fmt.Errorf("launching browser with profile %s: %w", profileDir, err)
 		}
-		fmt.Printf("Launching persistent browser profile: userDataDir=%s profile=%s\n", launchUserDataDir, defaultString(s.browserProfileDir, "(default)"))
+		fmt.Printf("Launching persistent browser profile: userDataDir=%s\n", profileDir)
 		s.setContext(ctx)
 		s.trackActivePage(ctx)
 		pages := ctx.Pages()
@@ -107,10 +114,32 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		return nil
 	}
 
+	// headless+useSavedState (session-reuse for sync/list once a saved
+	// session exists) deliberately does NOT touch the persistent login
+	// profile above at all: it launches a fresh, anonymous Chromium instance
+	// (Playwright's bundled build - there is no browserExecutable concept
+	// anymore, ExecutablePath is never set anywhere) and, when useSavedState
+	// is true, loads cookies from the saved storage-state JSON file instead
+	// of any profile directory.
+	//
+	// This is intentional, not a leftover from the pre-Chromium-only design:
+	// queue task chromium-only-login-remove-real-browser explicitly
+	// investigated whether this branch could also collapse into the
+	// persistent-context branch above now that there's only one profile
+	// concept, and concluded no. Two (or more) concurrent headless sync/list
+	// runs - a real scenario: the GUI's own background job plus a
+	// manually-run CLI `list`/`sync`, or two scripted cron invocations
+	// overlapping - each launching a persistent context against the SAME
+	// login-profile directory would collide on isUserDataDirLocked/
+	// Chromium's own ProcessSingleton exactly the way two interactive logins
+	// would, which this anonymous-context path simply never risks today
+	// (every headless launch gets its own throwaway browser instance with no
+	// shared user-data-dir). Collapsing this branch too would trade away a
+	// currently-safe "concurrent headless runs just work" property for no
+	// actual benefit: extensions/TU-Fast are never needed on this path
+	// anyway, since a still-valid saved session's cookies already carry the
+	// authenticated state.
 	launchOpts := playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(headless)}
-	if s.browserExecutable != "" {
-		launchOpts.ExecutablePath = playwright.String(s.browserExecutable)
-	}
 	browser, err := s.getPw().Chromium.Launch(launchOpts)
 	if err != nil {
 		return err
@@ -332,9 +361,10 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 
 // shouldRelaunchHeadlessAfterInteractiveLogin reports whether ensureSession
 // should close the visible interactive-login browser (launched via
-// launchBrowser(false, false) against the real browser_user_data_dir, the
-// only way to drive TU-Fast) and relaunch headlessly against the
-// just-saved session state, once that interactive login has succeeded.
+// launchBrowser(false, false) against the dedicated login profile, see
+// LoginProfileDir - the only way to drive TU-Fast) and relaunch headlessly
+// against the just-saved session state, once that interactive login has
+// succeeded.
 //
 // forceInteractive is true only for the standalone `login` command
 // (LoginWithBrowser) - it has nothing left to do after saving state, so

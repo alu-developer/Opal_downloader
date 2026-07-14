@@ -3,7 +3,6 @@ package scraper
 import (
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -221,26 +220,4 @@ func containsAny(text string, needles []string) bool {
 		}
 	}
 	return false
-}
-
-func normalizePersistentProfileSettings(userDataDir, profileDir string) (string, string) {
-	trimmedUserDataDir := strings.TrimSpace(userDataDir)
-	trimmedProfileDir := strings.TrimSpace(profileDir)
-	if trimmedUserDataDir == "" {
-		return "", trimmedProfileDir
-	}
-	if trimmedProfileDir != "" {
-		return trimmedUserDataDir, trimmedProfileDir
-	}
-
-	cleaned := filepath.Clean(trimmedUserDataDir)
-	base := filepath.Base(cleaned)
-	parent := filepath.Dir(cleaned)
-	if strings.EqualFold(filepath.Base(parent), "User Data") {
-		if strings.EqualFold(base, "Default") || strings.HasPrefix(base, "Profile ") {
-			return parent, base
-		}
-	}
-
-	return trimmedUserDataDir, ""
 }

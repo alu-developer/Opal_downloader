@@ -145,11 +145,8 @@ const (
 const DefaultSkipEnrollmentSections = true
 
 type Credentials struct {
-	URL                string
-	StateFile          string
-	BrowserExecutable  string
-	BrowserUserDataDir string
-	BrowserProfileDir  string
+	URL       string
+	StateFile string
 }
 
 type App struct {
@@ -202,9 +199,6 @@ type rawConfig struct {
 	SubfolderDestinations  map[string]string `yaml:"subfolder_destinations"`
 	OPALURL                string            `yaml:"opal_url"`
 	SessionStateFile       string            `yaml:"session_state_file"`
-	BrowserExecutable      string            `yaml:"browser_executable"`
-	BrowserUserDataDir     string            `yaml:"browser_user_data_dir"`
-	BrowserProfileDir      string            `yaml:"browser_profile_directory"`
 	DownloadConcurrency    int               `yaml:"download_concurrency"`
 	CourseConcurrency      int               `yaml:"course_concurrency"`
 	SkipEnrollmentSections *bool             `yaml:"skip_enrollment_sections"`
@@ -228,11 +222,8 @@ func LoadCredentials(configPath string) (Credentials, error) {
 	}
 
 	return Credentials{
-		URL:                opalURL,
-		StateFile:          expandHome(stateFile),
-		BrowserExecutable:  expandHome(strings.TrimSpace(cfg.BrowserExecutable)),
-		BrowserUserDataDir: expandHome(strings.TrimSpace(cfg.BrowserUserDataDir)),
-		BrowserProfileDir:  strings.TrimSpace(cfg.BrowserProfileDir),
+		URL:       opalURL,
+		StateFile: expandHome(stateFile),
 	}, nil
 }
 
@@ -531,9 +522,6 @@ func toRawConfig(cfg Loaded) rawConfig {
 		SubfolderDestinations:  cfg.App.SubfolderDestinations,
 		OPALURL:                cfg.Credentials.URL,
 		SessionStateFile:       cfg.Credentials.StateFile,
-		BrowserExecutable:      cfg.Credentials.BrowserExecutable,
-		BrowserUserDataDir:     cfg.Credentials.BrowserUserDataDir,
-		BrowserProfileDir:      cfg.Credentials.BrowserProfileDir,
 		DownloadConcurrency:    cfg.App.DownloadConcurrency,
 		CourseConcurrency:      cfg.App.CourseConcurrency,
 		SkipEnrollmentSections: &skipEnrollmentSections,

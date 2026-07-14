@@ -353,9 +353,6 @@ courses:
 sync: true
 opal_url: "http://127.0.0.1:1/opal/"
 session_state_file: "$($script:WorkDir -replace '\\','/')/opal_storage_state_test.json"
-browser_executable: ""
-browser_user_data_dir: ""
-browser_profile_directory: ""
 "@
     Set-Content -Path "config.yaml" -Value $placeholderConfig
     Write-Ok "Wrote placeholder config.yaml with realistic download_path/courses/course_folders"

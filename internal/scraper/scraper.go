@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,12 +37,9 @@ type downloadCandidate struct {
 }
 
 type OpalScraper struct {
-	opalURL            string
-	stateFile          string
-	browserExecutable  string
-	browserUserDataDir string
-	browserProfileDir  string
-	developerMode      bool
+	opalURL       string
+	stateFile     string
+	developerMode bool
 
 	// debugClicks enables the click/wait audit log (see audit.go). Same
 	// set-once-before-scrape/read-only-afterward lifecycle as
@@ -277,7 +275,7 @@ func (s *OpalScraper) SetSkipEnrollmentSections(enabled bool) {
 	s.skipEnrollmentSections = enabled
 }
 
-func New(opalURL, stateFile, browserExecutable, browserUserDataDir, browserProfileDir string) *OpalScraper {
+func New(opalURL, stateFile string) *OpalScraper {
 	if opalURL == "" {
 		opalURL = config.DefaultOPALURL
 	}
@@ -286,20 +284,39 @@ func New(opalURL, stateFile, browserExecutable, browserUserDataDir, browserProfi
 		stateFile = config.DefaultStateFile
 	}
 
-	browserUserDataDir, browserProfileDir = normalizePersistentProfileSettings(browserUserDataDir, browserProfileDir)
-
 	return &OpalScraper{
 		opalURL:            opalURL,
 		stateFile:          stateFile,
-		browserExecutable:  browserExecutable,
-		browserUserDataDir: browserUserDataDir,
-		browserProfileDir:  browserProfileDir,
 		downloadCandidates: map[string]downloadCandidate{},
 	}
 }
 
 func (s *OpalScraper) LoginWithBrowser() error {
 	return s.ensureSession(true)
+}
+
+// OpenInteractiveBrowserAt launches a visible Playwright Chromium window
+// against the dedicated login profile (see launchBrowser/LoginProfileDir)
+// and navigates it to url, without waiting for login or closing anything
+// afterward. Used by the GUI's /tufast-setup page to open TU-Fast's Chrome
+// Web Store listing for the user to install by hand - see
+// gui.defaultLaunchBrowserAt. The caller must not call s.Close() right
+// after this returns: unlike LoginWithBrowser, there is nothing to wait for
+// here, so the browser window has to stay open on its own for the user to
+// interact with (install the extension, log in) - it keeps running as a
+// child process of this Go process (guarded by internal/procguard so it
+// still dies if opal-downloader itself is killed) until the user closes the
+// window or the whole process exits.
+func (s *OpalScraper) OpenInteractiveBrowserAt(url string) error {
+	if err := s.launchBrowser(false, false); err != nil {
+		return err
+	}
+	page := s.getPage()
+	if page == nil {
+		return errors.New("failed to initialize browser page")
+	}
+	_, err := page.Goto(url, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
+	return err
 }
 
 // ScrapeWithSavedSession logs in (via the saved session state) and crawls

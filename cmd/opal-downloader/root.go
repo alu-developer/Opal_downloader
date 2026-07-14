@@ -155,11 +155,10 @@ func runInit(args []string) error {
 	}
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Edit config.yaml with your download path and course patterns")
-	fmt.Println("  2. Set up browser login: for TU-Fast auto-login without ever locking your")
-	fmt.Println("     everyday browser, see docs/browser-profile-strategy.md (recommended);")
-	fmt.Println("     or leave browser_user_data_dir empty / point it at your everyday")
-	fmt.Println("     profile if you'd rather skip that setup and log in manually or reuse")
-	fmt.Println("     an existing TU-Fast install")
+	fmt.Println("  2. Optional but recommended: install TU-Fast for automatic 2FA on every")
+	fmt.Println("     login (one-time, one click) - open the GUI's Settings -> \"Set up TU-Fast\"")
+	fmt.Println("     (/tufast-setup) page, or see docs/browser-profile-strategy.md. Skipping")
+	fmt.Println("     this is fine too - login just needs manual 2FA each time instead.")
 	fmt.Println("  3. Run: opal-downloader login")
 	fmt.Println("  4. Run: opal-downloader sync")
 	return nil
@@ -214,11 +213,10 @@ func runSetup(args []string) error {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Edit config.yaml with your download path and course patterns")
-	fmt.Println("  2. Set up browser login: for TU-Fast auto-login without ever locking your")
-	fmt.Println("     everyday browser, see docs/browser-profile-strategy.md (recommended);")
-	fmt.Println("     or leave browser_user_data_dir empty / point it at your everyday")
-	fmt.Println("     profile if you'd rather skip that setup and log in manually or reuse")
-	fmt.Println("     an existing TU-Fast install")
+	fmt.Println("  2. Optional but recommended: install TU-Fast for automatic 2FA on every")
+	fmt.Println("     login (one-time, one click) - open the GUI's Settings -> \"Set up TU-Fast\"")
+	fmt.Println("     (/tufast-setup) page, or see docs/browser-profile-strategy.md. Skipping")
+	fmt.Println("     this is fine too - login just needs manual 2FA each time instead.")
 	fmt.Println("  3. Run: opal-downloader login")
 	return nil
 }
@@ -248,9 +246,7 @@ func runStatus(args []string) error {
 	fmt.Printf("OPAL URL: %s\n", loaded.Credentials.URL)
 	fmt.Printf("Download path: %s\n", loaded.App.DownloadPath)
 
-	if loaded.Credentials.BrowserUserDataDir != "" {
-		checkBrowserProfileHealth(loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
-	}
+	checkLoginProfileHealth()
 
 	info, statErr := os.Stat(loaded.Credentials.StateFile)
 	if statErr != nil || info.Size() == 0 {
@@ -264,36 +260,41 @@ func runStatus(args []string) error {
 	return nil
 }
 
-// checkBrowserProfileHealth performs the filesystem-only pre-flight checks
+// checkLoginProfileHealth performs the filesystem-only pre-flight checks
 // described in docs/browser-profile-strategy.md's "Health-check design"
-// section for whichever browser_user_data_dir is configured. It applies
-// identically to both supported strategies (a dedicated second profile or
-// pointing directly at a real Brave/Chrome profile) - see that doc for why
-// this isn't strategy-specific. No browser is launched; this only stats a
-// few paths, keeping `status` fast and offline.
-func checkBrowserProfileHealth(userDataDir, profileDir string) {
-	if _, err := os.Stat(userDataDir); err != nil {
+// section, now unconditionally against the single hardcoded dedicated login
+// profile (scraper.LoginProfileDir, ~/.opal-downloader/login-profile) -
+// there is no longer a configurable browser_user_data_dir to gate this on,
+// since Chromium (Playwright's bundled build) launched against this one
+// profile is the only login path opal-downloader has (queue task
+// chromium-only-login-remove-real-browser). No browser is launched; this
+// only stats a few paths, keeping `status` fast and offline.
+func checkLoginProfileHealth() {
+	profileDir, err := scraper.LoginProfileDir()
+	if err != nil {
 		fmt.Println()
-		fmt.Printf("browser_user_data_dir is set to %s but that directory doesn't exist. If you were following the dedicated browser-profile setup, re-run the one-time setup steps in docs/browser-profile-strategy.md.\n", userDataDir)
+		fmt.Printf("Could not determine the login profile directory: %v\n", err)
 		return
 	}
 
-	profile := profileDir
-	if profile == "" {
-		profile = "Default"
+	if _, err := os.Stat(profileDir); err != nil {
+		// Not an error: a brand-new install hasn't run `login` yet, so the
+		// profile hasn't been created on disk at all - it's created lazily
+		// on first login/tufast-setup, not by `init`/`setup`.
+		return
 	}
 
-	preferencesPath := filepath.Join(userDataDir, profile, "Preferences")
+	preferencesPath := filepath.Join(profileDir, "Default", "Preferences")
 	if _, err := os.Stat(preferencesPath); err != nil {
 		fmt.Println()
-		fmt.Printf("browser_user_data_dir is set to %s but %s wasn't found, so this doesn't look like a real browser profile. If you were following the dedicated browser-profile setup, re-run the one-time setup steps in docs/browser-profile-strategy.md.\n", userDataDir, preferencesPath)
+		fmt.Printf("%s exists but %s wasn't found, so this doesn't look like a real browser profile yet. Run `opal-downloader login` (or use the GUI's /tufast-setup page) to initialize it.\n", profileDir, preferencesPath)
 		return
 	}
 
-	extensionPath := filepath.Join(userDataDir, profile, "Extensions", scraper.TUFastExtensionID)
+	extensionPath := filepath.Join(profileDir, "Default", "Extensions", scraper.TUFastExtensionID)
 	if _, err := os.Stat(extensionPath); err != nil {
 		fmt.Println()
-		fmt.Println("Note: TU-Fast extension not detected in this browser profile. Logins will need manual 2FA each time. If you expected TU-Fast to be set up here, see docs/browser-profile-strategy.md.")
+		fmt.Println("Note: TU-Fast extension not detected in the login profile. Logins will need manual 2FA each time. See the GUI's /tufast-setup page (or docs/browser-profile-strategy.md) to install it once.")
 	}
 }
 
@@ -320,7 +321,7 @@ func runLogin(args []string) error {
 		return err
 	}
 
-	sc := scraper.New(credentials.URL, credentials.StateFile, credentials.BrowserExecutable, credentials.BrowserUserDataDir, credentials.BrowserProfileDir)
+	sc := scraper.New(credentials.URL, credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()
@@ -411,7 +412,7 @@ func runList(args []string) error {
 		return nil
 	}
 
-	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
+	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
@@ -516,7 +517,7 @@ func runSync(args []string) error {
 		loaded.App.SkipEnrollmentSections = false
 	}
 
-	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
+	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
@@ -600,7 +601,7 @@ func runDumpLinks(args []string) error {
 		return err
 	}
 
-	sc := scraper.New(credentials.URL, credentials.StateFile, credentials.BrowserExecutable, credentials.BrowserUserDataDir, credentials.BrowserProfileDir)
+	sc := scraper.New(credentials.URL, credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()
@@ -616,7 +617,6 @@ func runDumpLinks(args []string) error {
 func runGUI(args []string) error {
 	port := 0
 	configPath := filepath.Join(projectDir(), "config.yaml")
-	suggestedBrowserUserDataDir := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--port":
@@ -635,22 +635,15 @@ func runGUI(args []string) error {
 				return fmt.Errorf("--config requires a path")
 			}
 			configPath = args[i]
-		case "--suggested-browser-user-data-dir":
-			i++
-			if i >= len(args) {
-				return fmt.Errorf("--suggested-browser-user-data-dir requires a path")
-			}
-			suggestedBrowserUserDataDir = args[i]
 		default:
 			return fmt.Errorf("unknown option for gui: %s", args[i])
 		}
 	}
 
 	return gui.Run(gui.Options{
-		Port:                        port,
-		ConfigPath:                  configPath,
-		Version:                     buildVersion,
-		SuggestedBrowserUserDataDir: suggestedBrowserUserDataDir,
+		Port:       port,
+		ConfigPath: configPath,
+		Version:    buildVersion,
 	})
 }
 
@@ -761,7 +754,7 @@ func printHelp() {
 	fmt.Println("  init --config <path>")
 	fmt.Println("  setup --config <path>")
 	fmt.Println("  status --config <path>")
-	fmt.Println("  gui [--port <port>] [--config <path>] [--suggested-browser-user-data-dir <path>]")
+	fmt.Println("  gui [--port <port>] [--config <path>]")
 	fmt.Println("  login --config <path> [--dev]")
 	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>] [--visit-report] [--no-skip-enrollment-sections]")
 	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>] [--no-skip-enrollment-sections]")

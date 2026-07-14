@@ -34,7 +34,7 @@ func (f *fakePage) SetDefaultNavigationTimeout(timeout float64) {}
 // survives the concurrent crawl unclobbered when tracking is suspended
 // around it, exactly as orchestrator.go's scrapeCoursesBrowser now does.
 func TestConcurrentCourseCrawlDoesNotClobberSharedPage(t *testing.T) {
-	s := New("", "", "", "", "")
+	s := New("", "")
 
 	loginPage := &fakePage{name: "login/dashboard page"}
 	s.setPage(loginPage)
@@ -75,7 +75,7 @@ func TestConcurrentCourseCrawlDoesNotClobberSharedPage(t *testing.T) {
 // working for any login that happens after a scrape's concurrent crawl
 // phase (e.g. session re-login on the next command invocation).
 func TestPageTrackingResumesAfterConcurrentCrawl(t *testing.T) {
-	s := New("", "", "", "", "")
+	s := New("", "")
 
 	s.suspendPageTracking()
 	s.resumePageTracking()
@@ -93,7 +93,7 @@ func TestPageTrackingResumesAfterConcurrentCrawl(t *testing.T) {
 // suspend flag itself: while suspended, handleContextPageOpened must not
 // change s.page at all, regardless of any concurrent crawl machinery.
 func TestPageTrackingSuspendedIgnoresNewPages(t *testing.T) {
-	s := New("", "", "", "", "")
+	s := New("", "")
 
 	original := &fakePage{name: "original"}
 	s.setPage(original)

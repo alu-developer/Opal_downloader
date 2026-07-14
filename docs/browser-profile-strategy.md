@@ -1,5 +1,22 @@
 # Browser-profile strategy for new-user onboarding
 
+Status: **superseded, 2026-07-14 (see "Chromium-only login: Strategy 1
+removed outright" below)**. Strategy 1 (launching directly against the
+user's real installed Brave/Chrome profile) has been removed entirely - the
+dedicated second profile (`~/.opal-downloader/login-profile`), always
+launched via Playwright's bundled Chromium, is no longer just the
+*recommended default*, it is the *only* login/sync path opal-downloader has.
+`browser_executable`/`browser_user_data_dir`/`browser_profile_directory` no
+longer exist as `config.yaml` fields at all. Everything below this notice
+(other than the new dated section at the end) is kept as the historical
+design-rationale/trade-off record for why the dedicated profile was
+originally chosen as the recommended default over the real-profile
+alternative - do not follow the "opt-out: point at your real Brave/Chrome
+profile" instructions anywhere below; that path no longer exists in code.
+
+<details>
+<summary>Original 2026-07-12 status note (superseded above, kept for history)</summary>
+
 Status: **implemented**. The dedicated-second-profile default, the
 `status`/`checkBrowserProfileHealth` pre-flight check, and (as of task
 `ease-second-profile-tufast-setup`, 2026-07-12) a GUI page at
@@ -10,7 +27,13 @@ kept as the design rationale/trade-off record rather than rewritten, but
 treat anything phrased as a future recommendation as already shipped unless
 a later section (search for "2026-07-1" dates) says otherwise.
 
+</details>
+
 ## Recommendation, up front
+
+**(Historical - see the 2026-07-14 status notice above. The "opt-out"
+described in this section no longer exists in code; kept verbatim for the
+trade-off reasoning it records.)**
 
 Make the **dedicated second profile** (`~/.opal-downloader/login-profile`,
 live-verified in `investigate-independent-second-profile-for-login.md`) the
@@ -441,3 +464,53 @@ undocumented Chromium/Brave binary internals that can silently change on any
 browser update — not a foundation this project should build its login path
 on. See `docs/HISTORY.md`'s "Browser profile handling" section for the full
 write-up. Treat "conclusively ruled out" as reaffirmed, not just asserted.
+
+## Chromium-only login: Strategy 1 removed outright (2026-07-14)
+
+Queue task `chromium-only-login-remove-real-browser`: the maintainer's
+explicit decision, stated verbatim in the capturing conversation - "I want
+to make chromium the only browser. I don't want any 'real-browser' and so
+on interaction. The whole approach with: i log into the real browser of the
+user is flawed." This is a **full removal**, not a soft deprecation.
+
+What changed:
+
+- Strategy 1 (launch directly against the user's real installed Brave/Chrome
+  profile, described throughout this document above as the documented
+  "opt-out") **no longer exists in code**. `internal/scraper/session.go`'s
+  `launchBrowser` no longer has a real-profile branch at all -
+  `browser_executable`/`browser_user_data_dir`/`browser_profile_directory`
+  are gone from `config.Credentials` and from `config.yaml`'s schema
+  entirely (unknown keys in an old config.yaml are silently ignored, not
+  migrated).
+- Strategy 2 (the dedicated second profile, `~/.opal-downloader/login-profile`)
+  is no longer just the recommended default - it is hardcoded and is the
+  only profile opal-downloader ever launches Chromium against, for both
+  interactive `login` and headless `sync`/`list` session reuse.
+- Every finding in this document about *why* Strategy 2 is safe/durable (the
+  health-check design, the TU-Fast login-data transplant mechanism, the HMAC/
+  `Secure Preferences` copy-based-approach dead end) is unaffected and still
+  accurate - none of that reasoning depended on Strategy 1 continuing to
+  exist alongside it. What's removed is only the "keep Strategy 1 as a
+  documented opt-out for users who already have TU-Fast working in their
+  everyday browser" conclusion in "Recommendation, up front" and
+  "Concrete onboarding-flow changes" above - those users now redo the
+  one-time TU-Fast install + OPAL login inside the dedicated profile instead
+  (the same one-time cost every new user already pays), or use the
+  "Transplanting TU-Fast login data" copy shortcut (still supported,
+  unchanged - the *source* of that copy can still be any real browser
+  profile on the same machine; only the *target* is now always the
+  dedicated profile, never user-configurable).
+- `internal/scraper/profile.go`'s `isUserDataDirLocked`/lock-detection
+  machinery is unchanged and still needed: it now guards against two
+  opal-downloader processes both launching a persistent Chromium context
+  against the single dedicated profile at once, rather than against the
+  dedicated/real profile being open in the user's own separate everyday
+  browser window (which can no longer happen, since opal-downloader never
+  touches that window).
+- Manual `config.yaml` migration is **not** automated by this task - a
+  pre-existing `config.yaml` with `browser_executable`/
+  `browser_user_data_dir`/`browser_profile_directory` set continues to load
+  (those keys are simply ignored), but anyone relying on Strategy 1 (pointed
+  at their real profile) needs to redo the one-time TU-Fast setup inside the
+  dedicated profile - there is no automatic carry-over.

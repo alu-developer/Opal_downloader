@@ -49,6 +49,39 @@ const (
 	DefaultCourseConcurrency = 1
 )
 
+// DefaultSkipEnrollmentSections is the default for App.SkipEnrollmentSections
+// when config.yaml doesn't set skip_enrollment_sections explicitly.
+//
+// CONFIRMED LIVE 2026-07-13 (queue task
+// skip-non-file-sections-by-structural-marker) against this account's real
+// 8 enrolled TU Dresden OPAL courses: OPAL's OLAT-based course-tree sidebar
+// renders every course-node link with a "node-<type>" CSS class using
+// OLAT's internal, fixed course-element type code (e.g. "node-bc" for a
+// folder, "node-st" for a structure/subfolder, "node-en" for the
+// "Enrollment" building block). Dumping every such link across all 8 real
+// courses found "node-en" on 10 distinct nodes across 7 of the 8 courses,
+// and every single one of their visible labels was an
+// enrollment/sign-up-flavored phrase ("Einschreibung", "Einschreibung in
+// den Kurs", "Übungseinschreibung", "Einschreibung in die Übungsgruppen",
+// ...) - zero cross-contamination with any real content-bearing node type.
+// "en" is OLAT's course-element type code for a student
+// self-registration/tutorial-group-signup widget, which structurally can
+// never render a downloadable file (unlike a folder/structure node, which
+// can). This is a DOM class read directly off the element, not derived
+// from its title text or from crawl history - see
+// scraper.isNonFileSectionType's doc comment for the full node-type
+// breakdown and why only "node-en" is included (other node-<type> classes
+// seen in the same dump look like plausible further candidates but were
+// not live-confirmed file-incapable in this pass).
+//
+// Defaults to true (skip) given the strength of that live confirmation,
+// but --no-skip-enrollment-sections (CLI) or skip_enrollment_sections:
+// false (config.yaml) is kept as an easy escape hatch, per this project's
+// history of structural-skip assumptions turning out wrong in production
+// (PR #36's maxPages 16->500 silent-content-loss fix; the rejected
+// history-based skip idea in research-structure-cache-and-priority-crawl.md).
+const DefaultSkipEnrollmentSections = true
+
 type Credentials struct {
 	URL                string
 	StateFile          string
@@ -78,6 +111,17 @@ type App struct {
 	// sharing the authenticated browser context. Defaults to
 	// DefaultCourseConcurrency when unset/non-positive.
 	CourseConcurrency int
+
+	// SkipEnrollmentSections controls whether the crawler skips queueing
+	// OPAL "Einschreibung" (enrollment/sign-up, e.g. "Einschreibung in die
+	// Übungsgruppen") course-node sections for a page visit, based on the
+	// structural "node-en" CSS class OPAL's course-tree sidebar renders for
+	// that node type (see scraper.isNonFileSectionType) - not on title text
+	// or crawl history. Defaults to true (skip) when unset in config.yaml;
+	// see DefaultSkipEnrollmentSections's doc comment for the live
+	// investigation that justified the default and
+	// --no-skip-enrollment-sections for the escape hatch.
+	SkipEnrollmentSections bool
 }
 
 type Loaded struct {
@@ -86,21 +130,22 @@ type Loaded struct {
 }
 
 type rawConfig struct {
-	DownloadPath          string            `yaml:"download_path"`
-	Courses               []string          `yaml:"courses"`
-	Sync                  *bool             `yaml:"sync"`
-	DefaultCourseFolder   string            `yaml:"default_course_folder"`
-	CourseFolders         map[string]string `yaml:"course_folders"`
-	UseSectionSubfolders  bool              `yaml:"use_section_subfolders"`
-	SectionFolderNames    map[string]string `yaml:"section_folder_names"`
-	SubfolderDestinations map[string]string `yaml:"subfolder_destinations"`
-	OPALURL               string            `yaml:"opal_url"`
-	SessionStateFile      string            `yaml:"session_state_file"`
-	BrowserExecutable     string            `yaml:"browser_executable"`
-	BrowserUserDataDir    string            `yaml:"browser_user_data_dir"`
-	BrowserProfileDir     string            `yaml:"browser_profile_directory"`
-	DownloadConcurrency   int               `yaml:"download_concurrency"`
-	CourseConcurrency     int               `yaml:"course_concurrency"`
+	DownloadPath           string            `yaml:"download_path"`
+	Courses                []string          `yaml:"courses"`
+	Sync                   *bool             `yaml:"sync"`
+	DefaultCourseFolder    string            `yaml:"default_course_folder"`
+	CourseFolders          map[string]string `yaml:"course_folders"`
+	UseSectionSubfolders   bool              `yaml:"use_section_subfolders"`
+	SectionFolderNames     map[string]string `yaml:"section_folder_names"`
+	SubfolderDestinations  map[string]string `yaml:"subfolder_destinations"`
+	OPALURL                string            `yaml:"opal_url"`
+	SessionStateFile       string            `yaml:"session_state_file"`
+	BrowserExecutable      string            `yaml:"browser_executable"`
+	BrowserUserDataDir     string            `yaml:"browser_user_data_dir"`
+	BrowserProfileDir      string            `yaml:"browser_profile_directory"`
+	DownloadConcurrency    int               `yaml:"download_concurrency"`
+	CourseConcurrency      int               `yaml:"course_concurrency"`
+	SkipEnrollmentSections *bool             `yaml:"skip_enrollment_sections"`
 }
 
 func LoadCredentials(configPath string) (Credentials, error) {
@@ -165,6 +210,11 @@ func Load(configPath string) (Loaded, error) {
 		courseConcurrency = DefaultCourseConcurrency
 	}
 
+	skipEnrollmentSections := DefaultSkipEnrollmentSections
+	if cfg.SkipEnrollmentSections != nil {
+		skipEnrollmentSections = *cfg.SkipEnrollmentSections
+	}
+
 	courseFolders := map[string]string{}
 	for pattern, folder := range cfg.CourseFolders {
 		p := strings.TrimSpace(pattern)
@@ -197,16 +247,17 @@ func Load(configPath string) (Loaded, error) {
 
 	return Loaded{
 		App: App{
-			DownloadPath:          expandHome(downloadPath),
-			Courses:               courses,
-			Sync:                  syncEnabled,
-			DefaultCourseFolder:   strings.TrimSpace(cfg.DefaultCourseFolder),
-			CourseFolders:         courseFolders,
-			UseSectionSubfolders:  cfg.UseSectionSubfolders,
-			SectionFolderNames:    sectionFolderNames,
-			SubfolderDestinations: subfolderDestinations,
-			DownloadConcurrency:   downloadConcurrency,
-			CourseConcurrency:     courseConcurrency,
+			DownloadPath:           expandHome(downloadPath),
+			Courses:                courses,
+			Sync:                   syncEnabled,
+			DefaultCourseFolder:    strings.TrimSpace(cfg.DefaultCourseFolder),
+			CourseFolders:          courseFolders,
+			UseSectionSubfolders:   cfg.UseSectionSubfolders,
+			SectionFolderNames:     sectionFolderNames,
+			SubfolderDestinations:  subfolderDestinations,
+			DownloadConcurrency:    downloadConcurrency,
+			CourseConcurrency:      courseConcurrency,
+			SkipEnrollmentSections: skipEnrollmentSections,
 		},
 		Credentials: credentials,
 	}, nil
@@ -406,22 +457,24 @@ func Warnings(cfg App) []string {
 // on-disk rawConfig shape used for YAML marshaling.
 func toRawConfig(cfg Loaded) rawConfig {
 	sync := cfg.App.Sync
+	skipEnrollmentSections := cfg.App.SkipEnrollmentSections
 	return rawConfig{
-		DownloadPath:          cfg.App.DownloadPath,
-		Courses:               cfg.App.Courses,
-		Sync:                  &sync,
-		DefaultCourseFolder:   cfg.App.DefaultCourseFolder,
-		CourseFolders:         cfg.App.CourseFolders,
-		UseSectionSubfolders:  cfg.App.UseSectionSubfolders,
-		SectionFolderNames:    cfg.App.SectionFolderNames,
-		SubfolderDestinations: cfg.App.SubfolderDestinations,
-		OPALURL:               cfg.Credentials.URL,
-		SessionStateFile:      cfg.Credentials.StateFile,
-		BrowserExecutable:     cfg.Credentials.BrowserExecutable,
-		BrowserUserDataDir:    cfg.Credentials.BrowserUserDataDir,
-		BrowserProfileDir:     cfg.Credentials.BrowserProfileDir,
-		DownloadConcurrency:   cfg.App.DownloadConcurrency,
-		CourseConcurrency:     cfg.App.CourseConcurrency,
+		DownloadPath:           cfg.App.DownloadPath,
+		Courses:                cfg.App.Courses,
+		Sync:                   &sync,
+		DefaultCourseFolder:    cfg.App.DefaultCourseFolder,
+		CourseFolders:          cfg.App.CourseFolders,
+		UseSectionSubfolders:   cfg.App.UseSectionSubfolders,
+		SectionFolderNames:     cfg.App.SectionFolderNames,
+		SubfolderDestinations:  cfg.App.SubfolderDestinations,
+		OPALURL:                cfg.Credentials.URL,
+		SessionStateFile:       cfg.Credentials.StateFile,
+		BrowserExecutable:      cfg.Credentials.BrowserExecutable,
+		BrowserUserDataDir:     cfg.Credentials.BrowserUserDataDir,
+		BrowserProfileDir:      cfg.Credentials.BrowserProfileDir,
+		DownloadConcurrency:    cfg.App.DownloadConcurrency,
+		CourseConcurrency:      cfg.App.CourseConcurrency,
+		SkipEnrollmentSections: &skipEnrollmentSections,
 	}
 }
 

@@ -349,6 +349,7 @@ func runList(args []string) error {
 	debugClicks := false
 	courseConcurrency := 0
 	visitReport := false
+	noSkipEnrollmentSections := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--config":
@@ -375,6 +376,8 @@ func runList(args []string) error {
 			courseConcurrency = parsed
 		case "--visit-report":
 			visitReport = true
+		case "--no-skip-enrollment-sections":
+			noSkipEnrollmentSections = true
 		default:
 			return fmt.Errorf("unknown option for list: %s", args[i])
 		}
@@ -388,6 +391,9 @@ func runList(args []string) error {
 	printConfigWarnings(loaded.App)
 	if courseConcurrency > 0 {
 		loaded.App.CourseConcurrency = courseConcurrency
+	}
+	if noSkipEnrollmentSections {
+		loaded.App.SkipEnrollmentSections = false
 	}
 
 	// --visit-report only reads the persistent cross-run visit-effectiveness
@@ -409,6 +415,7 @@ func runList(args []string) error {
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
+	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()
 
@@ -448,6 +455,7 @@ func runSync(args []string) error {
 	debugClicks := false
 	concurrency := 0
 	courseConcurrency := 0
+	noSkipEnrollmentSections := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -485,6 +493,8 @@ func runSync(args []string) error {
 				return fmt.Errorf("--course-concurrency requires a positive integer, got %q", args[i])
 			}
 			courseConcurrency = parsed
+		case "--no-skip-enrollment-sections":
+			noSkipEnrollmentSections = true
 		default:
 			return fmt.Errorf("unknown option for sync: %s", args[i])
 		}
@@ -502,11 +512,15 @@ func runSync(args []string) error {
 	if courseConcurrency > 0 {
 		loaded.App.CourseConcurrency = courseConcurrency
 	}
+	if noSkipEnrollmentSections {
+		loaded.App.SkipEnrollmentSections = false
+	}
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
+	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()
 
@@ -749,8 +763,8 @@ func printHelp() {
 	fmt.Println("  status --config <path>")
 	fmt.Println("  gui [--port <port>] [--config <path>] [--suggested-browser-user-data-dir <path>]")
 	fmt.Println("  login --config <path> [--dev]")
-	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>] [--visit-report]")
-	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>]")
+	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>] [--visit-report] [--no-skip-enrollment-sections]")
+	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>] [--no-skip-enrollment-sections]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
 	fmt.Println()
 	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
@@ -758,6 +772,7 @@ func printHelp() {
 	fmt.Println("  --concurrency n         Max concurrent file downloads for sync (default 3, overrides config.yaml)")
 	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 1, overrides config.yaml)")
 	fmt.Println("  --visit-report          (list only) Print the cross-run section visit-effectiveness report from .opal-visit-log.json and exit - no browser/login needed")
+	fmt.Println("  --no-skip-enrollment-sections  Visit every OPAL 'Einschreibung' (enrollment/sign-up) course-node section instead of skipping it (overrides config.yaml's skip_enrollment_sections: true default) - escape hatch if the structural skip is ever wrong for your OPAL instance")
 }
 
 func copyFile(source, target string) error {

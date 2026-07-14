@@ -210,7 +210,19 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		// observational (see visitlog's package doc): it does not change
 		// what gets crawled, just records it for later human review.
 		s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection)
-		queue = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles)
+		var skipped []skippedSection
+		queue, skipped = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles, s.skipEnrollmentSections)
+		for _, sk := range skipped {
+			// Auditable, not silent - see appendSectionFolderTargets's doc
+			// comment. Deliberately a distinct log line rather than
+			// s.recordSectionVisit: that call is reserved for sections whose
+			// page was actually navigated to and extracted (see its own doc
+			// comment), which this section never was - recording it there
+			// would misrepresent the persistent cross-run visit-effectiveness
+			// log (internal/visitlog) as having visited a page it never
+			// loaded.
+			fmt.Printf("  Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)\n", sk.Title, sk.URL)
+		}
 	}
 
 	if len(queue) > 0 && len(visited) >= maxPages {
@@ -469,9 +481,35 @@ func looksLikeNavigableShowAllURL(linkTarget string) bool {
 	return !strings.HasPrefix(strings.ToLower(trimmed), "javascript:")
 }
 
-func appendSectionFolderTargets(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string, sectionTitles map[string]string) []string {
+// skippedSection describes one section-folder link that was structurally
+// classified as unable to hold files (see isNonFileSectionType) and so was
+// deliberately left out of the crawl queue instead of costing a page visit.
+// appendSectionFolderTargets returns these (rather than skipping silently)
+// so the caller (collectCourseFiles) can log each one - see its own call
+// site for why.
+type skippedSection struct {
+	Title string
+	URL   string
+}
+
+// appendSectionFolderTargets scans candidates for section/folder links to
+// queue for a later crawl visit. skipNonFileSections, when true, also
+// applies the structural (not title-text, not visit-history) classification
+// in isNonFileSectionType: a candidate whose own CSS class marks it as an
+// OPAL course-node type that can never hold a downloadable file (currently
+// just "node-en", OPAL's Enrollment/"Einschreibung" building block - see
+// nonFileSectionTypeClasses's doc comment) is left out of the returned
+// queue and instead reported via the returned []skippedSection, so callers
+// can log it (skips must be auditable, not silent) rather than the crawl
+// silently spending a page visit on it. When skipNonFileSections is false,
+// classification is not applied at all and no section is ever reported as
+// skipped - the pre-existing behavior of visiting every discovered
+// section/folder link is unchanged, matching this project's
+// easy-to-disable-when-wrong precedent (course_concurrency, maxPages).
+func appendSectionFolderTargets(queue []string, queued, visited map[string]struct{}, candidates []map[string]string, opalURL, repoID, currentURL, courseRootURL, courseTitle string, sectionTitles map[string]string, skipNonFileSections bool) ([]string, []skippedSection) {
 	currentKey := sectionKey(currentURL, repoID)
 	rootKey := sectionKey(courseRootURL, repoID)
+	var skipped []skippedSection
 
 	for _, candidate := range candidates {
 		linkTarget := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
@@ -512,6 +550,15 @@ func appendSectionFolderTargets(queue []string, queued, visited map[string]struc
 			continue
 		}
 
+		if skipNonFileSections && isNonFileSectionType(candidate) {
+			// Mark as queued too, not just skipped, so a second link to the
+			// same course-node elsewhere in this section's candidates (e.g.
+			// duplicated markup) doesn't get reported as skipped twice.
+			queued[key] = struct{}{}
+			skipped = append(skipped, skippedSection{Title: title, URL: absURL})
+			continue
+		}
+
 		queued[key] = struct{}{}
 		if sectionTitles != nil {
 			if _, has := sectionTitles[key]; !has && strings.TrimSpace(title) != "" {
@@ -521,7 +568,7 @@ func appendSectionFolderTargets(queue []string, queued, visited map[string]struc
 		queue = append(queue, absURL)
 	}
 
-	return queue
+	return queue, skipped
 }
 
 // isAllowedFolderNavigationTarget decides whether a folder-shaped link found in a

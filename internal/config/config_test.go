@@ -124,6 +124,29 @@ opal_url: "https://bildungsportal.sachsen.de/opal/"
 	if len(loaded.App.SubfolderDestinations) != 0 {
 		t.Fatalf("expected empty SubfolderDestinations, got %v", loaded.App.SubfolderDestinations)
 	}
+	if !loaded.App.SkipEnrollmentSections {
+		t.Fatal("expected SkipEnrollmentSections to default to true when unset in config.yaml")
+	}
+}
+
+func TestLoadSkipEnrollmentSectionsExplicitFalse(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	content := `download_path: "./downloads"
+opal_url: "https://bildungsportal.sachsen.de/opal/"
+skip_enrollment_sections: false
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.App.SkipEnrollmentSections {
+		t.Fatal("expected SkipEnrollmentSections to be false when explicitly set to false in config.yaml")
+	}
 }
 
 func TestLoadParsesSubfolderConfig(t *testing.T) {

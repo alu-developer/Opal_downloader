@@ -55,6 +55,19 @@ type OpalScraper struct {
 	// <= 0 means "use config.DefaultCourseConcurrency".
 	courseConcurrency int
 
+	// skipEnrollmentSections gates the structural (not title-text, not
+	// visit-history) "Einschreibung" course-node skip in
+	// appendSectionFolderTargets (crawl.go) - see isNonFileSectionType and
+	// config.DefaultSkipEnrollmentSections's doc comments for the live
+	// investigation behind it. Like courseConcurrency, it is set once via
+	// SetSkipEnrollmentSections before a scrape begins and only read
+	// afterward, so it needs no locking of its own. The zero value (false,
+	// i.e. skipping disabled) is deliberately the safe default: a caller
+	// that never calls the setter gets the pre-existing "visit every
+	// discovered section" behavior rather than silently opting into the new
+	// skip.
+	skipEnrollmentSections bool
+
 	// fieldMu guards pw/browser/context/page. The GUI's /sync/cancel handler
 	// calls Close() from the HTTP-handler goroutine while runJob's goroutine
 	// may still be reading/writing these same fields mid-scrape (see PR #22
@@ -233,6 +246,15 @@ func (s *OpalScraper) VisitRecords() []visitlog.Record {
 // config.DefaultCourseConcurrency at scrape time.
 func (s *OpalScraper) SetCourseConcurrency(concurrency int) {
 	s.courseConcurrency = concurrency
+}
+
+// SetSkipEnrollmentSections enables or disables the structural
+// "Einschreibung" course-node skip (see skipEnrollmentSections's doc
+// comment). Callers should set this from config.App.SkipEnrollmentSections
+// (default true - see config.DefaultSkipEnrollmentSections) before
+// scraping; not calling this at all leaves skipping disabled.
+func (s *OpalScraper) SetSkipEnrollmentSections(enabled bool) {
+	s.skipEnrollmentSections = enabled
 }
 
 func New(opalURL, stateFile, browserExecutable, browserUserDataDir, browserProfileDir string) *OpalScraper {

@@ -82,3 +82,72 @@ header says "Status: exploratory. No implementation") — treat its options
 analysis (Fyne/Wails/local-web-UI tradeoffs) as still-useful reference if
 packaging is ever reconsidered, but its Section 5 "open question" of
 whether the GUI should drive `sync` is resolved: it does, already.
+
+## Concurrent-crawl AJAX race: root cause found, `course_concurrency` still defaults to 1
+
+**Current state** (see `docs/OPERATIONS.md`'s `course_concurrency` section
+and `internal/config/config.go`'s `DefaultCourseConcurrency` doc comment for
+the operational detail): default stays `1` (serial). Raising it is a safer
+opt-in than before, but not proven byte-for-byte safe for every real course
+mix.
+
+**PR #65 — symptom found, default lowered without a root cause.** Live
+testing (8 courses, 341 files, real TU Dresden account) showed
+`course_concurrency=3` silently lost 21% of files across two whole courses,
+`=5` lost 76%, with no rate-limiting/bot-detection observed. Default dropped
+to `1` as a workaround, cause described only as "an AJAX-render race."
+
+**PR #73 — root-caused: four separate bugs**, all found via live A/B testing
+and `--debug-clicks` audit diffing: (1) `waitForInteractiveLinks`'s fixed
+1100ms sleep could elapse before OPAL's AJAX content rendered under
+contention; (2) a single non-growing read wasn't enough to trust "stable" —
+OPAL/Wicket renders a section in stages (row list, then pagination control),
+so a read could land on a false plateau between stages, requiring several
+*consecutive* non-growing reads instead; (3) the "show all" pagination
+click's 3s timeout could expire under concurrent render load; (4)
+simultaneous `ctx.NewPage()` bursts across workers worsened contention,
+fixed by staggering tab creation. Fixed all four
+(`internal/scraper/navigation.go`'s `candidateStabilityPoll`,
+`internal/scraper/crawl.go`'s `waitForStableSectionContent`, `newPageMu`/
+`newPageStaggerMs`).
+
+**Residual gap.** In isolated/moderate contention, the fix is 100% correct
+repeatedly. In the account's full 8-course run — where one 198-file course
+runs concurrently with several smaller paginated ones — a small residual
+loss (~1-2% of files, down from the original 21-76%) still appeared
+intermittently, even at `course_concurrency=2`. The trigger looks like the
+large course's presence/duration causing sustained contention, not raw
+worker count. Pushing polling budgets further reduced but didn't eliminate
+it, at real wall-clock cost (serial baseline nearly doubled when the extra
+patience was applied unconditionally — since scoped to only apply when
+`course_concurrency>1`). No level above 1 was found that's verified safe for
+this account's real course mix, so the default stayed at 1. Follow-up
+(size/duration-aware scheduling that avoids running the largest course
+concurrently with everything else) is queued as
+`investigate-size-aware-course-scheduling-for-concurrency`.
+
+## Structural skip for non-file OPAL sections (enrollment/sign-up nodes)
+
+**Current state** (see `internal/scraper/section_type.go`): the crawler
+skips OPAL "Einschreibung" (enrollment/sign-up) course-node sections
+structurally, gated by `skip_enrollment_sections` (`config.yaml`, default
+`true`) / `--no-skip-enrollment-sections` (CLI escape hatch, fails safe to
+"don't skip" if unset).
+
+**PR #74 — the finding.** A prior idea (visit-history-based skipping —
+don't crawl a section again if it was empty on past visits) was explicitly
+rejected (`research-structure-cache-and-priority-crawl.md`) as a
+silent-data-loss risk: OPAL can add files to a section later. This task
+looked for a *structural*, not history-based or title-text-based, signal
+instead. Found one: OPAL's OLAT-based course-tree sidebar renders every
+course-node link with a `node-<type>` CSS class, and `node-en` reliably
+marks the Enrollment building block — confirmed across all 8 of the real
+account's enrolled courses (10 nodes/7 courses), zero cross-contamination
+with content-bearing node types. Live-verified both directions: skip enabled
+gives the documented-baseline 341-file/7-course result (12 sections
+skipped, cross-checked against 258 `.opal-visit-log.json` history points
+with zero false positives — one skipped section didn't even contain
+"Einschreibung" in its title, which a keyword heuristic would have missed);
+`--no-skip-enrollment-sections` gives zero skips and the identical 341-file
+result, confirming the escape hatch costs nothing when used and the skip
+never dropped a real file.

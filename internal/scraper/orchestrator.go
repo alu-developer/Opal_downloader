@@ -46,6 +46,9 @@ func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile,
 
 	concurrency := s.effectiveCourseConcurrency()
 
+	hintsPath := s.courseSizeHintsPath()
+	sizeHints := loadCourseSizeHints(hintsPath)
+
 	// Suspend s.page tracking for the duration of the concurrent crawl below:
 	// each course gets its own throwaway page (newCourseFileCollector), and
 	// without suspending, trackActivePage's ctx.OnPage hook (session.go)
@@ -54,10 +57,43 @@ func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile,
 	// pageTrackingSuspended's doc comment in scraper.go.
 	s.suspendPageTracking()
 	fileCollectionTimer := timing.StartTimer()
-	remoteFiles := collectCourseFilesConcurrently(courses, concurrency, s.newCourseFileCollector(), s.mergeDownloadCandidates)
+	collectFn := s.newCourseFileCollector()
+
+	var remoteFiles []RemoteFile
+	// A dedicated pass for a history-confirmed dominant course is only
+	// attempted when actually running concurrently (concurrency<=1 is
+	// already fully serial, so there is no contention to avoid) and with
+	// more than one course to schedule around. See course_scheduling.go
+	// (selectDominantCourse) for the criteria and the live-verified problem
+	// this targets.
+	if concurrency > 1 && len(courses) > 1 {
+		if dominantRepoID, ok := selectDominantCourse(courses, sizeHints); ok {
+			dominant, rest := splitOutCourse(courses, dominantRepoID)
+			if len(dominant) == 1 {
+				fmt.Printf("Scheduling: crawling %q in a dedicated solo pass first (history shows it dwarfs the other courses - avoids the AJAX-render contention documented on DefaultCourseConcurrency's doc comment)\n", dominant[0].Title)
+				dominantFiles := collectCourseFilesConcurrently(dominant, 1, collectFn, s.mergeDownloadCandidates)
+				restFiles := collectCourseFilesConcurrently(rest, concurrency, collectFn, s.mergeDownloadCandidates)
+				remoteFiles = append(dominantFiles, restFiles...)
+			}
+		}
+	}
+	if remoteFiles == nil {
+		remoteFiles = collectCourseFilesConcurrently(courses, concurrency, collectFn, s.mergeDownloadCandidates)
+	}
+
 	fileCollectionElapsed := fileCollectionTimer.Elapsed()
 	s.resumePageTracking()
 	timing.PrintProfileLine("file collection (aggregate): %s", fileCollectionElapsed)
+
+	// Update the size-hint cache with this run's actual per-course file
+	// counts, so a future run can make (or refine) a dedicated-pass
+	// scheduling decision. Best-effort: a failure to persist this only
+	// costs a future scheduling optimization, never correctness, so it's
+	// logged and not returned as an error.
+	newCounts := courseFileCountsByRepoID(courses, remoteFiles)
+	if err := saveCourseSizeHints(hintsPath, updateCourseSizeHints(sizeHints, newCounts)); err != nil {
+		fmt.Printf("  Warning: failed to save course size hints (%s) for future scheduling: %v\n", hintsPath, err)
+	}
 
 	fmt.Printf("Discovered %d remote files\n", len(remoteFiles))
 	return remoteFiles, nil

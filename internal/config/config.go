@@ -102,12 +102,78 @@ const (
 	// real course mix - most likely to matter for accounts with one course
 	// whose crawl time (many minutes) dwarfs the others', running
 	// concurrently with smaller courses that have paginated ("show
-	// all") sections. Follow-up investigation worth trying if this is
-	// revisited: a size/duration-aware scheduler that avoids running the
-	// single largest/slowest course concurrently with everything else
-	// (e.g. give it a dedicated pass, or at least stagger its tab creation
-	// further behind the others), since pure per-section wait-tuning has
-	// diminishing returns against this specific contention pattern.
+	// all") sections.
+	//
+	// FOLLOW-UP (queue task
+	// investigate-size-aware-course-scheduling-for-concurrency, 2026-07-14):
+	// implemented the size/duration-aware scheduler this doc comment
+	// previously flagged as worth trying - see
+	// internal/scraper/course_scheduling.go. When course_concurrency>1, it
+	// keeps a small per-machine cache (~/.opal-course-size-hints.json) of
+	// each course's file count from its most recent successful crawl, keyed
+	// by RepoID; if one course's cached count is both large in absolute
+	// terms (>=60 files) and dominant relative to the next-largest hinted
+	// course (>=2x), that course gets a dedicated, non-concurrent crawl
+	// pass by itself before the rest run concurrently as before (see
+	// selectDominantCourse's doc comment for the exact bar, and
+	// splitOutCourse). A course with no history yet (first-ever run) is
+	// never treated as dominant, so this only ever helps after an initial
+	// run has populated the cache - never requires a separate upfront probe
+	// pass, and a stale/missing hint degrades to the pre-existing flat
+	// concurrent scheduling with no correctness cost (every course is still
+	// crawled in full every run either way).
+	//
+	// RESULT: live-verified against the real TU Dresden account (8 courses,
+	// now 343 real files - grew from the 341 above between this task and
+	// the prior one, real account content drift) at course_concurrency 2,
+	// 3, and 5, four full-account runs total after fixing a real bug found
+	// along the way (an earlier version of the hint-recording code matched
+	// courses by raw title; RemoteFile.Course is actually
+	// sanitizeFilename(course.Title), so any course whose title contains a
+	// character sanitizeFilename rewrites - e.g. the ":" in two of this
+	// account's real course titles - silently never got its hint recorded;
+	// fixed in courseFileCountsByRepoID, course_scheduling.go). With that
+	// fixed:
+	//   - The account's dominant course (Softwaretechnologie (SoSe 26), 198
+	//     files) was correctly selected for a dedicated pass and came back
+	//     byte-for-byte complete (198/198) in all 4 runs (concurrency 2x2,
+	//     3x1, 5x1) - the specific "one huge course wrecks everything"
+	//     contention pattern this task set out to fix is, as far as this
+	//     testing could tell, fully closed.
+	//   - The account's full file count was NOT byte-for-byte safe across
+	//     those same runs: 2 of the 4 runs (one at concurrency=2, one at
+	//     concurrency=5) intermittently lost files - always in the same two
+	//     courses (Analysis, Algorithmen und Datenstrukturen), both of
+	//     which have paginated "show all" sections and are the exact same
+	//     courses named in sectionContentRequiredStableReads's doc comment
+	//     (crawl.go) as the ones that already showed this race pre-task.
+	//     Since the dedicated pass removes the dominant course from the
+	//     "rest" group entirely, this loss happens among the *smaller*
+	//     courses contending with each other - a residual instance of the
+	//     same pre-existing AJAX-render race documented above, unrelated to
+	//     which course is largest, and not something a scheduler scoped to
+	//     "isolate the one dominant course" can address. Consistent with
+	//     the pre-existing finding above that "course_concurrency=2 showed
+	//     the same residual loss as =3": this task's own data shows
+	//     concurrency 2 and 5 both hit it while concurrency 3 (one run)
+	//     didn't, i.e. not proportional to raw worker count either.
+	//
+	// STAYS AT 1: the scheduler is a real, unconditionally-safe improvement
+	// (only activates when course_concurrency>1 is already explicitly
+	// opted into; degrades to the pre-existing behavior with no downside
+	// when no dominant course is found) and is shipped anyway since it
+	// fully closes one real failure mode with no observed regression across
+	// 4 live runs - but the overall "raise the default once verified safe"
+	// bar still isn't met, because the *other* residual race (among
+	// non-dominant courses) is untouched by this task's scope. A true fix
+	// for that would need to revisit per-section wait-tuning again (already
+	// shown to have diminishing returns above) or extend size/duration
+	// awareness to *all* courses, not just the single most dominant one
+	// (e.g. a small pool of "big enough to isolate" courses rather than
+	// just one) - worth trying if this is revisited again, but not
+	// attempted here given the time this investigation already took and
+	// the account's course mix (exactly one course anywhere near dominant
+	// today) not exercising that generalization.
 	DefaultCourseConcurrency = 1
 )
 

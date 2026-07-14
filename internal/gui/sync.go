@@ -68,6 +68,7 @@ func (sp *syncPage) handleStart(w http.ResponseWriter, r *http.Request) {
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
 	sc.SetDeveloperMode(devMode)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
+	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 
 	// cancelFn closes the scraper's browser/Playwright process out from
 	// under any in-flight call, which is the only interruption mechanism

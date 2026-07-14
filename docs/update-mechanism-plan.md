@@ -186,7 +186,8 @@ second status block, conditionally rendered when an update is available:
 {{end}}
 ```
 
-New routes, mirroring the existing `/login` + `/login/start` pattern:
+New routes, following the existing GET-page + POST-action pairing pattern
+used elsewhere in the GUI (e.g. `/settings`):
 - `GET /update` (optional, or fold into landing) — shows current vs. latest
   version, changelog link (GitHub release notes URL), a "Download & Install"
   button.

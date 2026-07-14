@@ -84,15 +84,16 @@ is picked automatically unless `--port` is given) - equivalent to running
    glob pattern) and shows errors inline instead of writing a broken config;
    a valid save writes `config.yaml` directly and keeps the previous version
    as `config.yaml.bak`.
-2. **Login** - opens a separate, visible browser window to complete OPAL
-   login (TU-Fast/2FA supported) and saves the session for later use.
-3. **Sync / List / Dump links** - run the same operations as the CLI
-   subcommands below, from the browser.
+2. **Sync / List / Dump links** - run the same operations as the CLI
+   subcommands below, from the browser. If no valid session is saved yet,
+   this opens a separate, visible browser window to complete OPAL login
+   (TU-Fast/2FA supported) automatically before syncing - there's no
+   separate manual login step to run first.
 
 The web UI is the primary, recommended way to use opal-downloader. Everything
 it does is backed by the same `config.yaml` and the same underlying code as
-the CLI subcommands below, so you can freely mix the two - e.g. configure and
-log in via the browser, then run `sync` from a script or cron job.
+the CLI subcommands below, so you can freely mix the two - e.g. configure via
+the browser, then run `sync` from a script or cron job.
 
 ### Fast path: `setup`
 

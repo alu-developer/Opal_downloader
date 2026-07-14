@@ -20,7 +20,6 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/report"
-	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/updater"
 )
 
@@ -59,13 +58,6 @@ type Options struct {
 type server struct {
 	configPath   string
 	buildVersion string
-
-	// loginMu serializes login attempts and guards loginActive. Login runs
-	// synchronously from the caller's perspective (v1 scope): a request to
-	// /login/start blocks until the interactive Playwright login completes
-	// or fails.
-	loginMu     sync.Mutex
-	loginActive bool
 
 	// updateMu guards the cached result of the one-time startup update
 	// check (see checkForUpdateOnce). This is a short-lived local tool, not
@@ -174,8 +166,6 @@ func Run(opts Options) error {
 	mux.HandleFunc("/", srv.withRecover(srv.handleLanding))
 	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath, srv.suggestedBrowserUserDataDir)))
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
-	mux.HandleFunc("/login", srv.withRecover(srv.handleLoginPage))
-	mux.HandleFunc("/login/start", srv.withRecover(srv.handleLoginStart))
 	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
 	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))
 	mux.HandleFunc("/tufast-setup/copy", srv.withRecover(srv.handleTUFastSetupCopy))
@@ -284,10 +274,9 @@ func renderPanicPage(w http.ResponseWriter, rec any) {
 	_ = panicPageTemplate.Execute(w, fmt.Sprintf("%v", rec))
 }
 
-// disclaimerHTML is shown on the landing and login pages, where it's
-// load-bearing: it tells the user a *second*, separate browser window will
-// open for OPAL login/sync automation, so closing one window doesn't affect
-// the other.
+// disclaimerHTML is shown on the landing page, where it's load-bearing: it
+// tells the user a *second*, separate browser window will open for OPAL
+// login/sync automation, so closing one window doesn't affect the other.
 const disclaimerHTML = `<div class="disclaimer">
 		A separate browser window opens for OPAL login/sync. Closing this
 		window does not stop it, and closing it does not close this window.
@@ -362,7 +351,6 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 		<ul>
 			<li><a href="/settings">Settings</a></li>
 			<li><a href="/tufast-setup">TU-Fast browser profile setup</a></li>
-			<li><a href="/login">Login</a></li>
 			<li><a href="/sync">Sync / List / Dump links</a></li>
 			<li><a href="/update">Check for updates</a></li>
 			<li><a href="/feedback">Feedback / Problem melden</a></li>
@@ -414,133 +402,6 @@ func (s *server) sessionStatus() landingData {
 		data.StateModified = info.ModTime().Format("2006-01-02 15:04:05")
 	}
 	return data
-}
-
-var loginPageTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Opal Downloader - Login</title>
-<style>` + pageStyle + `</style>
-</head>
-<body>
-	<h1>Log in to OPAL</h1>
-
-	` + disclaimerHTML + `
-
-	<div class="status {{if .LoggedIn}}ok{{else}}warn{{end}}">
-		{{if .LoggedIn}}
-			Logged in (session saved{{if .StateModified}} {{.StateModified}}{{end}}).
-		{{else}}
-			Not logged in yet.
-		{{end}}
-	</div>
-
-	{{if .Result}}
-	<div class="status {{if .ResultOK}}ok{{else}}warn{{end}}">{{.Result}}</div>
-	{{end}}
-
-	<p class="hint">
-		A separate browser window opens to complete the OPAL login (including
-		TU-Fast/2FA if needed). This page waits and updates once it's done.
-	</p>
-
-	<form method="post" action="/login/start">
-		<button type="submit">Log in</button>
-	</form>
-
-	<p class="back"><a href="/">&larr; Back</a></p>
-</body>
-</html>
-`))
-
-type loginPageData struct {
-	landingData
-	Result   string
-	ResultOK bool
-}
-
-func (s *server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.NotFound(w, r)
-		return
-	}
-	data := loginPageData{landingData: s.sessionStatus()}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = loginPageTemplate.Execute(w, data)
-}
-
-// handleLoginStart runs the interactive Playwright login flow synchronously
-// (the same logic as `opal-downloader login`) and re-renders the login page
-// with the outcome. This blocks the HTTP request for as long as the user
-// takes to authenticate in the automation browser window - acceptable for
-// v1 per the task scope (no general async task streaming here).
-func (s *server) handleLoginStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.NotFound(w, r)
-		return
-	}
-
-	if !s.tryBeginLogin() {
-		data := loginPageData{
-			landingData: s.sessionStatus(),
-			Result:      "A login is already in progress. Please wait for it to finish.",
-			ResultOK:    false,
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = loginPageTemplate.Execute(w, data)
-		return
-	}
-	defer s.endLogin()
-
-	err := s.runLogin()
-
-	data := loginPageData{landingData: s.sessionStatus()}
-	if err != nil {
-		data.Result = fmt.Sprintf("Login failed: %s", err)
-		data.ResultOK = false
-	} else {
-		data.Result = "Login successful. Session state saved."
-		data.ResultOK = true
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = loginPageTemplate.Execute(w, data)
-}
-
-func (s *server) tryBeginLogin() bool {
-	s.loginMu.Lock()
-	defer s.loginMu.Unlock()
-	if s.loginActive {
-		return false
-	}
-	s.loginActive = true
-	return true
-}
-
-func (s *server) endLogin() {
-	s.loginMu.Lock()
-	s.loginActive = false
-	s.loginMu.Unlock()
-}
-
-// runLogin invokes the same login logic as the `login` CLI subcommand
-// (cmd/opal-downloader/root.go's runLogin): load credentials, spawn a
-// visible Playwright-controlled Chromium window, wait for the user to
-// authenticate, and persist the session state file.
-func (s *server) runLogin() error {
-	credentials, err := config.LoadCredentials(s.configPath)
-	if err != nil {
-		return err
-	}
-
-	sc := scraper.New(credentials.URL, credentials.StateFile, credentials.BrowserExecutable, credentials.BrowserUserDataDir, credentials.BrowserProfileDir)
-	defer sc.Close()
-
-	if err := sc.LoginWithBrowser(); err != nil {
-		return err
-	}
-	return nil
 }
 
 // checkForUpdateOnce hits internal/updater's release-check endpoint exactly

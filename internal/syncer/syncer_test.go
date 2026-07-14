@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -31,8 +32,33 @@ type fakeDownloader struct {
 	failURLs map[string]bool
 }
 
-func (f *fakeDownloader) ScrapeWithSavedSession(courseFilter []string) ([]scraper.RemoteFile, error) {
+func (f *fakeDownloader) ScrapeWithSavedSession(ctx context.Context, courseFilter []string) ([]scraper.RemoteFile, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return f.files, nil
+}
+
+// cancelingDownloader wraps a fakeDownloader and invokes cancel once its
+// DownloadFile has been called cancelAfter times, simulating the GUI's
+// /sync/cancel handler firing while a sync's download phase is in progress.
+// Used by TestSyncCoursesWithProgressStopsDownloadingAfterCancel to verify
+// the download job-dispatch loop (processRemoteFiles, syncer.go) actually
+// stops queuing further downloads once ctx is cancelled, instead of grinding
+// through the rest of the file list.
+type cancelingDownloader struct {
+	*fakeDownloader
+	cancel      context.CancelFunc
+	cancelAfter int32
+	downloads   int32
+}
+
+func (c *cancelingDownloader) DownloadFile(fileURL, localPath string) error {
+	err := c.fakeDownloader.DownloadFile(fileURL, localPath)
+	if atomic.AddInt32(&c.downloads, 1) == c.cancelAfter {
+		c.cancel()
+	}
+	return err
 }
 
 func (f *fakeDownloader) DownloadFile(fileURL, localPath string) error {
@@ -247,7 +273,7 @@ func TestSyncCoursesAbsoluteDefaultCourseFolderLandsOnDisk(t *testing.T) {
 		},
 	}
 
-	stats, err := SyncCourses(fd, cfg, false)
+	stats, err := SyncCourses(context.Background(), fd, cfg, false)
 	if err != nil {
 		t.Fatalf("SyncCourses returned error: %v", err)
 	}
@@ -333,7 +359,7 @@ func TestSyncRemoteFilesDurationExcludesDiscovery(t *testing.T) {
 		return writePlaceholderFile(localPath)
 	}
 
-	stats, err := syncRemoteFiles(remoteFiles, manifest, cfg, false, downloadFn, nil)
+	stats, err := syncRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, nil)
 	if err != nil {
 		t.Fatalf("syncRemoteFiles returned error: %v", err)
 	}
@@ -384,7 +410,7 @@ func TestSyncCoursesDownloadsAllFilesConcurrently(t *testing.T) {
 	fake := &fakeDownloader{files: makeRemoteFiles(fileCount), delay: 5 * time.Millisecond}
 	cfg := config.App{DownloadPath: dir, DownloadConcurrency: 4}
 
-	stats, err := SyncCourses(fake, cfg, false)
+	stats, err := SyncCourses(context.Background(), fake, cfg, false)
 	if err != nil {
 		t.Fatalf("SyncCourses returned error: %v", err)
 	}
@@ -446,7 +472,7 @@ func TestSyncCoursesConcurrencyIsFasterThanSequential(t *testing.T) {
 		cfg := config.App{DownloadPath: dir, DownloadConcurrency: concurrency}
 
 		start := time.Now()
-		stats, err := SyncCourses(fake, cfg, false)
+		stats, err := SyncCourses(context.Background(), fake, cfg, false)
 		elapsed := time.Since(start)
 		if err != nil {
 			t.Fatalf("SyncCourses returned error: %v", err)
@@ -484,7 +510,7 @@ func TestSyncCoursesHandlesDownloadErrors(t *testing.T) {
 	}
 	cfg := config.App{DownloadPath: dir, DownloadConcurrency: 3}
 
-	stats, err := SyncCourses(fake, cfg, false)
+	stats, err := SyncCourses(context.Background(), fake, cfg, false)
 	if err != nil {
 		t.Fatalf("SyncCourses returned error: %v", err)
 	}
@@ -520,7 +546,7 @@ func TestSyncCoursesDefaultsConcurrencyWhenUnset(t *testing.T) {
 	fake := &fakeDownloader{files: makeRemoteFiles(5)}
 	cfg := config.App{DownloadPath: dir} // DownloadConcurrency left at zero value
 
-	stats, err := SyncCourses(fake, cfg, false)
+	stats, err := SyncCourses(context.Background(), fake, cfg, false)
 	if err != nil {
 		t.Fatalf("SyncCourses returned error: %v", err)
 	}
@@ -548,7 +574,7 @@ func TestProcessRemoteFilesFiresExpectedEvents(t *testing.T) {
 		return os.WriteFile(localPath, []byte("data"), 0o644)
 	}
 
-	stats := processRemoteFiles(remoteFiles, manifest, cfg, false, downloadFn, func(e Event) {
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(e Event) {
 		events = append(events, e)
 	})
 
@@ -612,7 +638,7 @@ func TestProcessRemoteFilesSkipsUnchangedFiles(t *testing.T) {
 		return nil
 	}
 
-	stats := processRemoteFiles(remoteFiles, manifest, cfg, false, downloadFn, func(e Event) {
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(e Event) {
 		events = append(events, e)
 	})
 
@@ -648,8 +674,52 @@ func TestSyncCoursesWithProgressNilCallbackDoesNotPanic(t *testing.T) {
 
 	// processRemoteFiles is exercised directly with a nil-safe wrapper the
 	// same way SyncCourses wraps SyncCoursesWithProgress with progress=nil.
-	stats := processRemoteFiles(remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
 	if stats.Downloaded != 1 {
 		t.Fatalf("expected 1 downloaded, got %+v", stats)
+	}
+}
+
+// TestSyncCoursesWithProgressStopsDownloadingAfterCancel is a regression test
+// for the queue task fix-gui-cancel-doesnt-abort-course-loop: before the fix,
+// cancelling a running GUI sync job only closed the browser - the sync's
+// course/file loop kept grinding through the remaining work and the job
+// still reported "Done" instead of "Cancelled". This drives
+// SyncCoursesWithProgress with DownloadConcurrency=1 and a Downloader that
+// cancels ctx from inside its first DownloadFile call (simulating
+// /sync/cancel firing mid-run), and asserts: the download loop stops well
+// short of all files, no EventComplete ("done") fires, and the returned
+// error satisfies errors.Is(err, context.Canceled) so
+// publishCancelOrError (internal/gui/sync.go) can tell this apart from a
+// genuine failure or a normal completion.
+func TestSyncCoursesWithProgressStopsDownloadingAfterCancel(t *testing.T) {
+	dir := t.TempDir()
+	const fileCount = 10
+
+	fake := &fakeDownloader{files: makeRemoteFiles(fileCount)}
+	cfg := config.App{DownloadPath: dir, DownloadConcurrency: 1}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cd := &cancelingDownloader{fakeDownloader: fake, cancel: cancel, cancelAfter: 1}
+
+	var gotComplete bool
+	stats, err := SyncCoursesWithProgress(ctx, cd, cfg, false, func(e Event) {
+		if e.Type == EventComplete {
+			gotComplete = true
+		}
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected error satisfying errors.Is(err, context.Canceled), got %v", err)
+	}
+	if gotComplete {
+		t.Fatal("expected EventComplete not to fire for a cancelled sync")
+	}
+	if stats.Downloaded == 0 {
+		t.Fatal("expected the in-flight download (before cancellation was observed) to still be recorded")
+	}
+	if stats.Downloaded >= fileCount {
+		t.Fatalf("expected the download loop to stop well before all %d files, got %d downloaded", fileCount, stats.Downloaded)
 	}
 }

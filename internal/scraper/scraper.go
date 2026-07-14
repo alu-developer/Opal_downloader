@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -301,14 +302,26 @@ func (s *OpalScraper) LoginWithBrowser() error {
 	return s.ensureSession(true)
 }
 
-func (s *OpalScraper) ScrapeWithSavedSession(courseFilter []string) ([]RemoteFile, error) {
+// ScrapeWithSavedSession logs in (via the saved session state) and crawls
+// every matching course for its files. ctx is checked for cancellation
+// before login/discovery starts and threaded through the per-course crawl
+// loop (scrapeCoursesBrowser) so a caller (the GUI's /sync/cancel handler)
+// can stop it from iterating further courses once the browser has been
+// closed out from under it - see cancelFn's doc comment in
+// internal/gui/sync.go. A cancelled ctx surfaces here as ctx.Err() (wrapped
+// or returned as-is by scrapeCoursesBrowser), which callers can distinguish
+// from a genuine scrape failure via errors.Is(err, context.Canceled).
+func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter []string) ([]RemoteFile, error) {
 	if len(courseFilter) == 0 {
 		courseFilter = []string{"*"}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if err := s.ensureSession(false); err != nil {
 		return nil, err
 	}
-	return s.scrapeCoursesBrowser(courseFilter)
+	return s.scrapeCoursesBrowser(ctx, courseFilter)
 }
 
 // Close tears down the browser/Playwright process. It is safe to call

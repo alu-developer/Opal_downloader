@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -277,11 +278,11 @@ func TestScrapeCoursesBrowserDedicatedPassDoesNotDropOrDuplicateFiles(t *testing
 	}
 	dominant, rest := splitOutCourse(courses, dominantRepoID)
 
-	dominantFiles := collectCourseFilesConcurrently(dominant, 1, collectFn, nil)
-	restFiles := collectCourseFilesConcurrently(rest, 3, collectFn, nil)
+	dominantFiles := collectCourseFilesConcurrently(context.Background(), dominant, 1, collectFn, nil)
+	restFiles := collectCourseFilesConcurrently(context.Background(), rest, 3, collectFn, nil)
 	twoPhaseFiles := append(dominantFiles, restFiles...)
 
-	flatFiles := collectCourseFilesConcurrently(courses, 3, collectFn, nil)
+	flatFiles := collectCourseFilesConcurrently(context.Background(), courses, 3, collectFn, nil)
 
 	if len(twoPhaseFiles) != len(flatFiles) {
 		t.Fatalf("expected two-phase scheduling to produce the same file count as flat scheduling: two-phase=%d flat=%d", len(twoPhaseFiles), len(flatFiles))

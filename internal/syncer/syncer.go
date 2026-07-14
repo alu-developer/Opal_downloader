@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,7 +21,7 @@ import (
 // concurrent-download scheduling logic with a fake, without needing a real
 // browser/Playwright context.
 type Downloader interface {
-	ScrapeWithSavedSession(courseFilter []string) ([]scraper.RemoteFile, error)
+	ScrapeWithSavedSession(ctx context.Context, courseFilter []string) ([]scraper.RemoteFile, error)
 	DownloadFile(fileURL, localPath string) error
 }
 
@@ -155,17 +156,27 @@ type downloadResult struct {
 
 // SyncCourses runs a sync with no progress callback; CLI output is
 // unchanged from before progress reporting was added.
-func SyncCourses(sc Downloader, cfg config.App, force bool) (Stats, error) {
-	return SyncCoursesWithProgress(sc, cfg, force, nil)
+func SyncCourses(ctx context.Context, sc Downloader, cfg config.App, force bool) (Stats, error) {
+	return SyncCoursesWithProgress(ctx, sc, cfg, force, nil)
 }
 
 // SyncCoursesWithProgress runs a sync, invoking progress (if non-nil) with
 // incremental events as courses/files are processed, in addition to the
 // existing stdout output. progress may be nil, in which case behavior is
-// identical to SyncCourses.
-func SyncCoursesWithProgress(sc Downloader, cfg config.App, force bool, progress ProgressFunc) (Stats, error) {
+// identical to SyncCourses. ctx is threaded through both phases of the sync -
+// discovery (sc.ScrapeWithSavedSession, whose own course-iteration loop stops
+// promptly on cancellation - see scraper.OpalScraper.ScrapeWithSavedSession)
+// and the download phase (syncRemoteFiles/processRemoteFiles's job-dispatch
+// loop) - so a caller can cancel a run in progress (the GUI's /sync/cancel
+// handler) and get back an error satisfying errors.Is(err, context.Canceled)
+// instead of a silently truncated success.
+func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App, force bool, progress ProgressFunc) (Stats, error) {
 	if progress == nil {
 		progress = func(Event) {}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return Stats{}, err
 	}
 
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
@@ -178,12 +189,12 @@ func SyncCoursesWithProgress(sc Downloader, cfg config.App, force bool, progress
 		return Stats{}, err
 	}
 
-	remoteFiles, err := sc.ScrapeWithSavedSession(cfg.Courses)
+	remoteFiles, err := sc.ScrapeWithSavedSession(ctx, cfg.Courses)
 	if err != nil {
 		return Stats{}, err
 	}
 
-	return syncRemoteFiles(remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
+	return syncRemoteFiles(ctx, remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
 }
 
 // syncRemoteFiles runs the manifest-diff-and-download phase of a sync given
@@ -192,7 +203,7 @@ func SyncCoursesWithProgress(sc Downloader, cfg config.App, force bool, progress
 // must exclude discovery/crawl time, which happens before this function is
 // ever called) can be exercised in tests with a fake downloadFn, without
 // needing a real *scraper.OpalScraper/browser.
-func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error, progress ProgressFunc) (Stats, error) {
+func syncRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error, progress ProgressFunc) (Stats, error) {
 	if progress == nil {
 		progress = func(Event) {}
 	}
@@ -204,13 +215,25 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 	syncTimer := timing.StartTimer()
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
 
-	stats := processRemoteFiles(remoteFiles, manifest, cfg, force, downloadFn, progress)
+	stats := processRemoteFiles(ctx, remoteFiles, manifest, cfg, force, downloadFn, progress)
 
 	if err := manifest.Save(); err != nil {
 		return stats, err
 	}
 
 	stats.DownloadDuration = syncTimer.Elapsed()
+
+	if err := ctx.Err(); err != nil {
+		// Cancelled mid-download: whatever files finished downloading before
+		// cancellation are already recorded in manifest (saved just above),
+		// so nothing already-fetched is lost or re-fetched next run - but
+		// don't fire EventComplete (that reads as a normal finish) and
+		// return ctx.Err() instead, so SyncCoursesWithProgress's caller
+		// (ultimately publishCancelOrError in internal/gui/sync.go) reports
+		// "cancelled" rather than "done".
+		return stats, err
+	}
+
 	progress(Event{Type: EventComplete, Stats: stats})
 
 	return stats, nil
@@ -223,8 +246,13 @@ func syncRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg c
 // are scheduled across a worker pool (see downloadJob/downloadResult) sized
 // by cfg.DownloadConcurrency; manifest and stats mutations only ever happen
 // on the goroutine draining the result channel, so no locking is needed for
-// them even though DownloadFile calls happen concurrently.
-func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
+// them even though DownloadFile calls happen concurrently. ctx cancellation
+// stops the job-dispatch goroutine from queuing any further not-yet-started
+// download (mirroring collectCourseFilesConcurrently's course-dispatch fix
+// in internal/scraper/orchestrator.go) - downloads already in flight are not
+// aborted mid-transfer, but no new one is started once cancellation is
+// observed.
+func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
 	stats := Stats{Downloads: &timing.DownloadTracker{}}
 
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
@@ -288,10 +316,19 @@ func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cf
 		}
 
 		go func() {
+			defer close(jobCh)
 			for _, job := range jobs {
-				jobCh <- job
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				select {
+				case jobCh <- job:
+				case <-ctx.Done():
+					return
+				}
 			}
-			close(jobCh)
 		}()
 
 		go func() {
@@ -328,9 +365,9 @@ func processRemoteFiles(remoteFiles []scraper.RemoteFile, manifest *Manifest, cf
 	return stats
 }
 
-func ListAvailableCourses(sc *scraper.OpalScraper) error {
+func ListAvailableCourses(ctx context.Context, sc *scraper.OpalScraper) error {
 	fmt.Println("Fetching courses from OPAL...")
-	files, err := sc.ScrapeWithSavedSession([]string{"*"})
+	files, err := sc.ScrapeWithSavedSession(ctx, []string{"*"})
 	if err != nil {
 		return err
 	}

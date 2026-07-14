@@ -141,6 +141,15 @@ func isSectionURLAllowedForCourse(absURL, repoID string) bool {
 // resolved early, twice, and the obvious fix - waiting for Attached instead
 // of Playwright's default Visible - was live-verified to cause real file
 // count regressions instead).
+//
+// This fixed wait is deliberately still followed by condition-based polling
+// (waitForStableSectionContent in crawl.go, built on candidateStabilityPoll
+// below) rather than being trusted alone - see candidateStabilityPoll's doc
+// comment for why: this fixed duration was tuned against serial
+// (course_concurrency=1) crawling, where it is enough; under concurrent
+// crawling it measurably is not, for the same class of reason
+// showAllExpansionPollIntervalMs/waitForStableExpandedCandidates already had
+// to account for.
 func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWaitMs float64) {
 	if page == nil {
 		return
@@ -149,6 +158,120 @@ func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWait
 	start := time.Now()
 	page.WaitForTimeout(fallbackWaitMs)
 	s.auditLog("wait-fixed", page, selector, fmt.Sprintf("fixed wait took %s (no selector early-exit attempted - see contentFallbackWaitMs doc comment)", time.Since(start)))
+}
+
+// candidateStabilityPoll repeatedly calls extractFn (waiting via waitFn
+// between attempts) until a read comes back no larger than the previous
+// best, or maxPolls extra attempts have been made, and returns the largest
+// candidate set observed.
+//
+// This is the shared engine behind both waitForStableExpandedCandidates
+// (crawl.go's "show all" pagination expansion, the original 2026-07-12 use
+// of this pattern) and waitForStableSectionContent (crawl.go's main
+// per-section content wait, added by the queue task
+// fix-concurrent-crawl-ajax-race-and-raise-concurrency). Root cause for why
+// this exists at all: OPAL's section content is rendered by client-side
+// AJAX (Wicket) after the page's own load event, and how long that
+// rendering takes is not fixed - it scales with contention for the
+// browser's rendering pipeline (CPU/event-loop), which is exactly what goes
+// up when collectCourseFilesConcurrently runs several courses' pages at
+// once. A single fixed-duration wait tuned against a serial
+// (course_concurrency=1) crawl - where the renderer has the machine to
+// itself - was live-confirmed (2026-07-12, task increase-parallel-tab-
+// concurrency) to sometimes not be enough once that render has to compete
+// with N-1 other courses' pages rendering at the same time: the extraction
+// that follows the fixed wait can run before the AJAX update has finished,
+// silently returning fewer candidates than actually exist - in the worst
+// case (the root section, which gates whether any subfolder links get
+// queued at all) zero, dropping an entire course's files with no error.
+//
+// Polling for a *stable* (no-longer-growing) read, rather than trusting any
+// fixed duration to be "enough", adapts automatically to however much
+// contention is actually present: under light/no load the very first extra
+// poll comes back equal to the first read and this returns almost
+// immediately (matching the old fixed-wait behavior's typical cost within
+// one poll interval); under heavy load it keeps polling - up to the
+// maxPolls budget - for as long as the candidate count keeps growing.
+//
+// A transient extraction error mid-poll is treated as "no progress this
+// round" (so one flaky read can't discard an already-successful render)
+// unless isFatal(err) reports true, in which case it is returned
+// immediately so the caller's own crash-recovery path can run - mirrors
+// waitForStableExpandedCandidates's original error handling.
+//
+// requiredStableReads is how many *consecutive* non-growing reads are
+// needed before the render is considered settled (values < 1 are treated as
+// 1). This was added after live A/B testing (queue task
+// fix-concurrent-crawl-ajax-race-and-raise-concurrency) showed that a
+// single non-growing read is not always a reliable "done" signal: OPAL
+// renders a section's content in stages under real contention (e.g. the
+// file/row list appears first, with a separate pagination control such as
+// the "show all"/pager-showall link - see expandShowAllInSection in
+// crawl.go - appearing only in a later stage). A poll that stops as soon as
+// one read matches the previous one can catch a coincidental plateau
+// between those stages and declare victory before the later stage - most
+// consequentially the pagination control itself - has rendered at all,
+// silently truncating the section to whatever the first stage contained.
+// Confirmed live: an initial version of this fix using requiredStableReads
+// effectively 1 still lost exactly the files past OPAL's ~20-item default
+// page size in a paginated section, with the "show all" control's click
+// never even attempted (findShowAllTarget found nothing, because the
+// control had not rendered into the DOM at the moment extraction ran) -
+// requiring multiple consecutive confirming reads before trusting a
+// "stable" count fixed it. See waitForStableSectionContent's
+// sectionContentRequiredStableReads (crawl.go) for the tuned value used for
+// the main per-section content wait, where this was found.
+//
+// Deliberately has no playwright.Page/browser dependency, so it can be unit
+// tested with a fake extractFn that simulates slow/concurrent-load,
+// staged-render AJAX behavior without a real browser - see
+// candidate_stability_test.go.
+func candidateStabilityPoll(extractFn func() ([]map[string]string, error), waitFn func(), maxPolls int, requiredStableReads int, isFatal func(error) bool) ([]map[string]string, error) {
+	if requiredStableReads < 1 {
+		requiredStableReads = 1
+	}
+
+	best, err := extractFn()
+	if err != nil {
+		if isFatal != nil && isFatal(err) {
+			return nil, err
+		}
+		best = nil
+	}
+
+	stableStreak := 0
+	for i := 0; i < maxPolls; i++ {
+		waitFn()
+		next, err := extractFn()
+		if err != nil {
+			if isFatal != nil && isFatal(err) {
+				return nil, err
+			}
+			// A transient error is neither growth nor a confirming stable
+			// read - it tells us nothing about whether the render has
+			// settled, so it doesn't reset or advance the stable streak
+			// either. Just try again next poll.
+			continue
+		}
+		if len(next) > len(best) {
+			// Real growth - the render is still in progress. Reset the
+			// stable streak: whatever plateau (if any) preceded this no
+			// longer counts, since it's now proven not to have been the
+			// final state.
+			best = next
+			stableStreak = 0
+			continue
+		}
+		stableStreak++
+		if stableStreak >= requiredStableReads {
+			// This round, and requiredStableReads-1 rounds before it, all
+			// failed to grow the candidate set - a single plateau read is
+			// no longer trusted alone (see the doc comment above), but this
+			// many in a row is. best already holds the largest read seen.
+			break
+		}
+	}
+	return best, nil
 }
 
 // isPageCrashError reports whether err is Playwright's "Target crashed"/

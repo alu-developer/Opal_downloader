@@ -10,6 +10,26 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/timing"
 )
 
+// effectiveCourseConcurrency resolves s.courseConcurrency the same way
+// scrapeCoursesBrowser always has (falling back to
+// config.DefaultCourseConcurrency when unset/non-positive), but is also
+// exposed as its own method so crawl.go's per-section wait budgets
+// (waitForStableSectionContent/waitForStableExpandedCandidates) can check
+// whether a crawl is actually running concurrently - see
+// sectionContentRequiredStableReads's doc comment in crawl.go for why that
+// matters: the extra multi-consecutive-stable-read patience those waits
+// need under real concurrent-crawl contention is dead weight (only slows
+// things down) for a purely serial course_concurrency=1 crawl, which was
+// never the class of race this task root-caused and had already been
+// live-verified fine with a single-stable-read wait.
+func (s *OpalScraper) effectiveCourseConcurrency() int {
+	concurrency := s.courseConcurrency
+	if concurrency <= 0 {
+		concurrency = config.DefaultCourseConcurrency
+	}
+	return concurrency
+}
+
 func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile, error) {
 	if s.getPage() == nil {
 		return nil, errors.New("no page available")
@@ -24,10 +44,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile,
 	fmt.Printf("Found %d course links\n", len(courses))
 	timing.PrintDiscoverySummary(discoveryElapsed, len(courses))
 
-	concurrency := s.courseConcurrency
-	if concurrency <= 0 {
-		concurrency = config.DefaultCourseConcurrency
-	}
+	concurrency := s.effectiveCourseConcurrency()
 
 	// Suspend s.page tracking for the duration of the concurrent crawl below:
 	// each course gets its own throwaway page (newCourseFileCollector), and
@@ -46,6 +63,18 @@ func (s *OpalScraper) scrapeCoursesBrowser(courseFilter []string) ([]RemoteFile,
 	return remoteFiles, nil
 }
 
+// newPageStaggerMs is how long newCourseFileCollector holds s.newPageMu
+// after a successful ctx.NewPage() before releasing it for the next
+// worker's page creation. See newPageMu's doc comment (scraper.go) for the
+// live-confirmed reason this exists: a burst of several workers opening a
+// fresh tab at the same instant (most commonly right after a fixed-size
+// worker pool has a couple of short courses finish around the same time)
+// measurably worsened the AJAX-render race even with a generous
+// candidateStabilityPoll budget - staggering tab creation itself removes
+// that burst without limiting how many tabs may be actively
+// crawling/rendering concurrently once open.
+const newPageStaggerMs = 800 * time.Millisecond
+
 // newCourseFileCollector returns a function that crawls a single course on a
 // freshly opened Playwright page/tab (s.context.NewPage()), reusing the
 // shared authenticated browser context so login state carries over, and
@@ -61,6 +90,12 @@ func (s *OpalScraper) newCourseFileCollector() func(CourseRef) (courseCrawlResul
 			return courseCrawlResult{}, errors.New("no authenticated browser context available")
 		}
 
+		// newPageMu + the stagger sleep below serialize and space out tab
+		// creation across concurrent workers - see newPageMu's doc comment
+		// (scraper.go) and newPageStaggerMs above for why. Held only around
+		// page creation itself, not the crawl that follows, so already-open
+		// tabs still render/crawl fully concurrently.
+		s.newPageMu.Lock()
 		page, err := ctx.NewPage()
 		if err != nil {
 			// A dying-but-not-yet-fully-dead browser process (see
@@ -73,9 +108,13 @@ func (s *OpalScraper) newCourseFileCollector() func(CourseRef) (courseCrawlResul
 			// other transient Playwright failures.
 			time.Sleep(1 * time.Second)
 			page, err = ctx.NewPage()
-			if err != nil {
-				return courseCrawlResult{}, fmt.Errorf("failed to open browser tab for course %q: %w", course.Title, err)
-			}
+		}
+		if err == nil {
+			time.Sleep(newPageStaggerMs)
+		}
+		s.newPageMu.Unlock()
+		if err != nil {
+			return courseCrawlResult{}, fmt.Errorf("failed to open browser tab for course %q: %w", course.Title, err)
 		}
 
 		finalPage, files, downloadCandidates, crawlErr := s.collectCourseFiles(page, course)

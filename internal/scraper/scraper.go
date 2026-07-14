@@ -143,6 +143,25 @@ type OpalScraper struct {
 	// sync manifest. See internal/visitlog's package doc for why this is a
 	// separate, cross-run concern from --debug-clicks (audit.go).
 	visitRecords []visitlog.Record
+
+	// newPageMu serializes ctx.NewPage() calls made by
+	// newCourseFileCollector (orchestrator.go) during concurrent course
+	// crawling - see newCourseFileCollector's doc comment for why this
+	// exists: live A/B testing (queue task
+	// fix-concurrent-crawl-ajax-race-and-raise-concurrency) found that a
+	// worker finishing one course and immediately opening a fresh tab for
+	// its next one, at the same moment one or more *other* workers are
+	// doing the same (a common pattern once several short courses finish
+	// around the same time under a fixed-size worker pool), produces a
+	// short burst of simultaneous Chromium tab/renderer-process creation
+	// that measurably worsens the AJAX-render race candidateStabilityPoll
+	// (navigation.go) otherwise handles - a fix verified sufficient with an
+	// isolated 3-course pool was live-reproduced to still lose files in the
+	// real 8-course pool specifically around this kind of worker-handoff
+	// churn. Serializing just the NewPage() call (not the crawl that
+	// follows it) keeps tab creation itself from piling up, while still
+	// letting already-open tabs render/crawl fully concurrently.
+	newPageMu sync.Mutex
 }
 
 // suspendPageTracking stops trackActivePage's ctx.OnPage hook from

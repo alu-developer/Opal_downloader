@@ -30,22 +30,84 @@ const (
 
 	// DefaultCourseConcurrency is the default number of courses crawled
 	// concurrently during discovery, each on its own browser tab/page.
-	// Live-tested 2026-07-12 against the real TU Dresden OPAL account
-	// (8 courses, 341 real files via a serial course_concurrency=1 ground
-	// truth): course_concurrency=3 (the old default) silently returned 0
-	// files for 2 whole courses that actually had 38 and 34 files
-	// respectively (21% of all files silently lost, no error/warning beyond
-	// a generic "found 0 files" log line); course_concurrency=5 lost 76% of
-	// files, including a 198-file course dropping to 0 and other courses
-	// returning wrong (partial) counts. This is not rate-limiting - it's an
-	// AJAX-render race in concurrent course crawling that PR #64 only
-	// partially fixed (that PR fixed show-all pagination specifically; this
-	// is a broader instance of the same race that can drop a course's
-	// content entirely). Only course_concurrency=1 (serial) produced
-	// correct, complete file counts across 3 separate runs, so that is now
-	// the default. Do not raise this until the underlying race is fixed;
-	// raising it trades speed for silently missing files, which is worse
-	// than slow.
+	//
+	// STAYS AT 1. Queue task fix-concurrent-crawl-ajax-race-and-raise-
+	// concurrency (2026-07-13) root-caused and fixed several real,
+	// distinct bugs behind the original 2026-07-12 finding below (not
+	// rate-limiting - a genuine AJAX-render race in concurrent course
+	// crawling), live-verified each one against the real TU Dresden
+	// account (8 courses, 341 real files, serial ground truth):
+	//
+	//  1. internal/scraper/navigation.go's per-section content wait used a
+	//     single fixed-duration sleep (contentFallbackWaitMs) tuned against
+	//     serial rendering. Under concurrent crawling, competing tabs'
+	//     renders delay each other, so a fixed wait sometimes elapsed
+	//     before a section's content had actually finished rendering -
+	//     confirmed live to silently drop a whole course to 0 files when
+	//     this hit the root section specifically. Fixed by replacing the
+	//     fixed wait with condition-based polling (candidateStabilityPoll,
+	//     navigation.go; waitForStableSectionContent, crawl.go) that keeps
+	//     re-extracting until the read count stops growing.
+	//  2. That polling initially stopped at the first non-growing read,
+	//     which was NOT enough on its own - live A/B tested and still lost
+	//     the same files as the unfixed code. Root cause: OPAL/Wicket
+	//     renders a section in stages (the row list appears, then a later
+	//     stage adds the pagination control), and a single non-growing read
+	//     can catch a coincidental plateau between those stages. Fixed by
+	//     requiring several *consecutive* non-growing reads before trusting
+	//     "stable" (sectionContentRequiredStableReads /
+	//     showAllExpansionRequiredStableReads, internal/scraper/crawl.go).
+	//  3. The "show all" pagination control's Click() timeout (3s) was
+	//     sometimes too short for the control to become actionable under
+	//     concurrent rendering load, silently leaving a section truncated
+	//     to its first page with no error. Fixed with a longer timeout and
+	//     retries (showAllClickTimeoutMs/showAllClickMaxAttempts,
+	//     internal/scraper/crawl.go).
+	//  4. Several workers opening a fresh browser tab at the same instant
+	//     (a common pattern right after a couple of short courses finish
+	//     around the same time) measurably worsened the render race. Fixed
+	//     by serializing and staggering tab creation across workers
+	//     (newPageMu/newPageStaggerMs, internal/scraper/scraper.go and
+	//     orchestrator.go).
+	//
+	// These fixes are real and were individually live-confirmed to resolve
+	// the race in light-to-moderate concurrent load (multiple courses
+	// concurrently, including the account's largest 198-file course paired
+	// with just one or two others).
+	//
+	// WHY THE DEFAULT ISN'T RAISED ANYWAY: even with all four fixes above,
+	// repeated live re-tests of the *full* real account (8 courses,
+	// including that same 198-file course running concurrently with
+	// several smaller ones that have paginated sections) at
+	// course_concurrency 2 and 3 still intermittently lost a small number
+	// of files (2-8 of 341, roughly 1-2%) - a large improvement over the
+	// original 21%-76% loss, but not a byte-for-byte match with the serial
+	// ground truth every time, so the "raise it once verified safe"
+	// acceptance bar was not met. Pushing the stability-poll budgets even
+	// higher (tried live: sectionContentRequiredStableReads=8 with an
+	// 8s+ ceiling) did not reliably close the remaining gap either, while
+	// roughly doubling total crawl wall-clock time even in the case where
+	// nothing needed the extra patience. The per-section extra-patience
+	// cost is now scoped to only apply when actually running with
+	// course_concurrency>1 (see requiredStableReads, crawl.go) specifically
+	// so this investigation's fixes don't regress the course_concurrency=1
+	// default's own speed (an earlier unscoped version of this fix
+	// live-measured ~999s for the same serial 341-file crawl that takes
+	// ~471-602s without or with only the scoped version of it).
+	//
+	// Net effect for anyone who explicitly opts into course_concurrency>1
+	// today (via config.yaml or --course-concurrency): meaningfully safer
+	// than before this task (loses ~1-2% of files in the worst case tested,
+	// down from 21-76%), but still not proven byte-for-byte safe for every
+	// real course mix - most likely to matter for accounts with one course
+	// whose crawl time (many minutes) dwarfs the others', running
+	// concurrently with smaller courses that have paginated ("show
+	// all") sections. Follow-up investigation worth trying if this is
+	// revisited: a size/duration-aware scheduler that avoids running the
+	// single largest/slowest course concurrently with everything else
+	// (e.g. give it a dedicated pass, or at least stagger its tab creation
+	// further behind the others), since pure per-section wait-tuning has
+	// diminishing returns against this specific contention pattern.
 	DefaultCourseConcurrency = 1
 )
 

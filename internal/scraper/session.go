@@ -279,7 +279,32 @@ func (s *OpalScraper) isAuthenticated() (bool, error) {
 	return courseCandidates > 0, nil
 }
 
+// sessionLockAcquireTimeout bounds how long ensureSession will wait for
+// another opal-downloader process to finish its own session-establishment
+// phase (see acquireSessionLock) before giving up. Interactive login's own
+// wait (waitForLoggedInCourseLink) allows up to 300s for a human/TU-Fast to
+// complete 2FA, so this must comfortably exceed that or a second process
+// would time out waiting on a first process's legitimate, still-in-progress
+// login; it does not need to be much larger than that, since anything still
+// holding the lock past a full login-wait plus margin is unusual enough that
+// surfacing an error (rather than blocking indefinitely) is more useful.
+const sessionLockAcquireTimeout = 6 * time.Minute
+
 func (s *OpalScraper) ensureSession(forceInteractive bool) error {
+	profileDir, err := LoginProfileDir()
+	if err != nil {
+		return err
+	}
+	// Serializes this whole function - not just the interactive-login branch
+	// - across every opal-downloader process targeting the same real
+	// profileDir+stateFile pair. See acquireSessionLock's doc comment
+	// (session_lock_windows.go) for the two concrete races this closes.
+	release, err := acquireSessionLock(profileDir, s.stateFile, sessionLockAcquireTimeout)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	_ = s.closeBrowser()
 
 	if !forceInteractive {
@@ -310,7 +335,7 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 
 	fmt.Printf("Opening OPAL at %s\n", s.opalURL)
 	fmt.Println("Please complete login in the opened browser window (TU-Fast/2FA supported).")
-	_, err := page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
+	_, err = page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
 		return fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}

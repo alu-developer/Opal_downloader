@@ -105,6 +105,23 @@ type server struct {
 	// set this to a fake so they can point at a temp directory instead of
 	// the real ~/.opal-downloader/login-profile.
 	loginProfileDir func() (string, error)
+
+	// detectBrowserUserDataDir overrides the package-level
+	// detectBrowserUserDataDir func (used by loadTUFastSetupPageData to
+	// find/prefill a candidate transplant-source browser profile root).
+	// nil in production means "use the real, env/filesystem-based
+	// detectBrowserUserDataDir"; tests set this to a fake so `go test`
+	// never depends on what's actually installed on the machine running it.
+	detectBrowserUserDataDir func() string
+
+	// tuFastConsentMu guards tuFastConsent, the in-memory (process-lifetime,
+	// not persisted to disk) record of where the user is in the
+	// /tufast-setup consent gate - see tuFastConsent* constants in
+	// tufast_setup.go. Reset to "" (unset) on every GUI process start,
+	// which is what "for that session" means in that flow's design: this
+	// is a local single-user tool with no other notion of a session.
+	tuFastConsentMu sync.Mutex
+	tuFastConsent   string
 }
 
 // Run starts the local web UI server and blocks until it is stopped via
@@ -146,6 +163,7 @@ func Run(opts Options) error {
 	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
 	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
+	mux.HandleFunc("/tufast-setup/consent", srv.withRecover(srv.handleTUFastSetupConsent))
 	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))
 	mux.HandleFunc("/tufast-setup/copy", srv.withRecover(srv.handleTUFastSetupCopy))
 	mux.HandleFunc("/update", srv.withRecover(srv.handleUpdatePage))

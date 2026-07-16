@@ -38,20 +38,6 @@ type Options struct {
 	// for the update-checker banner. Defaults to "dev" when empty, matching
 	// cmd/opal-downloader's own default.
 	Version string
-	// SuggestedBrowserUserDataDir is an optional detected Brave/Chrome
-	// profile root (e.g. from the installer's Brave/Chrome detection in
-	// installer/opal-downloader.iss, passed through via the "gui"
-	// subcommand's --suggested-browser-user-data-dir flag - see
-	// runGUI in cmd/opal-downloader/root.go). When set, and the settings
-	// page's browser_user_data_dir field is otherwise empty, the Settings
-	// page pre-fills this value as an editable suggestion only - it is
-	// never written to config.yaml unless the user explicitly submits the
-	// settings form. See docs/installer-plan.md Section 5's last bullet and
-	// CLAUDE.md's "Login/session automation" for why this must stay a
-	// suggestion, not an auto-applied value: the browser-profile constraint
-	// (real profile only, no copies) means a wrong guess here should never
-	// silently become config.
-	SuggestedBrowserUserDataDir string
 }
 
 // server holds the shared state needed by the GUI's HTTP handlers.
@@ -105,26 +91,20 @@ type server struct {
 	// actually launches a browser.
 	openBrowser func(url string) error
 
-	// suggestedBrowserUserDataDir carries through Options.
-	// SuggestedBrowserUserDataDir - see that field's doc comment.
-	suggestedBrowserUserDataDir string
-
 	// launchBrowserAt overrides defaultLaunchBrowserAt (used by
-	// handleTUFastSetupOpen to open a browser window against the dedicated
-	// profile directory at TU-Fast's Web Store listing). nil in production
-	// means "use defaultLaunchBrowserAt"; tests set this to a fake so
-	// `go test` never actually launches a browser.
-	launchBrowserAt func(browserExecutable, userDataDir, profileDirectory, url string) error
+	// handleTUFastSetupOpen to open a visible Playwright Chromium window
+	// against the dedicated login profile at TU-Fast's Web Store listing).
+	// nil in production means "use defaultLaunchBrowserAt"; tests set this
+	// to a fake so `go test` never actually launches a browser.
+	launchBrowserAt func(url string) error
 
-	// detectBrowser overrides detectBrowserExecutable (used by
-	// handleTUFastSetupOpen when the request/config didn't specify a
-	// browser executable). nil in production means "use
-	// detectBrowserExecutable"; tests set this so the outcome doesn't depend
-	// on whether Brave/Chrome happens to be installed on the machine running
-	// `go test` - without this, a test asserting the "no browser found"
-	// error path would flake (or worse, actually launch a real browser) on
-	// any dev machine that does have one installed.
-	detectBrowser func() string
+	// loginProfileDir overrides scraper.LoginProfileDir (used by
+	// loadTUFastSetupPageData to resolve the dedicated login profile
+	// directory shown on the /tufast-setup page and used as the transplant
+	// target). nil in production means "use scraper.LoginProfileDir"; tests
+	// set this to a fake so they can point at a temp directory instead of
+	// the real ~/.opal-downloader/login-profile.
+	loginProfileDir func() (string, error)
 }
 
 // Run starts the local web UI server and blocks until it is stopped via
@@ -146,12 +126,11 @@ func Run(opts Options) error {
 	}
 
 	srv := &server{
-		configPath:                  configPath,
-		buildVersion:                version,
-		launchInstaller:             defaultLaunchInstaller,
-		exitProcess:                 defaultExitProcess,
-		feedback:                    &feedbackState{},
-		suggestedBrowserUserDataDir: opts.SuggestedBrowserUserDataDir,
+		configPath:      configPath,
+		buildVersion:    version,
+		launchInstaller: defaultLaunchInstaller,
+		exitProcess:     defaultExitProcess,
+		feedback:        &feedbackState{},
 	}
 
 	// Check for an update once per process start (not a recurring ticker -
@@ -164,7 +143,7 @@ func Run(opts Options) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.withRecover(srv.handleLanding))
-	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath, srv.suggestedBrowserUserDataDir)))
+	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
 	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
 	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))

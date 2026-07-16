@@ -54,9 +54,6 @@ course_concurrency: 2
 	// what loadedToViewData would have pre-filled from `before`), which is
 	// the normal "just click Save" path that must not be destructive.
 	form := url.Values{}
-	form.Set("browser_executable", before.Credentials.BrowserExecutable)
-	form.Set("browser_user_data_dir", before.Credentials.BrowserUserDataDir)
-	form.Set("browser_profile_directory", before.Credentials.BrowserProfileDir)
 	form.Set("download_path", before.App.DownloadPath)
 	form.Set("sync_all_courses", "on")
 	form.Set("sync", "on")
@@ -67,7 +64,7 @@ course_concurrency: 2
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleSettings(configPath, "")(rec, req)
+	handleSettings(configPath)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
@@ -106,69 +103,6 @@ course_concurrency: 2
 	if len(after.App.SubfolderDestinations) != 0 {
 		t.Errorf("expected subfolder_destinations to remain empty, got %+v", after.App.SubfolderDestinations)
 	}
-}
-
-// TestHandleSettingsGetPrefillsSuggestedBrowserUserDataDir covers the
-// installer-detected-profile prefill: when handleSettings is given a
-// non-empty suggestedBrowserUserDataDir and the field is otherwise empty
-// (no config.yaml yet, the common first-run case), the rendered page's
-// browser_user_data_dir input must show that value pre-filled - but nothing
-// must be written to disk from a mere GET, and an already-configured value
-// must win over the suggestion rather than being silently overwritten.
-func TestHandleSettingsGetPrefillsSuggestedBrowserUserDataDir(t *testing.T) {
-	suggested := `C:\Users\test\AppData\Local\BraveSoftware\Brave-Browser\User Data`
-
-	t.Run("no config yet", func(t *testing.T) {
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
-
-		req := httptest.NewRequest(http.MethodGet, "/settings", nil)
-		rec := httptest.NewRecorder()
-		handleSettings(configPath, suggested)(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
-		}
-		body := rec.Body.String()
-		if !strings.Contains(body, `id="browser_user_data_dir" name="browser_user_data_dir" value="`+suggested+`"`) {
-			t.Errorf("expected browser_user_data_dir input pre-filled with suggested path, got body:\n%s", body)
-		}
-		if !strings.Contains(body, "Suggested:") {
-			t.Errorf("expected a visible 'Suggested:' hint marking the value as unconfirmed, got body:\n%s", body)
-		}
-		if _, err := os.Stat(configPath); err == nil {
-			t.Errorf("GET must not write config.yaml, but %s now exists", configPath)
-		}
-	})
-
-	t.Run("existing config value wins over suggestion", func(t *testing.T) {
-		dir := t.TempDir()
-		configPath := filepath.Join(dir, "config.yaml")
-		existing := `C:\Users\test\AppData\Local\Google\Chrome\User Data`
-		initialYAML := `download_path: ./downloads
-courses:
-  - "*"
-sync: true
-opal_url: https://bildungsportal.sachsen.de/opal/
-session_state_file: ./state.json
-browser_user_data_dir: "` + strings.ReplaceAll(existing, `\`, `\\`) + `"
-`
-		if err := os.WriteFile(configPath, []byte(initialYAML), 0o644); err != nil {
-			t.Fatalf("failed to write initial config: %v", err)
-		}
-
-		req := httptest.NewRequest(http.MethodGet, "/settings", nil)
-		rec := httptest.NewRecorder()
-		handleSettings(configPath, suggested)(rec, req)
-
-		body := rec.Body.String()
-		if !strings.Contains(body, `value="`+existing+`"`) {
-			t.Errorf("expected already-saved browser_user_data_dir to be shown, got body:\n%s", body)
-		}
-		if strings.Contains(body, "Suggested:") {
-			t.Errorf("did not expect the 'Suggested:' hint once a real value is already configured, got body:\n%s", body)
-		}
-	})
 }
 
 // TestHandleSettingsPostRoundTripsSubfolderFields verifies the new GUI
@@ -213,7 +147,7 @@ session_state_file: ./state.json
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleSettings(configPath, "")(rec, req)
+	handleSettings(configPath)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
@@ -276,7 +210,7 @@ session_state_file: ./state.json
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleSettings(configPath, "")(rec, req)
+	handleSettings(configPath)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
@@ -321,7 +255,7 @@ func TestHandleSettingsPostMergedCourseTableSingleCourse(t *testing.T) {
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleSettings(configPath, "")(rec, req)
+	handleSettings(configPath)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
@@ -369,7 +303,7 @@ func TestHandleSettingsPostSyncAllCoursesIgnoresCourseNames(t *testing.T) {
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleSettings(configPath, "")(rec, req)
+	handleSettings(configPath)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())

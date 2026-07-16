@@ -134,7 +134,7 @@ func TestPrintUpdateFooter_DoesNotHangOnSlowCheck(t *testing.T) {
 // visiting any section) - it must not create a log file at all.
 func TestPersistVisitLogNoopWhenNoRecords(t *testing.T) {
 	dir := t.TempDir()
-	sc := scraper.New("", "", "", "", "")
+	sc := scraper.New("", "")
 
 	if err := persistVisitLog(sc, dir); err != nil {
 		t.Fatalf("persistVisitLog with no records returned error: %v", err)

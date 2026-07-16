@@ -65,7 +65,7 @@ func (sp *syncPage) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile, loaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserProfileDir)
+	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
@@ -121,7 +121,7 @@ func (sp *syncPage) handleDumpLinksStart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	sc := scraper.New(credentials.URL, credentials.StateFile, credentials.BrowserExecutable, credentials.BrowserUserDataDir, credentials.BrowserProfileDir)
+	sc := scraper.New(credentials.URL, credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 
 	_, cancel := context.WithCancel(context.Background())

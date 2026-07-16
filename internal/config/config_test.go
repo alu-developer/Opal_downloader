@@ -259,7 +259,16 @@ func TestSanitizePathComponent(t *testing.T) {
 	}
 }
 
-func TestLoadCredentialsBrowserProfileDirectory(t *testing.T) {
+// TestLoadCredentialsIgnoresRemovedBrowserFields is a regression test for the
+// chromium-only-login task: config.yaml no longer has a Credentials-level
+// concept of browser_executable/browser_user_data_dir/browser_profile_directory
+// at all (opal-downloader always launches Playwright's bundled Chromium
+// against the single hardcoded ~/.opal-downloader/login-profile - see
+// scraper.LoginProfileDir). A config.yaml still carrying these keys from
+// before this change (e.g. the maintainer's own local file) must load
+// without error, with the unknown keys silently ignored by the YAML parser
+// rather than erroring or resurrecting removed fields.
+func TestLoadCredentialsIgnoresRemovedBrowserFields(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	content := `opal_url: "https://bildungsportal.sachsen.de/opal/"
@@ -276,9 +285,8 @@ browser_profile_directory: "Profile 1"
 	if err != nil {
 		t.Fatalf("LoadCredentials() error = %v", err)
 	}
-
-	if credentials.BrowserProfileDir != "Profile 1" {
-		t.Fatalf("BrowserProfileDir = %q, want %q", credentials.BrowserProfileDir, "Profile 1")
+	if credentials.URL != "https://bildungsportal.sachsen.de/opal/" {
+		t.Fatalf("URL = %q, unaffected fields should still load normally", credentials.URL)
 	}
 }
 
@@ -295,9 +303,6 @@ courses:
 sync: true
 opal_url: "https://bildungsportal.sachsen.de/opal/"
 session_state_file: "~/.opal_storage_state.json"
-browser_executable: ""
-browser_user_data_dir: ""
-browser_profile_directory: ""
 `
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
@@ -342,15 +347,6 @@ browser_profile_directory: ""
 	}
 	if reloaded.Credentials.StateFile != loaded.Credentials.StateFile {
 		t.Fatalf("StateFile mismatch: got %q, want %q", reloaded.Credentials.StateFile, loaded.Credentials.StateFile)
-	}
-	if reloaded.Credentials.BrowserExecutable != loaded.Credentials.BrowserExecutable {
-		t.Fatalf("BrowserExecutable mismatch: got %q, want %q", reloaded.Credentials.BrowserExecutable, loaded.Credentials.BrowserExecutable)
-	}
-	if reloaded.Credentials.BrowserUserDataDir != loaded.Credentials.BrowserUserDataDir {
-		t.Fatalf("BrowserUserDataDir mismatch: got %q, want %q", reloaded.Credentials.BrowserUserDataDir, loaded.Credentials.BrowserUserDataDir)
-	}
-	if reloaded.Credentials.BrowserProfileDir != loaded.Credentials.BrowserProfileDir {
-		t.Fatalf("BrowserProfileDir mismatch: got %q, want %q", reloaded.Credentials.BrowserProfileDir, loaded.Credentials.BrowserProfileDir)
 	}
 }
 

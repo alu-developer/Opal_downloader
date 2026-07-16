@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,31 +10,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 )
 
-// writeTestConfig writes a minimal config.yaml with the given
-// browser_user_data_dir/browser_profile_directory so handleTUFastSetupCopy
-// has a target to resolve.
-func writeTestConfig(t *testing.T, configPath, browserUserDataDir, browserProfileDir string) {
-	t.Helper()
-	loaded := config.Loaded{
-		App: config.App{
-			DownloadPath: "./downloads",
-			Courses:      []string{"*"},
-			Sync:         true,
-		},
-		Credentials: config.Credentials{
-			URL:                config.DefaultOPALURL,
-			StateFile:          config.DefaultStateFile,
-			BrowserUserDataDir: browserUserDataDir,
-			BrowserProfileDir:  browserProfileDir,
-		},
-	}
-	if err := config.Save(configPath, loaded); err != nil {
-		t.Fatalf("config.Save: %v", err)
-	}
+// fakeLoginProfileDir returns a server.loginProfileDir override that always
+// resolves to dir, so tests don't touch the real
+// ~/.opal-downloader/login-profile on the machine running `go test`.
+func fakeLoginProfileDir(dir string) func() (string, error) {
+	return func() (string, error) { return dir, nil }
 }
 
 func makeFakeChromiumProfile(t *testing.T, userDataDir, profile string, withExtension bool, dataContent string) {
@@ -64,28 +48,18 @@ func makeFakeChromiumProfile(t *testing.T, userDataDir, profile string, withExte
 
 func TestHandleTUFastSetupOpen_CreatesDirAndLaunchesBrowser(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	writeTestConfig(t, configPath, "", "")
-
 	targetDir := filepath.Join(dir, "login-profile")
 
-	var launchedExe, launchedUserDataDir, launchedProfile, launchedURL string
+	var launchedURL string
 	s := &server{
-		configPath: configPath,
-		launchBrowserAt: func(browserExecutable, userDataDir, profileDirectory, u string) error {
-			launchedExe = browserExecutable
-			launchedUserDataDir = userDataDir
-			launchedProfile = profileDirectory
+		loginProfileDir: fakeLoginProfileDir(targetDir),
+		launchBrowserAt: func(u string) error {
 			launchedURL = u
 			return nil
 		},
 	}
 
-	form := url.Values{}
-	form.Set("target_user_data_dir", targetDir)
-	form.Set("browser_executable", "fake-browser.exe")
-	req := httptest.NewRequest(http.MethodPost, "/tufast-setup/open", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodPost, "/tufast-setup/open", nil)
 	rec := httptest.NewRecorder()
 
 	s.handleTUFastSetupOpen(rec, req)
@@ -96,43 +70,26 @@ func TestHandleTUFastSetupOpen_CreatesDirAndLaunchesBrowser(t *testing.T) {
 	if _, err := os.Stat(targetDir); err != nil {
 		t.Fatalf("expected %s to be created: %v", targetDir, err)
 	}
-	if launchedExe != "fake-browser.exe" {
-		t.Fatalf("launched exe = %q", launchedExe)
-	}
-	if launchedUserDataDir != targetDir {
-		t.Fatalf("launched user data dir = %q, want %q", launchedUserDataDir, targetDir)
-	}
-	if launchedProfile != "Default" {
-		t.Fatalf("launched profile = %q, want Default", launchedProfile)
-	}
 	if !strings.Contains(launchedURL, scraper.TUFastExtensionID) {
 		t.Fatalf("launched URL = %q, want it to reference the TU-Fast extension ID", launchedURL)
 	}
-	if !strings.Contains(rec.Body.String(), "Opened a new browser window") {
+	if !strings.Contains(rec.Body.String(), "Opened Chromium") {
 		t.Fatalf("body missing success message: %s", rec.Body.String())
 	}
 }
 
-func TestHandleTUFastSetupOpen_NoBrowserFound(t *testing.T) {
+func TestHandleTUFastSetupOpen_LaunchFails(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	writeTestConfig(t, configPath, "", "")
+	targetDir := filepath.Join(dir, "login-profile")
 
-	launchCalled := false
 	s := &server{
-		configPath:    configPath,
-		detectBrowser: func() string { return "" }, // simulate no Brave/Chrome found, regardless of what's actually installed on the machine running this test
-		launchBrowserAt: func(browserExecutable, userDataDir, profileDirectory, u string) error {
-			launchCalled = true
-			return nil
+		loginProfileDir: fakeLoginProfileDir(targetDir),
+		launchBrowserAt: func(u string) error {
+			return errors.New("simulated launch failure")
 		},
 	}
 
-	form := url.Values{}
-	form.Set("target_user_data_dir", filepath.Join(dir, "login-profile"))
-	form.Set("browser_executable", "") // force auto-detection (stubbed above to fail)
-	req := httptest.NewRequest(http.MethodPost, "/tufast-setup/open", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodPost, "/tufast-setup/open", nil)
 	rec := httptest.NewRecorder()
 
 	s.handleTUFastSetupOpen(rec, req)
@@ -140,64 +97,23 @@ func TestHandleTUFastSetupOpen_NoBrowserFound(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Could not find a Brave or Chrome install") {
-		t.Fatalf("body missing expected error: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "simulated launch failure") {
+		t.Fatalf("body missing expected launch error: %s", rec.Body.String())
 	}
-	if launchCalled {
-		t.Fatal("launchBrowserAt should not have been called when no browser was found")
-	}
-}
-
-func TestHandleTUFastSetupCopy_NoTargetConfigured(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	writeTestConfig(t, configPath, "", "")
-
-	s := &server{configPath: configPath}
-
-	form := url.Values{}
-	form.Set("source_user_data_dir", filepath.Join(dir, "source"))
-	req := httptest.NewRequest(http.MethodPost, "/tufast-setup/copy", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	s.handleTUFastSetupCopy(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "Settings first") {
-		t.Fatalf("body missing expected guidance: %s", rec.Body.String())
+	// The directory is still created before the launch attempt, even though
+	// the launch itself failed.
+	if _, err := os.Stat(targetDir); err != nil {
+		t.Fatalf("expected %s to still be created: %v", targetDir, err)
 	}
 }
-
-// The full success path (source has data, target has TU-Fast installed,
-// copy actually happens) is deliberately NOT re-tested at this layer with a
-// real scraper.TransplantTUFastLoginData call - internal/scraper's own
-// TestTransplantTUFastLoginData_Success and
-// TestTransplantTUFastLoginData_BacksUpExistingTargetData already cover
-// that exact logic directly and reliably. Doing it again here would also
-// exercise TransplantTUFastLoginData's real isUserDataDirLocked call, which
-// (found live while writing this test, 2026-07-12) can hang for minutes on
-// a real interactive desktop: isWindowsSingletonWindowPresent's
-// GetWindowTextW has no timeout, so a single unresponsive window anywhere
-// on the desktop blocks the whole enumeration - a pre-existing issue in
-// profile_lock_windows.go unrelated to this feature (it affects the
-// existing login/sync lock check too), flagged separately rather than
-// fixed here. TestHandleTUFastSetupCopy_TransplantError below stays safe
-// because its source directory doesn't exist, so TransplantTUFastLoginData
-// returns before ever reaching the lock check.
 
 func TestHandleTUFastSetupCopy_TransplantError(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
 
 	targetRoot := filepath.Join(dir, "target")
 	makeFakeChromiumProfile(t, targetRoot, "Default", true, "") // TU-Fast installed, no source given
 
-	writeTestConfig(t, configPath, targetRoot, "Default")
-
-	s := &server{configPath: configPath}
+	s := &server{loginProfileDir: fakeLoginProfileDir(targetRoot)}
 
 	form := url.Values{}
 	form.Set("source_user_data_dir", filepath.Join(dir, "does-not-exist"))
@@ -217,10 +133,7 @@ func TestHandleTUFastSetupCopy_TransplantError(t *testing.T) {
 
 func TestHandleTUFastSetupPage_GET(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-	writeTestConfig(t, configPath, "", "")
-
-	s := &server{configPath: configPath}
+	s := &server{loginProfileDir: fakeLoginProfileDir(filepath.Join(dir, "login-profile"))}
 
 	req := httptest.NewRequest(http.MethodGet, "/tufast-setup", nil)
 	rec := httptest.NewRecorder()

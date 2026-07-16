@@ -1,56 +1,10 @@
 package scraper
 
 import (
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 )
-
-func TestNormalizePersistentProfileSettings(t *testing.T) {
-	tests := []struct {
-		name         string
-		userDataDir  string
-		profileDir   string
-		wantUserData string
-		wantProfile  string
-	}{
-		{
-			name:         "explicit profile directory wins",
-			userDataDir:  "C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data",
-			profileDir:   "Profile 2",
-			wantUserData: filepath.Clean("C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data"),
-			wantProfile:  "Profile 2",
-		},
-		{
-			name:         "infer default profile from full profile path",
-			userDataDir:  "C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data/Default",
-			wantUserData: filepath.Clean("C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data"),
-			wantProfile:  "Default",
-		},
-		{
-			name:         "infer numbered profile from full profile path",
-			userDataDir:  "C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data/Profile 1",
-			wantUserData: filepath.Clean("C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data"),
-			wantProfile:  "Profile 1",
-		},
-		{
-			name:         "leave plain user data dir unchanged",
-			userDataDir:  "C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data",
-			wantUserData: filepath.Clean("C:/Users/test/AppData/Local/BraveSoftware/Brave-Browser/User Data"),
-			wantProfile:  "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotUserData, gotProfile := normalizePersistentProfileSettings(tt.userDataDir, tt.profileDir)
-			if filepath.Clean(gotUserData) != filepath.Clean(tt.wantUserData) || gotProfile != tt.wantProfile {
-				t.Fatalf("normalizePersistentProfileSettings(%q, %q) = (%q, %q), want (%q, %q)", tt.userDataDir, tt.profileDir, gotUserData, gotProfile, tt.wantUserData, tt.wantProfile)
-			}
-		})
-	}
-}
 
 // TestCloseIsSafeDuringConcurrentScrapeFieldAccess exercises the exact race
 // found in PR #22 review: the GUI's /sync/cancel handler calls sc.Close()
@@ -68,7 +22,7 @@ func TestNormalizePersistentProfileSettings(t *testing.T) {
 // confirm there is no unsynchronized read/write of the guarded fields, and a
 // clean, panic-free shutdown even under heavy concurrent Close() calls.
 func TestCloseIsSafeDuringConcurrentScrapeFieldAccess(t *testing.T) {
-	s := New("", "", "", "", "")
+	s := New("", "")
 
 	const scrapeWorkers = 8
 	const closers = 4
@@ -141,7 +95,7 @@ func TestCloseIsSafeDuringConcurrentScrapeFieldAccess(t *testing.T) {
 // promptly (it must not block waiting for the scrape to finish) and must not
 // race with the scrape goroutine's field access done via the accessors.
 func TestCloseDuringBlockingOperationReturnsPromptly(t *testing.T) {
-	s := New("", "", "", "", "")
+	s := New("", "")
 
 	scraping := make(chan struct{})
 	done := make(chan struct{})
@@ -183,7 +137,7 @@ func TestCloseDuringBlockingOperationReturnsPromptly(t *testing.T) {
 // the persistence-across-runs behavior itself is covered by
 // internal/visitlog's own tests.
 func TestVisitRecordsAccumulatesAndReturnsCopy(t *testing.T) {
-	s := New("", "", "", "", "")
+	s := New("", "")
 
 	if got := s.VisitRecords(); len(got) != 0 {
 		t.Fatalf("expected no visit records on a fresh scraper, got %d", len(got))
@@ -219,7 +173,7 @@ func TestVisitRecordsAccumulatesAndReturnsCopy(t *testing.T) {
 // recordSectionVisit/VisitRecords must be safe to call from many goroutines
 // at once. Run with `go test -race` to have the race detector confirm this.
 func TestRecordSectionVisitConcurrentSafe(t *testing.T) {
-	s := New("", "", "", "", "")
+	s := New("", "")
 
 	const workers = 8
 	const perWorker = 50

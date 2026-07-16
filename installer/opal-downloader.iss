@@ -132,14 +132,14 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameter
 ; docs/installer-plan.md Section 9 task 1) if the bundled Chromium cache
 ; wasn't detected at its expected path after install.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "setup"; StatusMsg: "Bundled Chromium not found - attempting to install Playwright browsers (requires internet and Go)..."; Flags: runhidden skipifsilent; Check: NeedsPlaywrightSetup
-; Primary post-install action: launch the GUI in the user's browser.
-; {code:GetSuggestedBrowserProfileArg} expands (via GetSuggestedBrowserProfileArg
-; below) to either an empty string or a --suggested-browser-user-data-dir=...
-; flag carrying the detected Brave/Chrome profile root, per
-; docs/installer-plan.md Section 9 task 8 (Section 5's last bullet). This is
-; informational only - see that function's doc comment for why it's safe
-; under the "no auto-configuring the browser profile" constraint.
-Filename: "{app}\{#MyAppExeName}"; Parameters: "gui {code:GetSuggestedBrowserProfileArg}"; Description: "Launch {#MyAppName}"; Flags: postinstall shellexec skipifsilent nowait
+; Primary post-install action: launch the GUI. Chromium-only login (queue
+; task chromium-only-login-remove-real-browser, 2026-07-14) means
+; opal-downloader never launches a real installed Brave/Chrome executable
+; anymore - it always uses Playwright's bundled Chromium against its own
+; dedicated login profile - so there is no detected-browser-profile flag to
+; pass through here anymore (the old --suggested-browser-user-data-dir flag
+; and GetSuggestedBrowserProfileArg below were removed along with it).
+Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; Description: "Launch {#MyAppName}"; Flags: postinstall shellexec skipifsilent nowait
 
 [Code]
 function NeedsPlaywrightSetup: Boolean;
@@ -156,99 +156,15 @@ begin
   Result := not Found;
 end;
 
-{ Brave/Chrome detection, per docs/installer-plan.md Section 5. Purely
-  informational: a directory-existence check only, no writes, no config
-  changes, and no attempt to install/configure Brave, Chrome, or the
-  TU-Fast extension. login/sync need one of these with TU-Fast installed
-  and logged in, but that setup is explicitly out of scope for this
-  installer - this only tells the user so, if neither is found. }
-function BrowserDetected: Boolean;
-begin
-  Result :=
-    DirExists(ExpandConstant('{localappdata}\BraveSoftware\Brave-Browser')) or
-    DirExists(ExpandConstant('{localappdata}\Google\Chrome'));
-end;
-
-{ GetSuggestedBrowserProfileArg (docs/installer-plan.md Section 9 task 8,
-  Section 5's last bullet - explicitly "later, optional"): if Brave's or
-  Chrome's default profile *root* ("User Data", not a specific profile
-  folder inside it - matches config.example.yaml's browser_user_data_dir
-  documentation) exists on disk, return a --suggested-browser-user-data-dir
-  flag carrying that path for the post-install "gui" [Run] step below to
-  pass through. Brave is checked first and wins if both are present, since
-  TU-Fast/OPAL support has historically been documented/tested against
-  Brave in this project (see CLAUDE.md).
-
-  This is a pure directory-existence check with no side effects - same
-  no-writes, no-assumptions-baked-into-config posture as BrowserDetected
-  above. The GUI (internal/gui) only ever uses this value to pre-fill the
-  Settings page's browser_user_data_dir *text input* when that field is
-  otherwise empty; the user still has to look at it and press "Save
-  settings" themselves before it becomes real config, exactly like Section
-  5 requires - this installer script never writes config.yaml itself. }
-function GetSuggestedBrowserProfileArg(Param: String): String;
-var
-  BravePath, ChromePath: String;
-begin
-  Result := '';
-  BravePath := ExpandConstant('{localappdata}\BraveSoftware\Brave-Browser\User Data');
-  ChromePath := ExpandConstant('{localappdata}\Google\Chrome\User Data');
-  if DirExists(BravePath) then
-    Result := '--suggested-browser-user-data-dir="' + BravePath + '"'
-  else if DirExists(ChromePath) then
-    Result := '--suggested-browser-user-data-dir="' + ChromePath + '"';
-end;
-
-var
-  BrowserInfoPage: TWizardPage;
-
-procedure InitializeWizard;
-var
-  InfoLabel: TNewStaticText;
-  LinkLabel: TNewStaticText;
-begin
-  { Created unconditionally; ShouldSkipPage below decides at wizard-run time
-    whether it's actually shown, since BrowserDetected can only be evaluated
-    once the installer is running on the target machine. }
-  BrowserInfoPage := CreateCustomPage(wpSelectTasks,
-    'Browser Requirement', 'Brave or Chrome not found');
-
-  InfoLabel := TNewStaticText.Create(BrowserInfoPage);
-  InfoLabel.Parent := BrowserInfoPage.Surface;
-  InfoLabel.Left := 0;
-  InfoLabel.Top := 0;
-  InfoLabel.Width := BrowserInfoPage.SurfaceWidth;
-  InfoLabel.AutoSize := False;
-  InfoLabel.WordWrap := True;
-  InfoLabel.Caption :=
-    'Opal Downloader could not find Brave or Chrome installed on this ' +
-    'computer.' + #13#10#13#10 +
-    'The "login" and "sync" features need Brave or Chrome, with the ' +
-    'TU-Fast browser extension installed and logged in, to sign in to ' +
-    'OPAL. This installer does not install or configure Brave, Chrome, ' +
-    'or TU-Fast for you - that has to be done separately.' + #13#10#13#10 +
-    'You can continue installing Opal Downloader now and set up the ' +
-    'browser later, before you first use "login" or "sync". See the ' +
-    'manual setup checklist for details:';
-  InfoLabel.Height := ScaleY(170);
-
-  LinkLabel := TNewStaticText.Create(BrowserInfoPage);
-  LinkLabel.Parent := BrowserInfoPage.Surface;
-  LinkLabel.Left := 0;
-  LinkLabel.Top := InfoLabel.Top + InfoLabel.Height + ScaleY(8);
-  LinkLabel.Width := BrowserInfoPage.SurfaceWidth;
-  LinkLabel.AutoSize := False;
-  LinkLabel.WordWrap := True;
-  LinkLabel.Caption := '{#MyAppURL}/blob/master/docs/manual-setup-checklist.md';
-end;
-
-function ShouldSkipPage(PageID: Integer): Boolean;
-begin
-  { Skip this informational page entirely when either browser is present -
-    proceed as normal, no page shown at all. When neither is found, the
-    page shows with a plain Next button (non-blocking, not a hard gate). }
-  if PageID = BrowserInfoPage.ID then
-    Result := BrowserDetected
-  else
-    Result := False;
-end;
+{ Chromium-only login (queue task chromium-only-login-remove-real-browser,
+  2026-07-14): opal-downloader always launches Playwright's bundled Chromium
+  against its own dedicated login profile now, never a real installed
+  Brave/Chrome executable - so there is no longer anything for this
+  installer to detect or inform the user about here. The former Brave/Chrome
+  detection (BrowserDetected/GetSuggestedBrowserProfileArg) and the
+  "Browser Requirement" wizard info page were removed along with Strategy 1
+  (see docs/browser-profile-strategy.md's "Chromium-only login" section) -
+  TU-Fast setup, if the user wants it, happens entirely inside
+  opal-downloader's own dedicated profile via the GUI's /tufast-setup page
+  or `opal-downloader login`, which this installer's post-install [Run] step
+  already launches into. }

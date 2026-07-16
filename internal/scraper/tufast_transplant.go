@@ -97,7 +97,7 @@ func TransplantTUFastLoginData(sourceUserDataDir, sourceProfileDir, targetUserDa
 		return result, errors.New("source browser profile directory is required")
 	}
 	if targetUserDataDir == "" {
-		return result, errors.New("target browser_user_data_dir is not configured - set it in Settings first")
+		return result, errors.New("could not determine the target login profile directory")
 	}
 
 	sourceDir := filepath.Join(sourceUserDataDir, profileSubdir(sourceProfileDir))

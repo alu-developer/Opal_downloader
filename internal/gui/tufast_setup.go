@@ -407,15 +407,19 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 		docs/browser-profile-strategy.md for the full background.
 	</p>
 
-	{{if ne .ConsentState "granted"}}
-	{{/* Defense-in-depth: handleTUFastSetupOpen/Copy refuse to act before
-	     consent is granted, and the UI never renders their forms before
-	     that point either - but if a POST ever reaches them anyway (e.g. a
-	     stale page), surface the refusal here instead of silently
-	     discarding it. */}}
+	{{/* Always shown once, regardless of which section below is currently
+	     active: handleTUFastSetupOpen/Copy can leave a result here either
+	     from a real action (only reachable once granted) or a
+	     defense-in-depth refusal (consent not granted yet) - and which
+	     detected-state branch renders below (AlreadyInstalled/
+	     DetectedSourceDir/manual) is independent of whether a result is
+	     waiting to be shown, so this must not be nested inside any of
+	     those branches (a prior version nested it under "AlreadyInstalled
+	     && DetectedSourceDir" and silently dropped copy-result messages
+	     whenever no transplant source was detected - see the task/PR this
+	     fix landed in). */}}
 	{{if .OpenResult}}<div class="status {{if .OpenResultOK}}ok{{else}}warn{{end}}">{{.OpenResult}}</div>{{end}}
 	{{if .CopyResult}}<div class="status {{if .CopyResultOK}}ok{{else}}warn{{end}}">{{.CopyResult}}</div>{{end}}
-	{{end}}
 
 	{{if eq .ConsentState "unset"}}
 	<h2>Set up automatic login?</h2>
@@ -479,7 +483,6 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 		OPAL/Shibboleth login yet, you can copy that already-working login
 		data over instead of doing it by hand.
 	</p>
-	{{if .CopyResult}}<div class="status {{if .CopyResultOK}}ok{{else}}warn{{end}}">{{.CopyResult}}</div>{{end}}
 	<form method="post" action="/tufast-setup/copy">
 		<div class="field">
 			<label for="source_user_data_dir">Source browser's user data directory</label>
@@ -503,7 +506,6 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 		actions - do those two steps yourself in the window that opens;
 		nothing here clicks through them for you.
 	</p>
-	{{if .OpenResult}}<div class="status {{if .OpenResultOK}}ok{{else}}warn{{end}}">{{.OpenResult}}</div>{{end}}
 	<form method="post" action="/tufast-setup/open">
 		<button type="submit">Open Chromium in the Chrome Web Store</button>
 	</form>
@@ -516,7 +518,6 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 		skipping a second manual login. Enabled once step A is detected
 		done; click "Check again" after installing.
 	</p>
-	{{if .CopyResult}}<div class="status {{if .CopyResultOK}}ok{{else}}warn{{end}}">{{.CopyResult}}</div>{{end}}
 	<form method="post" action="/tufast-setup/copy">
 		<div class="field">
 			<label for="source_user_data_dir">Source browser's user data directory</label>
@@ -540,7 +541,6 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 		actions - do those two steps yourself in the window that opens;
 		nothing here clicks through them for you.
 	</p>
-	{{if .OpenResult}}<div class="status {{if .OpenResultOK}}ok{{else}}warn{{end}}">{{.OpenResult}}</div>{{end}}
 	<form method="post" action="/tufast-setup/open">
 		<button type="submit">Open Chromium in the Chrome Web Store</button>
 	</form>

@@ -62,7 +62,8 @@ func TestHandleTUFastSetupOpen_CreatesDirAndLaunchesBrowser(t *testing.T) {
 
 	var launchedURL string
 	s := grantedServer(&server{
-		loginProfileDir: fakeLoginProfileDir(targetDir),
+		loginProfileDir:          fakeLoginProfileDir(targetDir),
+		detectBrowserUserDataDir: func() string { return "" }, // pin: don't depend on what's actually installed on the machine running `go test`
 		launchBrowserAt: func(u string) error {
 			launchedURL = u
 			return nil
@@ -93,7 +94,8 @@ func TestHandleTUFastSetupOpen_LaunchFails(t *testing.T) {
 	targetDir := filepath.Join(dir, "login-profile")
 
 	s := grantedServer(&server{
-		loginProfileDir: fakeLoginProfileDir(targetDir),
+		loginProfileDir:          fakeLoginProfileDir(targetDir),
+		detectBrowserUserDataDir: func() string { return "" }, // pin: don't depend on what's actually installed on the machine running `go test`
 		launchBrowserAt: func(u string) error {
 			return errors.New("simulated launch failure")
 		},
@@ -152,7 +154,20 @@ func TestHandleTUFastSetupCopy_TransplantError(t *testing.T) {
 	targetRoot := filepath.Join(dir, "target")
 	makeFakeChromiumProfile(t, targetRoot, "Default", true, "") // TU-Fast installed, no source given
 
-	s := grantedServer(&server{loginProfileDir: fakeLoginProfileDir(targetRoot)})
+	// detectBrowserUserDataDir must be pinned to "" here, not left to fall
+	// back to the real, machine-dependent function: this test's whole
+	// point is the "already installed, nothing else detected" case (the
+	// production bug this guards against only reproduced when
+	// DetectedSourceDir was empty - it passed locally on a dev machine
+	// with a real Brave install, which made DetectedSourceDir non-empty
+	// and accidentally exercised a different code path, but failed in CI
+	// where no such browser exists). Pinning it makes the test's actual
+	// scenario explicit and independent of what's installed wherever it
+	// runs.
+	s := grantedServer(&server{
+		loginProfileDir:          fakeLoginProfileDir(targetRoot),
+		detectBrowserUserDataDir: func() string { return "" },
+	})
 
 	form := url.Values{}
 	form.Set("source_user_data_dir", filepath.Join(dir, "does-not-exist"))

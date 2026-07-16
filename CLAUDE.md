@@ -102,28 +102,28 @@ maintainer's own repeat use.
 
 ## Login/session automation
 
-Login/sync/list need a Playwright browser session against a real,
-unlocked (browser closed) profile on the machine running them — a profile
-*copy* does not work (HMAC integrity breakage). A dedicated, never-copied
-second profile is shipped and working: one-click setup (CLI and GUI)
-transplants TU-Fast's login/2FA state into a fresh profile without
-repeating the manual install+2FA flow — see
-`docs/browser-profile-strategy.md` and `docs/HISTORY.md`. Not yet the
-default; the user's real everyday Chrome/Brave profile still is, and
-whether/when that changes is undecided. Whichever profile is configured,
-when TU-Fast is installed and working in it, it completes the
-Shibboleth/2FA exchange itself — no human click needed, `ensureSession`
-just waits for the post-login course list. A human is only needed if
-TU-Fast isn't working in that profile or the profile is locked (another
-browser instance open) — both surface as a clear error/timeout.
+Login/sync/list always use Playwright's bundled Chromium against a single
+hardcoded dedicated profile at `~/.opal-downloader/login-profile`
+(`scraper.LoginProfileDir`) — there is no more "point opal-downloader at
+your real Brave/Chrome profile" option (removed in full, queue task
+`chromium-only-login-remove-real-browser`, 2026-07-14). The user either
+logs in manually (credentials + 2FA by hand) in that profile, or, once,
+installs the TU-Fast extension from the Chrome Web Store into that same
+profile (via the GUI's `/tufast-setup` page or by hand during `login`),
+after which TU-Fast completes the Shibboleth/2FA exchange itself on every
+future login — no human click needed, `ensureSession` just waits for the
+post-login course list. A human is only needed if TU-Fast isn't installed
+in the dedicated profile yet, or the profile is locked (another
+opal-downloader process has it open) — both surface as a clear
+error/timeout.
 
 This means `login`/`sync`/`list` are **not** inherently limited to
 human-attended runs, and a `queue-run` agent running locally (including in
 a `.claude/worktrees/` worktree — same physical machine) should just
-attempt the real command rather than assuming it needs a human. Only report
-a criterion as unverified if a live attempt actually failed, hung, or timed
-out. Verified `sync`/`list` runs are especially cheap: they reuse
-`session_state_file` in a fresh headless browser with no browser/TU-Fast
+attempt the real command rather than assuming it needs a human. Only
+report a criterion as unverified if a live attempt actually failed, hung,
+or timed out. Verified `sync`/`list` runs are especially cheap: they reuse
+`session_state_file` in a fresh headless browser with no TU-Fast
 involved at all when the saved session is still valid.
 
 ## Local task queue workflow (`.claude/queue/`, gitignored)

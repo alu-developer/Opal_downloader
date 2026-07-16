@@ -54,18 +54,76 @@ import (
 //     lost content. Don't reintroduce a 700ms-only wait here without
 //     re-verifying file counts live.
 //
-// What shipped: skip the WaitForSelector call (it never succeeds, so it is a
-// pure extra Playwright round-trip with no early-exit benefit) but keep the
-// *total* wait duration unchanged at 1100ms - the fixed value below is 1100,
-// not 700. This can't regress content-render time versus the unmodified
-// code (every visit there also blocked for exactly ~1100ms before
-// extraction, 100% of the time), while removing one wasted IPC round-trip
-// per section visit (316 of them in the click-audit-analysis-and-cleanup
-// live run). The collectCourseFiles retry-on-empty-candidates logic
-// (crawl.go) remains the safety net for any section that still needs more
-// than this to render.
+// What shipped (2026-07-12): skip the WaitForSelector call (it never
+// succeeds, so it is a pure extra Playwright round-trip with no early-exit
+// benefit) but keep the *total* wait duration unchanged at 1100ms - the
+// fixed value below is 1100, not 700. This can't regress content-render
+// time versus the unmodified code (every visit there also blocked for
+// exactly ~1100ms before extraction, 100% of the time), while removing one
+// wasted IPC round-trip per section visit (316 of them in the
+// click-audit-analysis-and-cleanup live run). The collectCourseFiles
+// retry-on-empty-candidates logic (crawl.go) remains the safety net for any
+// section that still needs more than this to render.
+//
+// SUPERSEDED (2026-07-16, queue task add-mutationobserver-load-detection):
+// the fixed 1100ms wait above is no longer the primary content-settle
+// signal - see waitForInteractiveLinks's doc comment below for the
+// MutationObserver-based replacement that queue task
+// investigate-load-completion-detection live-proved as a strict
+// improvement (zero file-count regression across all 9 real courses,
+// 35-45% less wall-clock per course). contentFallbackWaitMs is kept as the
+// duration used only if the MutationObserver injection itself fails (e.g.
+// page.Evaluate erroring on a crashing/navigating page) - the value is
+// unchanged from what was live-verified safe as a full-wait duration, so it
+// remains a safe fallback duration too.
 const contentGotoTimeoutMs = 15000.0
 const contentFallbackWaitMs = 1100.0
+
+// mutationObserverDebounceMs/mutationObserverHardCapMs are the
+// course_concurrency=1 (serial crawl) budget for the MutationObserver-based
+// content-settle wait waitForInteractiveLinks now uses as its primary
+// detection technique: wait until the content root stops mutating for
+// mutationObserverDebounceMs, or give up and proceed anyway after
+// mutationObserverHardCapMs total, whichever comes first.
+//
+// Live-tested (queue task investigate-load-completion-detection,
+// 2026-07-16, `list --dev --debug-clicks --profile` against all 9 real
+// discovered TU Dresden courses, 344 files) at these exact values: every
+// course's file count matched the fixed-1100ms-wait baseline exactly
+// (344/344), wait resolution consistently ~330-440ms (vs. the fixed wait's
+// flat 1100ms), 35-45% less wall-clock per course, 38.6% faster on the
+// largest course (230.1s vs 375.0s for the 198-file Softwaretechnologie
+// course). That live test used course_concurrency=1 only - see
+// mutationObserverConcurrentDebounceMs/mutationObserverConcurrentHardCapMs
+// below for the wider budget used at course_concurrency>1.
+const mutationObserverDebounceMs = 300.0
+const mutationObserverHardCapMs = 4000.0
+
+// mutationObserverConcurrentDebounceMs/mutationObserverConcurrentHardCapMs
+// are the course_concurrency>1 budget for the same MutationObserver wait -
+// wider than the serial budget above for the same reason
+// sectionContentRequiredStableReads/showAllExpansionRequiredStableReads
+// (crawl.go) are only applied at course_concurrency>1: OPAL's client-side
+// render competes for the browser's rendering pipeline (CPU/event loop)
+// with however many other courses' tabs are rendering at the same time
+// under concurrent crawling, so a debounce/cap tuned against a serial
+// crawl (where the renderer has the machine to itself) is not guaranteed
+// to be enough once that assumption no longer holds - the same class of
+// risk documented on requiredStableReads's doc comment (crawl.go).
+//
+// Live-tested (same queue task, follow-up run) at course_concurrency=2
+// against the real account: the serial budget above (300ms/4000ms)
+// resolved via the hard cap far more often under concurrent contention
+// (multiple tabs mutating DOM at once rarely let the debounce window go
+// quiet), which is safe (candidateStabilityPoll in crawl.go still catches
+// any content that hasn't finished rendering by then) but forfeits most of
+// the wall-clock win from the debounce actually settling early. Widening
+// both values measurably reduced hard-cap fallback frequency at
+// concurrency=2 while keeping serial crawls on the tighter budget above
+// (this only applies when effectiveCourseConcurrency() > 1 - see
+// contentSettleWaitBudget below).
+const mutationObserverConcurrentDebounceMs = 500.0
+const mutationObserverConcurrentHardCapMs = 6000.0
 
 var sectionTitleWhitespaceRe = regexp.MustCompile(`\s+`)
 
@@ -136,28 +194,251 @@ func isSectionURLAllowedForCourse(absURL, repoID string) bool {
 // single shared s.page.
 //
 // This intentionally does not attempt a WaitForSelector early-exit before
-// the fixed fallbackWaitMs wait - see the contentFallbackWaitMs doc comment
-// above for the live-audit history of why that was removed (it never
-// resolved early, twice, and the obvious fix - waiting for Attached instead
-// of Playwright's default Visible - was live-verified to cause real file
-// count regressions instead).
+// the content-settle wait below - see the contentFallbackWaitMs doc comment
+// above for the live-audit history of why a *selector-based* early-exit was
+// removed (it never resolved early, twice, and the obvious fix - waiting for
+// Attached instead of Playwright's default Visible - was live-verified to
+// cause real file count regressions instead).
 //
-// This fixed wait is deliberately still followed by condition-based polling
+// Primary technique (2026-07-16, queue task
+// add-mutationobserver-load-detection, productionizing queue task
+// investigate-load-completion-detection's research): a MutationObserver
+// injected via page.Evaluate onto the page's main-content root, resolving
+// once that root goes mutationObserverDebounceMs/mutationObserverConcurrentDebounceMs
+// without a mutation (or mutationObserverHardCapMs/mutationObserverConcurrentHardCapMs
+// elapses, whichever is first) - see waitForContentSettled below. This
+// replaces trusting a single fixed duration to always be "enough" with an
+// actual completion signal: OPAL/Wicket's section content is constructed
+// client-side by JS running *after* the document itself has loaded (network
+// trace confirmed no separate "populate content" AJAX request exists to hook
+// a response-based wait on instead - see investigate-load-completion-
+// detection's Result section), so watching the DOM itself for when that
+// construction stops is a direct signal, not a proxy for one - unlike:
+//   - `page.WaitForLoadState(LoadStateNetworkidle)` (also live-tested by the
+//     same research task): a *network*-based signal for content that isn't
+//     gated on network activity - it resolved instantly after any click that
+//     itself involved a round-trip (e.g. the "show all" pagination click),
+//     giving zero protection for the AJAX-rendered rows that click was
+//     supposed to wait for, and lost 32 files in the largest course when
+//     used as a full replacement. Do not reintroduce it as a waiting
+//     strategy without re-verifying file counts live - see that research
+//     task's Result section for the full failure analysis.
+//   - the selector-based WaitForSelector attempts above: a *static DOM
+//     shape* signal (does element X exist/is it visible) that either never
+//     resolves early (Visible) or resolves on page-wide boilerplate that
+//     exists long before the section's own content does (Attached) -
+//     neither actually tracks *this section's* render completing.
+//
+// If the MutationObserver injection itself errors, this retries the
+// injection once (after a short contextRecoveryWaitMs pause) when the error
+// looks like a recoverable "execution context was destroyed" condition
+// (isExecutionContextDestroyedError below) rather than falling back
+// immediately - live-confirmed necessary at course_concurrency>1 (see that
+// function's doc comment for the specific failure this recovers from). If
+// the injection still fails after the retry (or the error isn't
+// recoverable, e.g. a real page crash), this falls back to a fixed wait
+// sized to hardCapMs - not the shorter fallbackWaitMs parameter - since
+// reaching this path already means something unusual disrupted the page's
+// JS around the same time content was supposed to be settling, which is
+// reason for more patience, not less.
+//
+// This wait is deliberately still followed by condition-based polling
 // (waitForStableSectionContent in crawl.go, built on candidateStabilityPoll
-// below) rather than being trusted alone - see candidateStabilityPoll's doc
-// comment for why: this fixed duration was tuned against serial
-// (course_concurrency=1) crawling, where it is enough; under concurrent
-// crawling it measurably is not, for the same class of reason
-// showAllExpansionPollIntervalMs/waitForStableExpandedCandidates already had
-// to account for.
+// below) rather than being trusted alone, regardless of which technique
+// produced it - see candidateStabilityPoll's doc comment for why: OPAL can
+// render a section's content in stages (e.g. the file/row list appearing
+// before a later-arriving pagination control), and a content-settle wait
+// that resolves between those stages cannot tell the difference from
+// looking at DOM mutation timing alone. Keeping this safety net independent
+// of the wait technique above it is intentional per
+// investigate-load-completion-detection's own recommendation - this task
+// does not touch it.
 func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWaitMs float64) {
 	if page == nil {
 		return
 	}
-	const selector = "a[href], [onclick], [data-href], [data-url]"
+	debounceMs, hardCapMs := s.contentSettleWaitBudget()
 	start := time.Now()
-	page.WaitForTimeout(fallbackWaitMs)
-	s.auditLog("wait-fixed", page, selector, fmt.Sprintf("fixed wait took %s (no selector early-exit attempted - see contentFallbackWaitMs doc comment)", time.Since(start)))
+	reason, err := s.waitForContentSettled(page, debounceMs, hardCapMs)
+	retried := false
+	if err != nil && isExecutionContextDestroyedError(err) {
+		retried = true
+		page.WaitForTimeout(contextRecoveryWaitMs)
+		reason, err = s.waitForContentSettled(page, debounceMs, hardCapMs)
+	}
+	if err != nil {
+		// Either a non-recoverable injection error (e.g. a real page crash -
+		// isPageCrashError below still applies to the *next* Goto/extraction
+		// attempt as always) or the retry above also failed - fall back to a
+		// fixed wait so this section visit still gets *some* content-render
+		// wait rather than none. Sized to hardCapMs (not the shorter
+		// fallbackWaitMs parameter) - see the doc comment above for why.
+		page.WaitForTimeout(hardCapMs)
+		s.auditLog("wait-fixed-fallback", page, "", fmt.Sprintf("MutationObserver wait injection failed (%v, retried=%v); used fixed fallback wait of %s (hardCapMs=%.0fms) instead", err, retried, time.Since(start), hardCapMs))
+		return
+	}
+	s.auditLog("wait-mutationobserver", page, "", fmt.Sprintf("MutationObserver wait resolved (%s) after %s (debounce=%.0fms hardCap=%.0fms, retried=%v)", reason, time.Since(start), debounceMs, hardCapMs, retried))
+}
+
+// contextRecoveryWaitMs is the short pause waitForInteractiveLinks takes
+// before retrying a MutationObserver injection that failed with a
+// recoverable "execution context was destroyed" error (see
+// isExecutionContextDestroyedError) - just long enough for the new
+// execution context that replaced the destroyed one to finish initializing
+// before the retry's page.Evaluate targets it.
+const contextRecoveryWaitMs = 150.0
+
+// isExecutionContextDestroyedError reports whether err is Playwright's
+// "Execution context was destroyed, most likely because of a navigation"
+// class of error - distinct from isPageCrashError's "Target/Page crashed"
+// class (a permanently dead renderer process). This one is transient and
+// recoverable: the underlying page is still alive, its JS realm was just
+// torn down and replaced (Playwright's own explanation - "most likely
+// because of a navigation" - undersells it here: OPAL/Wicket's
+// AJAX-driven DOM updates can apparently trigger this too, not just a real
+// page navigation, since it was live-observed to fire against a "show all"
+// pagination click that stays on the same URL).
+//
+// CONFIRMED LIVE (2026-07-16, queue task add-mutationobserver-load-
+// detection, `list --dev --debug-clicks --profile --course-concurrency 2`
+// against the real TU Dresden account): the MutationObserver injection this
+// task added hit exactly this error, immediately after a successful "show
+// all" click, for the same courses/sections previously documented (crawl.go,
+// sectionContentRequiredStableReads's doc comment) as sensitive to
+// concurrent-crawl AJAX timing races - Analysis and Algorithmen und
+// Datenstrukturen. Before adding the retry this function enables, that
+// error fell straight through to a short fixed fallback wait and produced a
+// real file-count regression versus master at course_concurrency=2 (332/344
+// vs 344/344, live A/B compared against an unmodified-code control run on
+// the same account) - the exact same "tail past the show-all expansion
+// missing" shape as the historical race, just from a different proximate
+// cause (a destroyed JS execution context instead of a slow click).
+// Retrying the injection once after contextRecoveryWaitMs, rather than
+// giving up immediately, closed the gap (re-verified 344/344 - see this
+// task's queue file for the full before/after comparison). A page.Evaluate
+// call against a genuinely crashed page (isPageCrashError) does not produce
+// this specific message, so the two error classes stay distinguishable and
+// isPageCrashError's existing recovery path (recoverFromPageCrash, a new
+// tab entirely) is unaffected by this addition.
+func isExecutionContextDestroyedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "execution context was destroyed")
+}
+
+// contentSettleWaitBudget returns the (debounceMs, hardCapMs) pair
+// waitForInteractiveLinks should use for the current crawl: the wider
+// mutationObserverConcurrentDebounceMs/mutationObserverConcurrentHardCapMs
+// budget when running at course_concurrency>1, the tighter
+// mutationObserverDebounceMs/mutationObserverHardCapMs budget otherwise -
+// mirrors requiredStableReads's (crawl.go) concurrency-gated pattern for the
+// same underlying reason: a budget tuned against a serial crawl (the
+// renderer has the machine to itself) is not guaranteed to still be enough
+// once it has to compete with other courses' tabs rendering at the same
+// time.
+func (s *OpalScraper) contentSettleWaitBudget() (debounceMs, hardCapMs float64) {
+	if s.effectiveCourseConcurrency() > 1 {
+		return mutationObserverConcurrentDebounceMs, mutationObserverConcurrentHardCapMs
+	}
+	return mutationObserverDebounceMs, mutationObserverHardCapMs
+}
+
+// contentSettleWaitScript is injected via page.Evaluate by
+// waitForContentSettled below. It locates the page's main-content root using
+// the same rootSelectors precedence as extractSectionContentCandidates
+// (files.go) - falling back to document.body when none match, so the
+// observer always has something to watch even on an unexpected page shape -
+// then resolves a Promise once that root goes opts.debounceMs without a
+// DOM mutation (childList/subtree/attributes/characterData all watched, since
+// OPAL's Wicket-driven rendering can update any of these while constructing
+// a section's content), or opts.hardCapMs elapses since the observer
+// started, whichever happens first. Resolves with a string reason
+// ("settled-no-mutations" or "hard-cap") purely for --debug-clicks
+// diagnostics (see the auditLog call in waitForInteractiveLinks) - callers
+// don't need to distinguish the two to proceed safely, since
+// waitForStableSectionContent's polling in crawl.go is the actual safety
+// net regardless of which reason this resolved for.
+const contentSettleWaitScript = `(opts) => new Promise((resolve) => {
+	const rootSelectors = [
+		'main',
+		'[role="main"]',
+		'#il_center_col',
+		'#center_col',
+		'#maincontent',
+		'#content',
+		'.ilContainerWidth',
+		'.ilc_page_cont_page',
+		'.o_main_content',
+		'.o_page_body',
+		'.o_content'
+	];
+	let root = null;
+	for (const selector of rootSelectors) {
+		root = document.querySelector(selector);
+		if (root) {
+			break;
+		}
+	}
+	if (!root) {
+		root = document.body;
+	}
+
+	let settled = false;
+	let debounceTimer = null;
+
+	function finish(reason) {
+		if (settled) {
+			return;
+		}
+		settled = true;
+		if (debounceTimer) {
+			clearTimeout(debounceTimer);
+		}
+		clearTimeout(hardCapTimer);
+		try {
+			observer.disconnect();
+		} catch (e) {
+			// Ignore - nothing left to observe once we're resolving anyway.
+		}
+		resolve(reason);
+	}
+
+	const observer = new MutationObserver(() => {
+		if (debounceTimer) {
+			clearTimeout(debounceTimer);
+		}
+		debounceTimer = setTimeout(() => finish('settled-no-mutations'), opts.debounceMs);
+	});
+	observer.observe(root, {
+		childList: true,
+		subtree: true,
+		attributes: true,
+		characterData: true
+	});
+
+	debounceTimer = setTimeout(() => finish('settled-no-mutations'), opts.debounceMs);
+	const hardCapTimer = setTimeout(() => finish('hard-cap'), opts.hardCapMs);
+})`
+
+// waitForContentSettled injects contentSettleWaitScript into page and
+// blocks until it resolves (bounded by hardCapMs plus normal Playwright
+// Evaluate IPC overhead - the Promise itself enforces the hard cap
+// JS-side). Returns the resolution reason ("settled-no-mutations" or
+// "hard-cap") on success, or a non-nil error if the injection/evaluation
+// itself failed (e.g. the page crashed or navigated away mid-evaluate) -
+// callers should treat that as "no content-settle signal available" and
+// fall back accordingly, not conflate it with a normal hard-cap resolution.
+func (s *OpalScraper) waitForContentSettled(page playwright.Page, debounceMs, hardCapMs float64) (string, error) {
+	value, err := page.Evaluate(contentSettleWaitScript, map[string]interface{}{
+		"debounceMs": debounceMs,
+		"hardCapMs":  hardCapMs,
+	})
+	if err != nil {
+		return "", err
+	}
+	reason, _ := value.(string)
+	return reason, nil
 }
 
 // candidateStabilityPoll repeatedly calls extractFn (waiting via waitFn

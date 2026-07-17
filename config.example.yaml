@@ -53,16 +53,16 @@ download_concurrency: 3
 
 # (Optional) Maximum number of courses crawled concurrently during discovery,
 # each on its own browser tab. Raising this above 1 can still silently lose
-# a small number of files (~1-2% in the worst case live-tested) on accounts
-# with one course much larger/slower than the others - see
+# files on accounts with one course much larger/slower than the others - see
 # DefaultCourseConcurrency's doc comment in internal/config/config.go for
 # the full root-cause writeup and what was already fixed vs. still open.
 # Several real AJAX-render race bugs behind this were found and fixed
 # (2026-07-13), meaningfully reducing the risk from an earlier 21-76% file
-# loss down to ~1-2% in the worst case tested - but that's not zero, so the
-# default stays serial (1) until it can be verified byte-for-byte safe. Can
-# also be set with --course-concurrency on the list/sync commands. Defaults
-# to 1.
+# loss - but a 2026-07-16 load-completion-detection fix (MutationObserver)
+# that looked promising was re-verified live 2026-07-17 and did NOT close
+# the race (lost files in 4 of 4 repeated full-account test runs at
+# course_concurrency=2), so the default stays serial (1). Can also be set
+# with --course-concurrency on the list/sync commands. Defaults to 1.
 course_concurrency: 1
 
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.

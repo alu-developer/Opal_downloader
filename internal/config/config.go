@@ -108,6 +108,50 @@ const (
 	// (e.g. give it a dedicated pass, or at least stagger its tab creation
 	// further behind the others), since pure per-section wait-tuning has
 	// diminishing returns against this specific contention pattern.
+	//
+	// STILL AT 1 after re-verification (2026-07-17, queue task
+	// close-residual-concurrent-crawl-ajax-race): PR #81 (2026-07-16)
+	// replaced navigation.go's fixed 1100ms per-section content wait with a
+	// MutationObserver-based debounce (see waitForInteractiveLinks) and got
+	// a clean 344/344 on its own single live test at course_concurrency=2 -
+	// promising, but PR #73/#78's own residual loss was itself intermittent
+	// (2 of 4 repeated runs, not every run), so one clean run couldn't
+	// distinguish "the race is closed" from "this run got lucky". Repeating
+	// the same full-account live methodology (`list --dev --debug-clicks
+	// --profile --course-concurrency 2`, serial ground truth 345 files/7
+	// content-bearing courses vs. concurrent, four consecutive runs against
+	// the real TU Dresden account) found the race is NOT closed - and this
+	// sample was worse than PR #78's: all 4 of 4 runs lost files (337, 339,
+	// 331, 333 of 345), not 2 of 4. The specific courses lost were the same
+	// two flagged by PR #73/#78 (Analysis: -8 files in 3 of 4 runs;
+	// Softwaretechnologie, the account's largest course: -6 files in 2 of 4
+	// runs; Algorithmen und Datenstrukturen: -4 files in 1 of 4 runs) -
+	// never a different course, and the lost-file count for a given course
+	// was identical every time it was lost (a full page's worth, not a
+	// random flaky amount).
+	//
+	// Crucially, --debug-clicks showed the MutationObserver wait itself is
+	// NOT the failure point: across all 4 runs it resolved via
+	// "settled-no-mutations" every single time (zero "hard-cap"
+	// resolutions, zero wait-fixed-fallback injection failures), and every
+	// one of the 5 "show all" pagination clicks in each run succeeded on
+	// try 1/3 - identically across all 4 runs, including in the runs where
+	// Analysis/Softwaretechnologie still lost files. So the click and the
+	// new load-completion signal both fired normally every time; the loss
+	// happens downstream, in waitForStableSectionContent/
+	// candidateStabilityPoll (crawl.go) - unchanged by PR #81, per that
+	// task's own scope. Those polls were seen settling on a *stable* (not
+	// hard-cap-truncated) read that was nonetheless short of the serial
+	// ground truth's count, meaning the section's client-side render
+	// itself plateaus at an incomplete state under concurrent contention,
+	// not that the poll gave up early (sectionContentMaxPolls=20 was never
+	// exhausted in any of the four runs). This confirms candidateStabilityPoll
+	// - not the content-settle wait PR #81 replaced - is the remaining
+	// culprit, exactly as this task's own hypothesis predicted. A
+	// size/duration-aware scheduler (see the paragraph above) remains the
+	// most promising untried angle, since per-section wait/poll tuning has
+	// now been tried twice (2026-07-13 and 2026-07-16) against this same
+	// contention pattern with diminishing returns both times.
 	DefaultCourseConcurrency = 1
 )
 

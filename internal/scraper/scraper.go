@@ -30,11 +30,30 @@ type downloadCandidate struct {
 	LinkTarget string
 	// ShowAllURL is the "show all"/"Alle anzeigen"-expanded variant of SourceURL,
 	// set only when this candidate was discovered after expanding a paginated
-	// section listing. downloadFileViaBrowser falls back to navigating here when
-	// the link isn't present on SourceURL, since files beyond the default ~20-item
-	// page cap only render on the expanded page. Empty when the candidate was
-	// found on a section's normal (non-expanded) first page.
+	// section listing *by navigating to a distinct URL*. downloadFileViaBrowser
+	// falls back to navigating here when the link isn't present on SourceURL,
+	// since files beyond the default ~20-item page cap only render on the
+	// expanded page. Empty when the candidate was found on a section's normal
+	// (non-expanded) first page, OR when the expansion happened via ShowAllViaClick
+	// instead (see its doc comment for why those two cases aren't the same).
 	ShowAllURL string
+	// ShowAllViaClick marks a candidate that was only revealed by clicking a
+	// "show all"/"Alle anzeigen" pagination control that expands the section
+	// *in place* (no distinct URL to navigate back to - expandShowAllInSection's
+	// `navigated` stays false, so ShowAllURL above is left empty for these).
+	// Found live (queue task fix-html-response-download-fallback-failures,
+	// 2026-07-17): a real course's "Vorlesung" section used exactly this
+	// click-only expansion shape, and every one of its beyond-the-first-page
+	// files (Kapitel1.pdf..Kapitel8.pdf) permanently failed both the fast-path
+	// counter-refresh (a plain HTTP re-fetch of SourceURL can't run the click)
+	// and the browser-fallback click (SourceURL alone, freshly loaded, never
+	// re-triggers the expansion) - the exact "response is HTML, browser
+	// fallback click did not find downloadable link" symptom, since there was
+	// no ShowAllURL to retry and nothing re-clicked the control before
+	// searching. clickCandidateLinkOnPage uses this flag to re-run
+	// attemptShowAllExpandClick on SourceURL before giving up, mirroring what
+	// expandShowAllInSection already does during discovery.
+	ShowAllViaClick bool
 }
 
 type OpalScraper struct {

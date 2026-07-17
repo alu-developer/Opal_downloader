@@ -227,6 +227,39 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	// this addresses.
 	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
+	if err := s.tryClickDownloadSelectors(page, candidate, localPath); err == nil {
+		return nil
+	}
+
+	if !candidate.ShowAllViaClick {
+		return errors.New("downloadable link not found on page")
+	}
+
+	// This candidate was only revealed by a click-triggered (non-navigable) "show
+	// all" expansion during discovery (see downloadCandidate.ShowAllViaClick's doc
+	// comment) - there is no distinct ShowAllURL to fall back to, so replicate the
+	// same click here on the page we just landed on before giving up. Found live
+	// (queue task fix-html-response-download-fallback-failures, 2026-07-17): this
+	// is what was causing every beyond-the-first-page file in a click-only-expanded
+	// section to permanently fail both the fast-path counter-refresh and this
+	// browser-fallback click.
+	clicked, _ := s.attemptShowAllExpandClick(page, pageURL)
+	if !clicked {
+		return errors.New("downloadable link not found on page")
+	}
+	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	if err := s.tryClickDownloadSelectors(page, candidate, localPath); err != nil {
+		return errors.New("downloadable link not found on page")
+	}
+	return nil
+}
+
+// tryClickDownloadSelectors searches page for candidate's download link, first by its
+// recorded href fragment then by its recorded visible text, clicking and saving whichever
+// matches first. Extracted from clickCandidateLinkOnPage so it can be retried a second
+// time, after a show-all re-expansion click, without duplicating the two selector
+// strategies - see ShowAllViaClick's doc comment for why that retry is needed.
+func (s *OpalScraper) tryClickDownloadSelectors(page playwright.Page, candidate downloadCandidate, localPath string) error {
 	targetFragment := hrefSelectorFragment(candidate.LinkTarget)
 
 	if targetFragment != "" {

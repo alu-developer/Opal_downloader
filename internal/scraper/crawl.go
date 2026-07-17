@@ -208,7 +208,13 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		}
 		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
 		filesBeforeSection := len(files)
-		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, s.opalURL, downloadCandidates)
+		// showAllViaClick marks every candidate from this section when expansion
+		// happened via an in-place click rather than navigating to a distinct
+		// showAllURL (see downloadCandidate.ShowAllViaClick's doc comment) - these
+		// files have no separate URL for the download-fallback to retry, so it
+		// needs to know to re-click the same control on SourceURL instead.
+		showAllViaClick := expandedShowAll && strings.TrimSpace(showAllURL) == ""
+		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, showAllViaClick, s.opalURL, downloadCandidates)
 		// Record this visit for the persistent cross-run visit-effectiveness
 		// log (internal/visitlog) - one entry per section actually reached
 		// (Goto+extraction succeeded, past the `continue`s above), noting how
@@ -328,49 +334,9 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	}
 
 	if !navigated {
-		clicked := false
-		// Retried up to showAllClickMaxAttempts times, each with a generous
-		// showAllClickTimeoutMs actionability budget - see that constant's doc
-		// comment for why a single short-timeout attempt (the pre-fix 3000ms)
-		// was root-caused (queue task
-		// fix-concurrent-crawl-ajax-race-and-raise-concurrency) to be the
-		// actual cause of files silently going missing under concurrent
-		// course crawling, not a post-click AJAX-render delay (which
-		// waitForStableExpandedCandidates below already handles).
-		for attempt := 0; attempt < showAllClickMaxAttempts && !clicked; attempt++ {
-			if attempt > 0 {
-				page.WaitForTimeout(showAllClickRetryWaitMs)
-			}
-			// Try the confirmed structural CSS class first (showAllControlClassNeedle,
-			// files.go) - more robust than the text-needle fallback below, which depends
-			// on exact wording/locale and stops matching once the control's own label
-			// toggles from "Alle anzeigen" to "Seiten" after a successful expansion.
-			classSelector := "." + showAllControlClassNeedle
-			classLocator := page.Locator(classSelector).First()
-			s.auditLog("click", page, classSelector, fmt.Sprintf("show-all expand attempt (class) for section %s (try %d/%d)", currentURL, attempt+1, showAllClickMaxAttempts))
-			switch err := classLocator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(showAllClickTimeoutMs)}); {
-			case err == nil:
-				s.auditLog("click-success", page, classSelector, "show-all expand succeeded (class) for section "+currentURL)
-				clicked = true
-			case isPageCrashError(err):
-				return s.recoverAndReturnToSection(page, currentURL)
-			}
-
-			if !clicked {
-				for _, needle := range showAllControlTextNeedles {
-					locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
-					s.auditLog("click", page, needle, fmt.Sprintf("show-all expand attempt for section %s (try %d/%d)", currentURL, attempt+1, showAllClickMaxAttempts))
-					err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(showAllClickTimeoutMs)})
-					if err == nil {
-						s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+currentURL)
-						clicked = true
-						break
-					}
-					if isPageCrashError(err) {
-						return s.recoverAndReturnToSection(page, currentURL)
-					}
-				}
-			}
+		clicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
+		if crashErr != nil {
+			return s.recoverAndReturnToSection(page, currentURL)
 		}
 		if !clicked {
 			// Could not click or navigate to the control; keep whatever candidates
@@ -402,6 +368,60 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	}
 
 	return page, expanded, showAllURL, true
+}
+
+// attemptShowAllExpandClick tries to click the "show all"/"Alle anzeigen" pagination
+// control on page (already navigated to sectionURL), trying the confirmed structural CSS
+// class first (more robust than the text-needle fallback, which depends on exact
+// wording/locale and stops matching once the control's own label toggles from "Alle
+// anzeigen" to "Seiten" after a successful expansion), retried up to
+// showAllClickMaxAttempts times with a generous showAllClickTimeoutMs actionability
+// budget each - see that constant's doc comment for why a single short-timeout attempt
+// was previously root-caused to silently lose files under concurrent course crawling.
+//
+// Extracted from expandShowAllInSection's own click-based (non-navigable) branch so
+// download.go's clickCandidateLinkOnPage can replay the identical click sequence on a
+// download-fallback revisit of SourceURL - see downloadCandidate.ShowAllViaClick's doc
+// comment for why that revisit needs its own click, not just a URL to navigate to.
+//
+// Returns clicked=true if a click succeeded. crashErr is non-nil only when a Playwright
+// page-crash was hit mid-attempt (isPageCrashError) - callers that can recover a fresh
+// page (like expandShowAllInSection, via recoverAndReturnToSection) should do so; callers
+// that can't (like the download-fallback, which has no equivalent recovery path and just
+// wants a best-effort retry) can treat any non-nil crashErr the same as clicked=false.
+func (s *OpalScraper) attemptShowAllExpandClick(page playwright.Page, sectionURL string) (clicked bool, crashErr error) {
+	for attempt := 0; attempt < showAllClickMaxAttempts && !clicked; attempt++ {
+		if attempt > 0 {
+			page.WaitForTimeout(showAllClickRetryWaitMs)
+		}
+		classSelector := "." + showAllControlClassNeedle
+		classLocator := page.Locator(classSelector).First()
+		s.auditLog("click", page, classSelector, fmt.Sprintf("show-all expand attempt (class) for section %s (try %d/%d)", sectionURL, attempt+1, showAllClickMaxAttempts))
+		switch err := classLocator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(showAllClickTimeoutMs)}); {
+		case err == nil:
+			s.auditLog("click-success", page, classSelector, "show-all expand succeeded (class) for section "+sectionURL)
+			clicked = true
+		case isPageCrashError(err):
+			return false, err
+		}
+
+		if !clicked {
+			for _, needle := range showAllControlTextNeedles {
+				locator := page.GetByText(needle, playwright.PageGetByTextOptions{Exact: playwright.Bool(false)}).First()
+				s.auditLog("click", page, needle, fmt.Sprintf("show-all expand attempt for section %s (try %d/%d)", sectionURL, attempt+1, showAllClickMaxAttempts))
+				err := locator.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(showAllClickTimeoutMs)})
+				if err == nil {
+					s.auditLog("click-success", page, needle, "show-all expand succeeded for section "+sectionURL)
+					clicked = true
+					break
+				}
+				if isPageCrashError(err) {
+					return false, err
+				}
+			}
+		}
+	}
+	return clicked, nil
 }
 
 // showAllClickTimeoutMs/showAllClickMaxAttempts/showAllClickRetryWaitMs bound

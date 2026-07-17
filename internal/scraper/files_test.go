@@ -14,7 +14,7 @@ func TestAppendSectionFilesParsesSizeAndModifiedFromRowText(t *testing.T) {
 		},
 	}
 
-	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", false, "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
 	if len(files) != 1 {
 		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
 	}
@@ -37,7 +37,7 @@ func TestAppendSectionFilesLeavesSizeAndModifiedNilWithoutRowText(t *testing.T) 
 		},
 	}
 
-	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", false, "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
 	if len(files) != 1 {
 		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
 	}
@@ -127,7 +127,7 @@ func TestAppendSectionFilesCollectsOnlyAllowedFiles(t *testing.T) {
 		},
 	}
 
-	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, section.URL, "", false, "https://bildungsportal.sachsen.de/opal/", map[string]downloadCandidate{})
 	if len(files) != 1 {
 		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
 	}
@@ -161,7 +161,7 @@ func TestAppendSectionFilesRecordsShowAllURLForExpansionOnlyFiles(t *testing.T) 
 	}
 
 	downloadCandidates := map[string]downloadCandidate{}
-	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, sectionURL, showAllURL, "https://bildungsportal.sachsen.de/opal/", downloadCandidates)
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, sectionURL, showAllURL, false, "https://bildungsportal.sachsen.de/opal/", downloadCandidates)
 	if len(files) != 1 {
 		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
 	}
@@ -198,7 +198,7 @@ func TestAppendSectionFilesLeavesShowAllURLEmptyForNormalPageFiles(t *testing.T)
 	downloadCandidates := map[string]downloadCandidate{}
 	// No show-all expansion happened for this section - the caller (collectCourseFiles)
 	// passes an empty showAllURL in that case.
-	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, sectionURL, "", "https://bildungsportal.sachsen.de/opal/", downloadCandidates)
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, sectionURL, "", false, "https://bildungsportal.sachsen.de/opal/", downloadCandidates)
 	if len(files) != 1 {
 		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
 	}
@@ -213,6 +213,50 @@ func TestAppendSectionFilesLeavesShowAllURLEmptyForNormalPageFiles(t *testing.T)
 	}
 	if candidate.ShowAllURL != "" {
 		t.Fatalf("expected ShowAllURL to stay empty for a normal-page file, got %q", candidate.ShowAllURL)
+	}
+}
+
+// TestAppendSectionFilesRecordsShowAllViaClickForClickExpandedFiles covers the root
+// cause found live (queue task fix-html-response-download-fallback-failures,
+// 2026-07-17): a real course's "Vorlesung" section expanded its "show all" control via
+// an in-place click rather than navigating to a distinct URL (expandShowAllInSection's
+// `navigated` stays false in that case), so ShowAllURL was recorded empty for every file
+// only revealed by that expansion - identical to a normal-page file as far as the
+// download-fallback could tell, even though it has no ShowAllURL to retry and needs its
+// own re-click instead. This asserts collectCourseFiles's showAllViaClick=true is
+// threaded through to the recorded downloadCandidate so clickCandidateLinkOnPage knows
+// to attempt that re-click.
+func TestAppendSectionFilesRecordsShowAllViaClickForClickExpandedFiles(t *testing.T) {
+	course := CourseRef{RepoID: "123", Title: "LA20", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123"}
+	sectionURL := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/123/CourseNode/456/Vorlesung"
+	section := SectionRef{CourseRepoID: "123", Title: "Vorlesung", URL: sectionURL}
+
+	candidates := []map[string]string{
+		{
+			"href":  "/opal/goto.php?target=file_kapitel8&cmd=sendfile",
+			"title": "Kapitel8-ohne-Kommentare.pdf",
+			"text":  "Kapitel8-ohne-Kommentare.pdf",
+		},
+	}
+
+	downloadCandidates := map[string]downloadCandidate{}
+	// showAllURL empty + showAllViaClick true simulates exactly what collectCourseFiles
+	// now passes when expandShowAllInSection expanded via a click with no distinct URL.
+	files := appendSectionFiles(nil, map[string]struct{}{}, candidates, course, section, sectionURL, "", true, "https://bildungsportal.sachsen.de/opal/", downloadCandidates)
+	if len(files) != 1 {
+		t.Fatalf("expected one collected file, got %d: %#v", len(files), files)
+	}
+
+	fileURL := "https://bildungsportal.sachsen.de/opal/goto.php?target=file_kapitel8&cmd=sendfile"
+	candidate, ok := downloadCandidates[fileURL]
+	if !ok {
+		t.Fatalf("expected a download candidate to be recorded for %q", fileURL)
+	}
+	if candidate.ShowAllURL != "" {
+		t.Fatalf("expected ShowAllURL to stay empty for a click-expanded file, got %q", candidate.ShowAllURL)
+	}
+	if !candidate.ShowAllViaClick {
+		t.Fatalf("expected ShowAllViaClick to be true for a file only revealed by a click-based expansion")
 	}
 }
 

@@ -50,13 +50,16 @@ type tuFastSetupPageData struct {
 	// UI until this is tuFastConsentGranted.
 	ConsentState string
 
-	// AlreadyInstalled and DetectedSourceDir are only populated once
-	// ConsentState is tuFastConsentGranted (see loadTUFastSetupPageData) -
-	// real filesystem checks, never user-reported. AlreadyInstalled means
-	// the dedicated profile already has TU-Fast installed (nothing left to
-	// set up here). DetectedSourceDir, when non-empty, is another Chromium/
-	// Brave profile root on this machine that already has TU-Fast
-	// installed, and is the transplant source candidate.
+	// AlreadyInstalled and DetectedSourceDir are real filesystem checks,
+	// never user-reported (see loadTUFastSetupPageData). AlreadyInstalled
+	// means the dedicated profile already has TU-Fast installed (nothing
+	// left to set up here) - checked unconditionally, regardless of
+	// ConsentState, since it's true or false independent of this process's
+	// in-memory consent state. DetectedSourceDir, when non-empty, is
+	// another Chromium/Brave profile root on this machine that already has
+	// TU-Fast installed, and is the transplant source candidate - only
+	// populated once ConsentState is tuFastConsentGranted, since it's part
+	// of the (still consent-gated) install flow.
 	AlreadyInstalled  bool
 	DetectedSourceDir string
 
@@ -173,15 +176,29 @@ func (s *server) loadTUFastSetupPageData() tuFastSetupPageData {
 	if err != nil {
 		data.ProfileDirErr = err.Error()
 	}
-
-	// Only detect/show install state once the user has actually consented -
-	// no install/open/copy action (and no reason to probe for one) is
-	// reachable before that.
-	if data.ConsentState != tuFastConsentGranted || dir == "" {
+	if dir == "" {
 		return data
 	}
 
+	// AlreadyInstalled is a real filesystem fact and is checked
+	// unconditionally, regardless of ConsentState. ConsentState lives only
+	// in memory and resets to "unset" on every GUI process restart, so
+	// gating this behind "granted" made the "already installed, nothing
+	// more to do" message unreachable after a restart even when TU-Fast was
+	// already installed and working - the user would see the full "Set up
+	// automatic login?" consent gate again for no reason. See this
+	// function's task for the bug report.
 	data.AlreadyInstalled = hasTUFastExtension(dir)
+
+	// The transplant-source probe (DetectedSourceDir), by contrast, is only
+	// relevant to the install flow itself (offering to copy an existing
+	// TU-Fast login from another browser instead of a manual one), and its
+	// copy action stays consent-gated (handleTUFastSetupCopy) - so it's
+	// still only computed once consent is actually granted. No need to run
+	// it when already installed and done, or before the user has opted in.
+	if data.ConsentState != tuFastConsentGranted {
+		return data
+	}
 
 	detect := s.detectBrowserUserDataDir
 	if detect == nil {
@@ -386,7 +403,7 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Opal Downloader - TU-Fast browser profile setup</title>
+<title>Opal Downloader - TU-Fast setup</title>
 <style>` + pageStyle + `
 	input[type=text] { width: 100%; box-sizing: border-box; padding: 0.4rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; margin-bottom: 0.5rem; }
 	.field { margin-bottom: 1rem; }
@@ -398,7 +415,7 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 </head>
 <body>
 	` + bannerChrome + `
-	<h1>TU-Fast browser profile setup</h1>
+	<h1>TU-Fast setup</h1>
 	<p class="hint">
 		opal-downloader always logs in and syncs using Playwright's bundled
 		Chromium against one dedicated profile at
@@ -420,7 +437,43 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 	{{if .OpenResult}}<div class="status {{if .OpenResultOK}}ok{{else}}warn{{end}}">{{.OpenResult}}</div>{{end}}
 	{{if .CopyResult}}<div class="status {{if .CopyResultOK}}ok{{else}}warn{{end}}">{{.CopyResult}}</div>{{end}}
 
-	{{if eq .ConsentState "unset"}}
+	{{if .AlreadyInstalled}}
+	{{/* Checked (and shown) unconditionally, ahead of the ConsentState
+	     branching below: AlreadyInstalled is a real filesystem fact, so
+	     once it's true there's nothing left for the consent gate to gate -
+	     showing "Set up automatic login?" here would be asking the user to
+	     consent to something already done. This also makes the message
+	     reachable right after a GUI process restart, when ConsentState has
+	     reset to "unset" even though TU-Fast is still installed from an
+	     earlier process lifetime. See this page's task for the bug this
+	     fixes. */}}
+	<div class="status ok">
+		TU-Fast is already installed in the dedicated profile
+		(<code>{{.ProfileDir}}</code>). Nothing more to do here - login/sync
+		will use it automatically.
+	</div>
+	{{if .DetectedSourceDir}}
+	<h2>Optional: skip a manual login</h2>
+	<p class="hint">
+		TU-Fast also looks logged in at <code>{{.DetectedSourceDir}}</code>
+		on this machine. If the dedicated profile hasn't completed its own
+		OPAL/Shibboleth login yet, you can copy that already-working login
+		data over instead of doing it by hand.
+	</p>
+	<form method="post" action="/tufast-setup/copy">
+		<div class="field">
+			<label for="source_user_data_dir">Source browser's user data directory</label>
+			<input type="text" id="source_user_data_dir" name="source_user_data_dir" value="{{.CopySourceUserDataDir}}">
+		</div>
+		<div class="field">
+			<label for="source_profile_directory">Source profile directory (optional)</label>
+			<input type="text" id="source_profile_directory" name="source_profile_directory" value="{{.CopySourceProfileDir}}" placeholder="Default">
+		</div>
+		<button type="submit">Copy TU-Fast login data</button>
+	</form>
+	{{end}}
+
+	{{else if eq .ConsentState "unset"}}
 	<h2>Set up automatic login?</h2>
 	<p>
 		Do you want TU-Fast to auto-fill your OPAL login (username,
@@ -466,36 +519,10 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 	</form>
 
 	{{else}}
-	{{/* ConsentState == granted */}}
+	{{/* ConsentState == granted, and not AlreadyInstalled (handled above,
+	     ahead of this whole ConsentState branch) */}}
 
-	{{if .AlreadyInstalled}}
-	<div class="status ok">
-		TU-Fast is already installed in the dedicated profile
-		(<code>{{.ProfileDir}}</code>). Nothing more to do here - login/sync
-		will use it automatically.
-	</div>
 	{{if .DetectedSourceDir}}
-	<h2>Optional: skip a manual login</h2>
-	<p class="hint">
-		TU-Fast also looks logged in at <code>{{.DetectedSourceDir}}</code>
-		on this machine. If the dedicated profile hasn't completed its own
-		OPAL/Shibboleth login yet, you can copy that already-working login
-		data over instead of doing it by hand.
-	</p>
-	<form method="post" action="/tufast-setup/copy">
-		<div class="field">
-			<label for="source_user_data_dir">Source browser's user data directory</label>
-			<input type="text" id="source_user_data_dir" name="source_user_data_dir" value="{{.CopySourceUserDataDir}}">
-		</div>
-		<div class="field">
-			<label for="source_profile_directory">Source profile directory (optional)</label>
-			<input type="text" id="source_profile_directory" name="source_profile_directory" value="{{.CopySourceProfileDir}}" placeholder="Default">
-		</div>
-		<button type="submit">Copy TU-Fast login data</button>
-	</form>
-	{{end}}
-
-	{{else if .DetectedSourceDir}}
 	<h2>Step A: Install TU-Fast in the dedicated profile</h2>
 	<p class="hint">
 		Creates the profile directory above if it doesn't exist yet, and
@@ -547,7 +574,7 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 	{{end}}
 	{{end}}
 
-	<p class="back"><a href="/settings">&larr; Back to Settings</a> &middot; <a href="/">Home</a></p>
+	<p class="back"><a href="/">Home</a></p>
 </body>
 </html>
 `))

@@ -216,7 +216,7 @@ func TestHandleTUFastSetupPage_GET(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "TU-Fast browser profile setup") {
+	if !strings.Contains(rec.Body.String(), "TU-Fast setup") {
 		t.Fatalf("body missing page title: %s", rec.Body.String())
 	}
 }
@@ -383,21 +383,60 @@ func TestLoadTUFastSetupPageData_ManualPathWhenNothingDetected(t *testing.T) {
 	}
 }
 
-func TestLoadTUFastSetupPageData_NotComputedBeforeConsent(t *testing.T) {
+func TestLoadTUFastSetupPageData_AlreadyInstalledComputedBeforeConsent(t *testing.T) {
 	dir := t.TempDir()
 	targetRoot := filepath.Join(dir, "target")
 	makeFakeChromiumProfile(t, targetRoot, "Default", true, "")
 
-	// No consent granted - detection should not even run/populate fields,
-	// matching "no install/open action is reachable before consent".
+	// ConsentState is unset (the default, and what every fresh GUI process
+	// restart resets to) - AlreadyInstalled must still be detected: it's a
+	// real filesystem fact, not something that should wait behind the
+	// in-memory consent gate. Regression test for the bug where a GUI
+	// restart made the "already installed, nothing more to do" message
+	// unreachable until the user re-clicked through consent. The
+	// transplant-source probe (detectBrowserUserDataDir), however, is part
+	// of the still consent-gated install flow and must NOT run yet.
 	s := &server{
 		loginProfileDir:          fakeLoginProfileDir(targetRoot),
 		detectBrowserUserDataDir: func() string { t.Fatal("detectBrowserUserDataDir should not be called before consent"); return "" },
 	}
 
 	data := s.loadTUFastSetupPageData()
-	if data.AlreadyInstalled {
-		t.Fatalf("AlreadyInstalled should not be populated before consent, got data = %+v", data)
+	if !data.AlreadyInstalled {
+		t.Fatalf("expected AlreadyInstalled = true even before consent, got data = %+v", data)
+	}
+	if data.ConsentState != tuFastConsentUnset {
+		t.Fatalf("expected ConsentState = %q (untouched), got %q", tuFastConsentUnset, data.ConsentState)
+	}
+}
+
+// TestHandleTUFastSetupPage_AlreadyInstalledSkipsConsentGate is the
+// page-render-level companion to
+// TestLoadTUFastSetupPageData_AlreadyInstalledComputedBeforeConsent: with a
+// fresh/unset consent state (as after a GUI process restart) and TU-Fast
+// already installed in the dedicated profile, the page must show the
+// "already installed" message immediately, not the "Set up automatic
+// login?" consent gate.
+func TestHandleTUFastSetupPage_AlreadyInstalledSkipsConsentGate(t *testing.T) {
+	dir := t.TempDir()
+	targetRoot := filepath.Join(dir, "target")
+	makeFakeChromiumProfile(t, targetRoot, "Default", true, "")
+
+	s := &server{
+		loginProfileDir:          fakeLoginProfileDir(targetRoot),
+		detectBrowserUserDataDir: func() string { t.Fatal("detectBrowserUserDataDir should not be called before consent"); return "" },
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/tufast-setup", nil)
+	rec := httptest.NewRecorder()
+	s.handleTUFastSetupPage(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "TU-Fast is already installed") {
+		t.Fatalf("expected the already-installed message with unset consent, got: %s", body)
+	}
+	if strings.Contains(body, "Set up automatic login?") {
+		t.Fatalf("consent gate should be skipped once already installed: %s", body)
 	}
 }
 

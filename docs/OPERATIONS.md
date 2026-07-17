@@ -239,6 +239,27 @@ section's own client-side render plateaus incomplete under concurrent
 contention. `DefaultCourseConcurrency` stays at 1; see its doc comment in
 `internal/config/config.go` for the full run-by-run breakdown.
 
+**Update (2026-07-17): `--debug-clicks` now also writes a persistent JSONL
+log**, not just stdout. Every investigation into this race so far (PR
+#73/#78/#81/#84 above) had to re-run a full live crawl to get fresh raw data,
+and even then only ever reported aggregate stats (poll counts, hard-cap
+frequency) in the PR/task file, not the actual per-poll/per-wait trace - the
+raw data that would answer "was the count still climbing when the poll gave
+up, or flat from the start" was always thrown away with the terminal session
+that produced it. `internal/scraper/audit.go`'s `EnableDebugLogFile` (wired
+automatically whenever `--debug-clicks` is passed - see
+`cmd/opal-downloader/root.go`) now writes the same lines `auditLog` prints to
+stdout into a timestamped file at `~/.opal-downloader/debug-logs/debug-
+<timestamp>.jsonl` too (path printed at the start of the run). Deliberately
+global, not under a config's `download_path`, since live-verification runs
+routinely point at a scratch/throwaway `download_path` that gets discarded
+after the test - a log that followed it would get lost with it. Files
+accumulate across runs; cleanup is manual (delete old ones), same as
+`internal/visitlog`'s cross-run log. Any future investigation of this race
+(or anything else needing a click/wait trace) should read these files
+instead of re-deriving aggregate stats from a fresh live run and discarding
+the trace again.
+
 Separately, `internal/scraper/crawl.go`'s `collectCourseFiles` and
 `internal/scraper/discovery.go`'s `discoverCourseLinks` were both hardened
 (same task) so a section/source-page whose Goto or extraction fails outright

@@ -15,6 +15,7 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/gui"
+	"github.com/alu-developer/opal-downloader/internal/notify"
 	"github.com/alu-developer/opal-downloader/internal/procguard"
 	"github.com/alu-developer/opal-downloader/internal/report"
 	"github.com/alu-developer/opal-downloader/internal/scheduler"
@@ -541,13 +542,23 @@ func runSync(args []string) (err error) {
 	// --scheduled runs write a status file after every run (success or
 	// failure), so a human has something to read the next time they open
 	// the GUI - see docs/scheduled-sync-plan.md section 3 and
-	// internal/statuslog's package doc. sc/stats/attemptedLogin are
-	// captured by the deferred write below via closure; sc stays nil and
-	// stats stays its zero value for any early return before they're set
-	// (e.g. EnsureTUFastPresent or config.Load failing), which
-	// buildScheduledRunStatus already accounts for.
+	// internal/statuslog's package doc. sc/stats/attemptedLogin/loaded are
+	// captured by the deferred write below via closure; sc stays nil,
+	// stats stays its zero value, and loaded stays its zero value for any
+	// early return before they're set (e.g. EnsureTUFastPresent or
+	// config.Load failing), which buildScheduledRunStatus already accounts
+	// for - and a zero-value loaded.App.NotifyOnScheduledFailure is false,
+	// so the notify step below is simply skipped in that case (opt-in
+	// preference can't be known if config never loaded).
+	//
+	// loaded is declared here (rather than at its original assignment
+	// point further down) specifically so this closure can reference it -
+	// Go requires a captured variable to already be in lexical scope at the
+	// point a closure literal is written, even though the closure itself
+	// only runs later.
 	var sc *scraper.OpalScraper
 	var stats syncer.Stats
+	var loaded config.Loaded
 	attemptedLogin := false
 	runStart := time.Now()
 
@@ -560,6 +571,19 @@ func runSync(args []string) (err error) {
 			status := buildScheduledRunStatus(runStart, err, stats, attemptedLogin, usedInteractiveLogin)
 			if writeErr := statuslog.WriteDefault(status); writeErr != nil {
 				fmt.Fprintln(os.Stderr, "Warning: failed to write scheduled-run status file:", writeErr)
+			}
+
+			// Toast notification: opt-in (config.yaml's
+			// notify_on_scheduled_failure / the GUI Settings "Notify me if
+			// a scheduled sync fails" checkbox), fires only on an actual
+			// failure outcome - never partial or success, so a routine
+			// file-error hiccup doesn't create notification fatigue. See
+			// internal/notify's package doc for the investigation behind
+			// this approach (no BurntToast/module dependency needed).
+			if status.Outcome == statuslog.OutcomeFailure && loaded.App.NotifyOnScheduledFailure {
+				if notifyErr := notify.ScheduledSyncFailure(status.Message); notifyErr != nil && !errors.Is(notifyErr, notify.ErrUnsupported) {
+					fmt.Fprintln(os.Stderr, "Warning: failed to show scheduled-sync-failure toast notification:", notifyErr)
+				}
 			}
 		}()
 	}
@@ -579,7 +603,6 @@ func runSync(args []string) (err error) {
 		}
 	}
 
-	var loaded config.Loaded
 	loaded, err = config.Load(configPath)
 	if err != nil {
 		return err

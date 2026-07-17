@@ -427,7 +427,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 	<nav>
 		<ul>
 			<li><a href="/settings">Settings</a></li>
-			<li><a href="/tufast-setup">TU-Fast browser profile setup</a></li>
+			<li><a href="/tufast-setup">TU-Fast setup</a></li>
 			<li><a href="/sync">Sync / List / Dump links</a></li>
 			<li><a href="/update">Check for updates</a></li>
 			<li><a href="/feedback">Feedback / Problem melden</a></li>

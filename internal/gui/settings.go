@@ -435,8 +435,8 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<p class="hint">
 		Login and sync always use Playwright's bundled Chromium against a
-		single dedicated profile (<code>~/.opal-downloader/login-profile</code>)
-		- there's nothing to configure here. First time? Log in manually, or
+		single dedicated profile (<code>~/.opal-downloader/login-profile</code>).
+		First time? Log in manually, or
 		<a href="/tufast-setup">set up TU-Fast</a> once for automatic 2FA on
 		every future login (fewer clicks, and an optional shortcut if TU-Fast
 		is already logged in elsewhere on this computer).

@@ -162,6 +162,7 @@ func Run(opts Options) error {
 	mux.HandleFunc("/", srv.withRecover(srv.handleLanding))
 	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
+	mux.HandleFunc("/settings/schedule", srv.withRecover(handleScheduleAction(configPath)))
 	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
 	mux.HandleFunc("/tufast-setup/consent", srv.withRecover(srv.handleTUFastSetupConsent))
 	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))

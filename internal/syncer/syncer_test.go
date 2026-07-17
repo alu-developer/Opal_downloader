@@ -15,6 +15,18 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 )
 
+// TestMain overrides acquireSyncLock (see syncer.go) with a no-op for this
+// entire test binary run: none of these tests exercise the overlap-guard
+// lock itself (that's internal/synclock's own test suite) and touching the
+// real ~/.opal-downloader/sync.lock file from every SyncCourses-calling
+// test here would be both impure (mutates the developer's real home
+// directory) and pointless (these tests never run concurrently with each
+// other or a real sync).
+func TestMain(m *testing.M) {
+	acquireSyncLock = func() (func(), error) { return func() {}, nil }
+	os.Exit(m.Run())
+}
+
 // fakeDownloader is a test double for the Downloader interface. It simulates
 // a fixed per-file download latency (to make concurrency speedups
 // observable) and records how many downloads were in flight at once, plus

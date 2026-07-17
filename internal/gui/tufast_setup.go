@@ -136,16 +136,14 @@ func detectBrowserUserDataDir() string {
 }
 
 // hasTUFastExtension reports whether a Chromium user-data-dir (profile
-// root) has TU-Fast installed in its "Default" profile - a plain,
-// read-only filesystem stat, matching the same check
-// scraper.TransplantTUFastLoginData itself makes before allowing a copy
-// into a target profile.
+// root) has TU-Fast installed in its "Default" profile. Thin wrapper over
+// scraper.HasTUFastExtension, the canonical implementation shared with
+// cmd/opal-downloader/root.go's checkLoginProfileHealth (`status`) and
+// scraper.EnsureTUFastPresent (`sync --scheduled`'s pre-flight gate) - kept
+// as a local name here only so this file's many existing call sites didn't
+// need touching.
 func hasTUFastExtension(userDataDir string) bool {
-	if strings.TrimSpace(userDataDir) == "" {
-		return false
-	}
-	info, err := os.Stat(filepath.Join(userDataDir, tuFastDefaultProfileSubdir, "Extensions", scraper.TUFastExtensionID))
-	return err == nil && info.IsDir()
+	return scraper.HasTUFastExtension(userDataDir)
 }
 
 // getTUFastConsent returns the current /tufast-setup consent-gate state,

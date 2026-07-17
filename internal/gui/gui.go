@@ -171,6 +171,7 @@ func Run(opts Options) error {
 	mux.HandleFunc("/update/start", srv.withRecover(srv.handleUpdateStart))
 	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
 	mux.HandleFunc("/feedback/open", srv.withRecover(srv.handleFeedbackOpen))
+	mux.HandleFunc("/scheduled-status", srv.withRecover(srv.handleScheduledStatus))
 	registerSyncRoutes(mux, srv, configPath)
 
 	httpServer := &http.Server{Handler: mux}
@@ -251,6 +252,7 @@ var panicPageTemplate = template.Must(template.New("panic").Parse(`<!DOCTYPE htm
 <style>` + pageStyle + `</style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Something went wrong</h1>
 	<div class="error">
 		This page hit an unexpected error: <code>{{.}}</code>
@@ -279,6 +281,82 @@ const disclaimerHTML = `<div class="disclaimer">
 		A separate browser window opens for OPAL login/sync. Closing this
 		window does not stop it, and closing it does not close this window.
 	</div>`
+
+// bannerChrome is the scheduled-sync failure banner: spliced into every
+// page template right after <body> (see landingTemplate, syncTemplate,
+// settingsTemplate, tuFastSetupTemplate, feedbackPageTemplate/
+// feedbackOpenedTemplate, updatePageTemplate/updateStartingTemplate/
+// updateErrorTemplate, panicPageTemplate), the same "shared constant
+// spliced into every page" pattern this file already uses for pageStyle
+// above - see docs/scheduled-sync-plan.md section 3.
+//
+// Deliberately implemented client-side (fetch + DOM, no server-rendered
+// template data) rather than threading a Banner field through every
+// handler's own page-data struct: this project has no shared "page chrome"
+// render path today (every handler calls its own template.Execute with its
+// own data type - see gui.go's Run/handleLanding, settings.go's
+// renderSettings, sync.go's handlePage, etc.), so a client-side snippet
+// that fetches its own small JSON endpoint (handleScheduledStatus below)
+// is the smallest change that still puts the banner on every page without
+// restructuring every handler's data type.
+//
+// Degrades silently by construction: handleScheduledStatus always responds
+// 200 with a JSON body (see its doc comment), and this script's own
+// .catch(function(){}) swallows any fetch failure - so a missing/corrupt
+// status file, or the endpoint being unreachable for any reason, simply
+// never shows a banner, never touches the DOM, and never surfaces an error
+// to the user (per this task's "GUI must degrade silently" acceptance
+// criterion).
+//
+// Dismissal is tracked in the browser's localStorage, keyed by the
+// status's own timestamp: dismissing writes that timestamp under a fixed
+// key, and a banner is only ever shown when the *current* status's
+// timestamp differs from the dismissed one - so dismissing today's failure
+// keeps it hidden on every subsequent page load until a *new* scheduled run
+// writes a new timestamp (success or another failure), without needing any
+// server-side "dismissed" state.
+const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></div>
+	<script>
+	(function () {
+		function render(status) {
+			if (!status || status.outcome === 'success') { return; }
+			var key = 'opal-downloader:dismissed-scheduled-run';
+			if (window.localStorage && localStorage.getItem(key) === status.timestamp) { return; }
+			var el = document.getElementById('scheduled-sync-banner');
+			if (!el) { return; }
+			el.textContent = '';
+			el.className = status.outcome === 'failure' ? 'error' : 'warning';
+
+			var label = status.outcome === 'failure' ? 'failed' : 'had problems';
+			var dateStr = status.timestamp;
+			try { dateStr = new Date(status.timestamp).toLocaleString(); } catch (e) {}
+
+			var text = document.createElement('span');
+			text.textContent = 'Last scheduled sync (' + dateStr + ') ' + label + ': ' + status.message + '. ';
+			el.appendChild(text);
+
+			var link = document.createElement('a');
+			link.href = '/sync?autostart=1';
+			link.textContent = 'Run now';
+			el.appendChild(link);
+
+			el.appendChild(document.createTextNode(' '));
+
+			var dismiss = document.createElement('button');
+			dismiss.type = 'button';
+			dismiss.textContent = 'Dismiss';
+			dismiss.style.marginLeft = '0.75rem';
+			dismiss.addEventListener('click', function () {
+				if (window.localStorage) { localStorage.setItem(key, status.timestamp); }
+				el.style.display = 'none';
+			});
+			el.appendChild(dismiss);
+
+			el.style.display = 'block';
+		}
+		fetch('/scheduled-status').then(function (r) { return r.ok ? r.json() : null; }).then(render).catch(function () {});
+	})();
+	</script>`
 
 // pageStyle is the shared look for every GUI page (landing, login, update,
 // settings, sync): same fonts/spacing/colors for headings, status boxes,
@@ -317,6 +395,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 <style>` + pageStyle + `</style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Opal Downloader</h1>
 
 	` + disclaimerHTML + `
@@ -502,6 +581,7 @@ var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE h
 <style>` + pageStyle + `</style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Check for updates</h1>
 
 	{{if not .Checked}}
@@ -564,6 +644,10 @@ func (s *server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	_ = updatePageTemplate.Execute(w, data)
 }
 
+// updateStartingTemplate deliberately does not include bannerChrome: this
+// page is shown for only the few hundred ms before handleUpdateStart exits
+// the whole GUI process to hand off to the installer (see its doc
+// comment), so a banner here would never have time to matter.
 var updateStartingTemplate = template.Must(template.New("update-starting").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -591,6 +675,7 @@ var updateErrorTemplate = template.Must(template.New("update-error").Parse(`<!DO
 <style>` + pageStyle + `</style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Update failed</h1>
 	<div class="status warn">{{.}}</div>
 	<p class="back"><a href="/update">&larr; Back</a></p>

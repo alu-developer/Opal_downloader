@@ -3,6 +3,7 @@ package opaldownloader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,9 @@ import (
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/statuslog"
+	"github.com/alu-developer/opal-downloader/internal/syncer"
+	"github.com/alu-developer/opal-downloader/internal/synclock"
 	"github.com/alu-developer/opal-downloader/internal/updater"
 	"github.com/alu-developer/opal-downloader/internal/visitlog"
 )
@@ -182,5 +186,102 @@ func TestRunListVisitReportReadsExistingLogWithoutScraping(t *testing.T) {
 	}
 	if !strings.Contains(out, "empty on all 2 visit(s)") {
 		t.Fatalf("expected report to flag Forum as always-empty, got:\n%s", out)
+	}
+}
+
+// TestBuildScheduledRunStatus_Success covers the common case: no error, no
+// per-file errors, headless-only login path (saved session was still
+// valid).
+func TestBuildScheduledRunStatus_Success(t *testing.T) {
+	now := time.Now()
+	stats := syncer.Stats{Downloaded: 12, Skipped: 3}
+
+	status := buildScheduledRunStatus(now, nil, stats, true, false)
+
+	if status.Outcome != statuslog.OutcomeSuccess {
+		t.Fatalf("expected OutcomeSuccess, got %q", status.Outcome)
+	}
+	if status.LoginPath != statuslog.LoginPathHeadlessOnly {
+		t.Fatalf("expected LoginPathHeadlessOnly, got %q", status.LoginPath)
+	}
+	if status.FilesDownloaded != 12 || status.FilesSkipped != 3 || status.FilesErrored != 0 {
+		t.Fatalf("unexpected file counts: %+v", status)
+	}
+	if !status.Timestamp.Equal(now) {
+		t.Fatalf("expected timestamp %v, got %v", now, status.Timestamp)
+	}
+}
+
+// TestBuildScheduledRunStatus_InteractiveRelogin covers a successful run
+// that had to fall through to interactive login first (saved session
+// expired) - the LoginPath field this task exists to instrument.
+func TestBuildScheduledRunStatus_InteractiveRelogin(t *testing.T) {
+	status := buildScheduledRunStatus(time.Now(), nil, syncer.Stats{Downloaded: 5}, true, true)
+
+	if status.LoginPath != statuslog.LoginPathInteractiveRelogin {
+		t.Fatalf("expected LoginPathInteractiveRelogin, got %q", status.LoginPath)
+	}
+	if status.Outcome != statuslog.OutcomeSuccess {
+		t.Fatalf("expected OutcomeSuccess, got %q", status.Outcome)
+	}
+}
+
+// TestBuildScheduledRunStatus_Partial covers a run that completed (no
+// returned error) but had per-file download errors.
+func TestBuildScheduledRunStatus_Partial(t *testing.T) {
+	stats := syncer.Stats{Downloaded: 8, Skipped: 1, Errors: 2}
+	status := buildScheduledRunStatus(time.Now(), nil, stats, true, false)
+
+	if status.Outcome != statuslog.OutcomePartial {
+		t.Fatalf("expected OutcomePartial, got %q", status.Outcome)
+	}
+	if !strings.Contains(status.Message, "2 file error") {
+		t.Fatalf("expected message to mention the file error count, got %q", status.Message)
+	}
+}
+
+// TestBuildScheduledRunStatus_Failure covers a hard failure (e.g. network
+// unreachable) - the message should be sanitized (see statuslog.SanitizeMessage)
+// but otherwise pass through.
+func TestBuildScheduledRunStatus_Failure(t *testing.T) {
+	runErr := errors.New("could not reach OPAL at https://bildungsportal.sachsen.de/opal/ - check your internet connection and opal_url in config.yaml")
+	status := buildScheduledRunStatus(time.Now(), runErr, syncer.Stats{}, true, false)
+
+	if status.Outcome != statuslog.OutcomeFailure {
+		t.Fatalf("expected OutcomeFailure, got %q", status.Outcome)
+	}
+	if !strings.Contains(status.Message, "could not reach OPAL") {
+		t.Fatalf("expected message to preserve the safe, already-wrapped error text, got %q", status.Message)
+	}
+}
+
+// TestBuildScheduledRunStatus_TUFastNotReadyIsLoginPathUnknown covers the
+// pre-flight failure mode (scraper.EnsureTUFastPresent) that happens before
+// any scraper/session is ever created - attemptedLogin is still false in
+// this case (runSync returns before reaching syncer.SyncCourses), and the
+// sentinel error itself should also force LoginPathUnknown regardless.
+func TestBuildScheduledRunStatus_TUFastNotReadyIsLoginPathUnknown(t *testing.T) {
+	runErr := fmt.Errorf("%w: TU-Fast extension not detected", scraper.ErrTUFastNotReady)
+	status := buildScheduledRunStatus(time.Now(), runErr, syncer.Stats{}, false, false)
+
+	if status.LoginPath != statuslog.LoginPathUnknown {
+		t.Fatalf("expected LoginPathUnknown, got %q", status.LoginPath)
+	}
+	if status.Outcome != statuslog.OutcomeFailure {
+		t.Fatalf("expected OutcomeFailure, got %q", status.Outcome)
+	}
+}
+
+// TestBuildScheduledRunStatus_SyncLockHeldIsLoginPathUnknown covers the
+// overlap-guard failure mode (synclock.ErrHeld): even though attemptedLogin
+// might be true by the time this error surfaces (SyncCourses was called),
+// the lock is acquired before ensureSession ever runs, so LoginPath must
+// still be Unknown rather than misreporting headless-only.
+func TestBuildScheduledRunStatus_SyncLockHeldIsLoginPathUnknown(t *testing.T) {
+	runErr := fmt.Errorf("%w (PID 1234, started at 2026-07-17T06:00:00Z)", synclock.ErrHeld)
+	status := buildScheduledRunStatus(time.Now(), runErr, syncer.Stats{}, true, false)
+
+	if status.LoginPath != statuslog.LoginPathUnknown {
+		t.Fatalf("expected LoginPathUnknown, got %q", status.LoginPath)
 	}
 }

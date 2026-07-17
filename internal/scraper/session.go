@@ -307,6 +307,12 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 
 	_ = s.closeBrowser()
 
+	// Reset before deciding which branch this call takes below - see
+	// usedInteractiveLogin's doc comment. Defaults to false (headless-only)
+	// and is only flipped to true right before falling through to the
+	// interactive-login branch a few lines down.
+	s.usedInteractiveLogin = false
+
 	if !forceInteractive {
 		if _, err := os.Stat(s.stateFile); err == nil {
 			headless := !s.developerMode
@@ -324,6 +330,13 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 			_ = s.closeBrowser()
 		}
 	}
+
+	// Falling through to here means the saved session was missing/expired
+	// (or forceInteractive was requested) - this call is taking the
+	// interactive-login branch. Record that now, before launching the
+	// visible browser, so UsedInteractiveLogin() reflects it even if this
+	// branch later fails partway through (e.g. login/2FA times out).
+	s.usedInteractiveLogin = true
 
 	if err := s.launchBrowser(false, false); err != nil {
 		return err

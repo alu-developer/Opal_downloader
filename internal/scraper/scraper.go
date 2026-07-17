@@ -67,6 +67,20 @@ type OpalScraper struct {
 	// skip.
 	skipEnrollmentSections bool
 
+	// usedInteractiveLogin records whether the most recent ensureSession
+	// call (session.go) had to fall through to the interactive-login
+	// branch (saved session state missing or expired) rather than reusing
+	// a still-valid saved session headlessly. Written exactly once per
+	// ensureSession call, before any concurrent crawl work begins, and only
+	// read afterward via UsedInteractiveLogin - same
+	// set-once-before-scrape/read-only-afterward lifecycle as
+	// developerMode/courseConcurrency above, so it needs no locking of its
+	// own. Added for docs/scheduled-sync-plan.md section 3's "which login
+	// path did this run take" instrumentation: cmd/opal-downloader's
+	// runSync reads this after a `sync --scheduled` run to record it in the
+	// scheduled-run status file (internal/statuslog).
+	usedInteractiveLogin bool
+
 	// fieldMu guards pw/browser/context/page. The GUI's /sync/cancel handler
 	// calls Close() from the HTTP-handler goroutine while runJob's goroutine
 	// may still be reading/writing these same fields mid-scrape (see PR #22
@@ -273,6 +287,16 @@ func (s *OpalScraper) SetCourseConcurrency(concurrency int) {
 // scraping; not calling this at all leaves skipping disabled.
 func (s *OpalScraper) SetSkipEnrollmentSections(enabled bool) {
 	s.skipEnrollmentSections = enabled
+}
+
+// UsedInteractiveLogin reports whether the most recent ensureSession call
+// (triggered by ScrapeWithSavedSession/LoginWithBrowser) had to fall
+// through to the interactive-login branch instead of reusing a still-valid
+// saved session headlessly. See usedInteractiveLogin's doc comment. Only
+// meaningful after a scrape/login call has actually run; before that it
+// reports the zero value (false).
+func (s *OpalScraper) UsedInteractiveLogin() bool {
+	return s.usedInteractiveLogin
 }
 
 func New(opalURL, stateFile string) *OpalScraper {

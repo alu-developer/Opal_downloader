@@ -415,6 +415,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 </style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Settings</h1>
 
 	{{if .Error}}<div class="error"><strong>Could not save:</strong> {{.Error}}</div>{{end}}

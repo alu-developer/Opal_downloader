@@ -344,6 +344,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 </style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Sync</h1>
 	<p class="hint">Config: <code>{{.ConfigPath}}</code>. Progress is shown live below.</p>
 
@@ -483,6 +484,15 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				statusEl.textContent = 'Cancel requested...';
 			});
 		});
+
+		// Arriving here via the scheduled-sync banner's "Run now" link
+		// (gui.go's bannerChrome, ?autostart=1) starts a normal manual sync
+		// immediately - same as clicking "Sync" by hand - instead of making
+		// the user land on this page and then still have to click Sync
+		// themselves.
+		if (/[?&]autostart=1(&|$)/.test(window.location.search)) {
+			btnSync.click();
+		}
 	})();
 	</script>
 </body>

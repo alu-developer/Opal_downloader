@@ -449,6 +449,13 @@ func runList(args []string) error {
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
+	if debugClicks {
+		if logPath, logErr := sc.EnableDebugLogFile(""); logErr != nil {
+			fmt.Fprintln(os.Stderr, "Warning: could not open persistent debug log file:", logErr)
+		} else {
+			fmt.Printf("Debug audit log: %s\n", logPath)
+		}
+	}
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()
@@ -621,6 +628,13 @@ func runSync(args []string) (err error) {
 	sc = scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
+	if debugClicks {
+		if logPath, logErr := sc.EnableDebugLogFile(""); logErr != nil {
+			fmt.Fprintln(os.Stderr, "Warning: could not open persistent debug log file:", logErr)
+		} else {
+			fmt.Printf("Debug audit log: %s\n", logPath)
+		}
+	}
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()

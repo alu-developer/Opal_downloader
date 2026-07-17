@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,6 +46,15 @@ type OpalScraper struct {
 	// set-once-before-scrape/read-only-afterward lifecycle as
 	// developerMode, so it needs no locking of its own.
 	debugClicks bool
+
+	// debugLogMu guards debugLogFile - auditLog (audit.go) can be called
+	// concurrently from several courses' crawl goroutines at once during a
+	// course_concurrency>1 run (see collectCourseFilesConcurrently,
+	// orchestrator.go), and concurrent unsynchronized writes to the same
+	// *os.File would interleave/corrupt lines. See EnableDebugLogFile's doc
+	// comment (audit.go) for why this file exists at all.
+	debugLogMu   sync.Mutex
+	debugLogFile *os.File
 
 	// courseConcurrency is the number of courses crawled concurrently during
 	// discovery, each on its own browser tab/page (see
@@ -375,6 +385,7 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 // the struct fields themselves. See the fieldMu doc comment above.
 func (s *OpalScraper) Close() error {
 	_ = s.closeBrowser()
+	_ = s.CloseDebugLogFile()
 
 	pw := s.getPw()
 	if pw == nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/report"
 	"github.com/alu-developer/opal-downloader/internal/scheduler"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/statuslog"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 	"github.com/alu-developer/opal-downloader/internal/synclock"
 	"github.com/alu-developer/opal-downloader/internal/timing"
@@ -480,7 +481,7 @@ func persistVisitLog(sc *scraper.OpalScraper, downloadPath string) error {
 	return visitlog.Append(logPath, records)
 }
 
-func runSync(args []string) error {
+func runSync(args []string) (err error) {
 	configPath := filepath.Join(projectDir(), "config.yaml")
 	force := false
 	devMode := false
@@ -537,6 +538,32 @@ func runSync(args []string) error {
 	}
 	timing.Profile = profile
 
+	// --scheduled runs write a status file after every run (success or
+	// failure), so a human has something to read the next time they open
+	// the GUI - see docs/scheduled-sync-plan.md section 3 and
+	// internal/statuslog's package doc. sc/stats/attemptedLogin are
+	// captured by the deferred write below via closure; sc stays nil and
+	// stats stays its zero value for any early return before they're set
+	// (e.g. EnsureTUFastPresent or config.Load failing), which
+	// buildScheduledRunStatus already accounts for.
+	var sc *scraper.OpalScraper
+	var stats syncer.Stats
+	attemptedLogin := false
+	runStart := time.Now()
+
+	if scheduled {
+		defer func() {
+			usedInteractiveLogin := false
+			if sc != nil {
+				usedInteractiveLogin = sc.UsedInteractiveLogin()
+			}
+			status := buildScheduledRunStatus(runStart, err, stats, attemptedLogin, usedInteractiveLogin)
+			if writeErr := statuslog.WriteDefault(status); writeErr != nil {
+				fmt.Fprintln(os.Stderr, "Warning: failed to write scheduled-run status file:", writeErr)
+			}
+		}()
+	}
+
 	// --scheduled is what Task Scheduler's registered task runs
 	// unattended (see internal/scheduler and `schedule enable`). Fail fast,
 	// before touching config or opening a browser, if the dedicated login
@@ -547,12 +574,13 @@ func runSync(args []string) error {
 	// machine. See docs/scheduled-sync-plan.md section 2 and
 	// scraper.EnsureTUFastPresent's doc comment.
 	if scheduled {
-		if err := scraper.EnsureTUFastPresent(); err != nil {
+		if err = scraper.EnsureTUFastPresent(); err != nil {
 			return err
 		}
 	}
 
-	loaded, err := config.Load(configPath)
+	var loaded config.Loaded
+	loaded, err = config.Load(configPath)
 	if err != nil {
 		return err
 	}
@@ -567,7 +595,7 @@ func runSync(args []string) error {
 		loaded.App.SkipEnrollmentSections = false
 	}
 
-	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
+	sc = scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
@@ -589,7 +617,8 @@ func runSync(args []string) error {
 	fmt.Println()
 
 	totalTimer := timing.StartTimer()
-	stats, err := syncer.SyncCourses(context.Background(), sc, loaded.App, force)
+	attemptedLogin = true
+	stats, err = syncer.SyncCourses(context.Background(), sc, loaded.App, force)
 	// Persist whatever section visits were recorded regardless of whether
 	// the sync itself succeeded - even a failed/partial sync's visit data is
 	// useful cross-run history (see internal/visitlog), and this must not
@@ -607,6 +636,54 @@ func runSync(args []string) error {
 	timing.PrintTotalSummary(totalTimer.Elapsed())
 	printUpdateFooter()
 	return nil
+}
+
+// buildScheduledRunStatus composes the statuslog.Status a `sync --scheduled`
+// run should report, given how it went. It is a pure function (no I/O) so
+// it can be unit tested directly - see root_test.go - without needing a
+// live scraper/browser.
+//
+// attemptedLogin/usedInteractiveLogin describe what happened, if anything,
+// on the way to runErr/stats: attemptedLogin is true once runSync actually
+// called syncer.SyncCourses (which is what triggers ensureSession
+// internally), and usedInteractiveLogin is *sc.UsedInteractiveLogin() at
+// that point. The two known-early-failure sentinels
+// (scraper.ErrTUFastNotReady, synclock.ErrHeld) are special-cased to
+// LoginPathUnknown regardless of those two flags, since both can fail
+// before (TUFast pre-flight) or without necessarily going through (sync
+// lock contention) ensureSession's own branch logic.
+func buildScheduledRunStatus(now time.Time, runErr error, stats syncer.Stats, attemptedLogin, usedInteractiveLogin bool) statuslog.Status {
+	status := statuslog.Status{
+		Timestamp:       now,
+		FilesDownloaded: stats.Downloaded,
+		FilesSkipped:    stats.Skipped,
+		FilesErrored:    stats.Errors,
+	}
+
+	switch {
+	case errors.Is(runErr, scraper.ErrTUFastNotReady), errors.Is(runErr, synclock.ErrHeld):
+		status.LoginPath = statuslog.LoginPathUnknown
+	case attemptedLogin && usedInteractiveLogin:
+		status.LoginPath = statuslog.LoginPathInteractiveRelogin
+	case attemptedLogin:
+		status.LoginPath = statuslog.LoginPathHeadlessOnly
+	default:
+		status.LoginPath = statuslog.LoginPathUnknown
+	}
+
+	switch {
+	case runErr != nil:
+		status.Outcome = statuslog.OutcomeFailure
+		status.Message = statuslog.SanitizeMessage(runErr.Error())
+	case stats.Errors > 0:
+		status.Outcome = statuslog.OutcomePartial
+		status.Message = fmt.Sprintf("Synced with %d file error(s) (%d downloaded, %d skipped).", stats.Errors, stats.Downloaded, stats.Skipped)
+	default:
+		status.Outcome = statuslog.OutcomeSuccess
+		status.Message = fmt.Sprintf("Synced successfully: %d downloaded, %d skipped.", stats.Downloaded, stats.Skipped)
+	}
+
+	return status
 }
 
 func runDumpLinks(args []string) error {

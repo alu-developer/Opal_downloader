@@ -397,6 +397,7 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 </style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>TU-Fast browser profile setup</h1>
 	<p class="hint">
 		opal-downloader always logs in and syncs using Playwright's bundled

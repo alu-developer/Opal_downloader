@@ -45,6 +45,7 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 </style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Feedback / Problem melden</h1>
 
 	<p class="hint">
@@ -118,6 +119,7 @@ var feedbackOpenedTemplate = template.Must(template.New("feedback-opened").Parse
 </style>
 </head>
 <body>
+	` + bannerChrome + `
 	<h1>Feedback</h1>
 
 	{{if .OpenError}}

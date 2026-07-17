@@ -63,6 +63,14 @@ type settingsViewData struct {
 	SectionFolderNames    []sectionFolderRow
 	SubfolderDestinations []subfolderDestinationRow
 
+	// NotifyOnScheduledFailure drives the "Notify me if a scheduled sync
+	// fails" checkbox (see internal/notify). Unlike the Schedule* fields
+	// below, this IS a plain config.yaml field (config.App.
+	// NotifyOnScheduledFailure) - saved/loaded through the main settings
+	// form the same way as Sync/UseSectionSubfolders, not queried live from
+	// an OS-level source.
+	NotifyOnScheduledFailure bool
+
 	// Schedule* fields drive the "Enable daily automatic sync" section (see
 	// schedule.go/applyScheduleStatus) - deliberately not part of
 	// config.yaml/config.App: the source of truth for whether scheduling is
@@ -147,6 +155,8 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 		UseSectionSubfolders:  loaded.App.UseSectionSubfolders,
 		SectionFolderNames:    sectionRows,
 		SubfolderDestinations: destRows,
+
+		NotifyOnScheduledFailure: loaded.App.NotifyOnScheduledFailure,
 	}
 }
 
@@ -245,6 +255,7 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 
 	syncEnabled := r.FormValue("sync") == "on"
 	useSectionSubfolders := r.FormValue("use_section_subfolders") == "on"
+	notifyOnScheduledFailure := r.FormValue("notify_on_scheduled_failure") == "on"
 
 	view := settingsViewData{
 		ConfigPath: configPath,
@@ -258,6 +269,8 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 		UseSectionSubfolders:  useSectionSubfolders,
 		SectionFolderNames:    sectionRows,
 		SubfolderDestinations: destRows,
+
+		NotifyOnScheduledFailure: notifyOnScheduledFailure,
 	}
 
 	loaded := base
@@ -269,6 +282,7 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	loaded.App.UseSectionSubfolders = useSectionSubfolders
 	loaded.App.SectionFolderNames = sectionFolderNames
 	loaded.App.SubfolderDestinations = subfolderDestinations
+	loaded.App.NotifyOnScheduledFailure = notifyOnScheduledFailure
 	loaded.Credentials.URL = config.DefaultOPALURL
 	loaded.Credentials.StateFile = config.DefaultStateFile
 
@@ -543,6 +557,20 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		</table>
 		<button type="button" class="add-row-btn" id="add-subfolder-dest-row">+ Add rule</button>
 	</div>
+
+	<h2>Notifications</h2>
+
+	<div class="field checkbox-row">
+		<input type="checkbox" id="notify_on_scheduled_failure" name="notify_on_scheduled_failure" {{if .NotifyOnScheduledFailure}}checked{{end}}>
+		<label for="notify_on_scheduled_failure">Notify me if a scheduled sync fails</label>
+	</div>
+	<p class="hint">
+		Shows a native Windows toast notification when a scheduled
+		<code>sync --scheduled</code> run's outcome is a failure (not for a
+		partial sync with some file errors, and not on success). Separate
+		from the "Enable daily automatic sync" toggle below - you can want
+		one without the other. Windows only.
+	</p>
 
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>

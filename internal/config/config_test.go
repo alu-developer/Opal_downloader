@@ -149,6 +149,70 @@ skip_enrollment_sections: false
 	}
 }
 
+func TestLoadNotifyOnScheduledFailureDefaultsFalse(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	content := `download_path: "./downloads"
+opal_url: "https://bildungsportal.sachsen.de/opal/"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.App.NotifyOnScheduledFailure {
+		t.Fatal("expected NotifyOnScheduledFailure to default to false when unset in config.yaml")
+	}
+}
+
+func TestLoadNotifyOnScheduledFailureExplicitTrue(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	content := `download_path: "./downloads"
+opal_url: "https://bildungsportal.sachsen.de/opal/"
+notify_on_scheduled_failure: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !loaded.App.NotifyOnScheduledFailure {
+		t.Fatal("expected NotifyOnScheduledFailure to be true when explicitly set in config.yaml")
+	}
+}
+
+func TestSaveRoundTripsNotifyOnScheduledFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	cfg := Loaded{
+		App: App{
+			DownloadPath:             "./downloads",
+			Courses:                  []string{"*"},
+			NotifyOnScheduledFailure: true,
+		},
+		Credentials: Credentials{URL: DefaultOPALURL, StateFile: DefaultStateFile},
+	}
+	if err := Save(configPath, cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !loaded.App.NotifyOnScheduledFailure {
+		t.Fatal("expected NotifyOnScheduledFailure=true to round-trip through Save/Load")
+	}
+}
+
 func TestLoadParsesSubfolderConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")

@@ -177,6 +177,64 @@ session_state_file: ./state.json
 	}
 }
 
+// TestHandleSettingsPostRoundTripsNotifyOnScheduledFailure verifies the
+// "Notify me if a scheduled sync fails" checkbox (internal/notify) saves and
+// re-renders correctly, and - critically, per this field's whole reason for
+// being separate from the "Enable daily automatic sync" toggle - that
+// submitting the main settings form without schedule_enabled does not
+// affect it either way (it lives in config.yaml, not Task Scheduler state).
+func TestHandleSettingsPostRoundTripsNotifyOnScheduledFailure(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	initialYAML := `download_path: ./downloads
+courses:
+  - "*"
+sync: true
+opal_url: https://bildungsportal.sachsen.de/opal/
+session_state_file: ./state.json
+`
+	if err := os.WriteFile(configPath, []byte(initialYAML), 0o644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	before, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load initial config: %v", err)
+	}
+	if before.App.NotifyOnScheduledFailure {
+		t.Fatalf("precondition failed: expected notify_on_scheduled_failure to start false")
+	}
+
+	form := url.Values{}
+	form.Set("download_path", before.App.DownloadPath)
+	form.Set("sync_all_courses", "on")
+	form.Set("sync", "on")
+	form.Set("notify_on_scheduled_failure", "on")
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSettings(configPath)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `id="notify_on_scheduled_failure" name="notify_on_scheduled_failure" checked`) {
+		t.Errorf("expected the re-rendered page to show the checkbox checked, got body:\n%s", rec.Body.String())
+	}
+
+	after, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config after save: %v", err)
+	}
+	if !after.App.NotifyOnScheduledFailure {
+		t.Errorf("expected notify_on_scheduled_failure to be saved as true")
+	}
+}
+
 // TestHandleSettingsPostUncheckingSubfoldersProducesWarning verifies that
 // saving with use_section_subfolders unchecked while section_folder_names/
 // subfolder_destinations rows are still present surfaces the misconfiguration

@@ -314,17 +314,42 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 	s.usedInteractiveLogin = false
 
 	if !forceInteractive {
-		if _, err := os.Stat(s.stateFile); err == nil {
+		_, statErr := os.Stat(s.stateFile)
+		stateFileExists := statErr == nil
+		if stateFileExists {
 			headless := !s.developerMode
 			if s.developerMode {
 				fmt.Println("Developer mode enabled: launching visible browser for session reuse and crawl tracing.")
 			}
-			if err := s.launchBrowser(headless, true); err == nil {
-				auth, authErr := s.isAuthenticated()
-				if authErr == nil && auth {
-					fmt.Println("Using saved OPAL session state")
-					return nil
-				}
+			launchErr := s.launchBrowser(headless, true)
+			var authenticated bool
+			var authErr error
+			if launchErr == nil {
+				authenticated, authErr = s.isAuthenticated()
+			}
+			// This re-check runs after acquireSessionLock (above) has
+			// already been acquired - critically, it is a *re-check*, not a
+			// decision made before contending for the lock. That distinction
+			// is the fix for queue task
+			// fix-redundant-interactive-login-on-lock-contention: if another
+			// process was holding the lock because it was doing its own
+			// interactive login, that process's saveState() has already run
+			// and released the lock by the time this process gets here, so
+			// os.Stat/isAuthenticated above observe that process's *freshly
+			// saved* session - not whatever was on disk (or missing) at
+			// whatever earlier moment this process first decided it needed
+			// to contend for the lock. See shouldReuseSavedSession's doc
+			// comment and PR #80's own live-verification "Real gap found"
+			// note for the original report. Live-verified 2026-07-17: two
+			// concurrent `list` processes sharing the same real session
+			// file, both starting with it missing - the second process
+			// blocked on the lock the whole time the first interactively
+			// logged in and saved a fresh session, then reused that fresh
+			// session headlessly here without ever opening its own
+			// interactive-login window.
+			if shouldReuseSavedSession(stateFileExists, launchErr, authenticated, authErr) {
+				fmt.Println("Using saved OPAL session state")
+				return nil
 			}
 			fmt.Println("Saved session state expired. Interactive login required.")
 			_ = s.closeBrowser()
@@ -417,6 +442,38 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 // fixes. See queue task investigate-sync-list-not-headless.
 func shouldRelaunchHeadlessAfterInteractiveLogin(forceInteractive, developerMode bool) bool {
 	return !forceInteractive && !developerMode
+}
+
+// shouldReuseSavedSession reports whether ensureSession's post-lock
+// re-check (see the call site above) should reuse the saved session state
+// headlessly instead of falling through to the interactive-login branch.
+//
+// This is the decision that closes the gap described in queue task
+// fix-redundant-interactive-login-on-lock-contention (a follow-up filed
+// from PR #80's own live-verification "Real gap found" note): once this
+// process has acquired the cross-process session-establishment mutex
+// (acquireSessionLock, session_lock_windows.go), it must re-validate the
+// state file at *this* point, not trust whatever was true when it first
+// decided to contend for the lock - another process may have been holding
+// the lock precisely because it was doing its own interactive login, and
+// by the time this process gets the lock, that session is the freshest
+// one on disk.
+//
+// stateFileExists is os.Stat(s.stateFile)'s result at the point this
+// process is inside the lock. launchErr is any error from launching the
+// headless, anonymous-context browser against that saved state
+// (launchBrowser(headless, true) - never the persistent-context/real-profile
+// path, per the HMAC/real-profile constraint). authenticated/authErr are
+// isAuthenticated()'s result once that browser launched successfully (both
+// are the zero value when launchErr != nil, since isAuthenticated is never
+// called in that case). Reuse only happens when the file existed, the
+// headless browser launched, and isAuthenticated cleanly reports true -
+// any error anywhere in that chain is treated the same as "not valid",
+// which is the safe default (falls through to interactive login rather
+// than risking a crawl against a session that might not actually be
+// authenticated).
+func shouldReuseSavedSession(stateFileExists bool, launchErr error, authenticated bool, authErr error) bool {
+	return stateFileExists && launchErr == nil && authErr == nil && authenticated
 }
 
 // courseLinkSelector matches links present once the OPAL dashboard/course

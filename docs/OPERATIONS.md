@@ -87,6 +87,61 @@ See `config.example.yaml` for the same fields with inline comments, and
 `ResolveSubfolderDestination`, `Warnings`) for the resolution/validation
 logic.
 
+## Concurrency model: how many `sync`/`list` processes can run at once?
+
+**Any number of `sync`/`list` processes can run concurrently, as long as
+each has already finished establishing its session** (loading a still-valid
+saved session, or completing an interactive login) - each process's crawl
+runs against its own private, throwaway headless browser/context with no
+shared state after that point. **Exactly one process at a time may be
+inside session-establishment** (checking the saved `session_state_file`,
+and - if that's missing/expired - launching the interactive-login browser
+against the shared `~/.opal-downloader/login-profile`, waiting for
+login, saving state, and relaunching headless) for a given real
+profile+state-file pair; a second process reaching that phase concurrently
+now blocks (waiting on a cross-process lock, see
+`internal/scraper/session_lock_windows.go`) rather than racing a second
+browser launch against the same profile directory. If the first process's
+session-establishment doesn't finish within 6 minutes (`login`'s own wait
+for interactive/TU-Fast login allows up to 5 minutes), a second process
+waiting on the lock gives up and returns a clear "another opal-downloader
+process appears to be logging in..." error instead of hanging forever.
+
+Before this was enforced (fixed 2026-07-16, queue task
+`fix-login-window-stays-open-during-crawl`), this was **not actually
+enforced** despite `isUserDataDirLocked`'s pre-flight check existing - that
+check was a TOCTOU race (two processes could both observe "not locked"
+before either had launched Chromium), and a separate race existed between
+one process's `saveState()` write and another's concurrent read of the same
+`session_state_file`. Both were live-reproduced against the real shared
+profile on 2026-07-16 (see the queue task and
+`docs/browser-profile-strategy.md`'s matching dated section) before being
+fixed.
+
+## Recurring-incident pattern: fixes merged without a live end-to-end watch
+
+**2026-07-16: a "done" fix recurred because it was never actually watched
+happen live.** PR #66 (`investigate-sync-list-not-headless`, merged
+2026-07-14) added the headless-relaunch-after-interactive-login logic in
+`ensureSession`, but was merged with its own PR comment flagging that the
+live end-to-end scenario (real expired session -> real interactive login ->
+confirm the browser window actually closes and the crawl proceeds headless)
+was never actually observed - only unit-tested. Two days later the
+maintainer reported the exact symptom that fix was supposed to prevent (a
+persistent visible browser window during a crawl), filed as
+`fix-login-window-stays-open-during-crawl`. Investigating that recurrence
+found the real root cause was a different, previously-undocumented bug (the
+cross-process session-establishment race described above), not a defect in
+PR #66's own logic - but the point stands: an unverified "done" is
+indistinguishable from a real fix until something re-triggers it, and by
+then the original context (why it was risky, what wasn't checked) has to be
+reconstructed from scratch. **If a queue task's acceptance criteria call
+for a live/manual check that genuinely can't be done in the current
+environment, say so explicitly (`UNVERIFIED:` prefix, stated plainly in the
+PR) rather than merging as if it were checked** - this is already this
+project's stated policy, but is repeated here as the concrete incident that
+shows what skipping it costs.
+
 ## Incident playbook
 
 If sync suddenly returns too few files:

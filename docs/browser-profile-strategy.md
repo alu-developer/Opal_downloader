@@ -514,3 +514,56 @@ What changed:
   (those keys are simply ignored), but anyone relying on Strategy 1 (pointed
   at their real profile) needs to redo the one-time TU-Fast setup inside the
   dedicated profile - there is no automatic carry-over.
+
+## Concurrent access to the shared dedicated profile now serialized (2026-07-16)
+
+Queue task `fix-login-window-stays-open-during-crawl`. Because Strategy 2's
+dedicated profile (`~/.opal-downloader/login-profile`) is now hardcoded and
+global to the machine (`LoginProfileDir()` no longer depends on
+`config.yaml` at all - see the 2026-07-14 section above), **every
+opal-downloader process on a given machine, from any worktree or checkout,
+shares this exact same real profile directory and (by default) the same
+real `session_state_file`.** There was no serialization between processes
+touching those shared paths: `ensureSession`'s "check the saved session
+state, and if that's missing/expired fall through to launching a persistent
+Chromium context against the profile" sequence had a TOCTOU race
+(`isUserDataDirLocked` then `LaunchPersistentContext`, in
+`internal/scraper/profile.go`/`session.go`) and a separate race between one
+process's `saveState()` write and another's concurrent read of the same
+`session_state_file`.
+
+**Do not run two opal-downloader processes/worktrees against the real
+profile at the same time without the fix below** (or on a build that
+predates it) - live-reproduced 2026-07-16: running `list` concurrently from
+two processes pointed at the same real `session_state_file` produced one
+process finding "Saved session state expired" and launching the visible
+interactive-login browser while the other silently blocked with no
+externally-visible progress - a real, live-confirmed instance of exactly
+the contention this section warns about. Two different Chrome/Chromium
+binary versions opening the same profile around the same time is an
+additional, related risk: it can trigger Chromium's own per-version
+profile-migration logic and has been observed (same date, on this project)
+to corrupt the TU-Fast extension install (`Extensions/<id>` pruned even
+though `Preferences`/`Secure Preferences` still reference it), requiring a
+manual one-time TU-Fast reinstall to recover. Prefer running one
+opal-downloader process against the real profile at a time.
+
+Fix: `ensureSession` (`internal/scraper/session.go`) now acquires a
+cross-process lock (a named Win32 mutex, keyed by a hash of
+`profileDir+stateFile` - see `internal/scraper/session_lock_windows.go`)
+before doing anything else, and holds it for the entire session-
+establishment phase (checking/loading the saved session, and - if that
+falls through - the interactive login, save, and headless relaunch). This
+makes "only one process may be checking/establishing a session against a
+given real profile+state-file pair at a time" an enforced invariant instead
+of a race, while leaving the crawl that follows unserialized (each
+process's crawl runs against its own throwaway headless browser/context
+with no further shared-resource access, so multiple crawls remain safe to
+run fully in parallel once each has finished establishing its own session).
+See `docs/OPERATIONS.md`'s concurrency-model note for the practical answer
+to "how many opal-downloader processes can run at once."
+
+This does not by itself explain every possible cause of a visible window
+during a crawl - see the `fix-login-window-stays-open-during-crawl` queue
+task/PR for the full live-verification writeup of what was and wasn't
+directly observed.

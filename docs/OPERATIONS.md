@@ -208,6 +208,37 @@ so the default stays at 1. If you're chasing this symptom on a config with
 expected, not necessarily a new regression; compare against a
 `course_concurrency=1` serial run to confirm before deep-diving further.
 
+**Update (2026-07-17, queue task close-residual-concurrent-crawl-ajax-race):
+PR #81 (2026-07-16) replaced the per-section content wait with a
+MutationObserver-based debounce (a genuine load-completion signal, not a
+timing guess - see `waitForInteractiveLinks`'s doc comment in
+`internal/scraper/navigation.go`) and got a clean 344/344 on one live test
+at `course_concurrency=2`. That single clean run was not conclusive on its
+own, since the residual race documented above was itself intermittent (2 of
+4 repeated runs in PR #78's own sample, not every run). Repeating the same
+live methodology (four consecutive `list --dev --debug-clicks --profile
+--course-concurrency 2` runs against the real account, serial ground truth
+345 files/7 content-bearing courses) found the race is still open - and
+this sample was worse than PR #78's: all 4 of 4 runs lost files (337, 339,
+331, 333 of 345), always from the same two previously-flagged courses
+(Analysis, Softwaretechnologie) plus Algorithmen und Datenstrukturen once,
+never a different one, and always the same lost-file count for a given
+course when it was lost (not randomly varying).**
+
+**The MutationObserver wait is confirmed NOT the failure point**: across
+all 4 runs it resolved via "settled-no-mutations" every time (zero
+hard-cap fallbacks, zero injection-failure fallbacks), and all 5 "show
+all" pagination clicks per run succeeded on the first try in every run,
+including the runs that still lost files. The loss happens downstream, in
+`waitForStableSectionContent`/`candidateStabilityPoll`
+(`internal/scraper/crawl.go`) - left deliberately unchanged by PR #81. Those
+polls were observed settling on a *stable* read that was nonetheless short
+of the serial ground truth (`sectionContentMaxPolls=20` was never exhausted
+in any run, ruling out "poll budget too short" as the mechanism) - the
+section's own client-side render plateaus incomplete under concurrent
+contention. `DefaultCourseConcurrency` stays at 1; see its doc comment in
+`internal/config/config.go` for the full run-by-run breakdown.
+
 Separately, `internal/scraper/crawl.go`'s `collectCourseFiles` and
 `internal/scraper/discovery.go`'s `discoverCourseLinks` were both hardened
 (same task) so a section/source-page whose Goto or extraction fails outright

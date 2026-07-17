@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LoginProfileDir returns the single, hardcoded Playwright Chromium profile
@@ -135,3 +136,68 @@ func isSharingViolation(err error) bool {
 // opal-downloader process that already has a persistent Chromium context
 // open against it.
 var ErrProfileLocked = errors.New("browser profile is currently in use")
+
+// tuFastDefaultProfileSubdir is the Chromium profile subfolder name inside
+// the dedicated login user-data-dir (see LoginProfileDir) - Chromium always
+// creates a "Default" profile subdirectory even for a single-profile
+// launch. Matches internal/gui/tufast_setup.go's identically-named
+// unexported constant (that package can't import this one back, so the
+// name is duplicated, not shared - see HasTUFastExtension's doc comment).
+const tuFastDefaultProfileSubdir = "Default"
+
+// HasTUFastExtension reports whether a Chromium user-data-dir (profile
+// root) has TU-Fast installed in its "Default" profile - a plain,
+// read-only filesystem stat, matching the same check
+// TransplantTUFastLoginData itself makes before allowing a copy into a
+// target profile. This is the single, canonical implementation of that
+// check; internal/gui's tufast_setup.go (the /tufast-setup page) and
+// cmd/opal-downloader/root.go's checkLoginProfileHealth (the `status`
+// command) both call this instead of re-deriving the same filesystem path,
+// per this task's "extend/call the existing health-check logic, don't
+// duplicate it" constraint.
+func HasTUFastExtension(profileDir string) bool {
+	if strings.TrimSpace(profileDir) == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(profileDir, tuFastDefaultProfileSubdir, "Extensions", TUFastExtensionID))
+	return err == nil && info.IsDir()
+}
+
+// ErrTUFastNotReady is returned by EnsureTUFastPresent when the dedicated
+// login profile is missing or doesn't have TU-Fast installed - see
+// docs/scheduled-sync-plan.md section 2 ("Profile-lock precondition"). A
+// human 2FA click will never arrive on an unattended machine, so an
+// unattended (--scheduled) sync must fail fast here instead of opening a
+// visible interactive-login browser and blocking for
+// waitForLoggedInCourseLink's full 300s timeout for nothing.
+//
+// errors.Is(err, ErrTUFastNotReady) lets cmd/opal-downloader's Execute
+// recognize this specific failure mode for a distinguishable exit code,
+// per this task's "must be consumable ... without needing to parse
+// free-text stdout" acceptance criterion (the actual surfacing of that
+// distinction to the user - a status file/GUI banner - is the separate
+// follow-up task add-scheduled-sync-failure-log-and-gui-banner).
+var ErrTUFastNotReady = errors.New("dedicated login profile is not ready for unattended sync")
+
+// EnsureTUFastPresent is the pre-flight gate `sync --scheduled` runs before
+// attempting a login: it hard-requires the dedicated login profile (see
+// LoginProfileDir) to exist and have TU-Fast installed, since that's the
+// only way ensureSession's interactive-login fallback can complete 2FA with
+// no human present. It performs no browser launch and no network call -
+// same "filesystem-only, keeps this fast and offline" property as
+// checkLoginProfileHealth (root.go's `status` check), which this doesn't
+// replace (status's check is informational/non-fatal for any user; this one
+// is a hard failure specific to unattended runs).
+func EnsureTUFastPresent() error {
+	profileDir, err := LoginProfileDir()
+	if err != nil {
+		return fmt.Errorf("%w: resolving login profile directory: %v", ErrTUFastNotReady, err)
+	}
+	if _, statErr := os.Stat(profileDir); statErr != nil {
+		return fmt.Errorf("%w: %s does not exist yet - run `opal-downloader login` once, or set up TU-Fast via the GUI's /tufast-setup page, before enabling scheduled sync", ErrTUFastNotReady, profileDir)
+	}
+	if !HasTUFastExtension(profileDir) {
+		return fmt.Errorf("%w: TU-Fast extension not detected in %s - scheduled sync needs it to complete 2FA unattended; set it up once via the GUI's /tufast-setup page", ErrTUFastNotReady, profileDir)
+	}
+	return nil
+}

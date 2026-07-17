@@ -13,8 +13,23 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/synclock"
 	"github.com/alu-developer/opal-downloader/internal/timing"
 )
+
+// acquireSyncLock is a package-level indirection over
+// synclock.AcquireDefault - a cross-process, PID-stamped single-instance
+// lock at ~/.opal-downloader/sync.lock (see docs/scheduled-sync-plan.md's
+// "Overlap guard" section) - so a Task Scheduler-triggered
+// `sync --scheduled` run, a manual CLI `sync`, and a GUI-triggered sync can
+// never race each other: whichever one starts first holds the lock for its
+// entire run (SyncCoursesWithProgress below), and any other invocation
+// started while that's still true fails fast with a clear "already
+// running" error instead of contending over the same manifest/downloads.
+// Overridden in tests (see syncer_test.go's TestMain) to a no-op so `go
+// test` never touches the real ~/.opal-downloader directory or contends
+// with an actual sync that might be running on the machine.
+var acquireSyncLock = synclock.AcquireDefault
 
 // Downloader is the subset of *scraper.OpalScraper's behavior SyncCourses
 // depends on. Extracted as an interface so tests can exercise the
@@ -178,6 +193,16 @@ func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App,
 	if err := ctx.Err(); err != nil {
 		return Stats{}, err
 	}
+
+	// Overlap guard: held for this call's entire duration (discovery +
+	// every file download), released via defer whether this returns
+	// normally, with an error, or the caller's ctx is cancelled. See
+	// acquireSyncLock's doc comment above.
+	release, err := acquireSyncLock()
+	if err != nil {
+		return Stats{}, err
+	}
+	defer release()
 
 	if err := os.MkdirAll(cfg.DownloadPath, 0o755); err != nil {
 		return Stats{}, err

@@ -62,6 +62,18 @@ type settingsViewData struct {
 	UseSectionSubfolders  bool
 	SectionFolderNames    []sectionFolderRow
 	SubfolderDestinations []subfolderDestinationRow
+
+	// Schedule* fields drive the "Enable daily automatic sync" section (see
+	// schedule.go/applyScheduleStatus) - deliberately not part of
+	// config.yaml/config.App: the source of truth for whether scheduling is
+	// on is the registered Windows Task Scheduler task itself, queried live
+	// on every page load, not a persisted setting that could drift out of
+	// sync with the real OS-level registration.
+	ScheduleSupported bool
+	ScheduleEnabled   bool
+	ScheduleTime      string
+	ScheduleError     string
+	ScheduleSaved     bool
 }
 
 // isSyncAllCourses reports whether courses is the "sync everything" sentinel
@@ -265,6 +277,39 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	return view, loaded
 }
 
+// loadSettingsViewData loads configPath into a settingsViewData for
+// rendering, handling the "no config.yaml yet" and "config exists but
+// won't parse" cases the same way handleSettings' GET branch always has.
+// Extracted so handleScheduleAction (schedule.go) can re-render the full
+// Settings page after an enable/disable action without duplicating this
+// logic.
+func loadSettingsViewData(configPath string) settingsViewData {
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		if strings.Contains(err.Error(), "config file not found") {
+			// No config.yaml yet: show the form pre-filled with defaults so
+			// the settings page still works as the primary first-run
+			// configuration path.
+			return loadedToViewData(configPath, config.Loaded{
+				App: config.App{
+					DownloadPath: "./downloads",
+					Courses:      []string{"*"},
+					Sync:         true,
+				},
+				Credentials: config.Credentials{
+					URL:       config.DefaultOPALURL,
+					StateFile: config.DefaultStateFile,
+				},
+			})
+		}
+		return settingsViewData{
+			ConfigPath: configPath,
+			Error:      fmt.Sprintf("Could not load %s: %v", configPath, err),
+		}
+	}
+	return loadedToViewData(configPath, loaded)
+}
+
 func handleSettings(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/settings" {
@@ -274,32 +319,7 @@ func handleSettings(configPath string) http.HandlerFunc {
 
 		switch r.Method {
 		case http.MethodGet:
-			loaded, err := config.Load(configPath)
-			if err != nil {
-				if strings.Contains(err.Error(), "config file not found") {
-					// No config.yaml yet: show the form pre-filled with
-					// defaults so the settings page still works as the
-					// primary first-run configuration path.
-					renderSettings(w, loadedToViewData(configPath, config.Loaded{
-						App: config.App{
-							DownloadPath: "./downloads",
-							Courses:      []string{"*"},
-							Sync:         true,
-						},
-						Credentials: config.Credentials{
-							URL:       config.DefaultOPALURL,
-							StateFile: config.DefaultStateFile,
-						},
-					}))
-					return
-				}
-				renderSettings(w, settingsViewData{
-					ConfigPath: configPath,
-					Error:      fmt.Sprintf("Could not load %s: %v", configPath, err),
-				})
-				return
-			}
-			renderSettings(w, loadedToViewData(configPath, loaded))
+			renderSettings(w, applyScheduleStatus(loadSettingsViewData(configPath)))
 
 		case http.MethodPost:
 			// Load the currently-persisted config first so fields the
@@ -317,11 +337,11 @@ func handleSettings(configPath string) http.HandlerFunc {
 			view, loaded := parseSettingsForm(r, configPath, base)
 			if err := config.Save(configPath, loaded); err != nil {
 				view.Error = err.Error()
-				renderSettings(w, view)
+				renderSettings(w, applyScheduleStatus(view))
 				return
 			}
 			view.Saved = true
-			renderSettings(w, view)
+			renderSettings(w, applyScheduleStatus(view))
 
 		default:
 			w.Header().Set("Allow", "GET, POST")
@@ -525,6 +545,38 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>
+
+	<h2>Automatic sync</h2>
+	{{if not .ScheduleSupported}}
+	<p class="hint">Scheduled automatic sync is only available on Windows (via Task Scheduler).</p>
+	{{else}}
+	{{if .ScheduleError}}<div class="error"><strong>Could not update schedule:</strong> {{.ScheduleError}}</div>{{end}}
+	{{if .ScheduleSaved}}<div class="success">Schedule updated.</div>{{end}}
+	<form method="post" action="/settings/schedule" id="schedule-form">
+		<div class="field checkbox-row">
+			<input type="checkbox" id="schedule_enabled" name="schedule_enabled" {{if .ScheduleEnabled}}checked{{end}}>
+			<label for="schedule_enabled">Enable daily automatic sync</label>
+		</div>
+		<p class="hint">
+			Off by default. When enabled, opal-downloader registers a Windows
+			Task Scheduler task that runs <code>sync --scheduled</code> once a
+			day at the time below (catching up automatically if the machine
+			was off/asleep at that time), using the dedicated login profile's
+			saved session/TU-Fast - no password is stored for the task itself,
+			and it only runs while you're logged on to Windows. Requires
+			TU-Fast to already be set up in the dedicated profile (see
+			<a href="/tufast-setup">TU-Fast setup</a>) - otherwise a scheduled
+			run will fail fast instead of waiting for a 2FA click that will
+			never come.
+		</p>
+		<div class="field">
+			<label for="schedule_time">Time of day</label>
+			<input type="text" id="schedule_time" name="schedule_time" value="{{.ScheduleTime}}" placeholder="06:00" style="width: 6rem;">
+			<p class="hint">24-hour HH:MM, e.g. 06:00.</p>
+		</div>
+		<button type="submit" class="save-btn">Save schedule</button>
+	</form>
+	{{end}}
 
 	<p class="back"><a href="/">&larr; Back</a></p>
 

@@ -2,6 +2,7 @@ package opaldownloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,12 +17,27 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/gui"
 	"github.com/alu-developer/opal-downloader/internal/procguard"
 	"github.com/alu-developer/opal-downloader/internal/report"
+	"github.com/alu-developer/opal-downloader/internal/scheduler"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
+	"github.com/alu-developer/opal-downloader/internal/synclock"
 	"github.com/alu-developer/opal-downloader/internal/timing"
 	"github.com/alu-developer/opal-downloader/internal/updater"
 	"github.com/alu-developer/opal-downloader/internal/visitlog"
 	"github.com/mxschmitt/playwright-go"
+)
+
+// Exit codes for distinguishable scheduled-sync failure modes (see
+// EnsureTUFastPresent/synclock's ErrHeld) - added for `sync --scheduled`'s
+// benefit: a Task Scheduler-triggered run has no human reading stdout, so
+// the follow-up failure-log task (add-scheduled-sync-failure-log-and-gui-
+// banner) needs a way to tell these apart from a generic failure without
+// parsing free-text error messages. 0 (success) and 1 (any other error)
+// keep their pre-existing meaning for every command, scheduled or not.
+const (
+	exitCodeGenericError       = 1
+	exitCodeTUFastNotReady     = 3
+	exitCodeSyncAlreadyRunning = 4
 )
 
 // updateCheckTimeout bounds how long the best-effort "is a newer version
@@ -107,6 +123,8 @@ func Execute() {
 		err = runDumpLinks(args)
 	case "gui":
 		err = runGUI(args)
+	case "schedule":
+		err = runSchedule(args)
 	case "__panic-test":
 		// Undocumented, not listed in printHelp: exists solely so the panic
 		// recovery wired up in Execute (see its doc comment) can be
@@ -125,7 +143,22 @@ func Execute() {
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		os.Exit(exitCodeForError(err))
+	}
+}
+
+// exitCodeForError maps a returned command error to a process exit code.
+// Every command keeps its existing exitCodeGenericError (1) behavior for
+// any error that isn't one of the two scheduled-sync-specific sentinels
+// below - see those consts' doc comment for why they exist.
+func exitCodeForError(err error) int {
+	switch {
+	case errors.Is(err, scraper.ErrTUFastNotReady):
+		return exitCodeTUFastNotReady
+	case errors.Is(err, synclock.ErrHeld):
+		return exitCodeSyncAlreadyRunning
+	default:
+		return exitCodeGenericError
 	}
 }
 
@@ -291,8 +324,7 @@ func checkLoginProfileHealth() {
 		return
 	}
 
-	extensionPath := filepath.Join(profileDir, "Default", "Extensions", scraper.TUFastExtensionID)
-	if _, err := os.Stat(extensionPath); err != nil {
+	if !scraper.HasTUFastExtension(profileDir) {
 		fmt.Println()
 		fmt.Println("Note: TU-Fast extension not detected in the login profile. Logins will need manual 2FA each time. See the GUI's /tufast-setup page (or docs/browser-profile-strategy.md) to install it once.")
 	}
@@ -457,6 +489,7 @@ func runSync(args []string) error {
 	concurrency := 0
 	courseConcurrency := 0
 	noSkipEnrollmentSections := false
+	scheduled := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -474,6 +507,8 @@ func runSync(args []string) error {
 			profile = true
 		case "--debug-clicks":
 			debugClicks = true
+		case "--scheduled":
+			scheduled = true
 		case "--concurrency":
 			i++
 			if i >= len(args) {
@@ -501,6 +536,21 @@ func runSync(args []string) error {
 		}
 	}
 	timing.Profile = profile
+
+	// --scheduled is what Task Scheduler's registered task runs
+	// unattended (see internal/scheduler and `schedule enable`). Fail fast,
+	// before touching config or opening a browser, if the dedicated login
+	// profile isn't ready for a human-free login: otherwise a session that
+	// needs relogin would fall through to ensureSession's interactive
+	// branch and block for waitForLoggedInCourseLink's full 300s timeout
+	// waiting for a 2FA click that will never come on an unattended
+	// machine. See docs/scheduled-sync-plan.md section 2 and
+	// scraper.EnsureTUFastPresent's doc comment.
+	if scheduled {
+		if err := scraper.EnsureTUFastPresent(); err != nil {
+			return err
+		}
+	}
 
 	loaded, err := config.Load(configPath)
 	if err != nil {
@@ -612,6 +662,73 @@ func runDumpLinks(args []string) error {
 
 	fmt.Printf("Link dump written to: %s\n", outputPath)
 	return nil
+}
+
+// runSchedule implements `opal-downloader schedule enable|disable|status`,
+// the CLI counterpart to the GUI Settings page's "Enable daily automatic
+// sync" toggle (internal/gui/schedule.go) - both call the same
+// internal/scheduler package, so either front-end sees the other's changes
+// (there's exactly one underlying Windows Task Scheduler task).
+func runSchedule(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("schedule requires a subcommand: enable, disable, or status")
+	}
+	sub := args[0]
+	rest := args[1:]
+
+	switch sub {
+	case "enable":
+		timeArg := scheduler.DefaultTime
+		for i := 0; i < len(rest); i++ {
+			switch rest[i] {
+			case "--time":
+				i++
+				if i >= len(rest) {
+					return fmt.Errorf("--time requires a value, e.g. --time 06:00")
+				}
+				timeArg = rest[i]
+			default:
+				return fmt.Errorf("unknown option for schedule enable: %s", rest[i])
+			}
+		}
+		exePath, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("resolving this executable's own path: %w", err)
+		}
+		if err := scheduler.Enable(exePath, timeArg); err != nil {
+			return err
+		}
+		fmt.Printf("Scheduled daily sync enabled: Task Scheduler will run %q sync --scheduled every day at %s (catches up automatically if the machine was off/asleep).\n", exePath, timeArg)
+		return nil
+
+	case "disable":
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown option for schedule disable: %s", rest[0])
+		}
+		if err := scheduler.Disable(); err != nil {
+			return err
+		}
+		fmt.Println("Scheduled daily sync disabled (Task Scheduler entry removed).")
+		return nil
+
+	case "status":
+		if len(rest) > 0 {
+			return fmt.Errorf("unknown option for schedule status: %s", rest[0])
+		}
+		info, err := scheduler.Status()
+		if err != nil {
+			return err
+		}
+		if !info.Registered {
+			fmt.Println("Scheduled daily sync: not enabled.")
+			return nil
+		}
+		fmt.Printf("Scheduled daily sync: enabled, daily at %s.\n", info.Time)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown schedule subcommand: %s (expected enable, disable, or status)", sub)
+	}
 }
 
 func runGUI(args []string) error {
@@ -749,6 +866,7 @@ func printHelp() {
 	fmt.Println("  list    List detected courses and file counts")
 	fmt.Println("  sync    Download new/changed files")
 	fmt.Println("  dump-links  Open a page and write all detected link candidates to a JSON file")
+	fmt.Println("  schedule    Enable/disable/check a daily automatic sync via Windows Task Scheduler")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  init --config <path>")
@@ -757,8 +875,9 @@ func printHelp() {
 	fmt.Println("  gui [--port <port>] [--config <path>]")
 	fmt.Println("  login --config <path> [--dev]")
 	fmt.Println("  list --config <path> [--dev] [--profile] [--debug-clicks] [--course-concurrency <n>] [--visit-report] [--no-skip-enrollment-sections]")
-	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>] [--no-skip-enrollment-sections]")
+	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>] [--no-skip-enrollment-sections] [--scheduled]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
+	fmt.Println("  schedule enable [--time HH:MM] | disable | status")
 	fmt.Println()
 	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
 	fmt.Println("  --debug-clicks          Log every click and navigation/interactive-link wait with timestamp, page URL, selector, and reason (diagnostic tool)")
@@ -766,6 +885,7 @@ func printHelp() {
 	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 1, overrides config.yaml)")
 	fmt.Println("  --visit-report          (list only) Print the cross-run section visit-effectiveness report from .opal-visit-log.json and exit - no browser/login needed")
 	fmt.Println("  --no-skip-enrollment-sections  Visit every OPAL 'Einschreibung' (enrollment/sign-up) course-node section instead of skipping it (overrides config.yaml's skip_enrollment_sections: true default) - escape hatch if the structural skip is ever wrong for your OPAL instance")
+	fmt.Println("  --scheduled             (sync only) Unattended mode for Task Scheduler: fails fast if TU-Fast isn't set up in the dedicated login profile instead of waiting for a 2FA click that will never come. Also enforced: a single-instance overlap-guard lock, checked on every sync (scheduled or manual/GUI), so two runs never race.")
 }
 
 func copyFile(source, target string) error {

@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -135,6 +136,84 @@ func TestShouldRelaunchHeadlessAfterInteractiveLogin(t *testing.T) {
 			if got != tc.wantRelaunch {
 				t.Fatalf("shouldRelaunchHeadlessAfterInteractiveLogin(forceInteractive=%v, developerMode=%v) = %v, want %v",
 					tc.forceInteractive, tc.developerMode, got, tc.wantRelaunch)
+			}
+		})
+	}
+}
+
+// TestShouldReuseSavedSession covers ensureSession's post-lock re-check (see
+// shouldReuseSavedSession's doc comment in session.go), added for queue task
+// fix-redundant-interactive-login-on-lock-contention. The case named "lock
+// acquired, but session became valid while waiting" is the specific
+// scenario that task was filed for: a second process contending for
+// acquireSessionLock's mutex blocks while a first process does its own
+// interactive login; by the time the second process acquires the lock,
+// os.Stat/isAuthenticated must observe the first process's freshly saved
+// session (stateFileExists=true, launchErr=nil, authenticated=true,
+// authErr=nil) and reuse it, rather than redundantly repeating its own
+// interactive login. Live-verified 2026-07-17 against the real dedicated
+// login profile/session file - see this task's PR body for the full
+// timestamped two-process trace.
+func TestShouldReuseSavedSession(t *testing.T) {
+	launchFailure := errors.New("launch failed")
+	authFailure := errors.New("auth check failed")
+
+	cases := []struct {
+		name            string
+		stateFileExists bool
+		launchErr       error
+		authenticated   bool
+		authErr         error
+		wantReuse       bool
+	}{
+		{
+			name:            "lock acquired, but session became valid while waiting",
+			stateFileExists: true,
+			launchErr:       nil,
+			authenticated:   true,
+			authErr:         nil,
+			wantReuse:       true,
+		},
+		{
+			name:            "state file missing",
+			stateFileExists: false,
+			launchErr:       nil,
+			authenticated:   true,
+			authErr:         nil,
+			wantReuse:       false,
+		},
+		{
+			name:            "headless relaunch failed to launch",
+			stateFileExists: true,
+			launchErr:       launchFailure,
+			authenticated:   false,
+			authErr:         nil,
+			wantReuse:       false,
+		},
+		{
+			name:            "genuinely expired: launched fine but not authenticated",
+			stateFileExists: true,
+			launchErr:       nil,
+			authenticated:   false,
+			authErr:         nil,
+			wantReuse:       false,
+		},
+		{
+			name:            "isAuthenticated errored - treated as not reusable",
+			stateFileExists: true,
+			launchErr:       nil,
+			authenticated:   false,
+			authErr:         authFailure,
+			wantReuse:       false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldReuseSavedSession(tc.stateFileExists, tc.launchErr, tc.authenticated, tc.authErr)
+			if got != tc.wantReuse {
+				t.Fatalf("shouldReuseSavedSession(stateFileExists=%v, launchErr=%v, authenticated=%v, authErr=%v) = %v, want %v",
+					tc.stateFileExists, tc.launchErr, tc.authenticated, tc.authErr, got, tc.wantReuse)
 			}
 		})
 	}

@@ -150,6 +150,49 @@ PR) rather than merging as if it were checked** - this is already this
 project's stated policy, but is repeated here as the concrete incident that
 shows what skipping it costs.
 
+**2026-07-19: 4th report of the same symptom, confirmed as stale build, not
+a recurrence.** The maintainer reported (2026-07-17, via `/task-capture`) a
+browser window visible throughout a crawl again, hours after PR #80 (merged
+2026-07-17 same morning) had been thoroughly live-verified. Two hypotheses
+were investigated (queue task
+`investigate-visible-crawl-window-build-freshness-and-gui-scheduled-combo`):
+
+1. *Stale build* - at report time the maintainer's `main.exe` predated
+   PR #80 by 5 days.
+2. *GUI/synclock gap* - whether `internal/gui/sync.go`'s GUI-triggered sync
+   actually acquires PR #82's `internal/synclock` overlap guard, or only
+   the CLI `--scheduled` path does.
+
+Hypothesis 2 was ruled out by reading the code: `synclock.AcquireDefault`
+is called from `internal/syncer.SyncCoursesWithProgress` itself (added in
+PR #82's original commit `2c44314`), which is the function both the CLI
+`sync` command and the GUI's `handleStart`/`runJob` call - there was never
+a code path where GUI sync skipped the lock. This was then live-confirmed:
+a real GUI sync (started via `/sync/start`, real account, real session)
+held the lock while a concurrent `sync --scheduled` was started from the
+CLI - the scheduled run failed fast with `Error: a sync is already running
+(PID ..., started at ...)` (exit code 4) instead of racing it, exactly as
+designed.
+
+Hypothesis 1 was then tested directly: rebuilt from current master
+(`c7c4dd0`, includes PR #91/#92) and ran that real GUI sync (6 real
+courses, 168 files discovered) with process-window monitoring throughout
+(`Get-Process | Where MainWindowTitle -ne ""`, checked 8+ times spanning
+~5 minutes of discovery/crawl and the lock-contention moment above) -
+zero visible browser windows at any point; only the app's own intended
+native WebView2 window ("Opal Downloader") and title-less
+`chrome-headless-shell`/`msedgewebview2` helper processes ever appeared.
+**The symptom did not reproduce on a confirmed-current build** - stale
+build was the cause, consistent with hypothesis 1, and no code change was
+needed. See PR
+`queue/investigate-visible-crawl-window-build-freshness-and-gui-scheduled-combo`
+for the full investigation. One process note for next time: building this
+repo's binary is `go build -o main.exe .` from the repo root (the actual
+`package main`) - `go build ./cmd/opal-downloader` silently builds the
+`opaldownloader` library package instead (produces a Go archive, not a
+runnable `.exe`); this cost time during this investigation before being
+caught.
+
 ## Incident playbook
 
 If sync suddenly returns too few files:

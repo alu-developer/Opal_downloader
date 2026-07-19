@@ -55,18 +55,19 @@ download_concurrency: 3
 # each on its own browser tab. Several real AJAX-render race bugs were found
 # and fixed here over multiple investigations (2026-07-13, 2026-07-16,
 # 2026-07-19) - see DefaultCourseConcurrency's doc comment in
-# internal/config/config.go for the full root-cause writeup. The last one
-# (2026-07-19: a "show all" pagination click's AJAX response getting
-# silently dropped when the page's JS execution context was torn down mid-
-# flight under concurrent-tab contention) was live-verified byte-for-byte
-# safe across 6 repeated full-account runs (4 at concurrency=2, 2 at
-# concurrency=3), so the default is now 2. WALL-CLOCK CAVEAT: on an account
-# with one course much larger/slower than the rest, concurrency>1 can be the
-# same speed or slower than serial (the wider per-section wait budgets used
-# at concurrency>1 are a fixed tax paid on every section, contended or not) -
-# see the doc comment for real numbers. Can also be set with
-# --course-concurrency on the list/sync commands. Defaults to 2.
-course_concurrency: 2
+# internal/config/config.go for the full root-cause writeup. The 2026-07-19
+# fix (a "show all" pagination click's AJAX response getting silently
+# dropped when the page's JS execution context was torn down mid-flight
+# under concurrent-tab contention) is live-verified byte-for-byte safe at
+# concurrency 2 and 3 across 6 repeated full-account runs - this setting is
+# safe to raise. It is NOT a proven speed win, though: a 2026-07-20
+# follow-up found concurrency>1 the same speed or *slower* than serial on
+# every course-size distribution tested so far (both the maintainer's own
+# skewed account - one course much larger than the rest - and a deliberately
+# evened-out subset of it), so the default stays 1. See the doc comment for
+# the full numbers. Can also be set with --course-concurrency on the
+# list/sync commands. Defaults to 1.
+course_concurrency: 1
 
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.
 # Only change if you're using a different Bildungsportal Sachsen instance.

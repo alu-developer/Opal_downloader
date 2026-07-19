@@ -372,6 +372,40 @@ opting into `course_concurrency>1` expecting a speed win should verify that
 holds for their own course-size mix; see `DefaultCourseConcurrency`'s doc
 comment in `internal/config/config.go` for the full numbers.
 
+**Update (2026-07-20, queue task
+investigate-course-concurrency-wallclock-benefit): the default is back to
+`course_concurrency=1`.** The wall-clock caveat above was left as an open
+question - is it specific to this account's one-dominant-course structure,
+or does it hold generally? This task answered it: it holds generally, and
+more consistently on an evenly-sized course load than on the skewed one.
+Rather than more expensive full-account live crawls, the dominant
+~200-file course was excluded and the remaining 5 courses (39/36/30/17/14
+files - a genuinely even spread, no course more than ~2.8x any other, a
+plausible stand-in for a typical semester load) were timed in isolation at
+`course_concurrency` 1/2/3 (two repeated runs each of 1 and 2) using a
+small throwaway harness, since `list` always crawls every discovered
+course regardless of `config.yaml`'s `courses` filter:
+
+- concurrency=1 (serial): 126.7s and 127.0s (136/136 files) - tightly
+  reproducible.
+- concurrency=2: 190.95s and 187.16s (136/136 files) - ~49% *slower* than
+  serial, consistently across both runs.
+- concurrency=3: 120.3s (136/136 files) - roughly a wash versus serial, not
+  the multi-course speedup naive parallelism would suggest.
+
+Correctness held in every run (136/136, matching serial) - this is purely
+a speed finding, not a reopening of the correctness fix above. Every
+individual course's own crawl time roughly 2.3-2.7x'd under concurrency>1
+regardless of that course's size, pointing at the fixed per-section
+concurrency>1 tax (`requiredStableReads`/`contentSettleWaitBudget`) plus
+real multi-tab rendering contention as the dominant cost, not a
+large-course-specific effect. Since neither distribution tested (skewed or
+even) showed a wall-clock benefit, there's no evidence to support a
+variance-aware default - `course_concurrency` reverts to 1 and stays an
+opt-in for anyone who wants to experiment against their own course
+mix/hardware. See `DefaultCourseConcurrency`'s doc comment in
+`internal/config/config.go` for the full numbers and reasoning.
+
 ### "response is HTML" download failures — course "2026 LA20" no longer reproduces (2026-07-19 investigation)
 
 Queue task `investigate-2026-la20-session-sensitive-html-response-failures`

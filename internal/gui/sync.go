@@ -14,11 +14,13 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 )
 
-// syncPage wires up the GUI's sync/list/dump-links page: one shared job
-// slot (only one action runs at a time), an SSE stream of its events, and
-// start/cancel endpoints. It mirrors the CLI's runSync/runList/runDumpLinks
-// in cmd/opal-downloader/root.go, but reports progress incrementally to the
+// syncPage wires up the GUI's sync/list page: one shared job slot (only one
+// action runs at a time), an SSE stream of its events, and start/cancel
+// endpoints. It mirrors the CLI's runSync/runList in
+// cmd/opal-downloader/root.go, but reports progress incrementally to the
 // browser instead of printing to stdout and returning only at the end.
+// (dump-links stays CLI-only - see cmd/opal-downloader/root.go's
+// runDumpLinks - it's a maintainer debugging tool with no GUI entry point.)
 type syncPage struct {
 	configPath string
 	job        *job
@@ -34,7 +36,6 @@ func registerSyncRoutes(mux *http.ServeMux, srv *server, configPath string) {
 	mux.HandleFunc("/sync/stream", srv.withRecover(sp.handleStream))
 	mux.HandleFunc("/sync/start", srv.withRecover(sp.handleStart))
 	mux.HandleFunc("/sync/cancel", srv.withRecover(sp.handleCancel))
-	mux.HandleFunc("/sync/dump-links/start", srv.withRecover(sp.handleDumpLinksStart))
 }
 
 // handleStart launches a full sync (mirrors `opal-downloader sync`) in a
@@ -85,7 +86,7 @@ func (sp *syncPage) handleStart(w http.ResponseWriter, r *http.Request) {
 	if !sp.job.start(kind, cancelFn) {
 		cancel()
 		_ = sc.Close()
-		writeJSONError(w, http.StatusConflict, "a sync/list/dump-links job is already running")
+		writeJSONError(w, http.StatusConflict, "a sync/list job is already running")
 		return
 	}
 
@@ -94,65 +95,6 @@ func (sp *syncPage) handleStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "started", "kind": string(kind)})
-}
-
-// handleDumpLinksStart mirrors `opal-downloader dump-links --url <url>`.
-func (sp *syncPage) handleDumpLinksStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	targetURL := strings.TrimSpace(r.FormValue("url"))
-	if targetURL == "" {
-		writeJSONError(w, http.StatusBadRequest, "url is required")
-		return
-	}
-	outputPath := strings.TrimSpace(r.FormValue("out"))
-	if outputPath == "" {
-		outputPath = "tmp/opal-links.json"
-	}
-	devMode := r.FormValue("dev") == "on"
-
-	credentials, err := config.LoadCredentials(sp.configPath)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "could not load config: "+err.Error())
-		return
-	}
-
-	sc := scraper.New(credentials.URL, credentials.StateFile)
-	sc.SetDeveloperMode(devMode)
-
-	_, cancel := context.WithCancel(context.Background())
-	cancelFn := func() {
-		cancel()
-		_ = sc.Close()
-	}
-
-	if !sp.job.start(jobKindDumpLinks, cancelFn) {
-		cancel()
-		_ = sc.Close()
-		writeJSONError(w, http.StatusConflict, "a sync/list/dump-links job is already running")
-		return
-	}
-
-	go func() {
-		defer cancel()
-		defer sc.Close()
-		defer sp.job.finish()
-
-		sp.job.publish(jobEvent{Kind: "log", Message: fmt.Sprintf("Dumping links from %s...", targetURL)})
-		if err := sc.DumpPageLinks(targetURL, outputPath); err != nil {
-			sp.job.publish(jobEvent{Kind: "failed", Error: err.Error(), Message: "dump-links failed"})
-			return
-		}
-		sp.job.publish(jobEvent{Kind: "done", Message: "Link dump written to " + outputPath})
-	}()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "started", "kind": string(jobKindDumpLinks)})
 }
 
 // runJob performs the actual sync or list-only run and publishes progress
@@ -318,7 +260,7 @@ func (sp *syncPage) handlePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = syncTemplate.Execute(w, struct{ ConfigPath string }{ConfigPath: sp.configPath})
+	_ = syncTemplate.Execute(w, nil)
 }
 
 var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
@@ -330,7 +272,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; align-items: center; }
 	button.primary { background: #1a73e8; border-color: #1a73e8; font-weight: 600; }
 	button.stop { background: #d93025; color: #fff; border-color: #d93025; }
-	label.opt { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; }
+	label.opt { font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; margin: 0.5rem 0 0.15rem; }
 	input[type=text] { padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
 	#status { font-weight: 600; margin: 0.5rem 0; }
 	#summary { margin: 0.5rem 0 1rem; }
@@ -340,32 +282,22 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	.row.done { color: #1a7a1a; font-weight: 600; }
 	.row.cancelled { color: #a06a00; font-weight: 600; }
 	.row.failed { color: #a00; font-weight: 600; }
-	.dump-form { display: flex; gap: 0.5rem; margin: 1rem 0; align-items: center; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 	` + bannerChrome + `
 	<h1>Sync</h1>
-	<p class="hint">Config: <code>{{.ConfigPath}}</code>. Progress is shown live below.</p>
 
 	<div class="actions">
 		<button class="primary" id="btn-sync">Sync</button>
 		<button id="btn-list">List courses</button>
 		<button class="stop" id="btn-cancel" disabled>Cancel</button>
-		<label class="opt"><input type="checkbox" id="opt-force"> Force re-download (ignore previous sync history)</label>
-		<label class="opt"><input type="checkbox" id="opt-dev"> dev mode (visible browser)</label>
 	</div>
+
+	<label class="opt"><input type="checkbox" id="opt-force"> Force re-download (ignore previous sync history)</label>
 	<p class="hint">Normally, files already downloaded are skipped. Check this to re-download everything regardless.</p>
 
-	<details>
-		<summary>Advanced / debugging tools</summary>
-		<div class="dump-form">
-			<label for="dump-url">Debug: dump detected file links for a URL</label>
-			<input type="text" id="dump-url" placeholder="https://bildungsportal.sachsen.de/opal/...">
-			<button id="btn-dump">Dump links</button>
-		</div>
-		<p class="hint">Advanced/debugging tool - scrapes one OPAL page and writes every file link it finds to a JSON file. Not needed for normal syncing.</p>
-	</details>
+	<label class="opt"><input type="checkbox" id="opt-dev"> dev mode (visible browser)</label>
 
 	<div id="status">Idle.</div>
 	<div id="summary"></div>
@@ -381,12 +313,10 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 		var btnSync = document.getElementById('btn-sync');
 		var btnList = document.getElementById('btn-list');
 		var btnCancel = document.getElementById('btn-cancel');
-		var btnDump = document.getElementById('btn-dump');
 
 		function setRunning(running) {
 			btnSync.disabled = running;
 			btnList.disabled = running;
-			btnDump.disabled = running;
 			btnCancel.disabled = !running;
 		}
 
@@ -469,13 +399,6 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			var params = ['list_only=1'];
 			if (document.getElementById('opt-dev').checked) params.push('dev=on');
 			start('/sync/start?list_only=1', params.join('&'));
-		});
-		btnDump.addEventListener('click', function () {
-			var url = document.getElementById('dump-url').value.trim();
-			if (!url) { statusEl.textContent = 'Enter a URL to dump links for.'; return; }
-			var params = ['url=' + encodeURIComponent(url)];
-			if (document.getElementById('opt-dev').checked) params.push('dev=on');
-			start('/sync/dump-links/start', params.join('&'));
 		});
 		btnCancel.addEventListener('click', function () {
 			btnCancel.disabled = true;

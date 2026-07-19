@@ -320,6 +320,58 @@ error (see `sectionsVisited`/`sectionsFailed` in crawl.go) instead of "0
 files, crawled successfully", and a discovery source page now retries once
 and logs a warning instead of silently dropping its courses from the list.
 
+**Update (2026-07-19, queue task
+fix-candidate-stability-poll-concurrent-crawl-race): the race is now
+root-caused and fixed - `DefaultCourseConcurrency` is 2.** PR #84's writeup
+above named `candidateStabilityPoll` as the culprit but only ever traced
+`waitForStableSectionContent` (the main per-section content poll after a
+`Goto`) - correctly cleared, but the wrong call site. Adding equivalent
+`--debug-clicks` logging to `waitForStableExpandedCandidates` (the "show
+all" pagination EXPANSION poll, run after a *click* rather than a `Goto` -
+see `expandShowAllInSection`, `internal/scraper/crawl.go`) exposed the real
+mechanism on the first re-run that reproduced the loss: every lost
+section's expansion poll read the exact same pre-expansion candidate count
+on every single poll from #1 onward - flat from the start, never partway
+through growing - while a same-window serial run's main-content-poll
+numbers matched the concurrent run's exactly, section for section. The
+trigger, confirmed across 12 "show all" clicks over 3 live concurrent runs
+with a perfect 12/12 correlation: every lost section's post-click
+`waitForInteractiveLinks` call had hit the recoverable "execution context
+was destroyed" condition and retried; every section whose post-click wait
+did *not* retry kept its full count. Mechanism: a click's AJAX response is
+tied to the JS execution context live when the click fired; unlike a `Goto`
+(whose own destroyed-context event is an expected side effect of navigating,
+and whose response already contains the complete content), if OPAL/Wicket
+tears that context down under concurrent-tab rendering contention before
+the click's response is applied, the response has nowhere left to land and
+the expansion is silently dropped for good - no amount of further polling
+recovers content that was never going to arrive, which is why
+`sectionContentMaxPolls`/`showAllExpansionMaxPolls` never showing
+exhaustion (PR #84's finding) didn't rule this out.
+
+**Fix**: `expandShowAllInSection` now re-issues the "show all" click
+whenever its own post-click content-settle wait hits this signal (the
+direct-navigate branch, which doesn't share this failure mode, is
+untouched). **Live-verified byte-for-byte clean across 6 repeated
+full-account runs** - 4 at `course_concurrency=2`, 2 at
+`course_concurrency=3` - all matching a same-day serial baseline (339/339
+files); one of the concurrency=2 runs directly caught the fix engaging
+(the same two sections that had lost files in every prior unfixed run this
+task tested hit the retry signal, got re-clicked, and came back with their
+full correct counts).
+
+**Wall-clock caveat**: on this account (one ~200-file course dwarfing the
+other five), `course_concurrency` 2/3 measured the *same or slower*
+wall-clock than serial in these verification runs (516-551s at
+concurrency=2, ~500s at concurrency=3, vs. 312s serial) - the wider
+MutationObserver/stability-poll budgets used at concurrency>1 are a fixed
+per-section cost paid whether or not that section was ever actually
+contended, and with the crawl dominated by one course regardless of worker
+count, concurrency's parallelism has little left to win back. Anyone
+opting into `course_concurrency>1` expecting a speed win should verify that
+holds for their own course-size mix; see `DefaultCourseConcurrency`'s doc
+comment in `internal/config/config.go` for the full numbers.
+
 ### Chromium fails to launch with "the application has failed to start
 ### because its side-by-side configuration is incorrect"
 

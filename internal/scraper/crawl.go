@@ -345,7 +345,31 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		}
 	}
 
-	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	contextWasDestroyed := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	if contextWasDestroyed && !navigated {
+		// THE ROOT CAUSE this task (fix-candidate-stability-poll-concurrent-
+		// crawl-race) set out to find: see waitForInteractiveLinks's doc
+		// comment (navigation.go) for the full live evidence. In short, an
+		// "execution context was destroyed" event landing right after this
+		// click - not caused by a real navigation, since the direct-navigate
+		// branch above is excluded here via !navigated - is near-certain
+		// proof the click's own in-flight AJAX expansion response had
+		// nowhere left to land and was silently dropped, not merely slow.
+		// waitForStableExpandedCandidates polling longer afterward cannot
+		// recover content that was never coming; re-issuing the click is
+		// the only way to actually get the expansion to happen. Bounded to
+		// one extra attempt (attemptShowAllExpandClick internally retries up
+		// to showAllClickMaxAttempts on its own) rather than looping, to
+		// keep this a targeted response to a specific confirmed signal
+		// rather than an open-ended "try harder" loop.
+		reclicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
+		if crashErr != nil {
+			return s.recoverAndReturnToSection(page, currentURL)
+		}
+		if reclicked {
+			s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+		}
+	}
 
 	expanded, err := s.waitForStableExpandedCandidates(page)
 	if err != nil {
@@ -532,8 +556,36 @@ const showAllExpansionRequiredStableReads = 3
 // comment for why polling-until-stable, not this function specifically, is
 // what generalized to fix the broader concurrent-crawl AJAX race.
 func (s *OpalScraper) waitForStableExpandedCandidates(page playwright.Page) ([]map[string]string, error) {
+	// Logs each poll's candidate count under --debug-clicks (audit.go), the
+	// same way waitForStableSectionContent's extractFn does for the main
+	// per-section content wait. Added by queue task
+	// fix-candidate-stability-poll-concurrent-crawl-race after Step 0 of
+	// that task found this poll - not the main content wait - was the
+	// actual source of concurrent-crawl file loss (a "show all" pagination
+	// expansion settling on a stable-but-incomplete read), and that nobody
+	// had ever been able to see its per-poll trajectory: every prior
+	// investigation (PR #73/#78/#84) only ever looked at
+	// "section-content-poll" (waitForStableSectionContent's own trace) and
+	// concluded it wasn't exhausting its budget - true, but irrelevant,
+	// since that is a different poll than this one. See this task's queue
+	// file for the live A/B comparison (byte-identical main-content-poll
+	// counts between a serial and a concurrent run, yet very different
+	// final file counts - the discrepancy traced to exactly this poll).
+	pollNum := 0
+	extractFn := func() ([]map[string]string, error) {
+		candidates, err := s.extractSectionContentCandidates(page)
+		if s.debugClicks {
+			pollNum++
+			errStr := "nil"
+			if err != nil {
+				errStr = err.Error()
+			}
+			s.auditLog("showall-expand-poll", page, "", fmt.Sprintf("poll #%d: %d candidates, err=%s", pollNum, len(candidates), errStr))
+		}
+		return candidates, err
+	}
 	return candidateStabilityPoll(
-		func() ([]map[string]string, error) { return s.extractSectionContentCandidates(page) },
+		extractFn,
 		func() { page.WaitForTimeout(showAllExpansionPollIntervalMs) },
 		showAllExpansionMaxPolls,
 		s.requiredStableReads(showAllExpansionRequiredStableReads),

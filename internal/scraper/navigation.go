@@ -253,9 +253,40 @@ func isSectionURLAllowedForCourse(absURL, repoID string) bool {
 // of the wait technique above it is intentional per
 // investigate-load-completion-detection's own recommendation - this task
 // does not touch it.
-func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWaitMs float64) {
+//
+// Returns true when the "execution context was destroyed" retry above
+// actually fired (regardless of whether the retried injection then
+// succeeded or fell back to a fixed wait) - added by queue task
+// fix-candidate-stability-poll-concurrent-crawl-race. That task's Step 0
+// found this signal is NOT just a harmless transient hiccup in every call
+// site: for expandShowAllInSection's post-click wait specifically (crawl.go),
+// it is a near-perfect predictor of the "show all" click's own AJAX
+// expansion having been silently dropped - live-confirmed 12/12 times
+// across 3 full-account concurrent-crawl runs (course_concurrency=2): every
+// show-all section whose post-click wait hit this retry came back with its
+// candidate count completely flat at the pre-click (un-expanded) value for
+// the entire subsequent stability-poll (waitForStableExpandedCandidates,
+// crawl.go), while every section whose post-click wait did NOT hit this
+// retry showed the fully expanded count from the very first poll. The
+// mechanism this points to: the click's own in-flight AJAX response is tied
+// to the execution context that existed when the click fired; if OPAL/
+// Wicket tears that context down (observed to happen under concurrent-tab
+// rendering contention, not caused by a real page navigation - the URL
+// never changes) before that response is applied, the response has nowhere
+// left to land and the expansion is lost for good - no amount of further
+// polling can recover content that was never going to arrive. This does NOT
+// apply the same way to the main per-section content wait after a Goto
+// (crawl.go's main loop) or to expandShowAllInSection's direct-navigation
+// branch: a real navigation's own destroyed-context is expected and already
+// carries the full (already-expanded, for the navigate case) content in its
+// response body, so there is nothing to lose there - see
+// fix-candidate-stability-poll-concurrent-crawl-race.md's Step 0 for the
+// full per-run data this conclusion is based on. Callers that don't care
+// (the main content wait, download.go's fallback click, link_dump.go) are
+// free to ignore this return value.
+func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWaitMs float64) bool {
 	if page == nil {
-		return
+		return false
 	}
 	debounceMs, hardCapMs := s.contentSettleWaitBudget()
 	start := time.Now()
@@ -275,9 +306,10 @@ func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWait
 		// fallbackWaitMs parameter) - see the doc comment above for why.
 		page.WaitForTimeout(hardCapMs)
 		s.auditLog("wait-fixed-fallback", page, "", fmt.Sprintf("MutationObserver wait injection failed (%v, retried=%v); used fixed fallback wait of %s (hardCapMs=%.0fms) instead", err, retried, time.Since(start), hardCapMs))
-		return
+		return retried
 	}
 	s.auditLog("wait-mutationobserver", page, "", fmt.Sprintf("MutationObserver wait resolved (%s) after %s (debounce=%.0fms hardCap=%.0fms, retried=%v)", reason, time.Since(start), debounceMs, hardCapMs, retried))
+	return retried
 }
 
 // contextRecoveryWaitMs is the short pause waitForInteractiveLinks takes

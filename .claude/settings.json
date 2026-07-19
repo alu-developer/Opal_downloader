@@ -24,6 +24,17 @@
             "statusMessage": "Running scripts/dev.ps1 all before git push..."
           }
         ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/rate-limit-gate.ps1",
+            "timeout": 15,
+            "statusMessage": "Checking rate-limit gate before launching agent..."
+          }
+        ]
       }
     ]
   }

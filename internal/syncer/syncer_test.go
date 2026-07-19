@@ -596,11 +596,13 @@ func TestProcessRemoteFilesFiresExpectedEvents(t *testing.T) {
 
 	var courseStarted, downloaded, errored int
 	coursesSeen := map[string]bool{}
+	var courseStartedEvents []Event
 	for _, e := range events {
 		switch e.Type {
 		case EventCourseStarted:
 			courseStarted++
 			coursesSeen[e.Course] = true
+			courseStartedEvents = append(courseStartedEvents, e)
 		case EventFileDownloaded:
 			downloaded++
 		case EventError:
@@ -619,6 +621,20 @@ func TestProcessRemoteFilesFiresExpectedEvents(t *testing.T) {
 	}
 	if errored != 1 {
 		t.Fatalf("expected 1 EventError, got %d", errored)
+	}
+
+	// TotalCourses/CourseIndex are cheap to compute upfront because
+	// remoteFiles is already the complete discovery result by the time
+	// processRemoteFiles runs (see Event's doc comment) - verify every
+	// EventCourseStarted carries the correct total and a distinct,
+	// monotonically increasing 1-based index.
+	for i, e := range courseStartedEvents {
+		if e.TotalCourses != 2 {
+			t.Fatalf("expected TotalCourses=2 on course_started event %+v", e)
+		}
+		if e.CourseIndex != i+1 {
+			t.Fatalf("expected CourseIndex=%d on course_started event %+v", i+1, e)
+		}
 	}
 }
 

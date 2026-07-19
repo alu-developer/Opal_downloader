@@ -75,12 +75,20 @@ const (
 // Event is a single incremental progress notification fired during
 // SyncCoursesWithProgress. Course/File are populated for the events they're
 // relevant to; Err is set for EventError; Stats is set for EventComplete.
+// CourseIndex/TotalCourses are set for EventCourseStarted only: remote
+// discovery (sc.ScrapeWithSavedSession) already returns the full remote file
+// list before the per-course loop begins, so the distinct course count is
+// known upfront at effectively no extra cost - CourseIndex is this course's
+// 1-based position among distinct courses in discovery order, TotalCourses
+// is the total distinct course count.
 type Event struct {
-	Type   EventType
-	Course string
-	File   string
-	Err    error
-	Stats  Stats
+	Type         EventType
+	Course       string
+	File         string
+	Err          error
+	Stats        Stats
+	CourseIndex  int
+	TotalCourses int
 }
 
 // ProgressFunc receives incremental progress events during a sync run.
@@ -277,17 +285,38 @@ func syncRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, mani
 // in internal/scraper/orchestrator.go) - downloads already in flight are not
 // aborted mid-transfer, but no new one is started once cancellation is
 // observed.
+// distinctCourseCount returns the number of distinct Course values across
+// remoteFiles. Used to populate Event.TotalCourses for EventCourseStarted -
+// see that field's doc comment for why this is cheap (remoteFiles is already
+// the complete, in-memory discovery result by the time it's called).
+func distinctCourseCount(remoteFiles []scraper.RemoteFile) int {
+	seen := map[string]bool{}
+	for _, f := range remoteFiles {
+		seen[f.Course] = true
+	}
+	return len(seen)
+}
+
 func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
 	stats := Stats{Downloads: &timing.DownloadTracker{}}
 
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
 
+	// totalCourses is cheap to compute here: remoteFiles is the complete,
+	// already-discovered file list (discovery happened before
+	// processRemoteFiles was ever called), so counting distinct courses is
+	// just one pass over a slice already in memory - no extra scraping or
+	// restructuring of the sync flow required. See Event's doc comment.
+	totalCourses := distinctCourseCount(remoteFiles)
+
 	jobs := make([]downloadJob, 0, len(remoteFiles))
 	seenCourses := map[string]bool{}
+	courseIndex := 0
 	for _, remoteFile := range remoteFiles {
 		if !seenCourses[remoteFile.Course] {
 			seenCourses[remoteFile.Course] = true
-			progress(Event{Type: EventCourseStarted, Course: remoteFile.Course})
+			courseIndex++
+			progress(Event{Type: EventCourseStarted, Course: remoteFile.Course, CourseIndex: courseIndex, TotalCourses: totalCourses})
 		}
 
 		resolved := resolveRemoteTargetPath(cfg, remoteFile)

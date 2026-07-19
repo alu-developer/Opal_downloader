@@ -128,7 +128,7 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 	progress := func(e syncer.Event) {
 		switch e.Type {
 		case syncer.EventCourseStarted:
-			sp.job.publish(jobEvent{Kind: "course_started", Course: e.Course})
+			sp.job.publish(jobEvent{Kind: "course_started", Course: e.Course, CourseIndex: e.CourseIndex, TotalCourses: e.TotalCourses})
 		case syncer.EventFileDownloaded:
 			sp.job.publish(jobEvent{Kind: "file_downloaded", Course: e.Course, File: e.File})
 		case syncer.EventFileSkipped:
@@ -328,9 +328,13 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			logEl.scrollTop = logEl.scrollHeight;
 		}
 
+		function courseProgress(e) {
+			return e.totalCourses ? ('course ' + e.courseIndex + '/' + e.totalCourses + ' ') : '';
+		}
+
 		function describe(e) {
 			switch (e.kind) {
-				case 'course_started': return '[course] ' + e.course;
+				case 'course_started': return '[course] ' + courseProgress(e) + e.course;
 				case 'file_downloaded': return '  downloaded: ' + e.course + ' / ' + e.file;
 				case 'file_skipped': return '  skipped: ' + e.course + ' / ' + e.file;
 				case 'error': return '  ERROR: ' + e.course + ' / ' + e.file + ' - ' + e.error;
@@ -342,11 +346,36 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			}
 		}
 
+		// statusText renders a one-line "what's happening right now" summary
+		// for the #status line, distinct from describe()'s full log-row text
+		// (which stays in #log). Returns null for event kinds that shouldn't
+		// change the live-progress line (done/cancelled/failed are handled
+		// separately in handleEvent since they end the run).
+		function statusText(e) {
+			switch (e.kind) {
+				case 'course_started':
+					return 'Running: ' + courseProgress(e) + '- ' + e.course;
+				case 'file_downloaded':
+					return 'Running: downloading - ' + e.course + ' / ' + e.file;
+				case 'file_skipped':
+					return 'Running: skipping - ' + e.course + ' / ' + e.file;
+				case 'error':
+					return 'Running: error on ' + e.course + ' / ' + e.file;
+				case 'log':
+					return e.course ? ('Running: ' + e.course + ' - ' + e.message) : ('Running: ' + e.message);
+				default:
+					return null;
+			}
+		}
+
 		function handleEvent(e) {
 			addRow(e.kind, describe(e));
 			if (e.kind === 'done' || e.kind === 'cancelled' || e.kind === 'failed') {
 				statusEl.textContent = e.kind === 'done' ? 'Done.' : (e.kind === 'cancelled' ? 'Cancelled.' : 'Failed.');
 				setRunning(false);
+			} else {
+				var st = statusText(e);
+				if (st) { statusEl.textContent = st; }
 			}
 			if (e.kind === 'done' && (e.downloaded || e.skipped || e.errors)) {
 				summaryEl.textContent = 'downloaded=' + (e.downloaded||0) + ' skipped=' + (e.skipped||0) + ' errors=' + (e.errors||0);

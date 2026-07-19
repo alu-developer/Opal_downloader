@@ -145,14 +145,78 @@ const (
 	// ground truth's count, meaning the section's client-side render
 	// itself plateaus at an incomplete state under concurrent contention,
 	// not that the poll gave up early (sectionContentMaxPolls=20 was never
-	// exhausted in any of the four runs). This confirms candidateStabilityPoll
-	// - not the content-settle wait PR #81 replaced - is the remaining
-	// culprit, exactly as this task's own hypothesis predicted. A
-	// size/duration-aware scheduler (see the paragraph above) remains the
-	// most promising untried angle, since per-section wait/poll tuning has
-	// now been tried twice (2026-07-13 and 2026-07-16) against this same
-	// contention pattern with diminishing returns both times.
-	DefaultCourseConcurrency = 1
+	// exhausted in any of the four runs). This was believed (PR #84,
+	// 2026-07-17) to implicate candidateStabilityPoll generically - see the
+	// RAISED TO 2 entry below for why that was half right: it named the
+	// right *engine*, but the wrong *call site*.
+	//
+	// RAISED TO 2 (2026-07-19, queue task
+	// fix-candidate-stability-poll-concurrent-crawl-race): PR #84 only ever
+	// looked at "section-content-poll" (waitForStableSectionContent's own
+	// --debug-clicks trace, the MAIN per-section content wait after a
+	// Goto) and found it innocent - correctly, but that is a different poll
+	// from the one actually at fault. This task added equivalent per-poll
+	// logging to waitForStableExpandedCandidates (the "show all" pagination
+	// EXPANSION poll, run after a click rather than a Goto - see
+	// expandShowAllInSection, internal/scraper/crawl.go) - previously the
+	// only candidateStabilityPoll caller with no trace at all - and that
+	// immediately exposed the real mechanism on the first re-run that
+	// reproduced the loss: every lost section's expansion poll read the
+	// exact same (pre-expansion, un-expanded) candidate count on every
+	// single poll, poll #1 through the end - flat from the start, not a
+	// plateau reached after partial growth. Cross-referencing against
+	// per-section counts from a same-window serial run confirmed the MAIN
+	// content poll's numbers matched serial exactly, section for section;
+	// only the post-click expansion differed. The trigger: every lost
+	// section's post-click content-settle wait (waitForInteractiveLinks)
+	// had hit the recoverable "execution context was destroyed" condition
+	// and retried - and this correlation was perfect across all observed
+	// data (12/12 "show all" clicks across 3 live concurrent runs: every
+	// section whose post-click wait retried lost files; every section whose
+	// post-click wait did not retry kept its full count). Mechanism: unlike
+	// a Goto (a real navigation, whose destroyed-context event is expected
+	// and whose response already contains the complete - already expanded,
+	// for the direct-navigate branch - content), a click's AJAX response is
+	// tied to the execution context that existed when the click fired; if
+	// OPAL/Wicket tears that context down before the response is applied
+	// (observed under concurrent-tab rendering contention, with the URL
+	// never changing), the response has nowhere left to land and the
+	// expansion is silently dropped for good - no amount of further polling
+	// can recover content that was never going to arrive, which is exactly
+	// why sectionContentMaxPolls/showAllExpansionMaxPolls never showing
+	// exhaustion in PR #84's data didn't rule this out. Fixed by having
+	// expandShowAllInSection (crawl.go) re-issue the "show all" click
+	// whenever this specific signal fires right after its own click (not
+	// after the direct-navigate branch, which doesn't need it) - see
+	// waitForInteractiveLinks's updated doc comment (navigation.go) and
+	// expandShowAllInSection's re-click branch for the full mechanism.
+	// Live-verified clean (byte-for-byte 339/339, matching a same-day serial
+	// baseline) across 4 consecutive full-account runs at
+	// course_concurrency=2 and a further 2 consecutive runs at
+	// course_concurrency=3 - one of the concurrency=2 runs directly caught
+	// the fix engaging: the same two sections that had lost files in every
+	// prior unfixed run hit the retry signal, got re-clicked, and came back
+	// with their full correct counts, not just an absence of contention
+	// that run.
+	//
+	// WALL-CLOCK CAVEAT - read before raising this further: this account's
+	// course mix (one ~200-file course that alone takes ~7 minutes,
+	// dwarfing the other five combined) makes concurrency=2/3 the same
+	// wall-clock or *slower* than course_concurrency=1 in these same
+	// verification runs (516-551s at concurrency=2, ~500s at concurrency=3,
+	// versus 312s serial) - the wider MutationObserver/stability-poll
+	// budgets applied to every section at concurrency>1 (see
+	// contentSettleWaitBudget/requiredStableReads) are a fixed per-section
+	// tax paid whether or not that section was ever actually contended, and
+	// with only ~5 non-trivial courses split across 2-3 workers, the one
+	// dominant course's own runtime is most of the wall-clock either way.
+	// Raised anyway because this constant's own stated bar is correctness
+	// ("verified byte-for-byte safe"), not speed, and the race that kept it
+	// at 1 is now closed - but anyone opting into course_concurrency>1
+	// expecting a speed win should verify that holds for their own course
+	// mix (many similarly-sized courses stand to benefit far more than one
+	// dominant course does).
+	DefaultCourseConcurrency = 2
 )
 
 // DefaultSkipEnrollmentSections is the default for App.SkipEnrollmentSections

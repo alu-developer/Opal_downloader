@@ -11,16 +11,18 @@ import (
 // (which course/file, what stage, what error) rather than just a final
 // summary line - see acceptance criteria in the gui-sync-page task.
 type jobEvent struct {
-	Seq        int    `json:"seq"`
-	Time       string `json:"time"`
-	Kind       string `json:"kind"` // "course_started" | "file_downloaded" | "file_skipped" | "error" | "log" | "done" | "cancelled" | "failed"
-	Course     string `json:"course,omitempty"`
-	File       string `json:"file,omitempty"`
-	Message    string `json:"message,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Downloaded int    `json:"downloaded,omitempty"`
-	Skipped    int    `json:"skipped,omitempty"`
-	Errors     int    `json:"errors,omitempty"`
+	Seq          int    `json:"seq"`
+	Time         string `json:"time"`
+	Kind         string `json:"kind"` // "course_started" | "file_downloaded" | "file_skipped" | "error" | "log" | "done" | "cancelled" | "failed"
+	Course       string `json:"course,omitempty"`
+	File         string `json:"file,omitempty"`
+	Message      string `json:"message,omitempty"`
+	Error        string `json:"error,omitempty"`
+	Downloaded   int    `json:"downloaded,omitempty"`
+	Skipped      int    `json:"skipped,omitempty"`
+	Errors       int    `json:"errors,omitempty"`
+	CourseIndex  int    `json:"courseIndex,omitempty"`
+	TotalCourses int    `json:"totalCourses,omitempty"`
 }
 
 // jobKind identifies which long-running action a job runs.

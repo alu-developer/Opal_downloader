@@ -199,24 +199,89 @@ const (
 	// with their full correct counts, not just an absence of contention
 	// that run.
 	//
-	// WALL-CLOCK CAVEAT - read before raising this further: this account's
-	// course mix (one ~200-file course that alone takes ~7 minutes,
-	// dwarfing the other five combined) makes concurrency=2/3 the same
-	// wall-clock or *slower* than course_concurrency=1 in these same
-	// verification runs (516-551s at concurrency=2, ~500s at concurrency=3,
-	// versus 312s serial) - the wider MutationObserver/stability-poll
-	// budgets applied to every section at concurrency>1 (see
+	// WALL-CLOCK CAVEAT (2026-07-19, when this was raised to 2) - this
+	// account's course mix (one ~200-file course that alone takes ~7
+	// minutes, dwarfing the other five combined) made concurrency=2/3 the
+	// same wall-clock or *slower* than course_concurrency=1 in the
+	// correctness-verification runs (516-551s at concurrency=2, ~500s at
+	// concurrency=3, versus 312s serial) - the wider MutationObserver/
+	// stability-poll budgets applied to every section at concurrency>1 (see
 	// contentSettleWaitBudget/requiredStableReads) are a fixed per-section
-	// tax paid whether or not that section was ever actually contended, and
-	// with only ~5 non-trivial courses split across 2-3 workers, the one
-	// dominant course's own runtime is most of the wall-clock either way.
-	// Raised anyway because this constant's own stated bar is correctness
+	// tax paid whether or not that section was ever actually contended.
+	// Raised anyway because this constant's own stated bar was correctness
 	// ("verified byte-for-byte safe"), not speed, and the race that kept it
-	// at 1 is now closed - but anyone opting into course_concurrency>1
-	// expecting a speed win should verify that holds for their own course
-	// mix (many similarly-sized courses stand to benefit far more than one
-	// dominant course does).
-	DefaultCourseConcurrency = 2
+	// at 1 is now closed - but the PR explicitly flagged the speed question
+	// as unresolved: "worth a second look if it doesn't hold for other
+	// course-size distributions", since the one-dominant-course structure
+	// of this account could plausibly be masking a real parallelism win
+	// that a more evenly-sized course load would show.
+	//
+	// REVERTED TO 1 (2026-07-20, queue task
+	// investigate-course-concurrency-wallclock-benefit): that follow-up
+	// found the speed loss is NOT specific to the one-dominant-course
+	// structure - it holds, actually more starkly, on an evenly-sized
+	// course load too, so the default is back to 1.
+	//
+	// Full-account live crawls are expensive to repeat (~5-8 minutes each),
+	// so rather than more full-account runs, this task isolated the
+	// concurrency effect from the one-dominant-course effect directly: the
+	// real TU Dresden account's one ~200-file course (Softwaretechnologie)
+	// was excluded, and the remaining 5 courses - 39/36/30/17/14 files, a
+	// genuinely even spread with no course more than ~2.8x any other, a
+	// plausible stand-in for a typical semester course load without one
+	// outlier - were crawled with a small throwaway harness
+	// (scraper.OpalScraper.ScrapeWithSavedSession with an explicit course
+	// filter; `list` itself always crawls every discovered course
+	// regardless of config.yaml's courses filter, so it couldn't be used
+	// directly for this) at course_concurrency 1, 2, and 3, two repeated
+	// runs each of 1 and 2:
+	//
+	//   - concurrency=1 (serial): 126.7s and 127.0s (136/136 files) -
+	//     tightly reproducible.
+	//   - concurrency=2: 190.95s and 187.16s (136/136 files) - not faster,
+	//     ~49% *slower* than serial, consistently across both runs.
+	//   - concurrency=3: 120.3s (136/136 files) - roughly on par with
+	//     serial (~5% faster, within the noise band the repeated serial
+	//     runs already show), not the ~2-3x speedup naive parallelism
+	//     would suggest for 5 courses over 3 workers.
+	//
+	// Correctness held in every run (136/136 byte-for-byte, matching the
+	// serial ground truth) - this is purely a speed finding, PR #94's
+	// correctness fix is not in question.
+	//
+	// Root cause of the non-benefit: every individual course's own crawl
+	// time roughly 2.3-2.7x'd under concurrency>1 versus its own serial
+	// time (e.g. "2026 LA20" 34.3s serial -> ~89s concurrent; "Analysis"
+	// 31.6s -> ~79-80s; "So26 Programmieren..." 34.5s -> ~93-97s;
+	// "TUDMATH..." 13.6s -> ~33-35s; "Algorithmen und Datenstrukturen"
+	// 6.9s -> ~16-18s) - a consistent multiplier across courses of very
+	// different sizes, not a large-course-specific effect. This points at
+	// the fixed per-section concurrency>1 tax (requiredStableReads/
+	// contentSettleWaitBudget, applied unconditionally whenever
+	// effectiveCourseConcurrency() > 1, regardless of whether a given
+	// section was actually contended) plus genuine rendering contention
+	// from multiple tabs sharing one Chromium process, together outweighing
+	// the parallelism gain whenever the course count is the kind of small
+	// (5-8 non-trivial courses) a real student's semester load looks like -
+	// there simply isn't enough concurrent work to amortize that fixed tax
+	// against, with or without one course dominating.
+	//
+	// Given the same conclusion (no proven wall-clock win, sometimes a
+	// large loss) now holds on both course-size distributions tested - this
+	// account's own skewed real mix, and a deliberately evened-out subset
+	// of it - there is no evidence to support a variance-aware default
+	// (raise for "even" accounts, keep at 1 for "skewed" ones): the "even"
+	// case lost too, more consistently than the skewed one. Per this
+	// project's ease-of-use-first philosophy, imposing extra browser
+	// resource usage (multiple concurrent tabs) and a slower default
+	// experience on every user for a benefit that hasn't been observed on
+	// any tested distribution isn't justified, so the default reverts to 1.
+	// course_concurrency remains available as an explicit opt-in
+	// (config.yaml or --course-concurrency) for anyone who wants to
+	// experiment against their own course mix/hardware/network - it is
+	// correctness-safe at 2 and 3 per PR #94's live verification, just not
+	// a proven speed win.
+	DefaultCourseConcurrency = 1
 )
 
 // DefaultSkipEnrollmentSections is the default for App.SkipEnrollmentSections

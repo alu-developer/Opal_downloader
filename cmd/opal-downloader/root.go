@@ -1164,7 +1164,7 @@ func printHelp() {
 	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
 	fmt.Println("  --debug-clicks          Log every click and navigation/interactive-link wait with timestamp, page URL, selector, and reason (diagnostic tool)")
 	fmt.Println("  --concurrency n         Max concurrent file downloads for sync (default 3, overrides config.yaml)")
-	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 2, overrides config.yaml)")
+	fmt.Println("  --course-concurrency n  Max concurrent courses crawled during discovery (default 1, overrides config.yaml)")
 	fmt.Println("  --visit-report          (list only) Print the cross-run section visit-effectiveness report from .opal-visit-log.json and exit - no browser/login needed")
 	fmt.Println("  --no-skip-enrollment-sections  Visit every OPAL 'Einschreibung' (enrollment/sign-up) course-node section instead of skipping it (overrides config.yaml's skip_enrollment_sections: true default) - escape hatch if the structural skip is ever wrong for your OPAL instance")
 	fmt.Println("  --scheduled             (sync only) Unattended mode for Task Scheduler: fails fast if TU-Fast isn't set up in the dedicated login profile instead of waiting for a 2FA click that will never come. Also enforced: a single-instance overlap-guard lock, checked on every sync (scheduled or manual/GUI), so two runs never race.")

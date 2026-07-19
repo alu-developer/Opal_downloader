@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/report"
 	"github.com/alu-developer/opal-downloader/internal/scheduler"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/smokecheck"
 	"github.com/alu-developer/opal-downloader/internal/statuslog"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 	"github.com/alu-developer/opal-downloader/internal/synclock"
@@ -127,6 +129,8 @@ func Execute() {
 		err = runGUI(args)
 	case "schedule":
 		err = runSchedule(args)
+	case "smoke-check":
+		err = runSmokeCheck(args)
 	case "__panic-test":
 		// Undocumented, not listed in printHelp: exists solely so the panic
 		// recovery wired up in Execute (see its doc comment) can be
@@ -778,6 +782,168 @@ func runDumpLinks(args []string) error {
 	return nil
 }
 
+// runSmokeCheck implements `opal-downloader smoke-check` - queue task
+// add-scraper-smoke-check's local, on-demand answer to "does the crawl/sync
+// still actually work against real OPAL", meant to be run by a
+// maintainer or queue-run right after touching internal/scraper or
+// internal/syncer, reusing the existing saved session_state_file exactly
+// like `list`/`sync` already do.
+//
+// By default this only runs a single read-only discovery pass (see
+// internal/smokecheck's package doc comment for the two signals checked:
+// login/session validity and discovery-count sanity against a
+// locally-persisted baseline) - deliberately the same "list is read-only,
+// safe to run often" property docs/manual-setup-checklist.md already
+// documents for `list` itself. --full-sync opts into an additional real
+// download pass against a disposable scratch directory (never the user's
+// real download_path/manifest) to also exercise file-download reachability,
+// at the cost of being slower and touching the network's file bytes, not
+// just page/DOM content.
+//
+// Like `sync --scheduled`, this calls scraper.EnsureTUFastPresent before
+// ever touching a saved session: smoke-check is meant to be run
+// unattended (by queue-run, or by a maintainer who has walked away), so a
+// session that would need a *human* 2FA click must fail fast here instead
+// of ensureSession silently blocking for up to 300s waiting for a click
+// that will never come. This does mean smoke-check requires TU-Fast to be
+// set up in the dedicated login profile, same as scheduled sync - a
+// deliberate scope match with the only other "runs with nobody watching"
+// path this codebase already has, not a new concept.
+func runSmokeCheck(args []string) error {
+	configPath := filepath.Join(projectDir(), "config.yaml")
+	threshold := smokecheck.DefaultDropThresholdPercent
+	resetBaseline := false
+	fullSync := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--config":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--config requires a path")
+			}
+			configPath = args[i]
+		case "--threshold":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--threshold requires a value")
+			}
+			parsed, parseErr := strconv.ParseFloat(args[i], 64)
+			if parseErr != nil || parsed <= 0 {
+				return fmt.Errorf("--threshold requires a positive number (percent), got %q", args[i])
+			}
+			threshold = parsed
+		case "--reset-baseline":
+			resetBaseline = true
+		case "--full-sync":
+			fullSync = true
+		default:
+			return fmt.Errorf("unknown option for smoke-check: %s", args[i])
+		}
+	}
+
+	// Fail fast (no network call, filesystem-only - same property
+	// EnsureTUFastPresent already documents) rather than risk hanging for a
+	// human who isn't there. See this function's doc comment.
+	if err := scraper.EnsureTUFastPresent(); err != nil {
+		return err
+	}
+
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+	printConfigWarnings(loaded.App)
+
+	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
+	defer sc.Close()
+	defer closeBrowserOnInterrupt(sc)()
+
+	fmt.Println("Running discovery (read-only, same as `list`)...")
+	result, err := smokecheck.Run(context.Background(), sc, smokecheck.Options{
+		ThresholdPercent: threshold,
+		ResetBaseline:    resetBaseline,
+	})
+	if err != nil {
+		// err may wrap a raw Playwright/network error (e.g. unreachable
+		// opal_url) - sanitize before printing, same bar as any other
+		// message this command prints (see statuslog.SanitizeMessage's doc
+		// comment on why this project always routes error text through it).
+		return fmt.Errorf("smoke-check: discovery failed: %s", statuslog.SanitizeMessage(err.Error()))
+	}
+
+	fmt.Println()
+	fmt.Println("Login/session:", result.LoginMessage)
+	fmt.Println("Discovery:", result.DiscoveryMessage)
+	if result.BaselineWriteWarning != "" {
+		fmt.Fprintln(os.Stderr, "Warning: could not save smoke-check baseline:", result.BaselineWriteWarning)
+	}
+	courseNames := make([]string, 0, len(result.Courses))
+	for name := range result.Courses {
+		courseNames = append(courseNames, name)
+	}
+	sort.Strings(courseNames)
+	for _, name := range courseNames {
+		fmt.Printf("  [%s] (%d files)\n", name, result.Courses[name])
+	}
+
+	if fullSync {
+		fmt.Println()
+		if err := runSmokeCheckFullSync(context.Background(), sc, loaded.App); err != nil {
+			return fmt.Errorf("smoke-check: --full-sync failed: %s", statuslog.SanitizeMessage(err.Error()))
+		}
+	}
+
+	fmt.Println()
+	if !result.Pass {
+		return fmt.Errorf("smoke-check FAILED: %s", result.DiscoveryMessage)
+	}
+	fmt.Println("smoke-check PASSED")
+	return nil
+}
+
+// runSmokeCheckFullSync is --full-sync's opt-in deeper check: a real
+// syncer.SyncCourses download pass, proving files are actually reachable and
+// downloadable (not just discoverable), run against a disposable scratch
+// directory under the OS temp dir rather than the user's real
+// download_path/manifest.
+//
+// Deliberately NOT a copy of the user's full config.App: DefaultCourseFolder/
+// CourseFolders/UseSectionSubfolders/SectionFolderNames/SubfolderDestinations
+// are all left unset here, even though the real loaded config may set them,
+// because subfolder_destinations in particular can redirect a course's files
+// to an arbitrary absolute path anywhere on disk (see
+// docs/OPERATIONS.md's per-subfolder-download-destinations section) - copying
+// it verbatim would defeat the "this only ever touches a scratch directory"
+// guarantee this flag exists to provide. Every file this pass downloads
+// lands flatly at <scratchDir>/<course>/<file>.
+func runSmokeCheckFullSync(ctx context.Context, sc *scraper.OpalScraper, appCfg config.App) error {
+	scratchDir, err := os.MkdirTemp("", "opal-smoke-check-")
+	if err != nil {
+		return fmt.Errorf("creating scratch download directory: %w", err)
+	}
+	defer os.RemoveAll(scratchDir)
+
+	fmt.Printf("Running a real sync into a scratch directory (%s) - --full-sync was requested...\n", scratchDir)
+
+	scratchCfg := config.App{
+		DownloadPath:           scratchDir,
+		Courses:                appCfg.Courses,
+		DownloadConcurrency:    appCfg.DownloadConcurrency,
+		CourseConcurrency:      appCfg.CourseConcurrency,
+		SkipEnrollmentSections: appCfg.SkipEnrollmentSections,
+	}
+
+	stats, err := syncer.SyncCourses(ctx, sc, scratchCfg, false)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("--full-sync done. downloaded=%d skipped=%d errors=%d\n", stats.Downloaded, stats.Skipped, stats.Errors)
+	if stats.Errors > 0 {
+		return fmt.Errorf("%d file(s) failed to download", stats.Errors)
+	}
+	return nil
+}
+
 // runSchedule implements `opal-downloader schedule enable|disable|status`,
 // the CLI counterpart to the GUI Settings page's "Enable daily automatic
 // sync" toggle (internal/gui/schedule.go) - both call the same
@@ -981,6 +1147,7 @@ func printHelp() {
 	fmt.Println("  sync    Download new/changed files")
 	fmt.Println("  dump-links  Open a page and write all detected link candidates to a JSON file")
 	fmt.Println("  schedule    Enable/disable/check a daily automatic sync via Windows Task Scheduler")
+	fmt.Println("  smoke-check Local, on-demand check that the crawl still actually works against real OPAL (read-only by default)")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  init --config <path>")
@@ -992,6 +1159,7 @@ func printHelp() {
 	fmt.Println("  sync --config <path> [--force] [--dev] [--profile] [--debug-clicks] [--concurrency <n>] [--course-concurrency <n>] [--no-skip-enrollment-sections] [--scheduled]")
 	fmt.Println("  dump-links --url <url> [--out <path>] [--config <path>] [--dev]")
 	fmt.Println("  schedule enable [--time HH:MM] | disable | status")
+	fmt.Println("  smoke-check --config <path> [--threshold <percent>] [--reset-baseline] [--full-sync]")
 	fmt.Println()
 	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
 	fmt.Println("  --debug-clicks          Log every click and navigation/interactive-link wait with timestamp, page URL, selector, and reason (diagnostic tool)")
@@ -1000,6 +1168,9 @@ func printHelp() {
 	fmt.Println("  --visit-report          (list only) Print the cross-run section visit-effectiveness report from .opal-visit-log.json and exit - no browser/login needed")
 	fmt.Println("  --no-skip-enrollment-sections  Visit every OPAL 'Einschreibung' (enrollment/sign-up) course-node section instead of skipping it (overrides config.yaml's skip_enrollment_sections: true default) - escape hatch if the structural skip is ever wrong for your OPAL instance")
 	fmt.Println("  --scheduled             (sync only) Unattended mode for Task Scheduler: fails fast if TU-Fast isn't set up in the dedicated login profile instead of waiting for a 2FA click that will never come. Also enforced: a single-instance overlap-guard lock, checked on every sync (scheduled or manual/GUI), so two runs never race.")
+	fmt.Println("  --threshold n           (smoke-check only) Percent the discovered file count may drop below the saved baseline before failing (default 20)")
+	fmt.Println("  --reset-baseline        (smoke-check only) Discard the saved baseline and record the current file count as the new starting point")
+	fmt.Println("  --full-sync             (smoke-check only) Also run a real sync into a disposable scratch directory, to test file-download reachability in addition to discovery")
 }
 
 func copyFile(source, target string) error {

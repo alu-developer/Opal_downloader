@@ -14,6 +14,14 @@ This project is browser-automation heavy and depends on external website structu
 ## Suggested maintenance cadence
 
 - Weekly: `scripts/dev.ps1 all`
+- After touching `internal/scraper/` or `internal/syncer/`: `opal-downloader smoke-check`
+  - a local, read-only, on-demand check (reuses the saved session, no
+    credentials involved) that catches crawl/sync regressions right away
+    instead of waiting for a human to notice or for the next scheduled run's
+    failure banner. Add `--full-sync` to also test real file-download
+    reachability (into a disposable scratch directory, never your real
+    `download_path`). See `internal/smokecheck`'s package doc comment for
+    what it checks and why.
 - Monthly: dependency updates (`go get -u ./...`) and smoke sync run
 - Semester start: validate course discovery and download selectors
 - Periodically (or after README/config changes): `scripts/test-fresh-install.ps1`

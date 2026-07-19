@@ -27,18 +27,17 @@ type jobEvent struct {
 type jobKind string
 
 const (
-	jobKindSync      jobKind = "sync"
-	jobKindList      jobKind = "list"
-	jobKindDumpLinks jobKind = "dump-links"
+	jobKindSync jobKind = "sync"
+	jobKindList jobKind = "list"
 )
 
 // job tracks the state of one in-flight (or just-finished) long-running
-// action triggered from the GUI (sync/list/dump-links). Only one job may
-// run at a time; jobManager enforces that.
+// action triggered from the GUI (sync/list). Only one job may run at a
+// time; jobManager enforces that.
 //
 // Lifecycle note (deliberate, see acceptance criteria): a job is NOT tied to
-// any single HTTP request's lifetime. /sync/start (and the list/dump-links
-// equivalents) launch the job in a background goroutine and return
+// any single HTTP request's lifetime. /sync/start (and the list-only
+// equivalent) launch the job in a background goroutine and return
 // immediately; the SSE stream at /sync/stream is just a *viewer* of the
 // job's event log, and multiple viewers (or none at all, e.g. if the
 // browser tab is closed) can attach/detach without affecting the job. This

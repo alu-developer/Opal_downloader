@@ -372,6 +372,68 @@ opting into `course_concurrency>1` expecting a speed win should verify that
 holds for their own course-size mix; see `DefaultCourseConcurrency`'s doc
 comment in `internal/config/config.go` for the full numbers.
 
+### "response is HTML" download failures — course "2026 LA20" no longer reproduces (2026-07-19 investigation)
+
+Queue task `investigate-2026-la20-session-sensitive-html-response-failures`
+followed up on a residual gap PR #89 (`fix-html-response-download-
+fallback-failures`) flagged but didn't chase: during that task's
+2026-07-17 live verification, *every* file in course "2026 LA20" failed
+its fast-path GET and the browser-click fallback with "response is HTML,
+browser fallback click did not find downloadable link" when LA20 was
+crawled as part of a full multi-course run, but succeeded cleanly when
+LA20 was crawled alone. This is a different failure shape from the
+show-all gap PR #89 fixed (LA20 has no "show all" pagination at all), and
+was suspected - but never confirmed - to relate to the session-wide Wicket
+AJAX download mechanism PR #63/#35
+(`fix-fast-path-download-history-counter`, see `download.go`'s and
+`download_refresh.go`'s doc comments) somehow being sensitive to other
+courses' requests sharing the same session.
+
+Live reproduction (2026-07-19, current master, includes PR #89-#94): a
+real forced `opal-downloader sync --force --debug-clicks --profile`
+against the maintainer's actual 6 configured courses (LA20 plus the other
+5, `course_concurrency: 1`, `download_concurrency: 3` - matching the real
+`config.yaml` verbatim), redirected only to a disposable scratch
+`download_path` so the real synced folders/manifest weren't touched.
+**Result: LA20 did not fail at all.** Every one of its ~39 files
+downloaded successfully - a normal mix of clean fast-path hits and a
+handful of browser-fallback retries, same shape as any other course - with
+zero errors, while running alongside the other 5 courses in the same
+browser session exactly as the original report's scenario. (One unrelated
+single-file failure was observed elsewhere in the same run,
+`Algorithmen und Datenstrukturen/Vorlesung_9_10.pdf`, same generic
+"response is HTML" message - a single file, not a whole-course failure,
+and not LA20; out of scope for this task and not chased further given the
+cost of another live cycle.)
+
+**No code change made - closing as "does not currently reproduce," which
+this task's own acceptance criteria calls out as a valid outcome.** The
+exact root cause was never conclusively isolated (the same trap PR #89
+and PR #35 both flagged: reproduction costs a full live account cycle, and
+repeated probing risks perturbing the very session state under
+investigation, so this task budgeted for one confident live attempt, not a
+bisection across historical commits). The most plausible - but unconfirmed
+- explanation is that one or more fixes that landed since the 2026-07-17
+report incidentally stabilized whatever session-side condition was
+corrupting LA20's requests: PR #89's own show-all-click retry, and/or PR
+#94's fix for a click-AJAX-response-dropped-under-concurrent-tab-
+contention race. Neither is a confirmed match - PR #94's race is a
+discovery-time mechanism (concurrent-tab JS execution-context teardown)
+distinct from LA20's symptom (download-time, fast-path GET/counter-refresh
+failing outright), and LA20 itself has no show-all sections for PR #89's
+fix to touch - so treat this as circumstantial, not verified.
+
+If this symptom recurs: check first whether it's isolated to one course
+again (matching this exact shape) before re-investigating from scratch -
+a fresh regression is more likely to spread across several courses. Reuse
+`~/.opal-downloader/debug-logs/*.jsonl` from the failing run (see the
+`--debug-clicks` JSONL update above) rather than re-deriving raw data from
+a second live run. One build gotcha hit again during this investigation,
+already documented above (PR #93) but worth repeating since it cost real
+time twice now: `go build -o file.exe ./cmd/opal-downloader` silently
+builds the `opaldownloader` library package (a Go archive, not a runnable
+`.exe`) - build `go build -o file.exe .` from the repo root instead.
+
 ### Chromium fails to launch with "the application has failed to start
 ### because its side-by-side configuration is incorrect"
 

@@ -41,7 +41,43 @@ type fakeDownloader struct {
 	concurrent    int32
 	maxConcurrent int32
 
+	// barrier, when non-nil, makes DownloadFile block until barrierWidth
+	// calls are in flight *at the same time* (or until barrierTimeout
+	// elapses). That turns "did downloads really run in parallel?" into a
+	// deterministic question instead of a wall-clock race: if the worker
+	// pool genuinely runs barrierWidth workers, the barrier is reached and
+	// released no matter how loaded the machine is; if it secretly
+	// serialises, the barrier can never be reached and the timeout fires.
+	// Use newBarrierDownloader to construct one.
+	barrier         chan struct{}
+	barrierWidth    int32
+	barrierOnce     sync.Once
+	barrierTimeout  time.Duration
+	barrierTimeouts int32
+
 	failURLs map[string]bool
+}
+
+// newBarrierDownloader builds a fakeDownloader whose DownloadFile blocks
+// until `width` downloads are simultaneously in flight. The timeout is the
+// failure path only: it is never hit when concurrency works, so it can be
+// generous without slowing the passing case. Once it does fire the barrier
+// is released for everyone, so a broken (serialised) implementation fails
+// after one timeout rather than one per file.
+func newBarrierDownloader(files []scraper.RemoteFile, width int32) *fakeDownloader {
+	return &fakeDownloader{
+		files:          files,
+		barrier:        make(chan struct{}),
+		barrierWidth:   width,
+		barrierTimeout: 10 * time.Second,
+	}
+}
+
+// barrierTimedOut reports whether the barrier was released by its timeout
+// (i.e. the expected number of parallel downloads never materialised)
+// rather than by enough downloads actually arriving together.
+func (f *fakeDownloader) barrierTimedOut() bool {
+	return atomic.LoadInt32(&f.barrierTimeouts) > 0
 }
 
 func (f *fakeDownloader) ScrapeWithSavedSession(ctx context.Context, courseFilter []string) ([]scraper.RemoteFile, error) {
@@ -80,6 +116,20 @@ func (f *fakeDownloader) DownloadFile(fileURL, localPath string) error {
 		max := atomic.LoadInt32(&f.maxConcurrent)
 		if cur <= max || atomic.CompareAndSwapInt32(&f.maxConcurrent, max, cur) {
 			break
+		}
+	}
+
+	if f.barrier != nil {
+		if cur >= f.barrierWidth {
+			f.barrierOnce.Do(func() { close(f.barrier) })
+		}
+		select {
+		case <-f.barrier:
+		case <-time.After(f.barrierTimeout):
+			atomic.AddInt32(&f.barrierTimeouts, 1)
+			// Release everyone else too, so a serialised implementation
+			// costs one timeout total instead of one per file.
+			f.barrierOnce.Do(func() { close(f.barrier) })
 		}
 	}
 
@@ -419,7 +469,11 @@ func TestSyncCoursesDownloadsAllFilesConcurrently(t *testing.T) {
 	dir := t.TempDir()
 	const fileCount = 20
 
-	fake := &fakeDownloader{files: makeRemoteFiles(fileCount), delay: 5 * time.Millisecond}
+	// Barrier rather than a sleep delay: the concurrency assertion at the
+	// end of this test used to rely on a 5ms per-file sleep making overlap
+	// "likely enough" to observe, which is the same load-sensitive gamble
+	// that made the old throughput test flaky.
+	fake := newBarrierDownloader(makeRemoteFiles(fileCount), 4)
 	cfg := config.App{DownloadPath: dir, DownloadConcurrency: 4}
 
 	stats, err := SyncCourses(context.Background(), fake, cfg, false)
@@ -460,53 +514,74 @@ func TestSyncCoursesDownloadsAllFilesConcurrently(t *testing.T) {
 		}
 	}
 
-	if got := atomic.LoadInt32(&fake.maxConcurrent); got < 2 {
-		t.Fatalf("expected downloads to run concurrently (max observed concurrency %d), fake delay should have made overlap observable", got)
+	if fake.barrierTimedOut() {
+		t.Fatalf("downloads never reached 4 in flight at once - the worker pool is not running them concurrently")
 	}
-	if got := atomic.LoadInt32(&fake.maxConcurrent); got > 4 {
-		t.Fatalf("expected concurrency to be capped at 4, observed %d", got)
+	if got := atomic.LoadInt32(&fake.maxConcurrent); got != 4 {
+		t.Fatalf("expected exactly 4 downloads in flight at peak (concurrency limit), observed %d", got)
 	}
 }
 
-// TestSyncCoursesConcurrencyIsFasterThanSequential is the synthetic
-// throughput check called for in the perf-02 task: with an artificial
-// per-file delay, concurrency=4 should complete meaningfully faster than
-// concurrency=1 for the same file count. This does not require a live OPAL
-// account - it isolates the scheduling change in SyncCourses using the fake
-// Downloader above.
-func TestSyncCoursesConcurrencyIsFasterThanSequential(t *testing.T) {
+// TestSyncCoursesHonoursDownloadConcurrency is the synthetic scheduling
+// check originally called for by the perf-02 task. It used to compare
+// wall-clock time for concurrency=1 vs concurrency=4 and assert the latter
+// was meaningfully faster, which was inherently flaky: on a loaded machine
+// the "concurrent" run could measure slower than the sequential one (seen
+// at 3.7x slower in the task that added it). It now asserts the thing the
+// timing comparison was only a proxy for - how many downloads were actually
+// in flight at once - which is deterministic under any system load:
+//
+//   - concurrency=1 must never observe more than 1 download in flight
+//     (the limit is respected), and
+//   - concurrency=4 must observe exactly 4 in flight (real parallelism, and
+//     still capped at the configured limit).
+//
+// The concurrency=4 case uses a barrier: each simulated download blocks
+// until 4 of them are in flight together. A genuinely parallel worker pool
+// always reaches that, however slow the machine; a serialised one never
+// does and trips the barrier timeout, so the test still fails loudly if
+// concurrency regresses.
+func TestSyncCoursesHonoursDownloadConcurrency(t *testing.T) {
 	const fileCount = 12
-	const perFileDelay = 20 * time.Millisecond
 
-	runWithConcurrency := func(concurrency int) time.Duration {
+	t.Run("concurrency=1 stays serial", func(t *testing.T) {
 		dir := t.TempDir()
-		fake := &fakeDownloader{files: makeRemoteFiles(fileCount), delay: perFileDelay}
-		cfg := config.App{DownloadPath: dir, DownloadConcurrency: concurrency}
+		fake := &fakeDownloader{files: makeRemoteFiles(fileCount), delay: time.Millisecond}
+		cfg := config.App{DownloadPath: dir, DownloadConcurrency: 1}
 
-		start := time.Now()
 		stats, err := SyncCourses(context.Background(), fake, cfg, false)
-		elapsed := time.Since(start)
 		if err != nil {
 			t.Fatalf("SyncCourses returned error: %v", err)
 		}
 		if stats.Downloaded != fileCount {
 			t.Fatalf("expected %d downloaded, got %d", fileCount, stats.Downloaded)
 		}
-		return elapsed
-	}
+		if got := atomic.LoadInt32(&fake.maxConcurrent); got != 1 {
+			t.Fatalf("concurrency=1 should never run more than 1 download at a time, observed max %d", got)
+		}
+	})
 
-	sequential := runWithConcurrency(1)
-	concurrent := runWithConcurrency(4)
+	t.Run("concurrency=4 runs four at once", func(t *testing.T) {
+		const want int32 = 4
 
-	t.Logf("sequential (concurrency=1): %s, concurrent (concurrency=4): %s", sequential, concurrent)
+		dir := t.TempDir()
+		fake := newBarrierDownloader(makeRemoteFiles(fileCount), want)
+		cfg := config.App{DownloadPath: dir, DownloadConcurrency: int(want)}
 
-	// With 12 files at 20ms each, sequential should take ~240ms and
-	// concurrency=4 should take ~60-80ms. Assert concurrent is at least 40%
-	// faster to leave generous headroom for slow/loaded CI machines while
-	// still proving the parallel path actually improves throughput.
-	if concurrent >= time.Duration(float64(sequential)*0.6) {
-		t.Fatalf("expected concurrency=4 to be meaningfully faster than concurrency=1: sequential=%s concurrent=%s", sequential, concurrent)
-	}
+		stats, err := SyncCourses(context.Background(), fake, cfg, false)
+		if err != nil {
+			t.Fatalf("SyncCourses returned error: %v", err)
+		}
+		if stats.Downloaded != fileCount {
+			t.Fatalf("expected %d downloaded, got %d", fileCount, stats.Downloaded)
+		}
+		if fake.barrierTimedOut() {
+			t.Fatalf("downloads never reached %d in flight at once - the worker pool is not running them concurrently", want)
+		}
+		if got := atomic.LoadInt32(&fake.maxConcurrent); got != want {
+			t.Fatalf("expected exactly %d downloads in flight at peak, observed %d", want, got)
+		}
+	})
 }
 
 // TestSyncCoursesHandlesDownloadErrors verifies that failures from some

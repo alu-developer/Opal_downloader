@@ -120,9 +120,17 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 		s.auditLog("fast-path-miss", nil, fileURL, fmt.Sprintf("status=%d content-type=%q err=%q -> falling back to browser download for %s", status, contentType, reqErr, localPath))
 	}
 
+	// plainURLServesHTML records what the fast-path GET above actually
+	// observed for this exact URL: a 200 whose body is an HTML page, not the
+	// file. downloadFileViaBrowser uses it to skip its own
+	// navigate-and-hope-for-a-download attempt, which in that case is a
+	// guaranteed ~15s timeout per file (see its doc comment).
+	plainURLServesHTML := err == nil && response != nil && response.Status() == 200 &&
+		strings.Contains(strings.ToLower(response.Headers()["content-type"]), "text/html")
+
 	s.browserDownloadMu.Lock()
 	defer s.browserDownloadMu.Unlock()
-	return s.downloadFileViaBrowser(fileURL, localPath)
+	return s.downloadFileViaBrowser(fileURL, localPath, plainURLServesHTML)
 }
 
 // attemptDirectDownload performs a stateless HTTP GET against requestURL
@@ -154,50 +162,140 @@ func attemptDirectDownload(reqCtx playwright.APIRequestContext, requestURL, loca
 	return true, os.WriteFile(localPath, body, 0o644)
 }
 
-func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string) error {
+// browserFallbackMaxAttempts bounds how many times downloadFileViaBrowser
+// replays its whole per-page click search before giving up on a file.
+//
+// Why more than one (queue task investigate-per-file-html-fallback-failures,
+// 2026-07-20): a specific, structurally-identifiable set of files - those past
+// the first pagination page of a click-expanded ("Alle anzeigen") section -
+// can never be served by the fast HTTP path or the counter-refresh, so for
+// them this browser-click fallback is not a safety net, it is the *only* path.
+// It was nonetheless a strictly one-shot chain of individually flaky steps
+// (navigate, wait for render, click by href, click by text, re-click show-all,
+// search again), each with its own timeout, and any single flake meant a
+// permanent failure for that file with a generic error message. Live evidence:
+// in one clean 36-file run of a real course, 6 files reached this path and all
+// 6 succeeded, but `Vorlesung_9_10.pdf` only succeeded on the very last step of
+// the chain - the same file that failed outright in the run that triggered this
+// task. Two attempts is deliberately modest: this path is serialized behind
+// s.browserDownloadMu, so every extra attempt costs the whole sync wall-clock
+// time, and the evidence points at a marginal flake rather than something that
+// needs many retries to shake loose.
+const browserFallbackMaxAttempts = 2
+
+// browserFallbackRetryWaitMs is the pause between those attempts, giving a
+// slow OPAL/Wicket render (the most likely cause of a marginal miss) time to
+// settle before the identical sequence is replayed.
+const browserFallbackRetryWaitMs = 1500
+
+// downloadFileViaBrowser is DownloadFile's last resort: drive the shared
+// browser page to click the file's real link. It must not run concurrently
+// with itself - DownloadFile holds s.browserDownloadMu across the call.
+//
+// plainURLServesHTML tells it what DownloadFile's own fast-path GET already
+// observed: that requesting fileURL directly returns a 200 HTML page rather
+// than the file. When that is known *and* a recorded download candidate exists
+// to click instead, the initial "navigate to fileURL and hope a download
+// starts" attempt below is skipped - it cannot succeed (a plain request for a
+// file URL always 302s to a generic HTML page, established live and documented
+// at length in DownloadFile's doc comment), and letting it run costs a full
+// 15s ExpectDownload timeout per affected file, serialized. It is still
+// attempted whenever there is no candidate to fall back to, since then it is
+// the only thing left to try.
+func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string, plainURLServesHTML bool) error {
 	page := s.getPage()
 	if page == nil {
 		return errors.New("no browser page available for download fallback")
 	}
 
-	download, err := page.ExpectDownload(func() error {
-		_, navErr := page.Goto(fileURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)})
-		return navErr
-	}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
-	if err == nil {
-		return download.SaveAs(localPath)
+	candidate, hasCandidate := s.downloadCandidates[fileURL]
+
+	if !hasCandidate || !plainURLServesHTML {
+		download, err := page.ExpectDownload(func() error {
+			_, navErr := page.Goto(fileURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)})
+			return navErr
+		}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
+		if err == nil {
+			return download.SaveAs(localPath)
+		}
 	}
 
-	candidate, ok := s.downloadCandidates[fileURL]
-	if !ok {
-		return errors.New("response is HTML, not a direct file download")
+	if !hasCandidate {
+		return errors.New("response is HTML, not a direct file download, and no download candidate was recorded for it during discovery")
 	}
 
-	return tryCandidatePagesInOrder(candidate, func(pageURL string) error {
-		return s.clickCandidateLinkOnPage(pageURL, candidate, localPath)
-	})
+	var lastErr error
+	for attempt := 1; attempt <= browserFallbackMaxAttempts; attempt++ {
+		if attempt > 1 {
+			page.WaitForTimeout(browserFallbackRetryWaitMs)
+		}
+		lastErr = tryCandidatePagesInOrder(candidate, func(pageURL string) error {
+			return s.clickCandidateLinkOnPage(pageURL, candidate, localPath)
+		})
+		if lastErr == nil {
+			return nil
+		}
+		s.auditLog("browser-fallback-attempt-failed", page, fileURL, fmt.Sprintf("attempt %d/%d for %s failed: %v", attempt, browserFallbackMaxAttempts, localPath, lastErr))
+	}
+
+	return fmt.Errorf("response is HTML, browser fallback click did not find downloadable link after %d attempts: %w", browserFallbackMaxAttempts, lastErr)
 }
 
 // tryCandidatePagesInOrder implements the retry ordering for locating a download
 // candidate's link: try the page where the candidate was originally recorded first. For
 // files only revealed by a section's "show all"/"Alle anzeigen" expansion, that recorded
 // SourceURL is the section's plain (unexpanded) page, which won't render the link - so if
-// the click search comes up empty there, retry on candidate.ShowAllURL, the expanded page
-// where the link actually renders, but only when it is non-empty and distinct from
-// SourceURL (otherwise it would just repeat an identical failed attempt). tryPage is
+// the click search comes up empty there, retry on candidate.ShowAllURL (the expanded page
+// where the link actually renders, for sections expanded by navigating to a distinct URL)
+// and then on candidate.ExpandedPageURL (the Wicket page-instance URL the browser was
+// left on after a *click*-driven expansion, see its doc comment). Each alternate page is
+// only tried when non-empty and distinct from everything already tried, so a candidate
+// that has no real alternative never repeats an identical failed attempt. tryPage is
 // injected so this ordering can be unit tested without a real playwright.Page.
+//
+// On total failure it returns the joined underlying errors rather than a fixed message.
+// That matters more than it looks: the single generic string this used to return ("...
+// browser fallback click did not find downloadable link") was the *only* thing three
+// separate investigations (PRs #35, #89, #95) had to work from, which is why each had to
+// re-derive the actual cause live from scratch. It also leaked into an unrelated caller -
+// download_refresh.go's refreshCounterURL shares this ordering helper, so a counter-
+// refresh miss used to be reported as a "browser fallback click" failure, hiding the real
+// reason (typically: the file's anchor is genuinely absent from the re-fetched HTML
+// because it lives past the first pagination page).
 func tryCandidatePagesInOrder(candidate downloadCandidate, tryPage func(pageURL string) error) error {
-	if err := tryPage(candidate.SourceURL); err == nil {
-		return nil
+	var errs []error
+	tried := []string{}
+
+	attempt := func(pageURL string) bool {
+		trimmed := strings.TrimSpace(pageURL)
+		for _, already := range tried {
+			if strings.EqualFold(already, trimmed) {
+				return false
+			}
+		}
+		tried = append(tried, trimmed)
+		if err := tryPage(pageURL); err != nil {
+			errs = append(errs, fmt.Errorf("on %s: %w", pageURL, err))
+			return false
+		}
+		return true
 	}
 
-	if strings.TrimSpace(candidate.ShowAllURL) != "" && !strings.EqualFold(strings.TrimSpace(candidate.ShowAllURL), strings.TrimSpace(candidate.SourceURL)) {
-		if err := tryPage(candidate.ShowAllURL); err == nil {
+	// SourceURL is always tried, even when empty - clickCandidateLinkOnPage
+	// has its own guard for that and its error is worth surfacing.
+	if attempt(candidate.SourceURL) {
+		return nil
+	}
+	for _, alternate := range []string{candidate.ShowAllURL, candidate.ExpandedPageURL} {
+		if strings.TrimSpace(alternate) == "" {
+			continue
+		}
+		if attempt(alternate) {
 			return nil
 		}
 	}
 
-	return errors.New("response is HTML, browser fallback click did not find downloadable link")
+	return errors.Join(errs...)
 }
 
 // clickCandidateLinkOnPage navigates to pageURL and attempts to locate and click the
@@ -227,12 +325,13 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	// this addresses.
 	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
-	if err := s.tryClickDownloadSelectors(page, candidate, localPath); err == nil {
+	firstErr := s.tryClickDownloadSelectors(page, candidate, localPath)
+	if firstErr == nil {
 		return nil
 	}
 
 	if !candidate.ShowAllViaClick {
-		return errors.New("downloadable link not found on page")
+		return fmt.Errorf("%w (page has no click-expandable pagination to retry)", firstErr)
 	}
 
 	// This candidate was only revealed by a click-triggered (non-navigable) "show
@@ -245,11 +344,11 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	// browser-fallback click.
 	clicked, _ := s.attemptShowAllExpandClick(page, pageURL)
 	if !clicked {
-		return errors.New("downloadable link not found on page")
+		return fmt.Errorf("%w (the show-all re-expansion click did not succeed either)", firstErr)
 	}
 	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 	if err := s.tryClickDownloadSelectors(page, candidate, localPath); err != nil {
-		return errors.New("downloadable link not found on page")
+		return fmt.Errorf("%w (still not found after re-expanding the paginated listing)", err)
 	}
 	return nil
 }
@@ -261,6 +360,7 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 // strategies - see ShowAllViaClick's doc comment for why that retry is needed.
 func (s *OpalScraper) tryClickDownloadSelectors(page playwright.Page, candidate downloadCandidate, localPath string) error {
 	targetFragment := hrefSelectorFragment(candidate.LinkTarget)
+	var attemptErrs []error
 
 	if targetFragment != "" {
 		selector := hrefContainsSelector(targetFragment)
@@ -272,6 +372,9 @@ func (s *OpalScraper) tryClickDownloadSelectors(page playwright.Page, candidate 
 			s.auditLog("click-success", page, selector, "download fallback href-match succeeded for "+localPath)
 			return download.SaveAs(localPath)
 		}
+		attemptErrs = append(attemptErrs, fmt.Errorf("href-match %s: %w", selector, clickErr))
+	} else {
+		attemptErrs = append(attemptErrs, errors.New("href-match skipped: candidate has no usable link target"))
 	}
 
 	if candidate.LinkText != "" {
@@ -283,9 +386,12 @@ func (s *OpalScraper) tryClickDownloadSelectors(page playwright.Page, candidate 
 			s.auditLog("click-success", page, candidate.LinkText, "download fallback text-match succeeded for "+localPath)
 			return download.SaveAs(localPath)
 		}
+		attemptErrs = append(attemptErrs, fmt.Errorf("text-match %q: %w", candidate.LinkText, clickErr))
+	} else {
+		attemptErrs = append(attemptErrs, errors.New("text-match skipped: candidate has no recorded link text"))
 	}
 
-	return errors.New("downloadable link not found on page")
+	return fmt.Errorf("downloadable link not found on page: %w", errors.Join(attemptErrs...))
 }
 
 // hrefSelectorFragment reduces a download candidate's recorded LinkTarget (which may be

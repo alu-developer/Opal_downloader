@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -72,6 +73,111 @@ func TestTryCandidatePagesInOrder(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTryCandidatePagesInOrderTriesExpandedPageURL covers the retry target added by
+// queue task investigate-per-file-html-fallback-failures (2026-07-20): a file past the
+// first pagination page of a *click*-expanded section has no ShowAllURL at all, and
+// re-fetching SourceURL always yields the collapsed first page that does not contain its
+// anchor. ExpandedPageURL - the Wicket page-instance URL the browser was left on right
+// after the expansion rendered - is the only recorded page that can contain it, so it
+// must be tried, last, and only when it is distinct from what was already tried.
+func TestTryCandidatePagesInOrderTriesExpandedPageURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		candidate downloadCandidate
+		wantCalls []string
+	}{
+		{
+			name: "click-expanded candidate falls back to the expanded page instance URL",
+			candidate: downloadCandidate{
+				SourceURL:       "https://example.test/section",
+				ShowAllViaClick: true,
+				ExpandedPageURL: "https://example.test/section?1032",
+			},
+			wantCalls: []string{"https://example.test/section", "https://example.test/section?1032"},
+		},
+		{
+			name: "all three are tried in order when all are distinct",
+			candidate: downloadCandidate{
+				SourceURL:       "https://example.test/section",
+				ShowAllURL:      "https://example.test/section?length=-1",
+				ExpandedPageURL: "https://example.test/section?1032",
+			},
+			wantCalls: []string{
+				"https://example.test/section",
+				"https://example.test/section?length=-1",
+				"https://example.test/section?1032",
+			},
+		},
+		{
+			name: "expanded page URL identical to source URL is not retried again",
+			candidate: downloadCandidate{
+				SourceURL:       "https://example.test/section",
+				ExpandedPageURL: "https://example.test/section",
+			},
+			wantCalls: []string{"https://example.test/section"},
+		},
+		{
+			name: "expanded page URL identical to show-all URL is not retried again",
+			candidate: downloadCandidate{
+				SourceURL:       "https://example.test/section",
+				ShowAllURL:      "https://example.test/section?length=-1",
+				ExpandedPageURL: "https://example.test/section?length=-1",
+			},
+			wantCalls: []string{"https://example.test/section", "https://example.test/section?length=-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotCalls []string
+			err := tryCandidatePagesInOrder(tt.candidate, func(pageURL string) error {
+				gotCalls = append(gotCalls, pageURL)
+				return errors.New("not found on this page")
+			})
+			if err == nil {
+				t.Fatalf("expected an error when every page attempt fails, got nil")
+			}
+			if len(gotCalls) != len(tt.wantCalls) {
+				t.Fatalf("tryPage called with %v, want %v", gotCalls, tt.wantCalls)
+			}
+			for i, want := range tt.wantCalls {
+				if gotCalls[i] != want {
+					t.Fatalf("tryPage call[%d] = %q, want %q", i, gotCalls[i], want)
+				}
+			}
+		})
+	}
+}
+
+// TestTryCandidatePagesInOrderReportsUnderlyingCauses locks in the diagnostic fix from
+// the same task: the helper used to swallow every underlying error and return one fixed
+// string ("response is HTML, browser fallback click did not find downloadable link"),
+// which is the entire reason three separate investigations into that message had to
+// re-derive the real cause live from scratch. Each failed page's own error - and which
+// page it came from - must survive into the returned error.
+func TestTryCandidatePagesInOrderReportsUnderlyingCauses(t *testing.T) {
+	candidate := downloadCandidate{
+		SourceURL:       "https://example.test/section",
+		ExpandedPageURL: "https://example.test/section?1032",
+	}
+
+	err := tryCandidatePagesInOrder(candidate, func(pageURL string) error {
+		return errors.New("anchor missing for " + pageURL)
+	})
+	if err == nil {
+		t.Fatalf("expected an error when every page attempt fails, got nil")
+	}
+	for _, want := range []string{
+		"https://example.test/section",
+		"https://example.test/section?1032",
+		"anchor missing for",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err.Error(), want)
+		}
 	}
 }
 

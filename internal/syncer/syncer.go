@@ -70,6 +70,9 @@ const (
 	EventFileSkipped
 	EventError
 	EventComplete
+	// EventMigration reports one line of a manifest key-scheme migration
+	// (see migrate.go). Message carries the text; no other field is set.
+	EventMigration
 )
 
 // Event is a single incremental progress notification fired during
@@ -89,6 +92,10 @@ type Event struct {
 	Stats        Stats
 	CourseIndex  int
 	TotalCourses int
+
+	// Message carries free-form text for event types that are informational
+	// rather than per-file (currently EventMigration only).
+	Message string
 }
 
 // ProgressFunc receives incremental progress events during a sync run.
@@ -99,14 +106,46 @@ type FileRecord struct {
 	Modified *string `json:"modified"`
 }
 
+// ManifestFileName is the manifest's fixed file name inside download_path.
+const ManifestFileName = ".opal-sync.manifest.json"
+
+// ManifestSchemaVersion is the current manifest format/key-scheme version.
+// Bump it whenever manifest *key derivation* changes in a way that makes
+// previously-stored keys stop matching what resolveRemoteTargetPath now
+// produces, so a stale manifest is detectable at load time instead of
+// silently presenting as "every file is new".
+//
+// History:
+//   - 1 (implied by a missing schema_version field): every manifest written
+//     before this constant existed. Two key-scheme changes shipped under
+//     that unversioned format - use_section_subfolders (which inserts a
+//     section component into the key) and PR #69's re-basing of absolute
+//     course folders onto the sanitized course name - so a version-1
+//     manifest's keys may or may not match today's scheme depending on the
+//     user's config.
+//   - 2: first versioned format. Key scheme is whatever
+//     resolveRemoteTargetPath produces today.
+const ManifestSchemaVersion = 2
+
+// LegacyManifestSchemaVersion is the version assumed for a manifest that has
+// no schema_version field at all (everything written before versioning).
+const LegacyManifestSchemaVersion = 1
+
 type Manifest struct {
 	Path  string
 	Files map[string]FileRecord
+
+	// SchemaVersion is the version the manifest was *loaded* with
+	// (LegacyManifestSchemaVersion for a pre-versioning file, 0 for a
+	// manifest that does not exist on disk yet). Save always writes
+	// ManifestSchemaVersion.
+	SchemaVersion int
 }
 
 type manifestJSON struct {
-	UpdatedAt string                `json:"updated_at"`
-	Files     map[string]FileRecord `json:"files"`
+	SchemaVersion int                   `json:"schema_version"`
+	UpdatedAt     string                `json:"updated_at"`
+	Files         map[string]FileRecord `json:"files"`
 }
 
 func LoadManifest(path string) (*Manifest, error) {
@@ -122,6 +161,11 @@ func LoadManifest(path string) (*Manifest, error) {
 	var payload manifestJSON
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, err
+	}
+
+	manifest.SchemaVersion = payload.SchemaVersion
+	if manifest.SchemaVersion == 0 && len(payload.Files) > 0 {
+		manifest.SchemaVersion = LegacyManifestSchemaVersion
 	}
 
 	for key, value := range payload.Files {
@@ -147,15 +191,20 @@ func (m *Manifest) Save() error {
 	}
 
 	payload := manifestJSON{
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Files:     sortedFiles,
+		SchemaVersion: ManifestSchemaVersion,
+		UpdatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		Files:         sortedFiles,
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.Path, data, 0o644)
+	if err := os.WriteFile(m.Path, data, 0o644); err != nil {
+		return err
+	}
+	m.SchemaVersion = ManifestSchemaVersion
+	return nil
 }
 
 // downloadJob is one file queued for download after the manifest comparison
@@ -216,7 +265,7 @@ func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App,
 		return Stats{}, err
 	}
 
-	manifestPath := filepath.Join(cfg.DownloadPath, ".opal-sync.manifest.json")
+	manifestPath := filepath.Join(cfg.DownloadPath, ManifestFileName)
 	manifest, err := LoadManifest(manifestPath)
 	if err != nil {
 		return Stats{}, err
@@ -247,6 +296,16 @@ func syncRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, mani
 	// measures actual download work, not discovery/crawl time.
 	syncTimer := timing.StartTimer()
 	fmt.Printf("Discovered %d remote files. Comparing against local manifest...\n", len(remoteFiles))
+
+	// Salvage a manifest written under an older key scheme *before* the
+	// diff, so re-keyed entries are seen as already-downloaded instead of
+	// silently presenting as "everything is new" (see migrate.go).
+	if report := migrateManifestKeys(manifest, cfg, remoteFiles); report.Changed() {
+		for _, line := range report.Lines() {
+			fmt.Println(line)
+			progress(Event{Type: EventMigration, Message: line})
+		}
+	}
 
 	stats := processRemoteFiles(ctx, remoteFiles, manifest, cfg, force, downloadFn, progress)
 

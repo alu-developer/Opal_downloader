@@ -54,6 +54,35 @@ type downloadCandidate struct {
 	// attemptShowAllExpandClick on SourceURL before giving up, mirroring what
 	// expandShowAllInSection already does during discovery.
 	ShowAllViaClick bool
+	// ExpandedPageURL is the URL the browser was actually sitting on right
+	// after a click-driven "show all" expansion rendered during discovery -
+	// i.e. SourceURL plus OPAL/Wicket's page-instance counter, e.g.
+	// ".../CourseNode/<id>/Vorlesung?1032" (observed live 2026-07-20). Wicket
+	// keeps each rendered page instance addressable by that counter for the
+	// life of the session, so re-requesting this URL can serve the
+	// already-expanded listing, whereas re-requesting SourceURL always serves
+	// the collapsed first page.
+	//
+	// Why it exists (queue task investigate-per-file-html-fallback-failures,
+	// 2026-07-20): files past the first pagination page of a click-expanded
+	// section are structurally invisible to download_refresh.go's counter-
+	// refresh, because that refresh is a plain HTTP re-fetch of SourceURL and
+	// a plain HTTP fetch cannot run the show-all click. Those files therefore
+	// *always* fell through to the slow, serialized browser-click fallback -
+	// live-confirmed for 6 of 36 files in one real course - where a single
+	// flake produced the permanent "response is HTML, browser fallback click
+	// did not find downloadable link" failure this task was filed for.
+	// Recording the expanded page instance's URL gives both the counter-
+	// refresh and the browser fallback a page that actually contains those
+	// files' anchors.
+	//
+	// Strictly an *additional* retry target, never a replacement for
+	// SourceURL: a page instance can be evicted from the session, in which
+	// case this URL simply re-renders collapsed and the attempt falls through
+	// to the pre-existing click-based path unchanged. Empty for candidates
+	// whose section was not expanded, or was expanded by navigating to a
+	// distinct ShowAllURL instead of by clicking.
+	ExpandedPageURL string
 }
 
 type OpalScraper struct {

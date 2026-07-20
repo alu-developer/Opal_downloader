@@ -468,6 +468,73 @@ time twice now: `go build -o file.exe ./cmd/opal-downloader` silently
 builds the `opaldownloader` library package (a Go archive, not a runnable
 `.exe`) - build `go build -o file.exe .` from the repo root instead.
 
+### "response is HTML" download failures — root cause found: paginated sections (2026-07-20 investigation)
+
+Queue task `investigate-per-file-html-fallback-failures` chased the same
+generic message a fourth time (after PRs #35, #89, #95), this time with a
+reproducible set: a full-account `sync --force` on 2026-07-20 failed on 4
+files, including the very `Vorlesung_9_10.pdf` the previous investigation
+had noted and left alone (see the section above).
+
+**The cause is OPAL's server-side list pagination, and the "per-file"
+appearance was a red herring.** OPAL caps a section's file listing at ~20
+rows and renders the rest only after its "Alle anzeigen" control is
+clicked. That expansion is a Wicket AJAX click, not a URL — so a plain
+HTTP re-fetch of the section URL *always* returns the collapsed first
+page. Files past that cap are therefore structurally invisible to
+`download_refresh.go`'s counter-refresh: its re-fetched HTML genuinely
+does not contain their anchor. Confirmed live by the (newly propagated)
+underlying error, which now says exactly that:
+
+    could not find an anchor for "Vorlesung_0p.pdf" in the refreshed section HTML
+
+Those files fall through to the serialized browser-click fallback in
+`download.go`, which was a strictly one-shot chain of individually flaky
+steps. Any single flake in that chain = permanent failure for that file,
+reported only as the generic message. That is why every previous
+investigation saw a different "trigger" and why siblings in the same
+section behaved differently: which files land past the pagination cap
+shifts with sort order and render timing, and the flake is marginal. The
+`_notes.pdf`-versus-`_slides.pdf` pattern in the original report was
+coincidence — the 2026-07-20 verification run shows whole contiguous
+blocks of a section (plain, `_notes`, `_slides`, `.zip` alike) taking the
+fallback together.
+
+Three changes landed:
+
+1. `downloadCandidate.ExpandedPageURL` records the Wicket page-instance
+   URL (`.../Vorlesung?1032`) the browser was left on after a click-driven
+   expansion. Wicket keeps that instance addressable in the session, so
+   re-requesting it can serve the *expanded* listing. Both the
+   counter-refresh and the browser fallback now try it as an extra target.
+2. The browser fallback retries its whole page/click sequence twice
+   (`browserFallbackMaxAttempts`) instead of once.
+3. `tryCandidatePagesInOrder` now returns the joined underlying errors
+   instead of one fixed string. The old fixed string was the only
+   diagnostic three prior investigations had, and it also leaked into the
+   counter-refresh path, mislabelling refresh misses as "browser fallback
+   click" failures.
+
+Live verification (2026-07-20, full account, 6 courses, **no output
+truncation**): `downloaded=342 skipped=0 errors=0`, with 0 visible
+`error:` lines matching `errors=0`. All four originally-reported files
+downloaded with real content. Two of them — `Vorlesung_9_10.pdf` and
+`37-st-analysis-eu-rent-example_notes.pdf` — plus `Kapitel6-ohne-
+Kommentare.pdf` failed their *first* fallback attempt and succeeded on the
+retry, i.e. under the previous one-shot code they would have failed
+exactly as reported. A single-course re-run of `Algorithmen und
+Datenstrukturen` also cut counter-refresh misses from 6/36 to 1/36 and the
+download phase from 139.3s to 10.1s.
+
+**Known remaining limitation (server-side, mitigated not eliminated):**
+a Wicket page instance can be evicted from the session, and in the
+full-account run it usually had been by download time (discovery of all
+courses finishes before downloads start), so 48 of 342 files still took
+the browser fallback. The fallback is now retried and worked for all of
+them, but it stays the slow, serialized path. If this symptom recurs,
+read the *specific* propagated error first — it now names the page tried
+and the real reason — rather than re-deriving anything from a live run.
+
 ### Chromium fails to launch with "the application has failed to start
 ### because its side-by-side configuration is incorrect"
 

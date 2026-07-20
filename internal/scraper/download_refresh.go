@@ -128,6 +128,14 @@ func (s *OpalScraper) refreshCounterURL(reqCtx playwright.APIRequestContext, can
 		return resp.Status(), string(body), nil
 	}
 
+	// Note tryCandidatePagesInOrder also tries candidate.ExpandedPageURL, the
+	// Wicket page-instance URL left behind by a click-driven "show all"
+	// expansion. That is the only one of the three that can contain a
+	// beyond-the-first-page file's anchor: a plain HTTP fetch cannot run the
+	// show-all click, so re-fetching SourceURL always yields the collapsed
+	// first page. Live-confirmed 2026-07-20 that without it, every such file
+	// (6 of 36 in one real course) permanently missed this refresh and fell
+	// through to the slow serialized browser-click fallback.
 	var result string
 	err := tryCandidatePagesInOrder(candidate, func(sectionURL string) error {
 		url, refreshErr := refreshCounterURLPure(fetch, s.opalURL, sectionURL, candidate.LinkText)

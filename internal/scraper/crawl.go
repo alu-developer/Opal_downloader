@@ -195,9 +195,10 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		}
 
 		var showAllURL string
+		var expandedPageURL string
 		var showAllCandidates []map[string]string
 		var expandedShowAll bool
-		page, showAllCandidates, showAllURL, expandedShowAll = s.expandShowAllInSection(page, currentURL, candidates)
+		page, showAllCandidates, showAllURL, expandedPageURL, expandedShowAll = s.expandShowAllInSection(page, currentURL, candidates)
 		if expandedShowAll {
 			candidates = showAllCandidates
 		}
@@ -214,7 +215,10 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		// files have no separate URL for the download-fallback to retry, so it
 		// needs to know to re-click the same control on SourceURL instead.
 		showAllViaClick := expandedShowAll && strings.TrimSpace(showAllURL) == ""
-		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, showAllViaClick, s.opalURL, downloadCandidates)
+		if !expandedShowAll {
+			expandedPageURL = ""
+		}
+		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, expandedPageURL, showAllViaClick, s.opalURL, downloadCandidates)
 		// Record this visit for the persistent cross-run visit-effectiveness
 		// log (internal/visitlog) - one entry per section actually reached
 		// (Goto+extraction succeeded, past the `continue`s above), noting how
@@ -308,14 +312,14 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 // recoverAndReturnToSection below. Callers must use the returned page for anything
 // after this call, not the one they passed in, the same way collectCourseFiles's main
 // loop already does for its own Goto/extraction crash recovery.
-func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL string, candidates []map[string]string) (playwright.Page, []map[string]string, string, bool) {
+func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL string, candidates []map[string]string) (playwright.Page, []map[string]string, string, string, bool) {
 	if page == nil {
-		return page, nil, "", false
+		return page, nil, "", "", false
 	}
 
 	linkTarget, found := findShowAllTarget(candidates)
 	if !found {
-		return page, nil, "", false
+		return page, nil, "", "", false
 	}
 
 	absURL := resolveURL(s.opalURL, linkTarget)
@@ -341,7 +345,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		if !clicked {
 			// Could not click or navigate to the control; keep whatever candidates
 			// the caller already extracted rather than failing the whole section.
-			return page, nil, "", false
+			return page, nil, "", "", false
 		}
 	}
 
@@ -376,10 +380,10 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		if isPageCrashError(err) {
 			return s.recoverAndReturnToSection(page, currentURL)
 		}
-		return page, nil, "", false
+		return page, nil, "", "", false
 	}
 	if len(expanded) == 0 {
-		return page, nil, "", false
+		return page, nil, "", "", false
 	}
 
 	// Record the show-all URL (when distinct from currentURL) so the caller can point
@@ -391,7 +395,30 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		showAllURL = absURL
 	}
 
-	return page, expanded, showAllURL, true
+	// expandedPageURL is page's *current* location now that the expansion has
+	// rendered - which for the click-driven branch is not currentURL but
+	// currentURL plus OPAL/Wicket's page-instance counter (observed live
+	// 2026-07-20: ".../CourseNode/<id>/Vorlesung?1032"). Wicket addresses each
+	// rendered page instance by that counter and keeps it in the session, so
+	// re-requesting this exact URL later can serve the *already-expanded*
+	// render rather than the collapsed first page that a plain re-fetch of
+	// currentURL always returns. That distinction is the whole reason
+	// beyond-the-first-page files in a click-expanded section systematically
+	// miss the counter-refresh fast path (see download_refresh.go): its plain
+	// HTTP re-fetch of currentURL simply does not contain their anchor. Kept as
+	// an extra retry target only (downloadCandidate.ExpandedPageURL), never as
+	// a replacement for SourceURL - a page instance can be evicted from the
+	// session, in which case this URL just re-renders collapsed and the retry
+	// falls through to the existing click-based path exactly as before.
+	expandedPageURL := ""
+	if !navigated {
+		expandedPageURL = strings.TrimSpace(page.URL())
+		if strings.EqualFold(expandedPageURL, strings.TrimSpace(currentURL)) {
+			expandedPageURL = ""
+		}
+	}
+
+	return page, expanded, showAllURL, expandedPageURL, true
 }
 
 // attemptShowAllExpandClick tries to click the "show all"/"Alle anzeigen" pagination
@@ -742,22 +769,22 @@ func (s *OpalScraper) requiredStableReads(patient int) int {
 // cascading-failure history this caused). The show-all expansion itself is abandoned
 // for this section - the caller already has its un-expanded candidates from before this
 // call and keeps using those.
-func (s *OpalScraper) recoverAndReturnToSection(page playwright.Page, currentURL string) (playwright.Page, []map[string]string, string, bool) {
+func (s *OpalScraper) recoverAndReturnToSection(page playwright.Page, currentURL string) (playwright.Page, []map[string]string, string, string, bool) {
 	newPage, recErr := s.recoverFromPageCrash(page)
 	if recErr != nil {
 		// Nothing more we can do here; hand back the original (crashed) page - the
 		// crawl loop's next navigation attempt will hit the same crash error and
 		// go through its own recovery attempt there.
-		return page, nil, "", false
+		return page, nil, "", "", false
 	}
 	if _, err := newPage.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 		// Recovered a fresh page but couldn't get back to currentURL; still hand it
 		// back so the crawl loop continues on a healthy page rather than the
 		// crashed one, even though this section's show-all expansion is lost.
-		return newPage, nil, "", false
+		return newPage, nil, "", "", false
 	}
 	s.waitForInteractiveLinks(newPage, contentFallbackWaitMs)
-	return newPage, nil, "", false
+	return newPage, nil, "", "", false
 }
 
 // looksLikeNavigableShowAllURL reports whether a "show all" control's link target is

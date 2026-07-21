@@ -290,13 +290,28 @@ const (
 	// full account against ~284 section visits, so its patience is free,
 	// and a shorter streak there is live-confirmed to lose files.
 	//
-	// Result on the real account, full-account runs:
-	//   serial          5m00.7s
-	//   concurrency 2   9m13.3s  (before)
-	//   concurrency 2   4m27.3s / 4m23.3s  (after, two runs)
-	// Concurrency 2 is now ~12% faster than serial instead of 84% slower,
-	// and both post-fix runs were byte-for-byte identical to the serial
-	// ground truth on the discovered file set.
+	// Result on the real account, full-account discovery runs:
+	//   concurrency 1   5m00.7s   342 files
+	//   concurrency 2   9m13.3s   342 files  (BEFORE the fix)
+	//   concurrency 2   4m27.3s / 4m23.3s    342 files  (after, two runs)
+	//   concurrency 3   4m28.3s   342 files
+	//   concurrency 4   4m07.7s   333 files  <- LOSES 9 FILES
+	//
+	// Concurrency 2 is ~12% faster than serial instead of 84% slower, and
+	// every run at 1-3 was byte-for-byte identical to the serial ground
+	// truth.
+	//
+	// The default is 2 and should stay there. 3 buys nothing measurable
+	// (4m28s vs 4m25s is inside run-to-run noise on a 6-course account -
+	// the parallelism is already saturated), while 4 is the classic
+	// faster-but-lossy failure: 9 files missing from the largest course,
+	// which is a no, not a tradeoff.
+	//
+	// IMPORTANT, and a correction to earlier notes claiming the concurrent
+	// crawl race was fully closed by PR #94: it is not. It is merely not
+	// triggered at 2-3. The 2026-07-21 sweep reproduced real file loss at
+	// concurrency 4 on current code. Treat "correctness-safe" as meaning
+	// "verified at these levels", never as a general property.
 	DefaultCourseConcurrency = 2
 )
 

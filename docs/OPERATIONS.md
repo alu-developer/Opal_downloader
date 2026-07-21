@@ -405,8 +405,27 @@ After the fix, two full-account runs at concurrency 2: **4m27.3s and
 4m23.3s**, both byte-for-byte identical to the serial ground truth (342
 files). Concurrency 2 is now ~12% faster than serial instead of 84% slower.
 
-Concurrency 3+ has NOT been re-measured since this fix; it remains
-correctness-safe per PR #94 but is not a known speed win.
+**Sweep of 3 and 4 (same day, queue task
+measure-course-concurrency-above-two):**
+
+| level | wall-clock | files |
+|---|---|---|
+| 1 (serial) | 5m00.7s | 342 |
+| 2 | 4m27.3s / 4m23.3s | 342 |
+| 3 | 4m28.3s | 342 |
+| **4** | 4m07.7s | **333 — 9 lost** |
+
+The parallelism is already saturated at 2 on a 6-course account: 3 is inside
+run-to-run noise, and 4 is faster only because it drops work. **Keep the
+default at 2.**
+
+**This corrects a claim repeated in several earlier entries: the concurrent
+crawl race is NOT fully closed by PR #94.** It is merely not triggered at
+concurrency 2-3. The 2026-07-21 sweep reproduced real file loss at
+concurrency 4 against current code — 9 files, all from the largest course
+(`Softwaretechnologie`), the same past-page-1 shape as every earlier
+occurrence. Read "correctness-safe" as "verified at these levels", never as a
+general property, and re-verify parity whenever the level changes.
 
 **Update (2026-07-20, queue task
 investigate-course-concurrency-wallclock-benefit): the default is back to

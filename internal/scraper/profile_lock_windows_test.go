@@ -69,6 +69,22 @@ func TestIsUserDataDirLocked_OpenHandleIsLocked(t *testing.T) {
 func createTestMessageWindow(t *testing.T, title string) uintptr {
 	t.Helper()
 
+	// A window belongs to the OS thread that created it, and Windows destroys
+	// every window a thread owns when that thread exits. A Go goroutine is not
+	// pinned to a thread, and the runtime is free to retire an idle one - so
+	// without this lock the window can vanish partway through the test, and
+	// isUserDataDirLocked then correctly reports "not locked" for a profile
+	// whose advertising window no longer exists.
+	//
+	// That is what made TestIsUserDataDirLocked_RunningWindowsSingletonWindowIsLocked
+	// flaky on 2026-07-21: it failed once inside a full `scripts/dev.ps1 all`
+	// run (lots of goroutines and browser launches, so lots of thread churn)
+	// and never in isolation - 30 consecutive solo runs all passed. The
+	// unresponsive-window test further down this file already locks its
+	// thread for a related reason; this helper simply never did.
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+
 	classPtr, err := syscall.UTF16PtrFromString("STATIC")
 	if err != nil {
 		t.Fatalf("UTF16PtrFromString(class): %v", err)

@@ -337,7 +337,20 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		}
 	}
 
+	// expansionSignalled records that Wicket itself told us the expansion AJAX
+	// call completed successfully, so the DOM is final and a single read is
+	// authoritative - no count-stability guessing needed. See wicket.go.
+	expansionSignalled := false
+
 	if !navigated {
+		// Arm the watch BEFORE clicking: Wicket only delivers its topics to
+		// subscribers present when the call fires, and the expansion can
+		// complete in ~160ms.
+		watchArmed, armErr := armWicketExpansionWatch(page)
+		if armErr != nil && !isWicketWatchUnavailableError(armErr) {
+			s.auditLog("wicket-arm", page, "", fmt.Sprintf("could not arm Wicket expansion watch for section %s: %v", currentURL, armErr))
+		}
+
 		clicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
 		if crashErr != nil {
 			return s.recoverAndReturnToSection(page, currentURL)
@@ -347,31 +360,68 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 			// the caller already extracted rather than failing the whole section.
 			return page, nil, "", "", false
 		}
+
+		if watchArmed {
+			signalled, failed := awaitWicketExpansionDone(page, wicketExpansionSignalTimeoutMs)
+			switch {
+			case signalled && failed:
+				// A REAL failure signal from the framework, replacing the
+				// isExecutionContextDestroyedError string-match proxy that
+				// previously stood in for "the expansion was dropped". Re-click
+				// once, exactly as that proxy did - bounded, not a retry loop.
+				s.auditLog("wicket-expand", page, "", fmt.Sprintf("Wicket reported AJAX_CALL_FAILURE for show-all expansion on %s; re-clicking once", currentURL))
+				rearmed, _ := armWicketExpansionWatch(page)
+				reclicked, reclickCrashErr := s.attemptShowAllExpandClick(page, currentURL)
+				if reclickCrashErr != nil {
+					return s.recoverAndReturnToSection(page, currentURL)
+				}
+				if reclicked && rearmed {
+					retrySignalled, retryFailed := awaitWicketExpansionDone(page, wicketExpansionSignalTimeoutMs)
+					expansionSignalled = retrySignalled && !retryFailed
+				}
+			case signalled:
+				expansionSignalled = true
+			}
+		}
 	}
 
-	contextWasDestroyed := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
-	if contextWasDestroyed && !navigated {
-		// THE ROOT CAUSE this task (fix-candidate-stability-poll-concurrent-
-		// crawl-race) set out to find: see waitForInteractiveLinks's doc
-		// comment (navigation.go) for the full live evidence. In short, an
-		// "execution context was destroyed" event landing right after this
-		// click - not caused by a real navigation, since the direct-navigate
-		// branch above is excluded here via !navigated - is near-certain
-		// proof the click's own in-flight AJAX expansion response had
-		// nowhere left to land and was silently dropped, not merely slow.
-		// waitForStableExpandedCandidates polling longer afterward cannot
-		// recover content that was never coming; re-issuing the click is
-		// the only way to actually get the expansion to happen. Bounded to
-		// one extra attempt (attemptShowAllExpandClick internally retries up
-		// to showAllClickMaxAttempts on its own) rather than looping, to
-		// keep this a targeted response to a specific confirmed signal
-		// rather than an open-ended "try harder" loop.
-		reclicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
-		if crashErr != nil {
-			return s.recoverAndReturnToSection(page, currentURL)
-		}
-		if reclicked {
-			s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	// A successful AJAX_CALL_DONE means the expansion call has completed, so
+	// the fixed contentFallbackWaitMs settle wait has nothing left to wait
+	// for and is skipped. The stability poll below still runs.
+	//
+	// It deliberately does NOT skip that poll. An earlier version of this
+	// change treated the signal as "DOM is final, read once" on the strength
+	// of the research task's trailing-safe finding (0/8 parity mismatches).
+	// A live full-account parity run refuted that: 290 files vs a 342-file
+	// baseline, 52 lost, every one of them the tail of the largest paginated
+	// section in Softwaretechnologie - i.e. exactly the past-page-1 loss this
+	// waiter exists to prevent. The signal reliably marks a call as finished;
+	// it does not, on large expansions, mark the resulting DOM as complete.
+	if !expansionSignalled {
+		contextWasDestroyed := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+		if contextWasDestroyed && !navigated {
+			// THE ROOT CAUSE this task (fix-candidate-stability-poll-concurrent-
+			// crawl-race) set out to find: see waitForInteractiveLinks's doc
+			// comment (navigation.go) for the full live evidence. In short, an
+			// "execution context was destroyed" event landing right after this
+			// click - not caused by a real navigation, since the direct-navigate
+			// branch above is excluded here via !navigated - is near-certain
+			// proof the click's own in-flight AJAX expansion response had
+			// nowhere left to land and was silently dropped, not merely slow.
+			// waitForStableExpandedCandidates polling longer afterward cannot
+			// recover content that was never coming; re-issuing the click is
+			// the only way to actually get the expansion to happen. Bounded to
+			// one extra attempt (attemptShowAllExpandClick internally retries up
+			// to showAllClickMaxAttempts on its own) rather than looping, to
+			// keep this a targeted response to a specific confirmed signal
+			// rather than an open-ended "try harder" loop.
+			reclicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
+			if crashErr != nil {
+				return s.recoverAndReturnToSection(page, currentURL)
+			}
+			if reclicked {
+				s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+			}
 		}
 	}
 
@@ -395,31 +445,57 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		showAllURL = absURL
 	}
 
-	// expandedPageURL is page's *current* location now that the expansion has
-	// rendered - which for the click-driven branch is not currentURL but
-	// currentURL plus OPAL/Wicket's page-instance counter (observed live
-	// 2026-07-20: ".../CourseNode/<id>/Vorlesung?1032"). Wicket addresses each
-	// rendered page instance by that counter and keeps it in the session, so
-	// re-requesting this exact URL later can serve the *already-expanded*
-	// render rather than the collapsed first page that a plain re-fetch of
-	// currentURL always returns. That distinction is the whole reason
-	// beyond-the-first-page files in a click-expanded section systematically
-	// miss the counter-refresh fast path (see download_refresh.go): its plain
-	// HTTP re-fetch of currentURL simply does not contain their anchor. Kept as
-	// an extra retry target only (downloadCandidate.ExpandedPageURL), never as
-	// a replacement for SourceURL - a page instance can be evicted from the
-	// session, in which case this URL just re-renders collapsed and the retry
-	// falls through to the existing click-based path exactly as before.
 	expandedPageURL := ""
 	if !navigated {
-		expandedPageURL = strings.TrimSpace(page.URL())
-		if strings.EqualFold(expandedPageURL, strings.TrimSpace(currentURL)) {
-			expandedPageURL = ""
-		}
+		expandedPageURL = expandedPageURLAfterClick(page, currentURL)
 	}
 
 	return page, expanded, showAllURL, expandedPageURL, true
 }
+
+// expandedPageURLAfterClick returns page's *current* location now that a
+// click-driven expansion has rendered - which is not currentURL but currentURL
+// plus OPAL/Wicket's page-instance counter (observed live 2026-07-20:
+// ".../CourseNode/<id>/Vorlesung?1032"). Wicket addresses each rendered page
+// instance by that counter and keeps it in the session, so re-requesting this
+// exact URL later can serve the *already-expanded* render rather than the
+// collapsed first page that a plain re-fetch of currentURL always returns.
+// That distinction is the whole reason beyond-the-first-page files in a
+// click-expanded section systematically miss the counter-refresh fast path
+// (see download_refresh.go): its plain HTTP re-fetch of currentURL simply does
+// not contain their anchor. Kept as an extra retry target only
+// (downloadCandidate.ExpandedPageURL), never as a replacement for SourceURL -
+// a page instance can be evicted from the session, in which case this URL just
+// re-renders collapsed and the retry falls through to the existing click-based
+// path exactly as before.
+//
+// Returns "" when the URL is unchanged from currentURL (nothing extra to
+// record). Callers must only use this on the click-driven branch; a direct
+// navigation to the show-all URL is recorded as showAllURL instead.
+func expandedPageURLAfterClick(page playwright.Page, currentURL string) string {
+	if page == nil {
+		return ""
+	}
+	expandedPageURL := strings.TrimSpace(page.URL())
+	if strings.EqualFold(expandedPageURL, strings.TrimSpace(currentURL)) {
+		return ""
+	}
+	return expandedPageURL
+}
+
+// wicketExpansionSignalTimeoutMs bounds how long expandShowAllInSection waits
+// for Wicket's AJAX_CALL_DONE after clicking "show all", before giving up on
+// the exact signal and falling back to the contentFallbackWaitMs settle plus
+// waitForStableExpandedCandidates poll.
+//
+// 4s is >20x the 156-184ms the signal was measured to take live, so it is a
+// generous ceiling rather than a tuned value, while still capping what a
+// non-firing case (page-instance eviction, or a click that triggered no AJAX
+// at all) adds on top of the unchanged fallback path. It deliberately does not
+// try to be tight: the correctness bar here is byte-for-byte file parity, and
+// spending a few extra seconds on a rare section is strictly preferable to
+// concluding an expansion finished when it did not.
+const wicketExpansionSignalTimeoutMs = 4000.0
 
 // attemptShowAllExpandClick tries to click the "show all"/"Alle anzeigen" pagination
 // control on page (already navigated to sectionURL), trying the confirmed structural CSS

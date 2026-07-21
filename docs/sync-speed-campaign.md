@@ -271,8 +271,13 @@ escalation to the patient streak.
 **Not shipped, and why:** 150ms/20 was the fastest at 2m13s, but it cuts the
 total budget from ~8s to ~3s. Those budgets were raised over several real
 file-loss incidents; halving them on one clean run would be exactly the
-mistake this campaign keeps documenting. It is the next candidate, and it
-needs repeated runs before anyone trusts it.
+mistake this campaign keeps documenting.
+
+> **RETRACTED the same day.** That 2m13s does not reproduce. Three runs at
+> 150ms/20 measured 3m19s, 3m17s and 3m18s — identical to the shipped
+> 150ms/53. The poll exits on stability long before either cap, so the cap
+> changes nothing. The 2m13s was network or server variance recorded as a
+> result. See the entry below.
 
 **Against the target:** a no-op sync goes from ~318.9s to roughly **240s**.
 That is a real 23% improvement and it is nowhere near the 30-second goal.
@@ -324,3 +329,38 @@ and the full acceptance criteria.
 **Unverified and load-bearing:** that OPAL notifications report *file
 additions in a folder* at all. If they only cover forum posts and
 announcements, this route dies too, and the ~3-4 minute floor stands.
+
+
+### 2026-07-21 — wait-tuning is exhausted (and a retraction)
+
+| setting | wall-clock | files |
+|---|---|---|
+| 150ms poll / 53 cap (shipped, ground truth) | 3m19s | 322 |
+| 150ms poll / 20 cap, three runs | 3m19s, 3m17s, 3m18s | 322 each |
+| debounce 150ms | 3m19s | 322 |
+| debounce 80ms | 3m17s | 322 |
+
+Neither the poll cap nor the MutationObserver debounce moves the wall-clock at
+all. **After PR #114 dropped the poll interval to 150ms, the deliberate waits
+are no longer where a run spends its time.**
+
+Two corrections come out of this, both about my own earlier measurements:
+
+1. **The 2m13s that motivated the follow-up task is retracted** — not
+   reproducible across three runs at the same setting.
+2. An earlier session "tuned the debounce" by setting
+   `mutationObserverConcurrentDebounceMs`, which only applies at
+   `course_concurrency>1` while the real config runs at 1. That knob did
+   nothing; the effect measured then came entirely from the poll interval.
+   The runs above use the serial constant, the one that actually applies.
+
+**Arithmetic on what is left:** ~284 sections in ~198s is ~700ms per section,
+of which the waits can now account for at most ~300ms. The rest is OPAL's own
+page-load and render latency behind `page.Goto`. Even eliminating every wait
+would leave roughly 2 minutes.
+
+A floor run with all waits near zero was prepared to pin that split down
+exactly, and was interrupted before it ran — **so the precise
+waits-versus-network split is unverified.** The conclusion that wait-tuning is
+finished does not depend on it; the four measurements above are sufficient for
+that much.

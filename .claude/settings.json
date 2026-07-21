@@ -36,6 +36,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/autopilot-gate.ps1",
+            "timeout": 15,
+            "statusMessage": "Checking autopilot gate..."
+          }
+        ]
+      }
     ]
   }
 }

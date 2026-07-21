@@ -133,6 +133,20 @@ or timed out. Verified `sync`/`list` runs are especially cheap: they reuse
 `session_state_file` in a fresh headless browser with no TU-Fast
 involved at all when the saved session is still valid.
 
+## How to organise yourself (autopilot, model/effort, budget)
+
+`docs/agent-operating-model.md` is the standing answer to "when do you keep
+working on your own, what model/effort do you run at, and how do you stay
+inside a Pro plan's limits". Read it before deciding to stop and wait for
+input — stopping to ask "shall I continue?" is the specific failure it
+exists to prevent.
+
+Short version: a `Stop` hook (`.claude/hooks/autopilot-gate.ps1`) keeps the
+turn going while `.claude/queue/AUTOPILOT` exists and queued work remains,
+with expiry/iteration/rate-limit guards that all fail open. Default model is
+Sonnet at medium effort; escalating to Opus/high is a deliberate call the
+maintainer has to make, so ask for it explicitly when a task needs it.
+
 ## Local task queue workflow (`.claude/queue/`, gitignored)
 
 This repo uses `task-capture` / `queue-run` / `queue-review` (global Claude

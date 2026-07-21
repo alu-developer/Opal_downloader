@@ -78,6 +78,7 @@ Ranked by expected gain, to be confirmed by measurement not by argument:
 |---|---|---|
 | 2026-07-21 | Baseline measured | no-op sync **318.9s**; discovery ~296s (93%), downloads 23.2s for 5 files |
 | 2026-07-21 | HTTP-first discovery, probe | **Promising.** Sequential: 275 sections in **49.7s** vs ~296s. Completeness and the parallelism trap below. |
+| 2026-07-21 | HTTP-first discovery, implemented | **REJECTED — unsafe.** Fast (22s) but silently emptied whole courses. No reliable completeness signal exists; four heuristics tried and refuted. Details below. |
 
 ### 2026-07-21 — HTTP-first section discovery (probe, not yet implemented)
 
@@ -116,10 +117,60 @@ measurement — it must be verified before anything is built on it.**
 
 **Shape of the fix this points to:** sequential HTTP for all sections
 (~50s), plus the browser for only the handful that advertise a pager
-(~5 sections). Estimated ~60s against 296s today. That is 5x, not the 10x
-the 30s target needs — so the remaining per-request cost (~180ms x 275) will
-need attacking too, likely by not visiting nodes that structurally cannot
-hold files.
+(~5 sections). Estimated ~60s against 296s today.
+
+### 2026-07-21 — that fix was built, and REJECTED. Read this before retrying it.
+
+Implemented as an HTTP fast path per section with a browser fallback, wired
+into `collectCourseFiles`. It was fast — a full discovery in **22s** against
+296s — and it **silently lost two entire courses**.
+
+Final measured state: **107 files against a 342-file ground truth.**
+`2026 LA20` 39/39, `Algorithmen und Datenstrukturen` 36/36 and `Analysis`
+30/30 were *perfect*, while `Softwaretechnologie` (206 files) and `TUDMATH
+NuMa` (17) came back with **zero**, and `Ma-Prog` with 2 of 14. The run
+reported no errors. Only the existing "crawled successfully but found 0
+files" warning hinted at it, and only the byte-for-byte comparison against
+the ground truth proved it.
+
+**Root cause: OPAL renders some course nodes server-side and others
+client-side, and nothing in the HTTP response distinguishes them.** A
+JS-rendered section returns 144-172KB of markup with 5-19 extractable links
+and zero files — which is indistinguishable from a section that genuinely
+has no files.
+
+**Four candidate completeness signals were tried. All four are refuted:**
+
+| signal | why it fails |
+|---|---|
+| `pager-showall` present in the HTML | only 5 sections advertise it, yet 43 files were missing from paginated ones |
+| extracted row count at the ~20 page cap | catches truncation, says nothing about a list that never rendered |
+| zero extractable candidates | JS-rendered sections return 5-19 links, so they pass |
+| URL shape (`/CourseNode/<id>` vs `/CourseNode/<id>/<Folder>`) | 3/3 with a folder segment had files, but 8 of 43 bare ones did too — it is per course-node type, not per URL shape |
+
+**Do not retry the direct-replacement design without a completeness signal
+that is verified against a course like Softwaretechnologie.** "It worked on
+my course" is exactly how this one passed three courses and destroyed two.
+
+### Where this leaves the campaign
+
+The HTTP fetch itself is sound and fast; what cannot be trusted is *reading
+files out of it*. That points at a different design, which never asks
+"is this HTTP view complete?":
+
+**Use HTTP as a change detector, not as a data source.** Fetch each section
+over HTTP and compare a normalised hash of its HTML against the one stored
+from the last successful *browser* crawl. Unchanged means reuse that
+section's cached, browser-verified file list; changed means re-crawl it with
+the browser. Correctness stays anchored to the browser, and a no-op sync -
+the case the maintainer actually cares about - becomes ~275 cheap HTTP
+fetches plus zero browser visits.
+
+Open risk to settle first: OPAL page HTML contains volatile fragments
+(Wicket page-instance counters, timestamps, CSRF tokens), so a raw byte hash
+will never match twice. Whether a stable normalised subset exists is the
+gating question, and it is cheap to answer - fetch the same section twice
+and diff.
 
 (Append one row per attempt. Include the measurement, and for a rejection,
 enough detail that a later reader can judge whether it deserves another look

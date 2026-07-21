@@ -81,6 +81,7 @@ Ranked by expected gain, to be confirmed by measurement not by argument:
 | 2026-07-21 | HTTP-first discovery, implemented | **REJECTED — unsafe.** Fast (22s) but silently emptied whole courses. No reliable completeness signal exists; four heuristics tried and refuted. Details below. |
 | 2026-07-21 | HTTP hash as a change detector | **REJECTED — never hits.** Warm sync 317.6s vs 318.9s baseline. Section HTML is not reproducible across runs: 0/276 hashes matched. Details below. |
 | 2026-07-21 | Finer stability sampling | **SHIPPED.** Poll interval 400→150ms with maxPolls 20→53 (total budget unchanged). Discovery 4m27s→3m25s, ~23%, file-complete twice. |
+| 2026-07-21 | Research: is there a change signal at all? | **One lead survives.** REST API 403 at the proxy, RSS absent, no `*Site` URLs — but a personal notifications page exists at a stable URL. Blocked on a maintainer decision. |
 
 ### 2026-07-21 — HTTP-first section discovery (probe, not yet implemented)
 
@@ -289,3 +290,37 @@ Realistic expectation without a new idea: **3-4 minutes**, not 30 seconds.
 Anyone picking this up should either find a genuinely different change signal
 (an OPAL API, a course-level "last modified", an RSS/notification feed) or
 accept the floor. Do not re-run the three rejected designs.
+
+### 2026-07-21 — research: does OPAL expose a change signal?
+
+The standing conclusion above says 30s needs a different signal entirely.
+This is the search for one.
+
+| candidate | result |
+|---|---|
+| OpenOLAT REST API (`/restapi/*`, 7 paths) | **403** on every one, with an Apache `iso-8859-1` error page — refused at the reverse proxy, not by OpenOLAT |
+| RSS (`/rss/`, `/auth/rss/`) | 404 and 400 |
+| OpenOLAT `*Site` deep links | not referenced anywhere on the home page |
+| **Personal notifications page** | **exists, at a stable URL** |
+
+`https://bildungsportal.sachsen.de/opal/home/notifications` renders a popover
+that currently reads *"Es gibt keine Neuigkeiten."* It is reached from the
+`notificationsLink` anchor in the "Persönliches" navigation — that anchor sits
+in a collapsed menu and cannot be clicked, so navigate to its `href`.
+
+**One page, account-wide, that answers "did anything change?" is exactly the
+shape the 30s target needs.** A sync could fetch it and, on "no news", skip
+discovery entirely.
+
+**The catch, and why this is blocked rather than built:** OpenOLAT only
+reports what you have *subscribed to*, and this account appears to have no
+subscriptions — 5 files genuinely appeared earlier the same day and were not
+reported. Confirming that requires creating subscriptions in the maintainer's
+real OPAL account, which changes their settings and can send them e-mail.
+That is their call. Filed as
+`.claude/queue/blocked/opal-notification-change-signal.md` with the question
+and the full acceptance criteria.
+
+**Unverified and load-bearing:** that OPAL notifications report *file
+additions in a folder* at all. If they only cover forum posts and
+announcements, this route dies too, and the ~3-4 minute floor stands.

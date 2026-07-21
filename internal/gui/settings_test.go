@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/syncer"
 )
 
 // TestHandleSettingsPostPreservesFieldsWithoutFormInputs is a regression test
@@ -378,5 +379,76 @@ func TestHandleSettingsPostSyncAllCoursesIgnoresCourseNames(t *testing.T) {
 	wantFolders := map[string]string{"Analysis I": "Mathematik/Analysis"}
 	if !reflect.DeepEqual(after.App.CourseFolders, wantFolders) {
 		t.Errorf("course_folders mismatch: got %+v, want %+v", after.App.CourseFolders, wantFolders)
+	}
+}
+
+// TestHandleSettingsPostWarnsWhenTogglingSubfoldersWithExistingManifest
+// covers the trigger for the whole manifest key-scheme failure mode: flipping
+// "Organize downloads into a subfolder per OPAL section" re-keys every entry
+// in an existing sync manifest, and used to do so through an unlabelled
+// checkbox with no warning whatsoever.
+func TestHandleSettingsPostWarnsWhenTogglingSubfoldersWithExistingManifest(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	downloadPath := filepath.Join(dir, "downloads")
+
+	initialYAML := "download_path: " + filepath.ToSlash(downloadPath) + `
+courses:
+  - "*"
+sync: true
+opal_url: https://bildungsportal.sachsen.de/opal/
+session_state_file: ./state.json
+`
+	if err := os.WriteFile(configPath, []byte(initialYAML), 0o644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	// An already-populated sync history, written under the current (flat)
+	// layout.
+	manifest := &syncer.Manifest{
+		Path: filepath.Join(downloadPath, syncer.ManifestFileName),
+		Files: map[string]syncer.FileRecord{
+			"Analysis I/sheet.pdf":   {},
+			"Analysis I/skript.pdf":  {},
+			"Lineare Algebra/l1.pdf": {},
+		},
+	}
+	if err := manifest.Save(); err != nil {
+		t.Fatalf("failed to write test manifest: %v", err)
+	}
+
+	post := func(useSubfolders bool) string {
+		form := url.Values{}
+		form.Set("download_path", filepath.ToSlash(downloadPath))
+		form.Set("sync_all_courses", "on")
+		form.Set("sync", "on")
+		if useSubfolders {
+			form.Set("use_section_subfolders", "on")
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/settings", nil)
+		req.PostForm = form
+		req.Form = form
+		rec := httptest.NewRecorder()
+		handleSettings(configPath)(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	body := post(true)
+	if !strings.Contains(body, "existing sync history") {
+		t.Errorf("expected a warning about existing sync history when enabling section subfolders, got body:\n%s", body)
+	}
+	if !strings.Contains(body, "3 files") {
+		t.Errorf("expected the warning to state how many entries are affected, got body:\n%s", body)
+	}
+
+	// Saving again without changing the toggle must not re-warn - the
+	// re-keying only happens on the change itself.
+	body = post(true)
+	if strings.Contains(body, "existing sync history") {
+		t.Errorf("expected no warning when the toggle is unchanged, got body:\n%s", body)
 	}
 }

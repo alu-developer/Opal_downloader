@@ -133,6 +133,8 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 			sp.job.publish(jobEvent{Kind: "file_downloaded", Course: e.Course, File: e.File})
 		case syncer.EventFileSkipped:
 			sp.job.publish(jobEvent{Kind: "file_skipped", Course: e.Course, File: e.File})
+		case syncer.EventMigration:
+			sp.job.publish(jobEvent{Kind: "log", Message: e.Message})
 		case syncer.EventError:
 			msg := ""
 			if e.Err != nil {

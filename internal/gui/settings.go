@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/syncer"
 )
 
 // courseRow is one editable row of the merged courses table: a course
@@ -287,8 +289,44 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	loaded.Credentials.StateFile = config.DefaultStateFile
 
 	view.Warnings = config.Warnings(loaded.App)
+	if warning := sectionSubfolderToggleWarning(base, loaded); warning != "" {
+		view.Warnings = append(view.Warnings, warning)
+	}
 
 	return view, loaded
+}
+
+// sectionSubfolderToggleWarning returns a warning to show when the user has
+// just flipped use_section_subfolders on a config that already has sync
+// history recorded under the previous folder layout.
+//
+// This toggle silently re-keys every manifest entry (a section component is
+// inserted into, or removed from, every key), which historically meant the
+// next sync treated every file as new: it re-downloaded everything and left
+// the previous copies orphaned with no warning at all. The syncer now
+// detects and migrates that (see internal/syncer/migrate.go), but the user
+// should still be told at the moment they cause it - it is the main way this
+// whole failure mode gets tripped, and it is one unlabelled checkbox click.
+func sectionSubfolderToggleWarning(base, saved config.Loaded) string {
+	if base.App.UseSectionSubfolders == saved.App.UseSectionSubfolders {
+		return ""
+	}
+
+	downloadPath := strings.TrimSpace(base.App.DownloadPath)
+	if downloadPath == "" {
+		downloadPath = strings.TrimSpace(saved.App.DownloadPath)
+	}
+	if downloadPath == "" {
+		return ""
+	}
+
+	manifest, err := syncer.LoadManifest(filepath.Join(downloadPath, syncer.ManifestFileName))
+	if err != nil || len(manifest.Files) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("You changed \"Organize downloads into a subfolder per OPAL section\". Your existing sync history (%d files, recorded in %s) was written under the previous folder layout, so every file now belongs in a different place. The next sync will detect this and move already-downloaded files to their new locations instead of re-downloading them; anything it cannot match unambiguously is listed in the sync log so you can move or delete it yourself. No file is ever deleted automatically.",
+		len(manifest.Files), filepath.Join(downloadPath, syncer.ManifestFileName))
 }
 
 // loadSettingsViewData loads configPath into a settingsViewData for
@@ -515,7 +553,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<input type="checkbox" id="use_section_subfolders" name="use_section_subfolders" {{if .UseSectionSubfolders}}checked{{end}}>
 		<label for="use_section_subfolders">Organize downloads into a subfolder per OPAL section</label>
 	</div>
-	<p class="hint">Places files in <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code> instead of flat <code>&lt;course&gt;/&lt;file&gt;</code>. The two editors below only apply while this is checked.</p>
+	<p class="hint">Places files in <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code> instead of flat <code>&lt;course&gt;/&lt;file&gt;</code>. The two editors below only apply while this is checked. Changing this after you have already synced moves your existing downloads into the new layout on the next sync - nothing is deleted, and anything that can't be matched is listed in the sync log.</p>
 
 	<div class="field">
 		<label>Section folder names</label>

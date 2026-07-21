@@ -60,14 +60,16 @@ download_concurrency: 3
 # dropped when the page's JS execution context was torn down mid-flight
 # under concurrent-tab contention) is live-verified byte-for-byte safe at
 # concurrency 2 and 3 across 6 repeated full-account runs - this setting is
-# safe to raise. It is NOT a proven speed win, though: a 2026-07-20
-# follow-up found concurrency>1 the same speed or *slower* than serial on
-# every course-size distribution tested so far (both the maintainer's own
-# skewed account - one course much larger than the rest - and a deliberately
-# evened-out subset of it), so the default stays 1. See the doc comment for
-# the full numbers. Can also be set with --course-concurrency on the
-# list/sync commands. Defaults to 1.
-course_concurrency: 1
+# safe to raise. It is now also a speed win: until 2026-07-21 concurrency>1
+# was measurably SLOWER than serial, because every section paid a fixed
+# patience tax whenever concurrency>1, contended or not. That tax accounted
+# for essentially the entire slowdown and has been replaced with per-section
+# evidence. On the maintainer's real account a full run went 9m13s -> 4m27s
+# at concurrency 2, against 5m01s serial, byte-for-byte identical file sets.
+# Hence the default is now 2. Raising it further (3+) is correctness-safe per
+# PR #94 but has not been re-measured since the fix. Can also be set with
+# --course-concurrency on the list/sync commands. Defaults to 2.
+course_concurrency: 2
 
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.
 # Only change if you're using a different Bildungsportal Sachsen instance.

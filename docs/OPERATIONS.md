@@ -287,7 +287,8 @@ polls were observed settling on a *stable* read that was nonetheless short
 of the serial ground truth (`sectionContentMaxPolls=20` was never exhausted
 in any run, ruling out "poll budget too short" as the mechanism) - the
 section's own client-side render plateaus incomplete under concurrent
-contention. `DefaultCourseConcurrency` stays at 1; see its doc comment in
+contention. `DefaultCourseConcurrency` stayed at 1 at the time of this entry; it is 2
+since 2026-07-21 (see the update below). See its doc comment in
 `internal/config/config.go` for the full run-by-run breakdown.
 
 **Update (2026-07-17): `--debug-clicks` now also writes a persistent JSONL
@@ -371,6 +372,41 @@ count, concurrency's parallelism has little left to win back. Anyone
 opting into `course_concurrency>1` expecting a speed win should verify that
 holds for their own course-size mix; see `DefaultCourseConcurrency`'s doc
 comment in `internal/config/config.go` for the full numbers.
+
+**Update (2026-07-21, queue task fix-concurrency-global-patience-tax): the
+default is `course_concurrency=2`, and the wall-clock caveat above is
+RESOLVED — it was the patience tax, not contention.**
+
+The suspicion stated in the caveat ("a fixed per-section cost paid whether
+or not that section was ever actually contended") was measured directly
+before anything was changed, by timing the two concurrency-gated waits
+across a full account:
+
+| | serial | concurrency 2 (before) |
+|---|---|---|
+| `waitForStableSectionContent` avg | 451ms | **1.922s** |
+| `waitForContentSettled` avg | 343ms | 553ms |
+| wall-clock | 5m00.7s | 9m13.3s |
+
+284 sections × +1.47s, split over 2 workers, is +4m00s — against a total
+slowdown of +4m12s. Essentially all of it. The 4.26x jump in the section
+poll matches the old global `requiredStableReads` 1→4 multiplier exactly.
+Genuine rendering contention never showed up as a measurable cost.
+
+The global gate is gone. Patience is now earned per section: a page whose
+MutationObserver reported a full debounce window with zero mutations opens
+the poll impatient; a page still mutating opens on the full streak; observed
+growth escalates either way. The show-all expansion poll deliberately keeps
+the old concurrency gate — it runs ~6 times per full account versus ~284
+section visits, so its patience costs nothing, and a shorter streak there is
+live-confirmed to lose files.
+
+After the fix, two full-account runs at concurrency 2: **4m27.3s and
+4m23.3s**, both byte-for-byte identical to the serial ground truth (342
+files). Concurrency 2 is now ~12% faster than serial instead of 84% slower.
+
+Concurrency 3+ has NOT been re-measured since this fix; it remains
+correctness-safe per PR #94 but is not a known speed win.
 
 **Update (2026-07-20, queue task
 investigate-course-concurrency-wallclock-benefit): the default is back to

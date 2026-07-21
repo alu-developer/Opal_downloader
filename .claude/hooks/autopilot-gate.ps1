@@ -82,6 +82,28 @@ if (-not $rateKnown -and $count -ge 8) {
     Allow-Stop
 }
 
+# --- already waiting on a background job? ------------------------------------
+# Blocking the stop here would waste a whole turn: when a backgrounded command
+# finishes, the harness re-invokes the assistant on its own. So if a long job
+# belonging to this repo is still running, let the turn end and let the
+# completion notification do the waking.
+# Matching on the repo path does not work: `go test ./internal/scraper/` is
+# spawned with a RELATIVE package path, so the repo root never appears in the
+# command line. Match the shapes of long job this repo actually starts
+# instead. A false positive only ends the turn early (autopilot resumes on the
+# next user message), which is the harmless direction.
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+try {
+    $procs = Get-CimInstance Win32_Process -ErrorAction Stop
+    $busy = $procs | Where-Object {
+        ($_.Name -eq 'go.exe' -and $_.CommandLine -and $_.CommandLine -match '\s(test|run)\s') -or
+        ($_.Name -like '*.test.exe') -or
+        ($_.Name -in @('opal-dl.exe', 'opal-downloader.exe')) -or
+        ($_.CommandLine -and $_.CommandLine -like "*$repoRoot*" -and $_.Name -ne 'powershell.exe')
+    }
+    if ($busy) { Allow-Stop }
+} catch { }
+
 # --- is there actually queued work? ------------------------------------------
 $todoDir = Join-Path $queueDir "todo"
 if (-not (Test-Path $todoDir)) { Allow-Stop }

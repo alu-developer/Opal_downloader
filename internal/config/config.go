@@ -266,22 +266,38 @@ const (
 	// there simply isn't enough concurrent work to amortize that fixed tax
 	// against, with or without one course dominating.
 	//
-	// Given the same conclusion (no proven wall-clock win, sometimes a
-	// large loss) now holds on both course-size distributions tested - this
-	// account's own skewed real mix, and a deliberately evened-out subset
-	// of it - there is no evidence to support a variance-aware default
-	// (raise for "even" accounts, keep at 1 for "skewed" ones): the "even"
-	// case lost too, more consistently than the skewed one. Per this
-	// project's ease-of-use-first philosophy, imposing extra browser
-	// resource usage (multiple concurrent tabs) and a slower default
-	// experience on every user for a benefit that hasn't been observed on
-	// any tested distribution isn't justified, so the default reverts to 1.
-	// course_concurrency remains available as an explicit opt-in
-	// (config.yaml or --course-concurrency) for anyone who wants to
-	// experiment against their own course mix/hardware/network - it is
-	// correctness-safe at 2 and 3 per PR #94's live verification, just not
-	// a proven speed win.
-	DefaultCourseConcurrency = 1
+	// RESOLVED 2026-07-21 (queue task fix-concurrency-global-patience-tax):
+	// the suspicion recorded above - that the fixed per-section concurrency>1
+	// tax, not real contention, was the cost - is confirmed, and the tax is
+	// gone. The default is 2.
+	//
+	// Attribution, measured on the real account before changing anything:
+	// at concurrency 2 the section-content stability poll averaged 1.922s
+	// per section against 451ms serial (4.26x, exactly the old global
+	// 1->4 requiredStableReads multiplier), and the settle wait 553ms
+	// against 343ms. Over 284 sections split across 2 workers that is
+	// +4m00s of pure waiting, against a total slowdown of +4m12s - i.e.
+	// essentially ALL of it. Genuine rendering contention was not a
+	// measurable factor.
+	//
+	// The fix replaced the global gate with per-section evidence: a page
+	// whose MutationObserver reported a full debounce window with zero
+	// mutations opens the poll impatient, anything still mutating opens on
+	// the full streak, and observed growth escalates either way (see
+	// waitForStableSectionContent in internal/scraper/crawl.go and
+	// candidateStabilityPoll in navigation.go). The show-all expansion poll
+	// deliberately keeps the old concurrency gate - it runs ~6 times per
+	// full account against ~284 section visits, so its patience is free,
+	// and a shorter streak there is live-confirmed to lose files.
+	//
+	// Result on the real account, full-account runs:
+	//   serial          5m00.7s
+	//   concurrency 2   9m13.3s  (before)
+	//   concurrency 2   4m27.3s / 4m23.3s  (after, two runs)
+	// Concurrency 2 is now ~12% faster than serial instead of 84% slower,
+	// and both post-fix runs were byte-for-byte identical to the serial
+	// ground truth on the discovered file set.
+	DefaultCourseConcurrency = 2
 )
 
 // DefaultSkipEnrollmentSections is the default for App.SkipEnrollmentSections

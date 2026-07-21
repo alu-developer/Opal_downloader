@@ -131,7 +131,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				continue
 			}
 		}
-		s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+		_, sectionCalm := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 
 		// waitForStableSectionContent polls extraction until the candidate
 		// count stabilizes (see its doc comment and candidateStabilityPoll's
@@ -141,7 +141,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		// 2026-07-12) to sometimes not be, once several courses' pages are
 		// rendering under concurrent load at once, up to and including an
 		// entire course silently coming back with 0 files.
-		candidates, err := s.waitForStableSectionContent(page)
+		candidates, err := s.waitForStableSectionContent(page, sectionCalm)
 		if err != nil {
 			if isPageCrashError(err) {
 				newPage, recErr := s.recoverFromPageCrash(page)
@@ -158,8 +158,8 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 					sectionsFailed++
 					continue
 				}
-				s.waitForInteractiveLinks(page, contentFallbackWaitMs)
-				candidates, err = s.waitForStableSectionContent(page)
+				_, sectionCalm = s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+				candidates, err = s.waitForStableSectionContent(page, sectionCalm)
 			}
 			if err != nil {
 				fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitles[currentKey], currentURL, err)
@@ -398,7 +398,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	// waiter exists to prevent. The signal reliably marks a call as finished;
 	// it does not, on large expansions, mark the resulting DOM as complete.
 	if !expansionSignalled {
-		contextWasDestroyed := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+		contextWasDestroyed, _ := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 		if contextWasDestroyed && !navigated {
 			// THE ROOT CAUSE this task (fix-candidate-stability-poll-concurrent-
 			// crawl-race) set out to find: see waitForInteractiveLinks's doc
@@ -687,11 +687,32 @@ func (s *OpalScraper) waitForStableExpandedCandidates(page playwright.Page) ([]m
 		}
 		return candidates, err
 	}
+	// Deliberately left on the old concurrency-gated patience, unlike the
+	// section-content poll below. Two reasons, both measured rather than
+	// assumed:
+	//
+	//  1. It is not where the time goes. A full-account run makes ~6 show-all
+	//     expansions against ~284 section visits, so this poll's patience is
+	//     a rounding error in the wall-clock - the section poll is the entire
+	//     cost (9m06s of an 9m13s run at concurrency 2).
+	//  2. Opening impatient here would contradict direct live evidence: a
+	//     concurrency=3 run with a streak of 2 still lost the tail of a
+	//     paginated section (see showAllExpansionRequiredStableReads's doc
+	//     comment). Post-click expansion demonstrably shows the
+	//     stops-growing-then-grows-again pattern that an impatient opening
+	//     cannot survive, and there is no trustworthy per-section signal for
+	//     it - Wicket's AJAX_CALL_DONE marks the call finished, not the DOM
+	//     complete (see wicket.go).
+	patient := showAllExpansionRequiredStableReads
+	if s.effectiveCourseConcurrency() <= 1 {
+		patient = 1
+	}
 	return candidateStabilityPoll(
 		extractFn,
 		func() { page.WaitForTimeout(showAllExpansionPollIntervalMs) },
 		showAllExpansionMaxPolls,
-		s.requiredStableReads(showAllExpansionRequiredStableReads),
+		patient,
+		patient,
 		isPageCrashError,
 	)
 }
@@ -779,7 +800,7 @@ const sectionContentRequiredStableReads = 4
 // callers must still treat a persistently empty/erroring result the same
 // way as before (see the sectionsVisited/sectionsFailed accounting around
 // this call in collectCourseFiles).
-func (s *OpalScraper) waitForStableSectionContent(page playwright.Page) ([]map[string]string, error) {
+func (s *OpalScraper) waitForStableSectionContent(page playwright.Page, calm bool) ([]map[string]string, error) {
 	// Logs each poll's candidate count under --debug-clicks (audit.go), so a
 	// stuck-at-N-forever plateau can be distinguished from "never reached
 	// the poll loop at all" - this is exactly the diagnostic that found the
@@ -801,41 +822,44 @@ func (s *OpalScraper) waitForStableSectionContent(page playwright.Page) ([]map[s
 		}
 		return candidates, err
 	}
+	// This is the poll the measurement indicted: 284 calls per run, averaging
+	// 451ms serial but 1.922s at concurrency 2 - a 4.26x jump matching the
+	// old global 1->4 stable-read gate exactly, and accounting for
+	// essentially all of that run's +4m12s.
+	//
+	// Patience is now earned per section. calm means the MutationObserver
+	// watched the content root go a full debounce window without a single
+	// mutation, which is positive evidence this page is done rendering; such
+	// a page opens impatient. A page that was still mutating when the
+	// observer ran out of budget opens on the full streak, exactly as the old
+	// gate did. Either way, growth escalates.
+	patient := sectionContentRequiredStableReads
+	if s.effectiveCourseConcurrency() <= 1 {
+		patient = 1
+	}
+	initial := patient
+	if calm {
+		initial = 1
+	}
 	return candidateStabilityPoll(
 		extractFn,
 		func() { page.WaitForTimeout(sectionContentPollIntervalMs) },
 		sectionContentMaxPolls,
-		s.requiredStableReads(sectionContentRequiredStableReads),
+		initial,
+		sectionContentRequiredStableReads,
 		isPageCrashError,
 	)
 }
 
-// requiredStableReads returns patient (the concurrency-aware constant
-// passed in by the caller - sectionContentRequiredStableReads or
-// showAllExpansionRequiredStableReads) when this crawl is actually running
-// with course_concurrency>1, and 1 (the original, already-proven-sufficient
-// single-non-growing-read behavior) otherwise.
-//
-// This matters for wall-clock cost, not just correctness: live-verified
-// (queue task fix-concurrent-crawl-ajax-race-and-raise-concurrency) that
-// unconditionally requiring several consecutive stable reads for every
-// section - even during a purely serial course_concurrency=1 crawl, which
-// never exhibited this race in the first place (see this same task's
-// DefaultCourseConcurrency doc comment in internal/config/config.go) - made
-// a full serial crawl of the real TU Dresden account measurably slower
-// (~999s vs. the ~471s pre-fix baseline, more than 2x) for zero correctness
-// benefit, since the race this patience defends against is specific to
-// concurrent rendering contention that a serial crawl by definition doesn't
-// have. Scoping the extra patience to only when concurrency>1 keeps the
-// default (course_concurrency=1) experience exactly as fast as it always
-// was, while still applying it for anyone who opts into course_concurrency>1
-// via config.yaml or --course-concurrency.
-func (s *OpalScraper) requiredStableReads(patient int) int {
-	if s.effectiveCourseConcurrency() > 1 {
-		return patient
-	}
-	return 1
-}
+// NOTE: requiredStableReads (a global gate that handed every section the
+// patient streak whenever course_concurrency>1) was removed on 2026-07-21.
+// Measured on the real account, that gate WAS the concurrency penalty: at
+// concurrency 2 the section-content poll averaged 1.922s per section against
+// 451ms serial - a 4.26x jump matching the 1->4 stable-read multiplier
+// exactly - and the resulting +4m00s of extra waiting accounted for
+// essentially all of the +4m12s the whole run got slower. Patience is now
+// earned per section instead (see waitForStableSectionContent above and
+// candidateStabilityPoll in navigation.go).
 
 // recoverAndReturnToSection is expandShowAllInSection's crash path: it opens a fresh
 // replacement page/tab (closing the crashed one - see recoverFromPageCrash) and

@@ -25,20 +25,41 @@ try {
 
 $queueDir = Join-Path $PSScriptRoot "..\queue"
 $marker = Join-Path $queueDir "AUTOPILOT"
-if (-not (Test-Path $marker)) { Allow-Stop }
+$sessionRecord = Join-Path $queueDir ".autopilot-session.json"
+$offSwitch = Join-Path $queueDir "AUTOPILOT.OFF"
 
-try {
-    $cfg = Get-Content $marker -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-} catch {
+# The maintainer's off switch, and the ONLY early exit. Honoured first and
+# unconditionally.
+if (Test-Path $offSwitch) {
+    Remove-Item $marker, $sessionRecord -Force -ErrorAction SilentlyContinue
     Allow-Stop
 }
+
+# Effective config: the marker if present, otherwise a live session record.
+#
+# The fallback is deliberate. On 2026-07-21 the assistant ended three
+# autonomous runs early by deleting the marker itself and justifying it
+# afterwards - the exact behaviour autopilot exists to prevent, and the old
+# version of this hook literally told it how ("to end autopilot, delete
+# ..."). Ending the run is not the assistant's call to make: the guards
+# below decide, or the maintainer does via AUTOPILOT.OFF. So a deleted
+# marker no longer ends anything while the session record is still live; it
+# is simply restored.
+$cfg = $null
+if (Test-Path $marker) {
+    try { $cfg = Get-Content $marker -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $cfg = $null }
+}
+if ($null -eq $cfg -and (Test-Path $sessionRecord)) {
+    try { $cfg = Get-Content $sessionRecord -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $cfg = $null }
+}
+if ($null -eq $cfg) { Allow-Stop }
 
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 # --- hard expiry: autopilot is always time-boxed ------------------------------
 if ($null -eq $cfg.expires_at) { Allow-Stop }
 if ($now -ge [int64]$cfg.expires_at) {
-    Remove-Item $marker -Force -ErrorAction SilentlyContinue
+    Remove-Item $marker, $sessionRecord -Force -ErrorAction SilentlyContinue
     Allow-Stop
 }
 
@@ -111,6 +132,13 @@ $todo = @(Get-ChildItem $todoDir -Filter *.md -File -ErrorAction SilentlyContinu
 if ($todo.Count -eq 0) { Allow-Stop }
 
 # --- continue ----------------------------------------------------------------
+# Persist the config so a later self-deletion of the marker cannot end the
+# run, and restore the marker if it has already gone missing.
+try { $cfg | ConvertTo-Json -Depth 5 | Set-Content $sessionRecord -Encoding utf8 -ErrorAction Stop } catch { }
+if (-not (Test-Path $marker)) {
+    try { $cfg | ConvertTo-Json -Depth 5 | Set-Content $marker -Encoding utf8 -ErrorAction Stop } catch { }
+}
+
 $state | Add-Member -NotePropertyName $sessionId -NotePropertyValue ($count + 1) -Force
 try { $state | ConvertTo-Json -Depth 5 | Set-Content $statePath -Encoding utf8 -ErrorAction Stop } catch { Allow-Stop }
 
@@ -125,7 +153,9 @@ Do not stop to ask whether to continue. Pick the highest-value remaining task yo
 
 Rules that still apply: never report a criterion as verified without exercising it; label anything unverified explicitly; a negative result is a valid outcome to report and file. Stop early only if a task genuinely needs a human decision - if so, move it to .claude/queue/blocked/ with the open question written down, then continue with the next task.
 
-To end autopilot deliberately, delete .claude/queue/AUTOPILOT.
+Ending this run is NOT your call. Deleting .claude/queue/AUTOPILOT does not work - the hook restores it. The guards above end the run (expiry, iteration cap, rate limits, empty queue), or the maintainer does by creating .claude/queue/AUTOPILOT.OFF. If you believe it should stop early, say so in your reply and keep working; do not act on it yourself.
+
+"Budget", "this session is long", and "the next task deserves a fresh start" are not stop conditions. They are the rationalisations used to end three earlier runs.
 "@
 
 $out = @{ decision = "block"; reason = $reason } | ConvertTo-Json -Depth 5 -Compress

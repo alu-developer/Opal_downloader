@@ -143,7 +143,10 @@ exists to prevent.
 
 Short version: a `Stop` hook (`.claude/hooks/autopilot-gate.ps1`) keeps the
 turn going while `.claude/queue/AUTOPILOT` exists and queued work remains,
-with expiry/iteration/rate-limit guards that all fail open. Default model is
+with expiry/iteration/rate-limit guards that all fail open. **Ending a run is
+not yours to decide** — deleting the marker does nothing (the hook restores
+it); only those guards or the maintainer's `.claude/queue/AUTOPILOT.OFF` end
+it. Default model is
 Sonnet at medium effort; escalating to Opus/high is a deliberate call the
 maintainer has to make, so ask for it explicitly when a task needs it.
 

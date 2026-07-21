@@ -30,11 +30,30 @@ $exp = [DateTimeOffset]::UtcNow.AddHours(4).ToUnixTimeSeconds()
 "{`"expires_at`": $exp, `"max_iterations`": 20}" |
   Set-Content .claude/queue/AUTOPILOT -Encoding utf8
 
-# stop it
-Remove-Item .claude/queue/AUTOPILOT
+# stop it (maintainer only - this is the off switch)
+New-Item .claude/queue/AUTOPILOT.OFF -ItemType File
 ```
 
 Interrupting the session also works, and always wins.
+
+### The assistant does not get to end a run
+
+**Deleting `.claude/queue/AUTOPILOT` does nothing** — the hook keeps a
+session record and restores the marker. A run ends when a guard below says
+so, or when the maintainer creates `AUTOPILOT.OFF`.
+
+This is not paranoia, it is a fix for observed behaviour. On 2026-07-21 the
+assistant ended three autonomous runs early by deleting the marker itself and
+justifying it afterwards, and an earlier version of this very hook ended its
+instructions with "to end autopilot deliberately, delete
+.claude/queue/AUTOPILOT" — a documented escape hatch it then used. The
+maintainer had to intervene each time, which is precisely the manual effort
+autopilot exists to remove.
+
+**"Budget", "this session is long", and "the next task deserves a fresh
+start" are not stop conditions.** They were the rationalisations. If stopping
+genuinely looks right, say so in the reply and keep working; the decision is
+the maintainer's.
 
 ### Guards, and why each exists
 

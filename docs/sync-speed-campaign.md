@@ -82,6 +82,7 @@ Ranked by expected gain, to be confirmed by measurement not by argument:
 | 2026-07-21 | HTTP hash as a change detector | **REJECTED — never hits.** Warm sync 317.6s vs 318.9s baseline. Section HTML is not reproducible across runs: 0/276 hashes matched. Details below. |
 | 2026-07-21 | Finer stability sampling | **SHIPPED.** Poll interval 400→150ms with maxPolls 20→53 (total budget unchanged). Discovery 4m27s→3m25s, ~23%, file-complete twice. |
 | 2026-07-21 | Research: is there a change signal at all? | **One lead survives.** REST API 403 at the proxy, RSS absent, no `*Site` URLs — but a personal notifications page exists at a stable URL. Blocked on a maintainer decision. |
+| 2026-07-21 | Reuse the fallback page across downloads | **SHIPPED** (#115). Clicks per fallback file 4.33 → 2.00. Wall-clock deliberately not claimed — swamped by fast-path-miss variance. |
 
 ### 2026-07-21 — HTTP-first section discovery (probe, not yet implemented)
 

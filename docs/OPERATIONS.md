@@ -581,14 +581,44 @@ exactly as reported. A single-course re-run of `Algorithmen und
 Datenstrukturen` also cut counter-refresh misses from 6/36 to 1/36 and the
 download phase from 139.3s to 10.1s.
 
-**Known remaining limitation (server-side, mitigated not eliminated):**
-a Wicket page instance can be evicted from the session, and in the
-full-account run it usually had been by download time (discovery of all
-courses finishes before downloads start), so 48 of 342 files still took
-the browser fallback. The fallback is now retried and worked for all of
-them, but it stays the slow, serialized path. If this symptom recurs,
-read the *specific* propagated error first — it now names the page tried
-and the real reason — rather than re-deriving anything from a live run.
+**Known remaining limitation (structural, NOT eviction — corrected
+2026-07-21):** 48 of 342 files still take the slow, serialized browser
+fallback. The fallback is retried and works for all of them, so this is a
+speed limit, not a correctness one (`errors=0` on a full run).
+
+The original explanation here was that the Wicket page instance had usually
+been *evicted* from the session by download time, since discovery of all
+courses finishes before downloads start. **Measured on 2026-07-21, that is
+wrong**, and it matters because it points optimisation work in a useless
+direction:
+
+- The recorded `ExpandedPageURL` is **not missing and not unused**. Of the 48
+  failures, **47 tried two URLs** — the plain section URL *and* the
+  page-instance URL (`.../Part-3` and `.../Part-3?5875` appear in the same
+  joined error). It was captured, and it was tried.
+- **Freshness is not the factor.** A single-course run of `Algorithmen und
+  Datenstrukturen`, where only seconds pass between the expansion and the
+  download, produced **4 misses** — the same files that miss in a full run
+  (5 for that course), where minutes pass. If eviction over time were the
+  mechanism, the short-gap run would have been dramatically better. It was
+  not.
+
+So a plain HTTP re-fetch of a Wicket page-instance URL simply does not
+reproduce the click-expanded render, however fresh the instance is. All three
+angles the old note implied — re-derive a fresh instance, capture the URL
+closer to use, detect staleness and re-expand — are void.
+
+**The remaining real optimisation is batching, not freshness.** The browser
+fallback is serialised per *file*, and each of those files re-does its
+section's show-all expansion: the same run logged 349 clicks for 48 missing
+files across only ~5 distinct sections. Expanding a section once and taking
+all of its beyond-page-1 files while the browser is still sitting on the
+expanded page is where the time actually is. Filed as
+`todo/batch-browser-fallback-per-section.md`.
+
+If this symptom recurs, read the *specific* propagated error first — it names
+every page tried and the real reason — rather than re-deriving anything from
+a live run.
 
 ### Chromium fails to launch with "the application has failed to start
 ### because its side-by-side configuration is incorrect"

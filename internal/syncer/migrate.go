@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
@@ -144,9 +145,12 @@ func migrateManifestKeys(manifest *Manifest, cfg config.App, remoteFiles []scrap
 	}
 
 	currentTargets := map[string]resolvedTarget{}
+	currentCourse := map[string]string{}
 	for _, remoteFile := range remoteFiles {
 		resolved := resolveRemoteTargetPath(cfg, remoteFile)
-		currentTargets[filepath.ToSlash(resolved.ManifestKey)] = resolved
+		key := filepath.ToSlash(resolved.ManifestKey)
+		currentTargets[key] = resolved
+		currentCourse[key] = remoteFile.Course
 	}
 
 	matched := 0
@@ -195,48 +199,50 @@ func migrateManifestKeys(manifest *Manifest, cfg config.App, remoteFiles []scrap
 		stale := staleByName[name]
 		fresh := freshByName[name]
 
-		// Unambiguous only means exactly one stale entry and exactly one
-		// current file share this file name. Anything else (a duplicated
-		// file name on either side, or a stale entry with no current
-		// counterpart at all) is reported, not guessed at.
-		if len(stale) != 1 || len(fresh) != 1 {
-			sort.Strings(stale)
-			report.Ambiguous = append(report.Ambiguous, stale...)
+		// One stale entry and one current file sharing this file name is
+		// unambiguous on its own. Otherwise fall back to the course: a file
+		// name duplicated ACROSS courses is still recoverable, because both
+		// sides can say which course they belong to without any guessing
+		// (see pairStaleByCourse). Only what neither rule resolves is
+		// reported rather than guessed at.
+		pairs := map[string]string{}
+		if len(stale) == 1 && len(fresh) == 1 {
+			pairs[stale[0]] = fresh[0]
+		} else {
+			pairs = pairStaleByCourse(cfg, stale, fresh, currentCourse)
+		}
+
+		if len(pairs) < len(stale) {
+			unresolved := make([]string, 0, len(stale)-len(pairs))
 			for _, key := range stale {
+				if _, ok := pairs[key]; ok {
+					continue
+				}
+				unresolved = append(unresolved, key)
+			}
+			sort.Strings(unresolved)
+			report.Ambiguous = append(report.Ambiguous, unresolved...)
+			for _, key := range unresolved {
 				if orphanPath, ok := existingOldPath(cfg, key); ok {
 					report.Orphans = append(report.Orphans, displayPath(orphanPath))
 				}
 			}
+		}
+		if len(pairs) == 0 {
 			continue
 		}
 
-		oldKey, newKey := stale[0], fresh[0]
-		record := manifest.Files[oldKey]
-		delete(manifest.Files, oldKey)
-		manifest.Files[newKey] = record
-
-		remap := KeyRemap{OldKey: oldKey, NewKey: newKey, NewPath: currentTargets[newKey].LocalPath}
-		oldPath, exists := existingOldPath(cfg, oldKey)
-		remap.OldPath = oldPath
-		switch {
-		case !exists || oldPath == remap.NewPath:
-			// Nothing on disk under the old layout (or it is already in the
-			// right place): re-keying the history entry is all there is to
-			// do. If the file is genuinely missing, processRemoteFiles' own
-			// os.Stat check downloads it as usual.
-		case fileExists(remap.NewPath):
-			// A file is already sitting at the new location; moving onto it
-			// would destroy whichever copy is the real one. Report instead.
-			report.Orphans = append(report.Orphans, displayPath(oldPath))
-		default:
-			if err := relocateFile(oldPath, remap.NewPath); err != nil {
-				report.Orphans = append(report.Orphans, displayPath(oldPath))
-			} else {
-				remap.Relocated = true
-			}
+		pairedOld := make([]string, 0, len(pairs))
+		for key := range pairs {
+			pairedOld = append(pairedOld, key)
 		}
+		sort.Strings(pairedOld)
 
-		report.Remapped = append(report.Remapped, remap)
+		for _, oldKey := range pairedOld {
+			newKey := pairs[oldKey]
+			remapOne(manifest, cfg, report, currentTargets, oldKey, newKey)
+		}
+		continue
 	}
 
 	sort.Strings(report.Ambiguous)
@@ -244,6 +250,119 @@ func migrateManifestKeys(manifest *Manifest, cfg config.App, remoteFiles []scrap
 	sort.Slice(report.Remapped, func(i, j int) bool { return report.Remapped[i].OldKey < report.Remapped[j].OldKey })
 
 	return report
+}
+
+// remapOne re-keys a single stale manifest entry onto newKey and, when the
+// already-downloaded file is still sitting under the old layout, physically
+// moves it so the sync skips it instead of re-fetching it. Anything it
+// declines to move is reported as an orphan; nothing is ever deleted.
+func remapOne(manifest *Manifest, cfg config.App, report *MigrationReport, currentTargets map[string]resolvedTarget, oldKey, newKey string) {
+	record := manifest.Files[oldKey]
+	delete(manifest.Files, oldKey)
+	manifest.Files[newKey] = record
+
+	remap := KeyRemap{OldKey: oldKey, NewKey: newKey, NewPath: currentTargets[newKey].LocalPath}
+	oldPath, exists := existingOldPath(cfg, oldKey)
+	remap.OldPath = oldPath
+	switch {
+	case !exists || oldPath == remap.NewPath:
+		// Nothing on disk under the old layout (or it is already in the
+		// right place): re-keying the history entry is all there is to do.
+		// If the file is genuinely missing, processRemoteFiles' own os.Stat
+		// check downloads it as usual.
+	case fileExists(remap.NewPath):
+		// A file is already sitting at the new location; moving onto it
+		// would destroy whichever copy is the real one. Report instead.
+		report.Orphans = append(report.Orphans, displayPath(oldPath))
+	default:
+		if err := relocateFile(oldPath, remap.NewPath); err != nil {
+			report.Orphans = append(report.Orphans, displayPath(oldPath))
+		} else {
+			remap.Relocated = true
+		}
+	}
+
+	report.Remapped = append(report.Remapped, remap)
+}
+
+// pairStaleByCourse resolves a file name that appears more than once by
+// asking which COURSE each side belongs to, and pairing the ones that agree.
+//
+// This exists because plain file-name matching leaves recoverable entries on
+// the table. Measured on the maintainer's real 122-entry manifest
+// (2026-07-21): 24 of 26 unmatched entries were file names duplicated across
+// two courses - U06.pdf..U12.pdf living in both "Lineare Algebra" and
+// "Ma-Prog", and so on - which the name alone cannot separate but the course
+// can, deterministically.
+//
+// Course names are deliberately NOT compared as strings: an old key holds the
+// configured folder ("AlgData") while the current key holds the course title
+// ("Algorithmen und Datenstrukturen"), so any similarity test would fail on
+// exactly the real case. The old side is resolved through config's
+// course_folders mapping instead, and the current side is taken from the
+// scraped RemoteFile.Course, so both are facts rather than inferences.
+//
+// A pairing is only accepted when it is unique on BOTH sides within this
+// name group. Two stale entries from the same course, or two current files
+// from it, stay unpaired and are reported.
+func pairStaleByCourse(cfg config.App, stale, fresh []string, currentCourse map[string]string) map[string]string {
+	staleByCourse := map[string][]string{}
+	for _, key := range stale {
+		course, ok := oldKeyCourse(cfg, key)
+		if !ok {
+			continue
+		}
+		staleByCourse[course] = append(staleByCourse[course], key)
+	}
+
+	freshByCourse := map[string][]string{}
+	for _, key := range fresh {
+		course := currentCourse[key]
+		if course == "" {
+			continue
+		}
+		freshByCourse[course] = append(freshByCourse[course], key)
+	}
+
+	pairs := map[string]string{}
+	for course, staleKeys := range staleByCourse {
+		freshKeys := freshByCourse[course]
+		if len(staleKeys) != 1 || len(freshKeys) != 1 {
+			continue
+		}
+		pairs[staleKeys[0]] = freshKeys[0]
+	}
+	return pairs
+}
+
+// oldKeyCourse maps a stored manifest key back to the course it was written
+// for, using the configured course_folders paths made relative to
+// download_path - which is exactly how the old key scheme built its prefix.
+//
+// Longest prefix wins, so a course folder nested inside another one resolves
+// to the more specific of the two. Returns ok=false when no configured folder
+// claims this key (e.g. the course was since removed from config, or the file
+// landed under default_course_folder), in which case the caller must leave
+// the entry alone rather than guess.
+func oldKeyCourse(cfg config.App, key string) (string, bool) {
+	bestPrefix := ""
+	bestCourse := ""
+	for course, folder := range cfg.CourseFolders {
+		rel, err := filepath.Rel(cfg.DownloadPath, folder)
+		if err != nil {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." || strings.HasPrefix(rel, "../") {
+			continue
+		}
+		prefix := rel + "/"
+		if strings.HasPrefix(key, prefix) && len(prefix) > len(bestPrefix) {
+			bestPrefix = prefix
+			bestCourse = course
+		}
+	}
+	return bestCourse, bestCourse != ""
 }
 
 // existingOldPath maps a stored (relative, slash-separated) manifest key back

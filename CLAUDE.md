@@ -11,9 +11,12 @@ subcommand) and a CLI (`init`, `setup`, `status`, `login`, `list`, `sync`,
 
 ## Before editing this file
 
-Ask the maintainer before making any change to this file — including
-corrections you're confident about, and edits prompted by a queue-task
-finding. Don't auto-apply edits here without asking first.
+The former "ask before every edit to this file" rule was lifted by the
+maintainer on 2026-07-21: routine edits (keeping the package layout,
+workflow notes, and architecture facts accurate) can be applied directly,
+no check-in needed. Still flag the change in the turn summary, and still
+ask first when an edit would change a stated *decision* or project
+principle rather than just describe reality.
 
 ## Project philosophy: ease of use is the top priority, and other
 non-negotiables
@@ -94,7 +97,11 @@ maintainer's own repeat use.
   discovery+crawl+download into one call).
 - `internal/syncer/` — manifest-based incremental sync on top of
   `scraper.OpalScraper` (`SyncCourses`, `ListAvailableCourses`), diffing
-  remote files against `.opal-sync.manifest.json`.
+  remote files against `.opal-sync.manifest.json`. Manifests carry a
+  `schema_version`; bump `ManifestSchemaVersion` (`syncer.go`) whenever
+  manifest *key derivation* changes, and see `migrate.go` for the
+  remap/warn pass that salvages an old-scheme manifest instead of silently
+  re-downloading everything and orphaning the old copies.
 - `internal/config/` — `config.yaml` loading, validation, and `Save` (backs
   up the existing file before overwriting).
 - `internal/timing/` — instrumentation for the perf-benchmark work

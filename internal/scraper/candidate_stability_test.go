@@ -38,7 +38,7 @@ func TestCandidateStabilityPollWaitsOutSlowGrowingRender(t *testing.T) {
 	waitCalls := 0
 	waitFn := func() { waitCalls++ }
 
-	got, err := candidateStabilityPoll(extractFn, waitFn, 10, 2, nil)
+	got, err := candidateStabilityPoll(extractFn, waitFn, 10, 2, 2, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestCandidateStabilityPollSurvivesFalsePlateauBeforeLaterRenderStage(t *tes
 	// requiredStableReads=1 (the original, insufficient behavior) must stop
 	// during the false plateau and lose the later-arriving content.
 	call = 0
-	gotWithStableReads1, err := candidateStabilityPoll(extractFn, func() {}, 10, 1, nil)
+	gotWithStableReads1, err := candidateStabilityPoll(extractFn, func() {}, 10, 1, 1, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestCandidateStabilityPollSurvivesFalsePlateauBeforeLaterRenderStage(t *tes
 	// in crawl.go, sectionContentRequiredStableReads) must survive the
 	// false plateau and pick up the full, later-arriving content.
 	call = 0
-	gotWithStableReads3, err := candidateStabilityPoll(extractFn, func() {}, 10, 3, nil)
+	gotWithStableReads3, err := candidateStabilityPoll(extractFn, func() {}, 10, 3, 3, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestCandidateStabilityPollStopsQuicklyWhenAlreadyStable(t *testing.T) {
 	waitCalls := 0
 	waitFn := func() { waitCalls++ }
 
-	got, err := candidateStabilityPoll(extractFn, waitFn, 20, 1, nil)
+	got, err := candidateStabilityPoll(extractFn, waitFn, 20, 1, 1, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestCandidateStabilityPollGivesUpAfterMaxPolls(t *testing.T) {
 		}
 		return out, nil
 	}
-	got, err := candidateStabilityPoll(extractFn, func() {}, 5, 1, nil)
+	got, err := candidateStabilityPoll(extractFn, func() {}, 5, 1, 1, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestCandidateStabilityPollTreatsTransientErrorAsNoProgress(t *testing.T) {
 			return []map[string]string{{"href": "a"}, {"href": "b"}}, nil
 		}
 	}
-	got, err := candidateStabilityPoll(extractFn, func() {}, 10, 1, func(error) bool { return false })
+	got, err := candidateStabilityPoll(extractFn, func() {}, 10, 1, 1, func(error) bool { return false })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestCandidateStabilityPollReturnsFatalErrorImmediately(t *testing.T) {
 		return []map[string]string{{"href": "a"}}, nil
 	}
 	waitCalls := 0
-	got, err := candidateStabilityPoll(extractFn, func() { waitCalls++ }, 10, 1, func(e error) bool { return e == fatalErr })
+	got, err := candidateStabilityPoll(extractFn, func() { waitCalls++ }, 10, 1, 1, func(e error) bool { return e == fatalErr })
 	if err != fatalErr {
 		t.Fatalf("expected the fatal error to be returned as-is, got %v", err)
 	}
@@ -242,7 +242,7 @@ func TestCandidateStabilityPollReturnsFatalErrorImmediately(t *testing.T) {
 func TestCandidateStabilityPollRequiredStableReadsFloorsAtOne(t *testing.T) {
 	stable := []map[string]string{{"href": "a"}}
 	waitCalls := 0
-	got, err := candidateStabilityPoll(func() ([]map[string]string, error) { return stable, nil }, func() { waitCalls++ }, 5, 0, nil)
+	got, err := candidateStabilityPoll(func() ([]map[string]string, error) { return stable, nil }, func() { waitCalls++ }, 5, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

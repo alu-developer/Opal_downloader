@@ -284,9 +284,9 @@ func isSectionURLAllowedForCourse(absURL, repoID string) bool {
 // full per-run data this conclusion is based on. Callers that don't care
 // (the main content wait, download.go's fallback click, link_dump.go) are
 // free to ignore this return value.
-func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWaitMs float64) bool {
+func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWaitMs float64) (contextWasDestroyed bool, calm bool) {
 	if page == nil {
-		return false
+		return false, false
 	}
 	debounceMs, hardCapMs := s.contentSettleWaitBudget()
 	start := time.Now()
@@ -306,11 +306,24 @@ func (s *OpalScraper) waitForInteractiveLinks(page playwright.Page, fallbackWait
 		// fallbackWaitMs parameter) - see the doc comment above for why.
 		page.WaitForTimeout(hardCapMs)
 		s.auditLog("wait-fixed-fallback", page, "", fmt.Sprintf("MutationObserver wait injection failed (%v, retried=%v); used fixed fallback wait of %s (hardCapMs=%.0fms) instead", err, retried, time.Since(start), hardCapMs))
-		return retried
+		// The observer never reported, so nothing was learned about whether
+		// this page is done rendering. Not calm: the caller must stay patient.
+		return retried, false
 	}
 	s.auditLog("wait-mutationobserver", page, "", fmt.Sprintf("MutationObserver wait resolved (%s) after %s (debounce=%.0fms hardCap=%.0fms, retried=%v)", reason, time.Since(start), debounceMs, hardCapMs, retried))
-	return retried
+	// calm means the observer saw the content root go a full debounce window
+	// without a single mutation - positive evidence this page has finished
+	// rendering. Resolving via the hard cap means the opposite: it was STILL
+	// mutating when we ran out of budget, so the caller must stay patient.
+	return retried, reason == contentSettledNoMutations
 }
+
+// contentSettledNoMutations is the reason contentSettleWaitScript resolves
+// with when the debounce window elapsed with no DOM mutation at all (as
+// opposed to "hard-cap", meaning it was still changing when the budget ran
+// out). It is the per-section evidence that lets the stability poll below
+// start impatient instead of paying the pessimistic streak up front.
+const contentSettledNoMutations = "settled-no-mutations"
 
 // contextRecoveryWaitMs is the short pause waitForInteractiveLinks takes
 // before retrying a MutationObserver injection that failed with a
@@ -539,10 +552,17 @@ func (s *OpalScraper) waitForContentSettled(page playwright.Page, debounceMs, ha
 // tested with a fake extractFn that simulates slow/concurrent-load,
 // staged-render AJAX behavior without a real browser - see
 // candidate_stability_test.go.
-func candidateStabilityPoll(extractFn func() ([]map[string]string, error), waitFn func(), maxPolls int, requiredStableReads int, isFatal func(error) bool) ([]map[string]string, error) {
-	if requiredStableReads < 1 {
-		requiredStableReads = 1
+func candidateStabilityPoll(extractFn func() ([]map[string]string, error), waitFn func(), maxPolls int, initialStableReads, patientStableReads int, isFatal func(error) bool) ([]map[string]string, error) {
+	if patientStableReads < 1 {
+		patientStableReads = 1
 	}
+	if initialStableReads < 1 {
+		initialStableReads = 1
+	}
+	// Patience is earned per section, not handed out globally. The poll opens
+	// on initialStableReads and only escalates to patientStableReads once this
+	// very page proves it is still rendering. See escalation below.
+	requiredStableReads := initialStableReads
 
 	best, err := extractFn()
 	if err != nil {
@@ -571,8 +591,15 @@ func candidateStabilityPoll(extractFn func() ([]map[string]string, error), waitF
 			// stable streak: whatever plateau (if any) preceded this no
 			// longer counts, since it's now proven not to have been the
 			// final state.
+			//
+			// This is also the escalation trigger. Growth is hard evidence
+			// that THIS page renders in stages, which is exactly the
+			// condition a single plateau read cannot be trusted under, so
+			// from here on demand the full patient streak. Pages that never
+			// grow never pay for it.
 			best = next
 			stableStreak = 0
+			requiredStableReads = patientStableReads
 			continue
 		}
 		stableStreak++

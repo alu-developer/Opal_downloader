@@ -79,6 +79,7 @@ Ranked by expected gain, to be confirmed by measurement not by argument:
 | 2026-07-21 | Baseline measured | no-op sync **318.9s**; discovery ~296s (93%), downloads 23.2s for 5 files |
 | 2026-07-21 | HTTP-first discovery, probe | **Promising.** Sequential: 275 sections in **49.7s** vs ~296s. Completeness and the parallelism trap below. |
 | 2026-07-21 | HTTP-first discovery, implemented | **REJECTED — unsafe.** Fast (22s) but silently emptied whole courses. No reliable completeness signal exists; four heuristics tried and refuted. Details below. |
+| 2026-07-21 | HTTP hash as a change detector | **REJECTED — never hits.** Warm sync 317.6s vs 318.9s baseline. Section HTML is not reproducible across runs: 0/276 hashes matched. Details below. |
 
 ### 2026-07-21 — HTTP-first section discovery (probe, not yet implemented)
 
@@ -166,12 +167,75 @@ the browser. Correctness stays anchored to the browser, and a no-op sync -
 the case the maintainer actually cares about - becomes ~275 cheap HTTP
 fetches plus zero browser visits.
 
-Open risk to settle first: OPAL page HTML contains volatile fragments
-(Wicket page-instance counters, timestamps, CSRF tokens), so a raw byte hash
-will never match twice. Whether a stable normalised subset exists is the
-gating question, and it is cheap to answer - fetch the same section twice
-and diff.
+**That gating question is now answered: YES.** Fetched the same section
+twice; both responses were exactly 189,648 bytes and differed in 796 of
+2,224 lines, but every difference came from four volatile patterns —
+Wicket element ids (`id[0-9a-f]{4,}`), page-instance counters (`\?[0-9]+`),
+component instance counters (`_[0-9]{3,}`) and cache-busting timestamps
+(`antiCache=[0-9]+`). Normalising those four makes two consecutive fetches
+hash identically.
+
+Sensitivity was verified in the same pass, which is the half that matters:
+a renamed file, a swapped file and a removed 1,600-byte chunk are all still
+detected, and a no-op does not change the hash. Measured on one section of
+one course so far — it must be re-checked against a `Softwaretechnologie`
+section (the client-rendered course that destroyed the previous design)
+before being trusted.
 
 (Append one row per attempt. Include the measurement, and for a rejection,
 enough detail that a later reader can judge whether it deserves another look
 rather than having to redo the experiment.)
+
+
+### 2026-07-21 — change-detection cache: built, measured, REJECTED
+
+The design from the previous entry (HTTP answers only "did this change?",
+files always come from the browser) was implemented in full: normalised hash,
+versioned cache file next to the manifest, browser crawl on any miss, safe
+degradation on corrupt/unknown cache.
+
+**Correctness held. Speed did not exist.**
+
+| run | wall-clock |
+|---|---|
+| baseline no-op sync | 318.9s |
+| cold cache | 332.5s (342 files, 0 errors) |
+| **warm cache** | **317.6s** |
+
+The warm run saved nothing, because essentially nothing ever hit.
+
+**Measured directly, without a browser in the loop:**
+
+| comparison | hashes matching |
+|---|---|
+| same URL fetched twice back to back | **matches** |
+| stored (from a crawl) vs. a later run | **1 of 276** |
+| two pure-HTTP passes, one minute apart | **0 of 276** |
+| two pure-HTTP passes, identical fetch order | **13 of 276** |
+
+So OPAL section HTML is **not reproducible across runs** beyond the four
+volatile patterns already normalised. It is not a browser-interleaving
+artefact and not a fetch-order artefact — both were ruled out above.
+
+**Why the earlier "gating question: answered YES" was wrong.** That test
+fetched one URL twice, seconds apart, in isolation. It proved the four
+patterns handle *within-request* noise, and I generalised it to
+*across-run* stability, which is a different claim. The lesson is the same
+one this campaign keeps re-learning: a stability result measured on one
+section in one condition says nothing about 276 sections in a real run.
+
+**What was NOT determined, and is the cheap next step if anyone retries
+this:** the remaining volatile fragments were never isolated. The diagnostic
+that would do it — dump the in-batch HTML for one URL on two separate runs
+and diff the normalised forms — was attempted but botched: the dump helper
+re-fetched the URL standalone instead of keeping the batch response, so it
+compared two standalone fetches (which of course matched). Do that diff
+properly before concluding the design is impossible rather than merely
+unproven.
+
+**Also worth keeping**: the cache file needed rootText interning. Storing the
+extractor output verbatim produced a **52 MB** file for 276 sections, 31 MB
+of it the same section text duplicated across 9,958 candidates. Interning it
+is lossless and cut the file to 6.7 MB. Any future cache of extractor output
+must do this — the file lives in `download_path`, which is typically a
+cloud-synced folder.

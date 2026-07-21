@@ -10,19 +10,34 @@ import (
 // OPAL's section pages are Wicket applications, and the "Alle anzeigen"
 // ("show all") pagination control expands the file list via a Wicket AJAX
 // call rather than a navigation. Wicket publishes an exact completion signal
-// for that call - Wicket.Event.Topic.AJAX_CALL_DONE - which is trailing-safe:
-// live measurement (queue task research-wicket-render-completion-signal,
-// 2026-07-20) found the DOM already final when it fires, 0/8 parity
-// mismatches against a read taken 6 further seconds later, at 156-184ms
-// instead of the 800ms-1.6s+ the count-stability poll needs.
+// for that call: Wicket.Event.Topic.AJAX_CALL_DONE. This file arms a
+// subscription to it before the click and awaits it after.
 //
-// This file implements arming that signal before the click and awaiting it
-// after, so expandShowAllInSection can stop *inferring* completion from a
-// candidate count that stopped growing. That inference is not merely slow:
-// it is the failure mode queue task
-// fix-candidate-stability-poll-concurrent-crawl-race traced concurrent-crawl
-// file loss to, because a stable-but-incomplete read is indistinguishable
-// from a finished one.
+// WHAT THE SIGNAL DOES AND DOES NOT MEAN - read before changing this.
+//
+// It means the AJAX call finished. It does NOT mean the expanded DOM is
+// complete. Queue task research-wicket-render-completion-signal (2026-07-20)
+// concluded it was trailing-safe (0/8 parity mismatches, firing at
+// 156-184ms), and a first version of this change acted on that by reading
+// candidates once at DONE and skipping the stability poll entirely. A live
+// full-account parity run refuted it: 290 files against a 342-file baseline,
+// 52 lost, every one of them the tail of the largest paginated section in
+// Softwaretechnologie - exactly the past-page-1 loss the poll exists to
+// prevent. The research had only covered sections small enough to hide it.
+//
+// So the signal is used for what it can be trusted for and nothing more:
+//
+//   - It replaces the fixed contentFallbackWaitMs settle wait, which has
+//     nothing left to wait for once the call is done.
+//   - Its FAILURE variant is a real re-click trigger, in place of
+//     inferring a dropped expansion from a Playwright error string.
+//   - waitForStableExpandedCandidates STILL RUNS afterwards. Do not
+//     "optimise" that away without new evidence from a 150+ file course.
+//
+// Measured live 2026-07-21 across the full account: armed=6 signalled=6
+// failed=0 timedOut=0, i.e. the path engages on every show-all expansion and
+// the signal always arrives. File parity byte-for-byte identical to baseline
+// on two consecutive runs.
 //
 // Scope note: this applies ONLY to the post-click expansion. The initial
 // per-section render needs no signal and has none - the same research found

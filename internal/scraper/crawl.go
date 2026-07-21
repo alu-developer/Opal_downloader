@@ -385,45 +385,43 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		}
 	}
 
-	if expansionSignalled {
-		// The framework guarantees the DOM is final here, so read once and
-		// skip both the fixed settle wait and the stability poll below.
-		expanded, err := s.extractSectionContentCandidates(page)
-		if err != nil {
-			if isPageCrashError(err) {
+	// A successful AJAX_CALL_DONE means the expansion call has completed, so
+	// the fixed contentFallbackWaitMs settle wait has nothing left to wait
+	// for and is skipped. The stability poll below still runs.
+	//
+	// It deliberately does NOT skip that poll. An earlier version of this
+	// change treated the signal as "DOM is final, read once" on the strength
+	// of the research task's trailing-safe finding (0/8 parity mismatches).
+	// A live full-account parity run refuted that: 290 files vs a 342-file
+	// baseline, 52 lost, every one of them the tail of the largest paginated
+	// section in Softwaretechnologie - i.e. exactly the past-page-1 loss this
+	// waiter exists to prevent. The signal reliably marks a call as finished;
+	// it does not, on large expansions, mark the resulting DOM as complete.
+	if !expansionSignalled {
+		contextWasDestroyed := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+		if contextWasDestroyed && !navigated {
+			// THE ROOT CAUSE this task (fix-candidate-stability-poll-concurrent-
+			// crawl-race) set out to find: see waitForInteractiveLinks's doc
+			// comment (navigation.go) for the full live evidence. In short, an
+			// "execution context was destroyed" event landing right after this
+			// click - not caused by a real navigation, since the direct-navigate
+			// branch above is excluded here via !navigated - is near-certain
+			// proof the click's own in-flight AJAX expansion response had
+			// nowhere left to land and was silently dropped, not merely slow.
+			// waitForStableExpandedCandidates polling longer afterward cannot
+			// recover content that was never coming; re-issuing the click is
+			// the only way to actually get the expansion to happen. Bounded to
+			// one extra attempt (attemptShowAllExpandClick internally retries up
+			// to showAllClickMaxAttempts on its own) rather than looping, to
+			// keep this a targeted response to a specific confirmed signal
+			// rather than an open-ended "try harder" loop.
+			reclicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
+			if crashErr != nil {
 				return s.recoverAndReturnToSection(page, currentURL)
 			}
-			return page, nil, "", "", false
-		}
-		if len(expanded) == 0 {
-			return page, nil, "", "", false
-		}
-		return page, expanded, "", expandedPageURLAfterClick(page, currentURL), true
-	}
-
-	contextWasDestroyed := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
-	if contextWasDestroyed && !navigated {
-		// THE ROOT CAUSE this task (fix-candidate-stability-poll-concurrent-
-		// crawl-race) set out to find: see waitForInteractiveLinks's doc
-		// comment (navigation.go) for the full live evidence. In short, an
-		// "execution context was destroyed" event landing right after this
-		// click - not caused by a real navigation, since the direct-navigate
-		// branch above is excluded here via !navigated - is near-certain
-		// proof the click's own in-flight AJAX expansion response had
-		// nowhere left to land and was silently dropped, not merely slow.
-		// waitForStableExpandedCandidates polling longer afterward cannot
-		// recover content that was never coming; re-issuing the click is
-		// the only way to actually get the expansion to happen. Bounded to
-		// one extra attempt (attemptShowAllExpandClick internally retries up
-		// to showAllClickMaxAttempts on its own) rather than looping, to
-		// keep this a targeted response to a specific confirmed signal
-		// rather than an open-ended "try harder" loop.
-		reclicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
-		if crashErr != nil {
-			return s.recoverAndReturnToSection(page, currentURL)
-		}
-		if reclicked {
-			s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+			if reclicked {
+				s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+			}
 		}
 	}
 

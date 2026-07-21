@@ -211,6 +211,9 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string, plainURL
 	candidate, hasCandidate := s.downloadCandidates[fileURL]
 
 	if !hasCandidate || !plainURLServesHTML {
+		// This navigates the shared page away, so whatever the memo recorded
+		// about it is no longer true.
+		s.fallbackPage.invalidate()
 		download, err := page.ExpectDownload(func() error {
 			_, navErr := page.Goto(fileURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)})
 			return navErr
@@ -312,8 +315,16 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 		return errors.New("no browser page available for download fallback")
 	}
 
-	if _, err := page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
-		return err
+	// Skip the navigation entirely when the page is already showing exactly
+	// this listing from the previous file's download - a download click does
+	// not navigate, so consecutive files from one section can share the page.
+	// See fallback_page_memo.go for the measurement that motivated this.
+	reusing := s.fallbackPage.canReuse(pageURL, page.URL())
+	if !reusing {
+		s.fallbackPage.invalidate()
+		if _, err := page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+			return err
+		}
 	}
 	// Give the page's JS a chance to finish rendering the link-list before the
 	// selector search below - this page may be revisited well after discovery
@@ -323,7 +334,10 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	// candidate link. See PR #11 follow-up investigation (queue task
 	// fix-download-fallback-html-errors-post-pr11) for the live-observed flake
 	// this addresses.
-	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	if !reusing {
+		s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+		s.fallbackPage.record(pageURL, page.URL(), false)
+	}
 
 	firstErr := s.tryClickDownloadSelectors(page, candidate, localPath)
 	if firstErr == nil {
@@ -342,11 +356,17 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	// is what was causing every beyond-the-first-page file in a click-only-expanded
 	// section to permanently fail both the fast-path counter-refresh and this
 	// browser-fallback click.
+	// Already expanded by a previous file from this same section: re-clicking
+	// would toggle the pagination back, not help.
+	if s.fallbackPage.Expanded && reusing {
+		return fmt.Errorf("%w (page was already expanded for an earlier file from this section)", firstErr)
+	}
 	clicked, _ := s.attemptShowAllExpandClick(page, pageURL)
 	if !clicked {
 		return fmt.Errorf("%w (the show-all re-expansion click did not succeed either)", firstErr)
 	}
 	s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	s.fallbackPage.markExpanded(page.URL())
 	if err := s.tryClickDownloadSelectors(page, candidate, localPath); err != nil {
 		return fmt.Errorf("%w (still not found after re-expanding the paginated listing)", err)
 	}

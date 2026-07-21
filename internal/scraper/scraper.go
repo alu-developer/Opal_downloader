@@ -182,6 +182,12 @@ type OpalScraper struct {
 	// browser must be serialized behind this mutex.
 	browserDownloadMu sync.Mutex
 
+	// fallbackPage remembers what the shared page currently shows, so
+	// consecutive browser-fallback downloads from the same section skip the
+	// navigation and the show-all re-expansion. Only touched while
+	// browserDownloadMu is held. See fallback_page_memo.go.
+	fallbackPage fallbackPageMemo
+
 	// pageTrackingSuspended, when set, tells trackActivePage's ctx.OnPage
 	// hook (session.go) to ignore newly opened pages instead of retargeting
 	// s.page at them. It is set for the duration of concurrent course-file

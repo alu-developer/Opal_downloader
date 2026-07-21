@@ -105,6 +105,34 @@ task genuinely needs more, say so plainly and let the maintainer flip it.
 What the assistant *does* control is the model of any subagent it spawns;
 those should default to something cheap for search/read work.
 
+## 2b. When the usage limit is hit mid-run
+
+Hitting the limit stops the turn dead. Nothing restarts it, so historically
+the maintainer had to notice and write "continue" — the exact manual step
+this whole model exists to remove.
+
+**Whenever autopilot is enabled, also schedule a resume check.** A recurring
+`CronCreate` job (~every 23 minutes) that:
+
+- does nothing at all if `.claude/queue/AUTOPILOT` is missing, expired, or
+  the queue is empty — it must not burn tokens deciding that;
+- otherwise resumes the highest-value queued task, reading
+  `docs/sync-speed-campaign.md` and the task file to reconstruct state
+  instead of re-running measurements.
+
+While the limit is in force the fire simply fails; once the quota resets, the
+next fire picks the work back up on its own.
+
+**Known limits of this mechanism, do not oversell it:**
+
+- Cron jobs are **session-only** — in memory, gone if the session ends, and
+  auto-expiring after 7 days. It rescues a rate-limited session, not a dead
+  one.
+- Jobs only fire while the REPL is idle.
+- The budget data itself is unreliable (see the stale-status-file note
+  above), so this cannot *predict* a limit. It only recovers from one, which
+  is the achievable half.
+
 ## 3. Staying inside 5h / 7d limits
 
 The single most useful thing learned while measuring this repo:

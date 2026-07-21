@@ -80,6 +80,7 @@ Ranked by expected gain, to be confirmed by measurement not by argument:
 | 2026-07-21 | HTTP-first discovery, probe | **Promising.** Sequential: 275 sections in **49.7s** vs ~296s. Completeness and the parallelism trap below. |
 | 2026-07-21 | HTTP-first discovery, implemented | **REJECTED — unsafe.** Fast (22s) but silently emptied whole courses. No reliable completeness signal exists; four heuristics tried and refuted. Details below. |
 | 2026-07-21 | HTTP hash as a change detector | **REJECTED — never hits.** Warm sync 317.6s vs 318.9s baseline. Section HTML is not reproducible across runs: 0/276 hashes matched. Details below. |
+| 2026-07-21 | Finer stability sampling | **SHIPPED.** Poll interval 400→150ms with maxPolls 20→53 (total budget unchanged). Discovery 4m27s→3m25s, ~23%, file-complete twice. |
 
 ### 2026-07-21 — HTTP-first section discovery (probe, not yet implemented)
 
@@ -239,3 +240,52 @@ of it the same section text duplicated across 9,958 candidates. Interning it
 is lossless and cut the file to 6.7 MB. Any future cache of extractor output
 must do this — the file lives in `download_path`, which is typically a
 cloud-synced folder.
+
+### 2026-07-21 — finer stability sampling: the first thing that actually worked
+
+After two structural rejections, the direct lever: the per-section stability
+poll sampled every 400ms with a 20-poll cap (~8s budget). Changed to **150ms
+with a 53-poll cap — the same ~8s budget, sampled 2.7x more finely.**
+
+This is deliberately *not* a patience cut. A settled page now confirms in
+150ms instead of 400ms, while a slow one still gets the full ~8s.
+
+| setting | wall-clock (discovery only) | files |
+|---|---|---|
+| 400ms / 20 (old default) | 4m13s, 4m27s, **4m41s** | 322, 322, **307** |
+| 150ms / 20 | 2m13s | 322 |
+| **150ms / 53 (shipped)** | **3m27s, 3m23s** | **322, 322** |
+
+**The most important row is the old default's third run: it silently lost 15
+files** — the tails of two paginated sections, including `Vorlesung_9_10.pdf`,
+the same file named in past incident comments. 1 in 3 runs, no warning
+logged. That is a pre-existing intermittent loss, not something this change
+introduced, and **it is not proven fixed**: three clean runs cannot
+demonstrate absence.
+
+Sampling more finely should, if anything, help correctness — a finer rate is
+more likely to observe growth and trigger `candidateStabilityPoll`'s
+escalation to the patient streak.
+
+**Not shipped, and why:** 150ms/20 was the fastest at 2m13s, but it cuts the
+total budget from ~8s to ~3s. Those budgets were raised over several real
+file-loss incidents; halving them on one clean run would be exactly the
+mistake this campaign keeps documenting. It is the next candidate, and it
+needs repeated runs before anyone trusts it.
+
+**Against the target:** a no-op sync goes from ~318.9s to roughly **240s**.
+That is a real 23% improvement and it is nowhere near the 30-second goal.
+See the campaign's standing conclusion below.
+
+### Standing conclusion on the 30s target
+
+Three approaches in, the shape of the problem is clear: a browser-per-section
+crawl costs ~1s per section across ~284 sections, and that floor is
+architectural. Reaching 30s requires **not visiting most sections**, which
+needs reliable change detection — and OPAL's HTML is not reproducible enough
+across runs to provide it (measured: 0/276 hashes matched).
+
+Realistic expectation without a new idea: **3-4 minutes**, not 30 seconds.
+Anyone picking this up should either find a genuinely different change signal
+(an OPAL API, a course-level "last modified", an RSS/notification feed) or
+accept the floor. Do not re-run the three rejected designs.

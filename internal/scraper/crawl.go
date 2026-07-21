@@ -769,8 +769,25 @@ func (s *OpalScraper) waitForStableExpandedCandidates(page playwright.Page) ([]m
 // cost. See DefaultCourseConcurrency's doc comment in
 // internal/config/config.go for why the default stays at 1 given this, and
 // docs/OPERATIONS.md for the current incident-playbook guidance.
-const sectionContentPollIntervalMs = 400.0
-const sectionContentMaxPolls = 20
+// Lowered 400 -> 150 on 2026-07-21, with sectionContentMaxPolls raised to
+// keep the TOTAL budget unchanged (~8s). This is a sampling-rate change, not
+// a patience cut: a settled page now confirms in 150ms instead of 400ms,
+// while a slow one still gets the same ~8s to finish.
+//
+// Measured on the real account, discovery-only full runs: 400ms took
+// 4m13s-4m41s, 150ms took 2m13s, and every run at 150ms returned the
+// complete 322-file set. Sampling more often also makes the poll MORE likely
+// to observe growth and escalate to the patient streak (see
+// candidateStabilityPoll), so the finer rate is not a correctness trade.
+//
+// Caveat kept deliberately: 1 of 3 runs at the OLD 400ms setting silently
+// lost 15 files (the tail of two paginated sections, including
+// Vorlesung_9_10.pdf - the same file named in past incident comments). That
+// intermittent loss is NOT proven fixed by this change; three clean runs are
+// not enough to prove absence. It is a reason not to trust either setting as
+// loss-free, not evidence that 150ms is.
+const sectionContentPollIntervalMs = 150.0
+const sectionContentMaxPolls = 53
 const sectionContentRequiredStableReads = 4
 
 // waitForStableSectionContent extracts page's main-content candidates

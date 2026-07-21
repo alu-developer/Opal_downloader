@@ -71,36 +71,44 @@ stopping too early.
 | `.claude/queue/todo/` empty | Stops - there is nothing to do. |
 | Any error, unreadable JSON, unexpected state | Stops. |
 
-### The budget signal: real data first, local estimate second
+### The budget signal: keep the real file fresh
 
-`~/.claude/rate-limit-status.json` is accurate but is written *only* by the
-status line, which does not run in non-interactive or `claude-desktop`
-sessions. It was found **18 hours stale on 2026-07-21, still reporting "1%"
-while the account was minutes from its 5-hour limit.**
+`~/.claude/rate-limit-status.json` is accurate, but the status line is its
+only writer and does not run in non-interactive or `claude-desktop` sessions.
+It was found **18 hours stale on 2026-07-21, reporting "1%" while the account
+was at 46%.**
 
-Every other source was checked and ruled out: the CLI exposes no usage
-command, `claude -p` does not refresh the file, the desktop app keeps no
-readable usage state, and `~/.claude.json`'s `lastModelUsage` is only written
-at session end.
+`.claude/hooks/rate-limit-keepwarm.ps1` fixes that by running a hidden, idle
+`claude` process whose status line writes the file. The autopilot gate invokes
+it before reading the budget. The non-obvious requirements are documented in
+that script and come from the research in `~/.claude/skills/queue-run`:
+`--dangerously-skip-permissions` (to skip the startup trust dialog, not for
+permissions), a hidden *window* rather than redirected output, hourly
+recycling, and confirming a post-launch write with a non-null `five_hour`.
+Verified live: a cold launch synced in 35s.
 
-What *is* always available: Claude Code's own session transcripts record
-`message.usage` per assistant message.
-`.claude/hooks/usage-estimate.ps1` sums those over a rolling 5-hour window
-(output + cache-creation + input tokens; cache reads are excluded, since they
-dominate raw counts — 374M against 1M output in one session — while costing a
-fraction). It runs in ~2s over ~8,500 messages.
+Staleness is handled **per window**, not with one blanket check. A window
+whose `resets_at` has passed rolled over since the file was written, so its
+number is meaningless and must be ignored - otherwise a stale-and-expired
+reading gates every future run forever. A window still inside its period is
+usable even when the file is old, since usage only climbs within a window.
 
-**Calibration, and its limits.** The 5-hour ceiling (7.6M weighted tokens) is
-taken from the one moment the limit was actually hit, on 2026-07-21. One
-observation, one plan — a trend indicator, not the provider's accounting. The
-gate therefore prefers the real file whenever it is fresher than 30 minutes,
-and only falls back to the estimate otherwise, at a **lower** threshold (70%
-against 75%) precisely because it is less trustworthy.
+**A transcript-derived estimate was built here and REMOVED the same day.**
+Summing `message.usage` over a rolling window looked reasonable and produced
+83.5% for a 5-hour window that was really at 46% - it would have stopped
+autonomous work for no reason. A miscalibrated signal that gates work is worse
+than no signal. It was also reinventing something `queue-run` had already
+solved and verified; check the existing skills before building budget
+machinery.
 
-**No 7-day ceiling is defined, deliberately.** That limit has never been hit,
-so any number would be invented — a first attempt at 40M promptly reported
-125% while the account was nowhere near its weekly cap. The 7-day total is
-emitted raw for a human to read, and nothing gates on it.
+### Testing the gate must never touch the real queue
+
+Set `OPAL_AUTOPILOT_QUEUE_DIR` to a throwaway directory. On 2026-07-21 a
+verification run ended by deleting `AUTOPILOT` plus both state files to clean
+up after itself, and killed the live autopilot - taking the session record
+with it, which is precisely what defeats the restore-on-delete protection. The
+maintainer had to restart the run manually. Isolate the test, don't clean up
+the real thing.
 
 ### Known limitation: the budget data goes stale
 

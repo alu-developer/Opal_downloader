@@ -23,7 +23,15 @@ try {
     }
 } catch { }
 
-$queueDir = Join-Path $PSScriptRoot "..\queue"
+# Overridable so the hook can be exercised against a throwaway directory.
+# This is not a convenience: on 2026-07-21 a verification run ended with
+# `rm -f .claude/queue/AUTOPILOT .autopilot-state.json .autopilot-session.json`
+# to clean up its own artefacts, and killed the REAL autopilot run - deleting
+# the session record too, which is exactly what defeats the restore-on-delete
+# protection. Tests must set OPAL_AUTOPILOT_QUEUE_DIR and never touch the real
+# queue directory.
+$queueDir = $env:OPAL_AUTOPILOT_QUEUE_DIR
+if (-not $queueDir) { $queueDir = Join-Path $PSScriptRoot "..\queue" }
 $marker = Join-Path $queueDir "AUTOPILOT"
 $sessionRecord = Join-Path $queueDir ".autopilot-session.json"
 $offSwitch = Join-Path $queueDir "AUTOPILOT.OFF"
@@ -79,56 +87,60 @@ if ($state.PSObject.Properties.Name -contains $sessionId) { $count = [int]$state
 if ($count -ge $maxIterations) { Allow-Stop }
 
 # --- rate-limit budget --------------------------------------------------------
-# The status file is written by the status line, which does NOT run in
-# non-interactive sessions - so it goes stale exactly when autopilot matters.
-# Stale data is therefore treated as "unknown", and unknown tightens the
-# iteration cap rather than being ignored.
+# Keep the real status file fresh first. The status line is its only writer and
+# does not run in non-interactive or claude-desktop sessions, so without this
+# the file is routinely hours old - it was found 18h stale reporting "1%" while
+# the account sat at 46%. See rate-limit-keepwarm.ps1.
+#
+# A transcript-derived estimate was tried here and REMOVED on 2026-07-21: it
+# put the 5h window at 83.5% when the real figure was 46%, i.e. it would have
+# stopped autonomous work for no reason. A miscalibrated budget signal that
+# gates work is worse than no signal.
+$keepwarm = Join-Path $PSScriptRoot "rate-limit-keepwarm.ps1"
+if (Test-Path $keepwarm) {
+    # & on the script path, never a child powershell.exe: a child inherits
+    # this hook's stdin and blocks forever trying to read it.
+    & $keepwarm | Out-Null
+}
+
 $statusPath = Join-Path $env:USERPROFILE ".claude\rate-limit-status.json"
 $rateKnown = $false
+$five = $null
+$seven = $null
 if (Test-Path $statusPath) {
     try {
         $rl = Get-Content $statusPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         $age = $now - [int64]$rl.updated_at
-        if ($age -lt 1800) {
+
+        # Per-window staleness, not one blanket check (queue-run's research):
+        # a window whose resets_at has passed rolled over since the file was
+        # written, so its number is meaningless - treating that as "high" would
+        # gate every future run forever. A window still inside its period is
+        # usable even when the file is old, because usage only climbs: the last
+        # reading is a floor.
+        if ($age -lt 600) {
             $rateKnown = $true
             $five = $rl.five_hour.used_percentage
             $seven = $rl.seven_day.used_percentage
-            if (($null -ne $five) -and ($five -ge 75)) { Allow-Stop }
-            if (($null -ne $seven) -and ($seven -ge 80)) { Allow-Stop }
+        } else {
+            if ($null -ne $rl.five_hour.resets_at -and [int64]$rl.five_hour.resets_at -gt $now) {
+                $five = $rl.five_hour.used_percentage
+                $rateKnown = $true
+            }
+            if ($null -ne $rl.seven_day.resets_at -and [int64]$rl.seven_day.resets_at -gt $now) {
+                $seven = $rl.seven_day.used_percentage
+                $rateKnown = $true
+            }
         }
+
+        if (($null -ne $five) -and ($five -ge 75)) { Allow-Stop }
+        if (($null -ne $seven) -and ($seven -ge 80)) { Allow-Stop }
     } catch { }
 }
-# Fallback when the real file is stale: a local estimate derived from Claude
-# Code's own session transcripts (see usage-estimate.ps1 for how it is
-# calibrated, and why the 7-day figure is deliberately not used). Refreshed
-# here rather than on a timer, so the estimate is never itself stale.
-$estimatePct = $null
-if (-not $rateKnown) {
-    $estimatePath = Join-Path $env:USERPROFILE ".claude\usage-estimate.json"
-    $estimator = Join-Path $PSScriptRoot "usage-estimate.ps1"
-    if (Test-Path $estimator) {
-        # Called with & on the .ps1 path, NOT by spawning powershell.exe: a
-        # child process inherits this hook's stdin and blocks forever trying
-        # to read it (the hook itself consumes stdin). & runs the script in a
-        # child *scope* of this process - no stdin, no variable clobbering.
-        & $estimator | Out-Null
-    }
-    if (Test-Path $estimatePath) {
-        try {
-            $est = Get-Content $estimatePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            if ($null -ne $est.estimated_pct_5h) {
-                $estimatePct = [double]$est.estimated_pct_5h
-                # Threshold 70, lower than the 75 used for real data, on
-                # purpose: this is a one-point calibration, so it should bail
-                # out earlier than the accurate signal would, not later.
-                if ($estimatePct -ge 70) { Allow-Stop }
-            }
-        } catch { }
-    }
-}
 
-if (-not $rateKnown -and $null -eq $estimatePct -and $count -ge 8) {
-    # No real data AND no estimate: allow a short autonomous stretch, not a long one.
+if (-not $rateKnown -and $count -ge 8) {
+    # No usable budget reading at all: allow a short autonomous stretch, not a
+    # long one.
     Allow-Stop
 }
 
@@ -172,12 +184,8 @@ $state | Add-Member -NotePropertyName $sessionId -NotePropertyValue ($count + 1)
 try { $state | ConvertTo-Json -Depth 5 | Set-Content $statePath -Encoding utf8 -ErrorAction Stop } catch { Allow-Stop }
 
 $names = ($todo | Select-Object -First 5 | ForEach-Object { $_.BaseName }) -join ", "
-$budgetNote = "budget unknown (status file stale, and no local estimate available)"
-if ($rateKnown) {
-    $budgetNote = "budget ok (5h $five%, 7d $seven%)"
-} elseif ($null -ne $estimatePct) {
-    $budgetNote = "status file stale; local transcript estimate puts the 5h window at $estimatePct% of its calibrated ceiling"
-}
+$budgetNote = "budget unknown (no usable rate-limit reading)"
+if ($rateKnown) { $budgetNote = "budget ok (5h $five%, 7d $seven%)" }
 
 $reason = @"
 AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) task(s) remain in .claude/queue/todo/: $names

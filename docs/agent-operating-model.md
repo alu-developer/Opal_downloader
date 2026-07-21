@@ -71,6 +71,37 @@ stopping too early.
 | `.claude/queue/todo/` empty | Stops - there is nothing to do. |
 | Any error, unreadable JSON, unexpected state | Stops. |
 
+### The budget signal: real data first, local estimate second
+
+`~/.claude/rate-limit-status.json` is accurate but is written *only* by the
+status line, which does not run in non-interactive or `claude-desktop`
+sessions. It was found **18 hours stale on 2026-07-21, still reporting "1%"
+while the account was minutes from its 5-hour limit.**
+
+Every other source was checked and ruled out: the CLI exposes no usage
+command, `claude -p` does not refresh the file, the desktop app keeps no
+readable usage state, and `~/.claude.json`'s `lastModelUsage` is only written
+at session end.
+
+What *is* always available: Claude Code's own session transcripts record
+`message.usage` per assistant message.
+`.claude/hooks/usage-estimate.ps1` sums those over a rolling 5-hour window
+(output + cache-creation + input tokens; cache reads are excluded, since they
+dominate raw counts — 374M against 1M output in one session — while costing a
+fraction). It runs in ~2s over ~8,500 messages.
+
+**Calibration, and its limits.** The 5-hour ceiling (7.6M weighted tokens) is
+taken from the one moment the limit was actually hit, on 2026-07-21. One
+observation, one plan — a trend indicator, not the provider's accounting. The
+gate therefore prefers the real file whenever it is fresher than 30 minutes,
+and only falls back to the estimate otherwise, at a **lower** threshold (70%
+against 75%) precisely because it is less trustworthy.
+
+**No 7-day ceiling is defined, deliberately.** That limit has never been hit,
+so any number would be invented — a first attempt at 40M promptly reported
+125% while the account was nowhere near its weekly cap. The 7-day total is
+emitted raw for a human to read, and nothing gates on it.
+
 ### Known limitation: the budget data goes stale
 
 `~/.claude/rate-limit-status.json` is written by the status line

@@ -98,8 +98,37 @@ if (Test-Path $statusPath) {
         }
     } catch { }
 }
-if (-not $rateKnown -and $count -ge 8) {
-    # Flying blind on budget: allow a short autonomous stretch, not a long one.
+# Fallback when the real file is stale: a local estimate derived from Claude
+# Code's own session transcripts (see usage-estimate.ps1 for how it is
+# calibrated, and why the 7-day figure is deliberately not used). Refreshed
+# here rather than on a timer, so the estimate is never itself stale.
+$estimatePct = $null
+if (-not $rateKnown) {
+    $estimatePath = Join-Path $env:USERPROFILE ".claude\usage-estimate.json"
+    $estimator = Join-Path $PSScriptRoot "usage-estimate.ps1"
+    if (Test-Path $estimator) {
+        # Called with & on the .ps1 path, NOT by spawning powershell.exe: a
+        # child process inherits this hook's stdin and blocks forever trying
+        # to read it (the hook itself consumes stdin). & runs the script in a
+        # child *scope* of this process - no stdin, no variable clobbering.
+        & $estimator | Out-Null
+    }
+    if (Test-Path $estimatePath) {
+        try {
+            $est = Get-Content $estimatePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $est.estimated_pct_5h) {
+                $estimatePct = [double]$est.estimated_pct_5h
+                # Threshold 70, lower than the 75 used for real data, on
+                # purpose: this is a one-point calibration, so it should bail
+                # out earlier than the accurate signal would, not later.
+                if ($estimatePct -ge 70) { Allow-Stop }
+            }
+        } catch { }
+    }
+}
+
+if (-not $rateKnown -and $null -eq $estimatePct -and $count -ge 8) {
+    # No real data AND no estimate: allow a short autonomous stretch, not a long one.
     Allow-Stop
 }
 
@@ -143,8 +172,12 @@ $state | Add-Member -NotePropertyName $sessionId -NotePropertyValue ($count + 1)
 try { $state | ConvertTo-Json -Depth 5 | Set-Content $statePath -Encoding utf8 -ErrorAction Stop } catch { Allow-Stop }
 
 $names = ($todo | Select-Object -First 5 | ForEach-Object { $_.BaseName }) -join ", "
-$budgetNote = "budget unknown (status file stale - status line does not run in non-interactive sessions)"
-if ($rateKnown) { $budgetNote = "budget ok (5h $five%, 7d $seven%)" }
+$budgetNote = "budget unknown (status file stale, and no local estimate available)"
+if ($rateKnown) {
+    $budgetNote = "budget ok (5h $five%, 7d $seven%)"
+} elseif ($null -ne $estimatePct) {
+    $budgetNote = "status file stale; local transcript estimate puts the 5h window at $estimatePct% of its calibrated ceiling"
+}
 
 $reason = @"
 AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) task(s) remain in .claude/queue/todo/: $names

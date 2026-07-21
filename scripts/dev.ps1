@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("deps", "fmt", "vet", "test", "build", "all", "playwright")]
+    [ValidateSet("deps", "fmt", "vet", "test", "build", "all", "playwright", "race")]
     [string]$Task = "all"
 )
 
@@ -34,6 +34,26 @@ try {
         }
         "playwright" {
             & $go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
+        }
+        "race" {
+            # Deliberately NOT part of "all": the race detector requires
+            # CGO_ENABLED=1 plus a C toolchain, which a stock Windows box does
+            # not have. Rather than letting "all" fail with Go's fairly opaque
+            # `C compiler "gcc" not found`, this target checks first and says
+            # what to do about it. CI runs -race on every PR regardless (see
+            # .github/workflows/ci.yml), so a missing local toolchain costs
+            # coverage on this machine, not on the project.
+            $cc = Get-Command gcc -ErrorAction SilentlyContinue
+            if ($null -eq $cc) {
+                Write-Warning "The race detector needs a C toolchain and none was found on PATH."
+                Write-Host "Install one (e.g. 'winget install -e --id MSYS2.MSYS2' then 'pacman -S mingw-w64-x86_64-gcc',"
+                Write-Host "or 'choco install mingw'), reopen the shell, and re-run: scripts/dev.ps1 race"
+                Write-Host ""
+                Write-Host "Until then, -race still runs on every pull request in CI."
+                exit 1
+            }
+            $env:CGO_ENABLED = "1"
+            & $go test -race ./...
         }
         "all" {
             & $go mod tidy

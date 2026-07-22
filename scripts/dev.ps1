@@ -61,6 +61,26 @@ try {
             & $go vet ./...
             & $go test ./...
             & $go build ./...
+
+            # Cross-platform vet. Everything above only ever builds for the
+            # host, so a symbol behind //go:build windows referenced from an
+            # untagged file (or test) looks perfectly fine here and only
+            # explodes on CI's Linux runner. That is not hypothetical: it
+            # happened on 2026-07-22 (PR #122), where "all" passed locally and
+            # CI failed with `undefined: withExecutableState`.
+            #
+            # vet, not test: the tests cannot run under a foreign GOOS anyway,
+            # and vet already compiles each package, which is what catches this
+            # class of break.
+            Write-Host "vet (GOOS=linux)..."
+            $previousGOOS = $env:GOOS
+            try {
+                $env:GOOS = "linux"
+                & $go vet ./...
+            }
+            finally {
+                $env:GOOS = $previousGOOS
+            }
         }
     }
 }

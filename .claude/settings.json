@@ -6,10 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'try { & ./scripts/dev.ps1 all } catch { Write-Error $_; exit 2 }; exit 0'",
-            "if": "Bash(git push*)",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/pre-push-gate.ps1",
             "timeout": 600,
-            "statusMessage": "Running scripts/dev.ps1 all before git push..."
+            "statusMessage": "Checking pre-push gate..."
           }
         ]
       },
@@ -18,10 +17,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'try { & ./scripts/dev.ps1 all } catch { Write-Error $_; exit 2 }; exit 0'",
-            "if": "PowerShell(git push*)",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/pre-push-gate.ps1",
             "timeout": 600,
-            "statusMessage": "Running scripts/dev.ps1 all before git push..."
+            "statusMessage": "Checking pre-push gate..."
           }
         ]
       },

@@ -3,6 +3,7 @@ package foldersuggest
 import (
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -13,11 +14,24 @@ import (
 // downloads somewhere they will never look for them.
 const MinScore = 0.75
 
-// MinMargin is how far ahead of the runner-up the winner must be. Two
-// folders that both look plausible for one course (a "Analysis" under two
-// different semesters, say) is exactly the case where a guess is a coin
-// flip, so nothing is suggested at all.
+// MinMargin is how far ahead of the also-rans outside the tie band the
+// winner must be. A folder that is merely somewhat plausible must not be
+// beaten narrowly and then offered anyway.
 const MinMargin = 0.08
+
+// TieBand is how close to the leader a folder has to be before the name is
+// treated as having failed to decide, handing the choice to the structural
+// tie-breaks in bestCandidate. Set from measurement rather than taste: on a
+// real tree, last semester's "Ma-Programmieren" outscored this semester's
+// "Ma-Prog" by 0.087 and was confidently suggested. Names alone cannot tell
+// those apart, and pretending otherwise is what produced the one wrong
+// answer that mattered.
+const TieBand = 0.10
+
+// MinAgeGap is how much newer a folder must be before recency is allowed to
+// break a tie. Two folders both in use this month are a real ambiguity and
+// must stay one; a folder untouched since last semester is not a rival.
+const MinAgeGap = 14 * 24 * time.Hour
 
 // diacriticFolder maps the accented letters that actually turn up in German
 // course titles onto their ASCII skeletons, so "Übungen"/"Ubungen" and

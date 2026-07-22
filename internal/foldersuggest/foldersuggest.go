@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // DefaultMaxDepth bounds how deep under the download root a candidate can
@@ -44,6 +45,18 @@ const DefaultMaxDirs = 20000
 type Candidate struct {
 	Path      string
 	MatchName string
+
+	// DownloadsLeaf marks a folder that is named for its role rather than
+	// its subject and sits under one that is named for the subject - the
+	// "<course>/Downloads" convention. When a user organises that way,
+	// being such a leaf is evidence that this is where files are meant to
+	// go, which decides ties a name alone cannot.
+	DownloadsLeaf bool
+
+	// Modified is the folder's own modification time, used to prefer a
+	// course being worked on now over one from an earlier semester with the
+	// same name.
+	Modified time.Time
 }
 
 // genericFolderNames are leaf names that describe a folder's role rather
@@ -74,21 +87,56 @@ func shouldSkipFolder(name string) bool {
 	return skippedFolderNames[strings.ToLower(name)]
 }
 
-// Scan collects the candidate destination folders under root using the
-// default limits.
-func Scan(root string) ([]Candidate, error) {
-	return ScanLimited(root, DefaultMaxDepth, DefaultMaxDirs)
+// Options tunes a scan. The zero value is what Scan uses.
+type Options struct {
+	// MaxDepth and MaxDirs override DefaultMaxDepth/DefaultMaxDirs when
+	// non-zero, so tests and differently-shaped trees can set their own.
+	MaxDepth int
+	MaxDirs  int
+
+	// Ignore lists folder subtrees that must never be offered, given as
+	// paths (absolute, or relative to the scan root).
+	//
+	// This exists because of a folder opal-downloader creates itself. With
+	// default_course_folder set, every course that has no mapping yet gets
+	// dumped into "<default>/<exact course name>" — which then scores a
+	// perfect match against that course name and beats the abbreviated
+	// folder the user actually keeps their work in.
+	//
+	// Measured on the maintainer's real tree before this existed: of six
+	// courses, two were confidently pointed at the dumping ground and the
+	// other four were withheld, because the tool's own folder tied with the
+	// real one and the margin rule refused to choose. Nought out of six.
+	// Suggesting that folder is circular anyway — it is where the files
+	// already go when nothing is configured.
+	Ignore []string
 }
 
-// ScanLimited is Scan with explicit limits, so tests (and any future caller
-// with a differently shaped tree) can set their own.
+// Scan collects the candidate destination folders under root using the
+// default limits and no exclusions.
+func Scan(root string) ([]Candidate, error) {
+	return ScanWith(root, Options{})
+}
+
+// ScanWith is Scan with explicit options.
 //
 // A folder that holds a generically-named child ("AlgData" holding
 // "Downloads") is dropped in favour of that child: both mean the same
 // course, and the child is the more specific answer. Unreadable
 // subdirectories are skipped rather than failing the scan — a permission
 // error somewhere in a big tree should cost one branch, not the feature.
-func ScanLimited(root string, maxDepth, maxDirs int) ([]Candidate, error) {
+func ScanWith(root string, opts Options) ([]Candidate, error) {
+	maxDepth, maxDirs := opts.MaxDepth, opts.MaxDirs
+	if maxDepth <= 0 {
+		maxDepth = DefaultMaxDepth
+	}
+	if maxDirs <= 0 {
+		maxDirs = DefaultMaxDirs
+	}
+	return scan(root, maxDepth, maxDirs, opts.Ignore)
+}
+
+func scan(root string, maxDepth, maxDirs int, ignore []string) ([]Candidate, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, errors.New("no download folder is configured yet")
@@ -104,6 +152,20 @@ func ScanLimited(root string, maxDepth, maxDirs int) ([]Candidate, error) {
 	}
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%s is not a folder", abs)
+	}
+
+	ignored := make(map[string]bool, len(ignore))
+	for _, path := range ignore {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			continue
+		}
+		if !filepath.IsAbs(trimmed) {
+			trimmed = filepath.Join(abs, filepath.FromSlash(trimmed))
+		}
+		if key := folderKey(trimmed); key != "" {
+			ignored[key] = true
+		}
 	}
 
 	var candidates []Candidate
@@ -123,6 +185,11 @@ func ScanLimited(root string, maxDepth, maxDirs int) ([]Candidate, error) {
 			if !entry.IsDir() || shouldSkipFolder(entry.Name()) {
 				continue
 			}
+			// Skipping the whole subtree, not just the folder itself: the
+			// children of a dumping ground are exactly the problem.
+			if ignored[folderKey(filepath.Join(dir, entry.Name()))] {
+				continue
+			}
 			if budget <= 0 {
 				return
 			}
@@ -130,16 +197,27 @@ func ScanLimited(root string, maxDepth, maxDirs int) ([]Candidate, error) {
 
 			path := filepath.Join(dir, entry.Name())
 			matchName := inherited
+			downloadsLeaf := false
 			if isGenericFolderName(entry.Name()) {
 				if inherited != "" {
 					supersededBy[dir] = true
+					downloadsLeaf = true
 				}
 			} else {
 				matchName = entry.Name()
 			}
 
 			if matchName != "" {
-				candidates = append(candidates, Candidate{Path: path, MatchName: matchName})
+				var modified time.Time
+				if info, err := entry.Info(); err == nil {
+					modified = info.ModTime()
+				}
+				candidates = append(candidates, Candidate{
+					Path:          path,
+					MatchName:     matchName,
+					DownloadsLeaf: downloadsLeaf,
+					Modified:      modified,
+				})
 			}
 			walk(path, matchName, depth+1)
 		}
@@ -204,32 +282,101 @@ func Suggest(courses []string, candidates []Candidate, taken []string) map[strin
 	return suggestions
 }
 
-// bestCandidate returns the highest-scoring folder for one course, provided
-// it clears MinScore and leads the next-best *different* folder by
-// MinMargin. Two folders that tie are the case this is built to refuse.
+// bestCandidate returns the best folder for one course, or refuses.
+//
+// A name is often not enough to decide, and the interesting cases are all
+// near-ties: last semester's "Analysis" against this semester's, or a backup
+// tree mirroring the real one folder for folder. Measured against a real
+// tree, name-only scoring got two of six right and one confidently wrong.
+//
+// So everything within TieBand of the leader is treated as
+// indistinguishable-on-name and decided on two structural signals instead,
+// in order:
+//
+//  1. The "<course>/Downloads" convention. A user who organises that way has
+//     told us where files go; a candidate that is such a leaf beats one that
+//     is not.
+//  2. Recency. The course you are syncing is the one you have touched; an
+//     identically-named folder from an earlier semester has been sitting
+//     still for months. Required to be decisively newer (MinAgeGap), so two
+//     folders in current use stay a genuine tie.
+//
+// Still ambiguous after both means no suggestion, which remains the whole
+// point: an empty field costs seconds, a wrong one silently files a course
+// where nobody will look for it.
 func bestCandidate(course string, candidates []Candidate, excluded map[string]bool) (string, float64, bool) {
-	bestPath := ""
-	bestScore := 0.0
-	runnerUp := 0.0
+	type scored struct {
+		candidate Candidate
+		score     float64
+	}
 
+	var best float64
+	var pool []scored
 	for _, c := range candidates {
 		if excluded[folderKey(c.Path)] {
 			continue
 		}
 		score := Score(course, c.MatchName)
-		switch {
-		case score > bestScore:
-			runnerUp = bestScore
-			bestScore, bestPath = score, c.Path
-		case score > runnerUp:
-			runnerUp = score
+		if score < MinScore {
+			continue
+		}
+		if score > best {
+			best = score
+		}
+		pool = append(pool, scored{candidate: c, score: score})
+	}
+	if len(pool) == 0 {
+		return "", 0, false
+	}
+
+	contenders := pool[:0:0]
+	for _, s := range pool {
+		if best-s.score <= TieBand {
+			contenders = append(contenders, s)
 		}
 	}
 
-	if bestPath == "" || bestScore < MinScore || bestScore-runnerUp < MinMargin {
-		return "", 0, false
+	if len(contenders) > 1 {
+		var leaves []scored
+		for _, s := range contenders {
+			if s.candidate.DownloadsLeaf {
+				leaves = append(leaves, s)
+			}
+		}
+		// Only let the convention decide when it actually discriminates:
+		// some leaves and some non-leaves. All-or-none leaves nothing to cut.
+		if len(leaves) > 0 && len(leaves) < len(contenders) {
+			contenders = leaves
+		}
 	}
-	return bestPath, bestScore, true
+
+	if len(contenders) > 1 {
+		sort.Slice(contenders, func(i, j int) bool {
+			return contenders[i].candidate.Modified.After(contenders[j].candidate.Modified)
+		})
+		newest, next := contenders[0].candidate.Modified, contenders[1].candidate.Modified
+		if newest.IsZero() || newest.Sub(next) < MinAgeGap {
+			return "", 0, false
+		}
+		contenders = contenders[:1]
+	}
+
+	// The winner still has to lead the also-rans *outside* the tie band by
+	// MinMargin - the original refuse-on-a-close-call rule. Rivals inside the
+	// band are not also-rans: they were in contention and lost on structure
+	// (leaf/recency), so their nearby score is expected, not a reason to
+	// refuse. Checking them here would undo the whole tie-break, since the
+	// case it exists for is two folders with an identical score.
+	winner := contenders[0]
+	for _, s := range pool {
+		if best-s.score <= TieBand {
+			continue
+		}
+		if winner.score-s.score < MinMargin {
+			return "", 0, false
+		}
+	}
+	return winner.candidate.Path, winner.score, true
 }
 
 // folderKey normalises a path for comparison. Windows paths are

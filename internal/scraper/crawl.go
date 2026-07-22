@@ -173,6 +173,12 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 		// so is not counted as a failure). See sectionsVisited's doc comment
 		// above for what this distinction is for.
 		sectionsVisited++
+		s.publishProgress(DiscoveryProgress{
+			Phase:        PhaseSection,
+			Course:       course.Title,
+			Section:      sectionTitles[currentKey],
+			SectionsDone: sectionsVisited,
+		})
 		if len(candidates) == 0 {
 			// waitForStableSectionContent already polled for up to
 			// sectionContentMaxPolls*sectionContentPollIntervalMs beyond the

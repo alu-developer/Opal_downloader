@@ -55,6 +55,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []s
 	}
 	fmt.Printf("Found %d course links\n", len(courses))
 	timing.PrintDiscoverySummary(discoveryElapsed, len(courses))
+	s.publishProgress(DiscoveryProgress{Phase: PhaseCoursesFound, TotalCourses: len(courses)})
 
 	concurrency := s.effectiveCourseConcurrency()
 
@@ -66,7 +67,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []s
 	// pageTrackingSuspended's doc comment in scraper.go.
 	s.suspendPageTracking()
 	fileCollectionTimer := timing.StartTimer()
-	remoteFiles := collectCourseFilesConcurrently(ctx, courses, concurrency, s.newCourseFileCollector(), s.mergeDownloadCandidates)
+	remoteFiles := collectCourseFilesConcurrently(ctx, courses, concurrency, s.newCourseFileCollector(len(courses)), s.mergeDownloadCandidates)
 	fileCollectionElapsed := fileCollectionTimer.Elapsed()
 	s.resumePageTracking()
 	timing.PrintProfileLine("file collection (aggregate): %s", fileCollectionElapsed)
@@ -102,12 +103,21 @@ const newPageStaggerMs = 800 * time.Millisecond
 // its own page, and collectCourseFiles no longer touches the single shared
 // s.page or the shared s.downloadCandidates map directly (see
 // collectCourseFiles's doc comment in crawl.go).
-func (s *OpalScraper) newCourseFileCollector() func(CourseRef) (courseCrawlResult, error) {
+// totalCourses is only used to label progress events ("course 2 of 6"); it
+// does not affect crawling.
+func (s *OpalScraper) newCourseFileCollector(totalCourses int) func(CourseRef) (courseCrawlResult, error) {
 	return func(course CourseRef) (courseCrawlResult, error) {
 		ctx := s.getContext()
 		if ctx == nil {
 			return courseCrawlResult{}, errors.New("no authenticated browser context available")
 		}
+
+		s.publishProgress(DiscoveryProgress{
+			Phase:        PhaseCourseStarted,
+			Course:       course.Title,
+			CourseIndex:  s.nextCourseIndex(),
+			TotalCourses: totalCourses,
+		})
 
 		// newPageMu + the stagger sleep below serialize and space out tab
 		// creation across concurrent workers - see newPageMu's doc comment
@@ -161,6 +171,11 @@ func (s *OpalScraper) newCourseFileCollector() func(CourseRef) (courseCrawlResul
 			// dropping to 0 files on some runs.
 			fmt.Printf("  Warning: course %q crawled successfully but found 0 files - verify this course actually has no content\n", course.Title)
 		}
+		s.publishProgress(DiscoveryProgress{
+			Phase:     PhaseCourseDone,
+			Course:    course.Title,
+			FileCount: len(files),
+		})
 		return courseCrawlResult{files: files, downloadCandidates: downloadCandidates}, nil
 	}
 }

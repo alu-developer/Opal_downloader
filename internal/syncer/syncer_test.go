@@ -767,12 +767,19 @@ func TestProcessRemoteFilesSkipsUnchangedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The file must carry a real size/date on both sides: a file with NO
+	// remote signal is deliberately re-fetched to compare bytes now (see
+	// needsContentVerification), because "unchanged" would otherwise be an
+	// assumption rather than a finding. That case is covered by
+	// TestProcessRemoteFilesVerifiesSignallessFiles below.
+	unchangedSize := int64(4)
+	unchangedModified := "01.07.2026 um 09:06 Uhr"
 	manifest := &Manifest{Path: filepath.Join(dir, ".opal-sync.manifest.json"), Files: map[string]FileRecord{
-		targetKey: {},
+		targetKey: {Size: &unchangedSize, Modified: &unchangedModified},
 	}}
 
 	remoteFiles := []scraper.RemoteFile{
-		{Name: "a.pdf", Course: "Course A", Path: "a.pdf", URL: "https://example.test/a.pdf"},
+		{Name: "a.pdf", Course: "Course A", Path: "a.pdf", URL: "https://example.test/a.pdf", Size: &unchangedSize, Modified: &unchangedModified},
 	}
 
 	var events []Event

@@ -21,7 +21,18 @@
 # fails open when it cannot tell whether this is a push at all (unreadable
 # input), which would otherwise break every unrelated Bash call.
 
-$ErrorActionPreference = 'Stop'
+# NOT 'Stop': Write-Error under ErrorActionPreference='Stop' raises a
+# terminating error, which aborts the script with exit code 1 before it can
+# reach `exit 2`. Claude Code only treats exit 2 as blocking, so the gate
+# would have printed a scary message and then let the push through anyway -
+# found by testing the block path rather than assuming it. Failures are
+# written straight to stderr and paired with an explicit `exit 2` instead.
+$ErrorActionPreference = 'Continue'
+
+function Deny($message) {
+    [Console]::Error.WriteLine($message)
+    exit 2
+}
 
 try {
     $raw = [Console]::In.ReadToEnd()
@@ -60,24 +71,28 @@ Write-Host "pre-push gate: running scripts/dev.ps1 all before pushing..."
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $devScript = Join-Path $repoRoot "scripts\dev.ps1"
 if (-not (Test-Path $devScript)) {
-    Write-Error "pre-push gate: $devScript not found - refusing to push unverified."
-    exit 2
+    Deny "pre-push gate: $devScript not found - refusing to push unverified."
 }
 
+$code = 1
+$threw = $null
 Push-Location $repoRoot
 try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $devScript all
     $code = $LASTEXITCODE
 } catch {
-    Write-Error "pre-push gate: dev.ps1 threw: $_"
-    exit 2
+    $threw = $_
 } finally {
     Pop-Location
 }
 
+# Denying happens after the location is restored, because Deny exits the
+# process and would otherwise strand the caller in the repo root.
+if ($threw) {
+    Deny "pre-push gate: dev.ps1 threw: $threw"
+}
 if ($code -ne 0) {
-    Write-Error "pre-push gate: scripts/dev.ps1 all failed (exit $code) - push blocked. Fix it, then push again."
-    exit 2
+    Deny "pre-push gate: scripts/dev.ps1 all failed (exit $code) - push blocked. Fix it, then push again."
 }
 
 Write-Host "pre-push gate: dev.ps1 all passed."

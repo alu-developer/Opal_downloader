@@ -166,10 +166,26 @@ try {
     if ($busy) { Allow-Stop }
 } catch { }
 
-# --- is there actually queued work? ------------------------------------------
-$todoDir = Join-Path $queueDir "todo"
-if (-not (Test-Path $todoDir)) { Allow-Stop }
-$todo = @(Get-ChildItem $todoDir -Filter *.md -File -ErrorAction SilentlyContinue)
+# --- is there actually work left? --------------------------------------------
+# Reads docs/BACKLOG.md, which replaced .claude/queue/todo/ on 2026-07-22.
+# This used to count *.md files in the queue's todo directory; when the
+# backlog migration emptied that directory, the gate would have silently
+# started allowing every stop - autopilot dead with nothing reporting it.
+# Exactly the half-migration this whole cleanup was about, so the counter
+# moved with the work it counts.
+#
+# An item is a "### " heading appearing before the "## Done recently"
+# section. Everything from that heading onward is history, not work.
+$backlog = Join-Path $repoRoot "docs\BACKLOG.md"
+if (-not (Test-Path $backlog)) { Allow-Stop }
+$lines = @(Get-Content $backlog -ErrorAction SilentlyContinue)
+if ($lines.Count -eq 0) { Allow-Stop }
+
+$todo = @()
+foreach ($line in $lines) {
+    if ($line -match '^##\s+Done recently') { break }
+    if ($line -match '^###\s+(.+)$') { $todo += $Matches[1].Trim() }
+}
 if ($todo.Count -eq 0) { Allow-Stop }
 
 # --- continue ----------------------------------------------------------------
@@ -183,12 +199,12 @@ if (-not (Test-Path $marker)) {
 $state | Add-Member -NotePropertyName $sessionId -NotePropertyValue ($count + 1) -Force
 try { $state | ConvertTo-Json -Depth 5 | Set-Content $statePath -Encoding utf8 -ErrorAction Stop } catch { Allow-Stop }
 
-$names = ($todo | Select-Object -First 5 | ForEach-Object { $_.BaseName }) -join ", "
+$names = ($todo | Select-Object -First 5) -join "; "
 $budgetNote = "budget unknown (no usable rate-limit reading)"
 if ($rateKnown) { $budgetNote = "budget ok (5h $five%, 7d $seven%)" }
 
 $reason = @"
-AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) task(s) remain in .claude/queue/todo/: $names
+AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) item(s) remain in docs/BACKLOG.md: $names
 
 Do not stop to ask whether to continue. Pick the highest-value remaining task yourself and work it end to end: implement, run scripts/dev.ps1 all, verify against the task's own acceptance criteria, open a PR, and merge it once checks pass and every criterion is genuinely met.
 

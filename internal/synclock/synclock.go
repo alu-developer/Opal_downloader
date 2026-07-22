@@ -133,7 +133,7 @@ func Acquire(path string) (release func(), err error) {
 			_ = os.Remove(path)
 			continue
 		}
-		if isProcessAlive(existing.PID) {
+		if lockHolderStillRunning(existing) {
 			return nil, fmt.Errorf("%w (PID %d, started at %s)", ErrHeld, existing.PID, existing.StartedAt)
 		}
 		// Stale lock: the recorded PID is no longer running, so whatever
@@ -143,6 +143,53 @@ func Acquire(path string) (release func(), err error) {
 	}
 
 	return nil, fmt.Errorf("could not acquire sync lock at %s", path)
+}
+
+// pidReuseTolerance is how much later than the lock's own timestamp a live
+// process may have started while still being accepted as the genuine lock
+// holder. The lock file is written immediately after the process starts, but
+// the two timestamps come from different clocks/roundings (the recorded one
+// is RFC3339, second-granularity), so they are never exactly equal. Anything
+// beyond this window started long after the lock was written and therefore
+// cannot be the process that wrote it.
+const pidReuseTolerance = 2 * time.Minute
+
+// lockHolderStillRunning reports whether the process recorded in info is
+// genuinely still holding the lock.
+//
+// Liveness alone is not enough. Windows recycles PIDs, so once the process
+// that wrote the lock exits without releasing it (a crash, a force-kill, or
+// the GUI's own sync-cancel path killing the browser and process), an
+// unrelated process can inherit its number - and from then on every sync
+// refuses to start with "a sync is already running (PID NNNNN)", naming a
+// process that has nothing to do with opal-downloader. There is no recovery
+// short of deleting the lock file by hand, which no user would know to do.
+//
+// So when the recorded PID *is* alive, cross-check that it started no later
+// than the lock itself (plus a tolerance): a process that began well after
+// the lock was written cannot be the one that wrote it, and the lock is
+// stale despite the PID being in use.
+//
+// Fails safe in both directions. If the start time cannot be read at all
+// (processStartedAt reports ok=false, which is every non-Windows platform),
+// this falls back to the plain liveness check - the exact behaviour that
+// shipped before. And a parse failure on the recorded timestamp likewise
+// keeps the lock held rather than reclaiming one that might be live.
+func lockHolderStillRunning(info lockInfo) bool {
+	if !isProcessAlive(info.PID) {
+		return false
+	}
+
+	startedAt, ok := processStartedAt(info.PID)
+	if !ok {
+		return true
+	}
+	lockedAt, err := time.Parse(time.RFC3339, info.StartedAt)
+	if err != nil {
+		return true
+	}
+
+	return !startedAt.After(lockedAt.Add(pidReuseTolerance))
 }
 
 func readLock(path string) (lockInfo, error) {

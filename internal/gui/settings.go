@@ -521,6 +521,9 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	table.folders td:first-child { padding-left: 0; }
 	.remove-row-btn { background: none; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; color: #a00; padding: 0.3rem 0.6rem; }
 	.add-row-btn, .save-btn { padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; font: inherit; }
+	/* A proposed folder is marked until the form is saved or the field is
+	   edited, so a filled-in path is never mistaken for one the user chose. */
+	input.suggested { background: #eef7ee; border-color: #4c9a4c; }
 	.save-btn { background: #1a73e8; color: #fff; border-color: #1a73e8; margin-top: 1.5rem; font-weight: 600; }
 </style>
 </head>
@@ -609,6 +612,9 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			</tbody>
 		</table>
 		<button type="button" class="add-row-btn" id="add-course-row">+ Add course</button>
+		<button type="button" class="add-row-btn" id="suggest-folders-btn">Suggest folders</button>
+		<span id="suggest-folders-status" class="hint"></span>
+		<p class="hint">Suggest folders looks through your download path for folders that already match these course names (including abbreviations like <code>AlgData</code>) and fills in the empty ones. Only obvious matches are filled; anything left blank is a guess it wasn't confident enough to make.</p>
 	</div>
 
 	<h2>Subfolder organization</h2>
@@ -834,6 +840,74 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 				})
 				.catch(function (err) { findStatus.textContent = ' Lookup failed: ' + err; })
 				.finally(function () { findBtn.disabled = false; });
+		});
+
+		// --- folder suggestions --------------------------------------------
+		// Only ever fills fields that are still empty. A folder the user
+		// already typed is authoritative and is sent along as "taken", so no
+		// two courses end up pointed at the same folder.
+		var suggestBtn = document.getElementById('suggest-folders-btn');
+		var suggestStatus = document.getElementById('suggest-folders-status');
+		function courseRows() {
+			var trs = Array.prototype.slice.call(document.querySelectorAll('#courses-table tbody tr'));
+			return trs.map(function (tr) {
+				var nameInput = tr.querySelector('input[name="course_row_name[]"]');
+				var folderInput = tr.querySelector('input[name="course_row_folder[]"]');
+				return {
+					name: nameInput ? nameInput.value.trim() : '',
+					folder: folderInput ? folderInput.value.trim() : '',
+					folderInput: folderInput
+				};
+			}).filter(function (row) { return row.name !== ''; });
+		}
+		suggestBtn.addEventListener('click', function () {
+			var rows = courseRows();
+			if (!rows.length) {
+				suggestStatus.textContent = ' Add or find your courses first.';
+				return;
+			}
+			var blank = rows.filter(function (r) { return r.folder === ''; }).length;
+			if (!blank) {
+				suggestStatus.textContent = ' Every course already has a folder.';
+				return;
+			}
+			suggestBtn.disabled = true;
+			suggestStatus.textContent = ' Searching your download folder...';
+			fetch('/settings/suggest-folders', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					download_path: document.getElementById('download_path').value,
+					courses: rows.map(function (r) { return { name: r.name, folder: r.folder }; })
+				})
+			})
+				.then(function (r) { return r.json(); })
+				.then(function (j) {
+					if (j.error) {
+						suggestStatus.textContent = ' ' + j.error;
+						return;
+					}
+					var filled = 0;
+					rows.forEach(function (r) {
+						var proposed = j.suggestions ? j.suggestions[r.name] : '';
+						if (!proposed || r.folder !== '' || !r.folderInput) { return; }
+						r.folderInput.value = proposed;
+						r.folderInput.classList.add('suggested');
+						filled++;
+					});
+					suggestStatus.textContent = filled === 0
+						? ' No folder matched closely enough to suggest. Fill them in by hand.'
+						: ' Filled in ' + filled + ' of ' + blank + '. Check them, then Save.';
+				})
+				.catch(function (err) { suggestStatus.textContent = ' Suggestion failed: ' + err; })
+				.finally(function () { suggestBtn.disabled = false; });
+		});
+
+		// Typing over a suggestion makes it the user's own answer.
+		document.addEventListener('input', function (e) {
+			if (e.target && e.target.classList && e.target.classList.contains('suggested')) {
+				e.target.classList.remove('suggested');
+			}
 		});
 
 		document.getElementById('add-section-folder-row').addEventListener('click', function () {

@@ -14,8 +14,11 @@ import (
 // currently typed in the form (not necessarily the saved one - the user may
 // be setting both up in the same visit) plus the course table as it stands.
 type suggestFoldersRequest struct {
-	DownloadPath string             `json:"download_path"`
-	Courses      []suggestCourseRow `json:"courses"`
+	DownloadPath string `json:"download_path"`
+	// DefaultCourseFolder is where unmapped courses already get dumped, so
+	// it is excluded from the search - see foldersuggest.Options.Ignore.
+	DefaultCourseFolder string             `json:"default_course_folder"`
+	Courses             []suggestCourseRow `json:"courses"`
 }
 
 type suggestCourseRow struct {
@@ -62,11 +65,17 @@ func handleSuggestFolders(configPath string) http.HandlerFunc {
 		}
 
 		root := strings.TrimSpace(req.DownloadPath)
-		if root == "" {
+		defaultFolder := strings.TrimSpace(req.DefaultCourseFolder)
+		if root == "" || defaultFolder == "" {
 			// Fall back to the saved config so the button also works on a
 			// page the user has not edited in this visit.
 			if loaded, err := config.Load(configPath); err == nil {
-				root = strings.TrimSpace(loaded.App.DownloadPath)
+				if root == "" {
+					root = strings.TrimSpace(loaded.App.DownloadPath)
+				}
+				if defaultFolder == "" {
+					defaultFolder = strings.TrimSpace(loaded.App.DefaultCourseFolder)
+				}
 			}
 		}
 		if root == "" {
@@ -74,7 +83,11 @@ func handleSuggestFolders(configPath string) http.HandlerFunc {
 			return
 		}
 
-		candidates, err := foldersuggest.Scan(root)
+		var ignore []string
+		if defaultFolder != "" {
+			ignore = append(ignore, defaultFolder)
+		}
+		candidates, err := foldersuggest.ScanWith(root, foldersuggest.Options{Ignore: ignore})
 		if err != nil {
 			writeErr("Could not search your download folder: " + err.Error())
 			return

@@ -885,6 +885,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					download_path: document.getElementById('download_path').value,
+					default_course_folder: document.getElementById('default_course_folder').value,
 					courses: rows.map(function (r) { return { name: r.name, folder: r.folder }; })
 				})
 			})

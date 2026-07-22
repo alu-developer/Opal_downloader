@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 )
 
 // realisticTree is the folder layout this feature exists for: a download
@@ -86,17 +87,17 @@ func TestScanPrefersTheDownloadsLeaf(t *testing.T) {
 func TestScanRespectsDepthAndBudget(t *testing.T) {
 	root := makeTree(t, []string{`a/b/c/d/e`})
 
-	candidates, err := ScanLimited(root, 3, DefaultMaxDirs)
+	candidates, err := ScanWith(root, Options{MaxDepth: 3})
 	if err != nil {
-		t.Fatalf("ScanLimited: %v", err)
+		t.Fatalf("ScanWith: %v", err)
 	}
 	if len(candidates) != 3 {
 		t.Errorf("depth 3 should yield 3 candidates, got %d (%v)", len(candidates), candidates)
 	}
 
-	limited, err := ScanLimited(root, 3, 2)
+	limited, err := ScanWith(root, Options{MaxDepth: 3, MaxDirs: 2})
 	if err != nil {
-		t.Fatalf("ScanLimited: %v", err)
+		t.Fatalf("ScanWith: %v", err)
 	}
 	if len(limited) != 2 {
 		t.Errorf("a budget of 2 should yield 2 candidates, got %d", len(limited))
@@ -150,8 +151,9 @@ func TestSuggestOverRealisticTree(t *testing.T) {
 }
 
 // TestSuggestWithholdsWhenAmbiguous is the rule that makes the feature safe
-// to trust: two equally good folders produce no suggestion at all, rather
-// than a coin flip the user has no reason to double-check.
+// to trust: two equally good folders both in current use produce no
+// suggestion at all, rather than a coin flip the user has no reason to
+// double-check. Both are touched now, so recency cannot break the tie.
 func TestSuggestWithholdsWhenAmbiguous(t *testing.T) {
 	root := makeTree(t, []string{
 		`_2. Semester/Analysis/Downloads`,
@@ -161,9 +163,88 @@ func TestSuggestWithholdsWhenAmbiguous(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
+	// Freshly created dirs share a modtime, so this is a genuine tie.
 
 	if got := Suggest([]string{"Analysis"}, candidates, nil); len(got) != 0 {
 		t.Errorf("expected no suggestion for an ambiguous match, got %v", got)
+	}
+}
+
+// TestSuggestPrefersTheRecentlyUsedFolder is the tie-break that made the real
+// tree work: an identically-named folder from an earlier semester, sitting
+// untouched for months, must lose to the one being worked on now. Names alone
+// score both identically.
+func TestSuggestPrefersTheRecentlyUsedFolder(t *testing.T) {
+	root := makeTree(t, []string{
+		`_1. Semester/Analysis/Downloads`,
+		`_2. Semester/Analysis/Downloads`,
+	})
+	old := filepath.Join(root, filepath.FromSlash(`_1. Semester/Analysis/Downloads`))
+	stale := time.Now().Add(-90 * 24 * time.Hour)
+	// The whole old course folder is what ages, mirroring a semester left behind.
+	for _, p := range []string{old, filepath.Dir(old)} {
+		if err := os.Chtimes(p, stale, stale); err != nil {
+			t.Fatalf("chtimes %s: %v", p, err)
+		}
+	}
+
+	candidates, err := Scan(root)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	got := Suggest([]string{"Analysis"}, candidates, nil)
+	want := candidateFor(t, candidates, `_2. Semester/Analysis/Downloads`)
+	if got["Analysis"] != want {
+		t.Errorf("Suggest[Analysis] = %q, want the recently-used %q", got["Analysis"], want)
+	}
+}
+
+// TestSuggestPrefersTheDownloadsLeafOverABareMatch covers the structural
+// tie-break that ranks above recency: when one near-tie is a "…/Downloads"
+// leaf and another is a bare folder of the same name, the convention wins
+// even though names (and here, ages) do not separate them.
+func TestSuggestPrefersTheDownloadsLeafOverABareMatch(t *testing.T) {
+	root := makeTree(t, []string{
+		`Alt/AlgData`,               // bare folder, no Downloads leaf
+		`Aktuell/AlgData/Downloads`, // the convention
+	})
+	candidates, err := Scan(root)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	got := Suggest([]string{"Algorithmen und Datenstrukturen"}, candidates, nil)
+	want := candidateFor(t, candidates, `Aktuell/AlgData/Downloads`)
+	if got["Algorithmen und Datenstrukturen"] != want {
+		t.Errorf("Suggest = %q, want the Downloads leaf %q", got["Algorithmen und Datenstrukturen"], want)
+	}
+}
+
+// TestSuggestIgnoresDumpingGround covers the Scan Ignore option: the folder
+// opal-downloader itself fills with "<default>/<exact course name>" scores a
+// perfect match and would shadow the real, abbreviated folder. Excluding its
+// subtree is what took the real tree from 0/6 to a clean result.
+func TestSuggestIgnoresDumpingGround(t *testing.T) {
+	root := makeTree(t, []string{
+		`Default_downloads/Algorithmen und Datenstrukturen`,
+		`_2. Semester/AlgData/Downloads`,
+	})
+
+	candidates, err := ScanWith(root, Options{Ignore: []string{"Default_downloads"}})
+	if err != nil {
+		t.Fatalf("ScanWith: %v", err)
+	}
+	for _, c := range candidates {
+		if filepath.Base(filepath.Dir(c.Path)) == "Default_downloads" || filepath.Base(c.Path) == "Default_downloads" {
+			t.Fatalf("ignored subtree still produced a candidate: %s", c.Path)
+		}
+	}
+
+	got := Suggest([]string{"Algorithmen und Datenstrukturen"}, candidates, nil)
+	want := candidateFor(t, candidates, `_2. Semester/AlgData/Downloads`)
+	if got["Algorithmen und Datenstrukturen"] != want {
+		t.Errorf("Suggest = %q, want the real folder %q", got["Algorithmen und Datenstrukturen"], want)
 	}
 }
 

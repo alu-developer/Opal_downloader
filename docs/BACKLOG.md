@@ -97,11 +97,14 @@ record.
   is unobserved in the wild — verified live only in its refusing-to-repair
   form, since triggering the repair means rewriting a real Task Scheduler
   entry.*
-- **Suggest a per-course download folder** from the folder tree the user
-  already keeps coursework in — abbreviation-aware, so `Algorithmen und
-  Datenstrukturen` finds `AlgData`. *Matching is tuned against the
-  maintainer's own mappings only; a stranger's folder naming is untested, and
-  the threshold may turn out to be too strict or too loose in the wild.*
+- **Suggest a per-course download folder**, now measured against a real
+  account and tree: 6 of 6 course→folder mappings correct, after a first pass
+  that got 0 of 6. Three fixes made the difference — excluding the tool's own
+  `default_course_folder` dumping ground (it name-matches perfectly and
+  shadowed the real folders), and two tie-breaks for folders a name cannot
+  separate (the `…/Downloads` convention, then recency, so this semester's
+  "Analysis" beats last semester's). *A stranger's naming is still only as
+  good as these signals; the thresholds are tuned to one real tree.*
 - **#124** Reload a login page TU-Fast has not acted on, instead of waiting
   out the full timeout. *The stall itself was never reproduced; the reload
   branch is unobserved in the wild.*

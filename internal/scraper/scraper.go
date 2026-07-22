@@ -445,6 +445,49 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 	return s.scrapeCoursesBrowser(ctx, courseFilter)
 }
 
+// DiscoverCourseNames logs in via the saved session and returns the titles
+// of every course on the user's OPAL dashboard, in dashboard order and
+// de-duplicated.
+//
+// It deliberately stops after reading the dashboard rather than reusing
+// ScrapeWithSavedSession: that walks every section of every course to build
+// the full file list, which on a real account takes minutes. Course *names*
+// are already fully known from the dashboard cards alone
+// (discoverCourseLinks), so a picker that only needs names should not pay
+// for the crawl. This is what makes "let me pick my courses from a list"
+// viable as an interactive setup step instead of a coffee break.
+func (s *OpalScraper) DiscoverCourseNames(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.ensureSession(false); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	courses, err := s.discoverCourseLinks([]string{"*"})
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(courses))
+	seen := map[string]struct{}{}
+	for _, course := range courses {
+		title := strings.TrimSpace(course.Title)
+		if title == "" {
+			continue
+		}
+		if _, dup := seen[title]; dup {
+			continue
+		}
+		seen[title] = struct{}{}
+		names = append(names, title)
+	}
+	return names, nil
+}
+
 // Close tears down the browser/Playwright process. It is safe to call
 // concurrently with any other OpalScraper method, and safe to call more than
 // once (including concurrently with itself): every field it touches is

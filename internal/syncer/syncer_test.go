@@ -390,6 +390,47 @@ func TestFileChanged(t *testing.T) {
 	}
 }
 
+// TestFileChangedHealsSignallessManifestEntry pins the fix for the bug where
+// a manifest entry with no recorded size/modified could never be detected as
+// changed, because the comparison required a non-nil value on both sides -
+// and the only way to record one was a download that this very check
+// prevented. See fileChanged's doc comment for the live evidence
+// (Analysis/Material/AnalysisSkriptChill.pdf, 122 of 370 real entries
+// affected).
+func TestFileChangedHealsSignallessManifestEntry(t *testing.T) {
+	size := int64(643686)
+	mod := "15.07.2026 um 12:52 Uhr"
+
+	// The exact real-world shape: remote reports both values, the manifest
+	// entry (written before size/modified parsing worked) has neither.
+	remote := scraper.RemoteFile{Size: &size, Modified: &mod}
+	if !fileChanged(remote, true, FileRecord{}) {
+		t.Fatal("expected changed when the manifest entry carries no size/modified but the remote does - such an entry can otherwise never heal")
+	}
+
+	// Each signal on its own is enough to trigger the heal.
+	if !fileChanged(scraper.RemoteFile{Size: &size}, true, FileRecord{}) {
+		t.Fatal("expected changed when only the remote size is newly available")
+	}
+	if !fileChanged(scraper.RemoteFile{Modified: &mod}, true, FileRecord{}) {
+		t.Fatal("expected changed when only the remote modified date is newly available")
+	}
+
+	// Once healed, an unchanged file must go back to being skipped - the fix
+	// must not turn every sync into a full re-download.
+	healed := FileRecord{Size: &size, Modified: &mod}
+	if fileChanged(remote, true, healed) {
+		t.Fatal("expected unchanged after the entry has been healed; the heal must be one-time, not permanent re-downloading")
+	}
+
+	// Neither side has a signal: nothing to compare, and re-downloading every
+	// such file on every sync would be a permanent cost. Documented as the
+	// deliberate residual gap - it did not occur in either live course probe.
+	if fileChanged(scraper.RemoteFile{}, true, FileRecord{}) {
+		t.Fatal("expected unchanged when neither side carries any signal")
+	}
+}
+
 // TestSyncRemoteFilesDurationExcludesDiscovery is a regression test for the
 // PR #16 bug where the printed "Download" duration silently included
 // discovery time. It simulates a slow discovery phase (by sleeping before

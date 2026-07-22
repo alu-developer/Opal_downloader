@@ -3,6 +3,7 @@ package scraper
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -485,11 +486,99 @@ const courseLinkSelector = "a[href*='crs_'], a[href*='course'], a[href*='Reposit
 // TU-Fast/the Shibboleth IdP opens a new tab for the auth flow and closes the
 // original one - trackActivePage will already have retargeted s.page at the
 // new tab, so this retries the wait there instead of failing outright.
+// loginStallProbeMs is how long to wait for the post-login course list
+// before considering a reload. It is not a timeout: the full budget below
+// is still spent before giving up, this is only the point at which a stalled
+// TU-Fast becomes worth nudging.
+const loginStallProbeMs = 45000
+
+// loginTotalBudgetMs is the overall time allowed for a login to complete,
+// unchanged from when this was a single flat wait. Human attention span is
+// what sets it - a person completing 2FA by hand needs the room.
+const loginTotalBudgetMs = 300000
+
+// loginStallReloadAttempts bounds how many times a stalled login page is
+// reloaded. Deliberately small: the reload is a workaround for someone
+// else's bug, not a retry loop.
+const loginStallReloadAttempts = 2
+
+// looksLikeLoginPageURL reports whether pageURL is still somewhere in the
+// login/identity-provider flow rather than on OPAL proper. Same heuristic
+// isAuthenticated uses (see above); shared so "are we still stuck at login"
+// means one thing in this package.
+func looksLikeLoginPageURL(pageURL string) bool {
+	lowered := strings.ToLower(pageURL)
+	return strings.Contains(lowered, "login") || strings.Contains(lowered, "shib") || strings.Contains(lowered, "idp")
+}
+
+// reloadStalledLoginPage nudges a login page that TU-Fast has not acted on.
+//
+// The maintainer reports that TU-Fast occasionally just sits on the OPAL /
+// Shibboleth login screen without ever firing, and that reloading the page
+// has fixed it every single time. They also note this predates
+// opal-downloader - they hit it browsing OPAL by hand - so the root cause is
+// almost certainly in TU-Fast itself and not something this project can fix.
+// It is cheap to work around here anyway.
+//
+// Only reloads while the page still looks like part of the login flow.
+// Reloading after login has progressed could discard a half-finished 2FA
+// exchange, which would turn a rare annoyance into a real failure.
+func (s *OpalScraper) reloadStalledLoginPage(page playwright.Page, attempt int) bool {
+	if page == nil {
+		return false
+	}
+	currentURL := page.URL()
+	if !looksLikeLoginPageURL(currentURL) {
+		s.auditLog("login-stall-reload-skipped", page, currentURL,
+			"login page did not resolve yet, but the page has already moved past the login flow - not reloading, that could discard an in-progress 2FA exchange")
+		return false
+	}
+
+	fmt.Printf("Login page has not progressed yet (TU-Fast may not have fired) - reloading it (attempt %d of %d)...\n", attempt, loginStallReloadAttempts)
+	s.auditLog("login-stall-reload", page, currentURL, fmt.Sprintf("reloading stalled login page, attempt %d of %d", attempt, loginStallReloadAttempts))
+	if _, err := page.Reload(playwright.PageReloadOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded}); err != nil {
+		s.auditLog("login-stall-reload-failed", page, currentURL, fmt.Sprintf("reload failed: %v", err))
+		return false
+	}
+	return true
+}
+
 func (s *OpalScraper) waitForLoggedInCourseLink() error {
+	// Spend the budget as a few short probes followed by the remainder,
+	// rather than one flat wait: a stalled TU-Fast used to burn the entire
+	// 300s and then fail, when a reload after 45s would have fixed it. The
+	// total time to a genuine failure is unchanged, so a human doing 2FA by
+	// hand still gets the same room they always had.
+	remaining := float64(loginTotalBudgetMs)
+	for reloads := 0; reloads < loginStallReloadAttempts; reloads++ {
+		waitingOn := s.getPage()
+		if waitingOn == nil {
+			break
+		}
+		probe := math.Min(float64(loginStallProbeMs), remaining)
+		start := time.Now()
+		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(probe)})
+		remaining -= float64(time.Since(start).Milliseconds())
+		if err == nil {
+			s.auditLog("wait-selector-resolved", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link resolved after %s", time.Since(start)))
+			return nil
+		}
+		if remaining <= 0 {
+			s.auditLog("wait-selector-timeout", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link did not resolve within the %dms budget: %v", loginTotalBudgetMs, err))
+			return err
+		}
+		if !s.reloadStalledLoginPage(s.getPage(), reloads+1) {
+			// Either the page moved past login (so someone is mid-2FA and
+			// just needs more time) or the reload failed. Either way, stop
+			// nudging and spend what is left of the budget waiting.
+			break
+		}
+	}
+
 	for attempt := 0; attempt < 2; attempt++ {
 		waitingOn := s.getPage()
 		start := time.Now()
-		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(300000)})
+		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(math.Max(remaining, 1000))})
 		if err == nil {
 			// Logged for --debug-clicks completeness (queue task
 			// click-audit-analysis-and-cleanup closed this gap - this wait was

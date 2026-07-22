@@ -116,6 +116,11 @@ maintainer's own repeat use.
   re-downloading everything and orphaning the old copies.
 - `internal/config/` — `config.yaml` loading, validation, and `Save` (backs
   up the existing file before overwriting).
+- `internal/foldersuggest/` — proposes a `course_folders` destination per
+  course by scanning the download root. Pure matching + a filesystem walk, no
+  scraping and no writes; the GUI's `/settings/suggest-folders` is its only
+  caller. Deliberately withholds a suggestion rather than risk a wrong one
+  (`MinScore`/`MinMargin` in `match.go`).
 - `internal/timing/` — instrumentation for the perf-benchmark work
   (see `docs/OPERATIONS.md`/queue history for context).
 

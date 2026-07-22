@@ -16,19 +16,6 @@ machine belong in local memory, not here.
 
 ## Now
 
-### Suggest a per-course download folder from the existing folder tree
-Filling in `course_folders:` by hand is the fiddliest part of setup. Scan the
-download root and propose a destination per course.
-
-Naive substring matching will not work — real mappings are abbreviations
-(`Algorithmen und Datenstrukturen` → `AlgData`, a Numerische-Mathematik module
-→ `NuMa`). Only one of six real mappings matches by substring. Needs
-acronym/initialism matching plus the "…/Downloads" leaf convention, and must
-show *nothing* rather than a wrong guess when confidence is low.
-
-Pairs with the course picker (shipped, #121): discover once, then offer both
-the tick-list and a folder suggestion per ticked course.
-
 ### Repair scheduled-task registrations that point at a build-cache binary
 #122 stops new ones being created and warns about existing ones, but an
 already-broken registration still needs repairing once, by re-enabling the
@@ -94,6 +81,11 @@ equally un-diagnosable.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Suggest a per-course download folder** from the folder tree the user
+  already keeps coursework in — abbreviation-aware, so `Algorithmen und
+  Datenstrukturen` finds `AlgData`. *Matching is tuned against the
+  maintainer's own mappings only; a stranger's folder naming is untested, and
+  the threshold may turn out to be too strict or too loose in the wild.*
 - **#124** Reload a login page TU-Fast has not acted on, instead of waiting
   out the full timeout. *The stall itself was never reproduced; the reload
   branch is unobserved in the wild.*

@@ -175,6 +175,7 @@ func Run(opts Options) error {
 	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
 	mux.HandleFunc("/settings/discover-courses", srv.withRecover(handleDiscoverCourses(configPath)))
+	mux.HandleFunc("/settings/suggest-folders", srv.withRecover(handleSuggestFolders(configPath)))
 	mux.HandleFunc("/settings/schedule", srv.withRecover(handleScheduleAction(configPath)))
 	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
 	mux.HandleFunc("/tufast-setup/consent", srv.withRecover(srv.handleTUFastSetupConsent))

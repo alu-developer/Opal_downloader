@@ -16,17 +16,6 @@ machine belong in local memory, not here.
 
 ## Now
 
-### Decide whether `list` (and `dump-links`) should be hidden from end users
-Now that setup has a course picker, the one plausible end-user reason to run
-`list` — "what are my courses called, so I can type them in?" — is gone. The
-landing page no longer names them (#118). Remaining question is whether to
-drop them from `printHelp` too (compare the hidden `__panic-test`
-subcommand). `dump-links` should be judged in the same pass.
-
----
-
-## Next
-
 ### Dogfood the whole first-run journey
 Drive the GUI as a real first-time user — no config, through setup, login,
 course selection, a sync, status, scheduling, then changing a setting — and
@@ -35,6 +24,10 @@ trivial, filed here if not.
 
 Explicitly from the perspective of a TU Dresden student who is *not* the
 maintainer: a stranger's first run is in scope.
+
+---
+
+## Next
 
 ### Clean up legacy manifest orphans
 Around two dozen manifest entries still use an old absolute-path key scheme

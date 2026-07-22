@@ -100,6 +100,11 @@ maintainer's own repeat use.
   subcommand (intentionally left out of
   `printHelp`) that just panics on demand, so the panic-recovery wrapper in
   `Execute` can be live-verified without a real bug.
+  `list` and `dump-links` **stay listed in `printHelp`** (maintainer's
+  decision, 2026-07-23), even though the course picker removed the main
+  end-user reason to run `list`. Anyone reaching for the CLI at all is
+  someone who may want them; hiding a working command to tidy up help output
+  is not a trade worth making.
 - `internal/gui/` — the local web GUI: HTTP server, settings page
   (read/write `config.yaml`), login trigger, sync/list/dump-links page with
   live progress.

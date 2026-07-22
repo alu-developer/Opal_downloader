@@ -2,8 +2,11 @@ package syncer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -252,10 +255,84 @@ func (m *Manifest) Save() error {
 
 // downloadJob is one file queued for download after the manifest comparison
 // pass has decided it needs to be fetched.
+//
+// verify marks the job as a content check rather than a plain fetch: the
+// file is downloaded to a temporary path beside its target and only replaces
+// it when the bytes actually differ. See needsContentVerification for why
+// some files can only be checked this way.
 type downloadJob struct {
 	targetKey  string
 	localPath  string
 	remoteFile scraper.RemoteFile
+	verify     bool
+}
+
+// needsContentVerification reports whether a file that the manifest
+// comparison considered unchanged must nonetheless be re-fetched to find
+// out.
+//
+// It applies to exactly one case: OPAL reports neither a size nor a
+// modified date for the file, so there is no signal to compare and
+// fileChanged can only ever answer "unchanged". Such a file is invisible to
+// change detection forever - an upstream edit is silently never picked up.
+// Measured live (2026-07-22): 13 of 14 files in "So26 Programmieren
+// (Math-Ba-PR20)" are in this state, every one of them in a Woche 05-13
+// section, so it tracks a section layout rather than a file type.
+//
+// Note this is NOT solvable by recording the downloaded file's own on-disk
+// size in the manifest, which is the obvious-looking fix: the local file
+// does not change when the remote one does, so a local-size comparison
+// still reports "unchanged" for exactly the case that matters. Only the
+// bytes themselves settle it.
+//
+// Deliberately narrow. Files that do carry a size/date are untouched, so
+// the normal fast path is unaffected: on the maintainer's account this
+// covers 13 of 344 files (~4%).
+func needsContentVerification(remote scraper.RemoteFile, hasPrevious bool) bool {
+	return hasPrevious && remote.Size == nil && remote.Modified == nil
+}
+
+// verificationTempPath returns a scratch path next to target for a verify
+// job's download. The original extension is preserved because
+// scraper.DownloadFile validates payloads by target extension (a ".pdf"
+// download that does not start with %PDF is rejected), and a temp name that
+// dropped the suffix would quietly skip that check. The leading dot keeps
+// the scratch file out of the way if a crash ever leaves one behind.
+func verificationTempPath(target string) string {
+	dir := filepath.Dir(target)
+	base := filepath.Base(target)
+	ext := filepath.Ext(base)
+	return filepath.Join(dir, "."+strings.TrimSuffix(base, ext)+".opalverify"+ext)
+}
+
+// sameFileContents reports whether the two paths hold identical bytes.
+// Any read error returns false, i.e. "assume they differ" - erring toward
+// replacing the local copy is the safe direction for a tool whose whole job
+// is to keep local files current.
+func sameFileContents(a, b string) bool {
+	sumA, errA := fileSHA256(a)
+	if errA != nil {
+		return false
+	}
+	sumB, errB := fileSHA256(b)
+	if errB != nil {
+		return false
+	}
+	return sumA == sumB
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // downloadResult is what a worker reports back for a single job. Manifest
@@ -267,6 +344,44 @@ type downloadResult struct {
 	job     downloadJob
 	elapsed time.Duration
 	err     error
+
+	// unchanged is set by a verify job that found the freshly-fetched bytes
+	// identical to the local copy, so it counts as skipped rather than
+	// downloaded and the local file is left completely untouched.
+	unchanged bool
+}
+
+// runVerifyJob fetches a file to a scratch path beside its target and
+// replaces the target only when the bytes differ. It reports unchanged=true
+// when they match.
+//
+// Leaving an identical file alone matters beyond tidiness: the maintainer's
+// download_path is inside OneDrive, so rewriting a byte-identical file would
+// churn its modification time and trigger a pointless cloud re-upload on
+// every single sync, for every file in this category.
+func runVerifyJob(job downloadJob, downloadFn func(url, localPath string) error) (unchanged bool, err error) {
+	tempPath := verificationTempPath(job.localPath)
+	defer func() { _ = os.Remove(tempPath) }()
+
+	if err := downloadFn(job.remoteFile.URL, tempPath); err != nil {
+		return false, err
+	}
+	if sameFileContents(tempPath, job.localPath) {
+		return true, nil
+	}
+	// os.Rename over an existing file is allowed on both Windows and POSIX,
+	// but the target may be open/locked (OneDrive, a PDF viewer), so fall
+	// back to a copy rather than failing the whole file.
+	if err := os.Rename(tempPath, job.localPath); err != nil {
+		data, readErr := os.ReadFile(tempPath)
+		if readErr != nil {
+			return false, readErr
+		}
+		if writeErr := os.WriteFile(job.localPath, data, 0o644); writeErr != nil {
+			return false, writeErr
+		}
+	}
+	return false, nil
 }
 
 // SyncCourses runs a sync with no progress callback; CLI output is
@@ -424,6 +539,13 @@ func distinctCourseCount(remoteFiles []scraper.RemoteFile) int {
 }
 
 func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
+	// Guarded here as well as in syncRemoteFiles: this is called directly by
+	// tests, and an unguarded nil callback panics deep inside the result loop
+	// rather than at the call site.
+	if progress == nil {
+		progress = func(Event) {}
+	}
+
 	stats := Stats{Downloads: &timing.DownloadTracker{}}
 
 	sort.Slice(remoteFiles, func(i, j int) bool { return remoteFiles[i].Path < remoteFiles[j].Path })
@@ -452,11 +574,19 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 		previous, ok := manifest.Files[targetKey]
 		changed := force || fileChanged(remoteFile, ok, previous)
 
+		verify := false
 		if !changed {
 			if _, err := os.Stat(localPath); err == nil {
-				stats.Skipped++
-				progress(Event{Type: EventFileSkipped, Course: remoteFile.Course, File: targetKey})
-				continue
+				// A file OPAL reports no size/date for cannot be judged from
+				// metadata at all, so "unchanged" here is an assumption, not a
+				// finding. Queue it as a verify job instead of skipping it
+				// outright - see needsContentVerification.
+				if !needsContentVerification(remoteFile, ok) {
+					stats.Skipped++
+					progress(Event{Type: EventFileSkipped, Course: remoteFile.Course, File: targetKey})
+					continue
+				}
+				verify = true
 			}
 		}
 
@@ -467,7 +597,7 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 			continue
 		}
 
-		jobs = append(jobs, downloadJob{targetKey: targetKey, localPath: localPath, remoteFile: remoteFile})
+		jobs = append(jobs, downloadJob{targetKey: targetKey, localPath: localPath, remoteFile: remoteFile, verify: verify})
 	}
 
 	concurrency := cfg.DownloadConcurrency
@@ -489,6 +619,11 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 				defer workers.Done()
 				for job := range jobCh {
 					fileTimer := timing.StartTimer()
+					if job.verify {
+						unchanged, verifyErr := runVerifyJob(job, downloadFn)
+						resultCh <- downloadResult{job: job, elapsed: fileTimer.Elapsed(), err: verifyErr, unchanged: unchanged}
+						continue
+					}
 					downloadErr := downloadFn(job.remoteFile.URL, job.localPath)
 					resultCh <- downloadResult{job: job, elapsed: fileTimer.Elapsed(), err: downloadErr}
 				}
@@ -526,6 +661,17 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 				stats.Errors++
 				fmt.Printf("  error: %s (%v)\n", targetKey, result.err)
 				progress(Event{Type: EventError, Course: result.job.remoteFile.Course, File: targetKey, Err: result.err})
+				continue
+			}
+
+			if result.unchanged {
+				// Verified byte-for-byte identical: nothing was written, so
+				// this is a skip. The manifest entry is deliberately left as
+				// it is - there is still no remote signal to record, so it
+				// stays a verify candidate next run.
+				stats.Skipped++
+				timing.PrintProfileLine("verified unchanged %s in %s", targetKey, result.elapsed)
+				progress(Event{Type: EventFileSkipped, Course: result.job.remoteFile.Course, File: targetKey})
 				continue
 			}
 

@@ -88,6 +88,10 @@ maintainer's own repeat use.
 
 ## Package layout
 
+- `main.go` — the only `package main`. Build the binary with `go build .`;
+  `go build ./cmd/opal-downloader` silently produces a library archive, not
+  an executable, and the resulting "not a valid application for this OS
+  platform" is a confusing way to learn that.
 - `cmd/opal-downloader/root.go` — entry point, a plain `switch` over
   `os.Args[1]` (no CLI framework/Cobra — three direct Go deps total:
   `playwright-go`, `x/text`, `yaml.v3`). Subcommands: `init`, `setup`,

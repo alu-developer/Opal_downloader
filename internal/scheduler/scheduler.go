@@ -79,4 +79,19 @@ type Info struct {
 	// Time is the task's daily trigger time in 24-hour "HH:MM" format.
 	// Only meaningful when Registered is true.
 	Time string
+
+	// ExecutablePath is the binary the registered task actually runs, and
+	// ExecutableMissing reports that this file no longer exists. Together
+	// they surface the failure mode described on ErrEphemeralExecutable: a
+	// task registered against a path that later disappears stays
+	// "registered" forever while never running once. Nothing else in the
+	// product can detect that, because the scheduled-status file is only
+	// written by a run that actually happened - so a task that never
+	// launches leaves the GUI cheerfully showing the last successful run.
+	//
+	// ExecutablePath is "" when it could not be determined, in which case
+	// ExecutableMissing is always false: an unknown path must never be
+	// reported as a missing one.
+	ExecutablePath    string
+	ExecutableMissing bool
 }

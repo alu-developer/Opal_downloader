@@ -1,5 +1,17 @@
 # opal-downloader
 
+## Start here
+
+**`docs/BACKLOG.md` is the current state of work.** Read it at the start of a
+session, pick the top item that isn't blocked, and get on with it — without
+being asked to. Update it in the same commit as the work it describes.
+
+The maintainer works by thinking out loud: they describe problems, ideas and
+annoyances, and expect whoever is listening to turn that into maintained
+software. Turning a passing remark into a backlog entry is part of the job,
+not something to ask permission for. Do not wait for a task to be handed over
+in a particular format.
+
 Go program that logs into OPAL (Bildungsportal Sachsen, Shibboleth/TU-Fast
 SSO) via Playwright browser automation, discovers course files by scraping
 the DOM (no OPAL API/WebDAV — WebDAV PROPFIND was tried and dropped, see
@@ -150,15 +162,22 @@ it. Default model is
 Sonnet at medium effort; escalating to Opus/high is a deliberate call the
 maintainer has to make, so ask for it explicitly when a task needs it.
 
-## Local task queue workflow (`.claude/queue/`, gitignored)
+## Task tracking: `docs/BACKLOG.md`, not the old queue
 
-This repo uses `task-capture` / `queue-run` / `queue-review` (global Claude
-Code skills) against `.claude/queue/`, which is gitignored and local-only
-(won't survive a fresh clone).
+Work is tracked in `docs/BACKLOG.md` (see "Start here" above). Plain prose,
+tracked in git, updated alongside the code.
 
-- **A `.claude/queue/done/` task means it was completed and PR'd — not that
-  the PR is merged into `master`.** Check `gh pr list` / `git log` before
-  treating a "done" task's changes as actually available to build on.
+The older `.claude/queue/` workflow — `task-capture` / `queue-run` /
+`queue-review` against `todo/`, `in-progress/`, `done/`, `blocked/` — is
+**retired for this repo** (2026-07-22, maintainer's decision). It is not
+deleted: the skills stay installed and are still reasonable for a repo where
+a formal queue earns its ceremony. Don't reach for them here.
+
+Why it was retired: the queue was gitignored, so the only record of in-flight
+work couldn't survive a fresh clone; and it needed a skill to be *invoked*
+before anything happened, which made autonomy depend on ceremony rather than
+on simply owning the backlog. If you find an old `.claude/queue/` directory
+on a machine, treat `docs/BACKLOG.md` as authoritative.
 
 ## Maintenance
 

@@ -90,6 +90,136 @@ func TestApplyScheduleStatusOtherErrorSurfaced(t *testing.T) {
 	}
 }
 
+// ephemeralExe is a path shaped like Go's build cache - what os.Executable()
+// resolves to during a `go run .` session, and what the maintainer's own
+// scheduled task was actually found pointing at.
+const ephemeralExe = `C:\Users\someone\AppData\Local\go-build\1e\1ec79afd-d\opal-downloader.exe`
+
+const stableExe = `C:\Program Files\opal-downloader\opal-downloader.exe`
+
+// A task pointing into the build cache still resolves today and looks healthy
+// - which is exactly why it has to be repaired now rather than reported when
+// the file finally disappears.
+func TestApplyScheduleStatusRepairsEphemeralExecutable(t *testing.T) {
+	var gotExe, gotTime string
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "07:30", ExecutablePath: ephemeralExe}, nil
+		},
+		func(exePath, hhmm string) error { gotExe, gotTime = exePath, hhmm; return nil },
+		nil,
+		func() (string, error) { return stableExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if gotExe != stableExe {
+		t.Errorf("expected the task to be re-registered against %q, got %q", stableExe, gotExe)
+	}
+	if gotTime != "07:30" {
+		t.Errorf("repair must keep the user's trigger time, got %q", gotTime)
+	}
+	if view.ScheduleNotice == "" {
+		t.Error("a repair the user did not ask for has to be reported")
+	}
+	if view.ScheduleError != "" {
+		t.Errorf("nothing is wrong after a successful repair, but got error %q", view.ScheduleError)
+	}
+	if !view.ScheduleEnabled {
+		t.Error("the schedule is still enabled after being repaired")
+	}
+}
+
+func TestApplyScheduleStatusRepairsMissingExecutable(t *testing.T) {
+	var enableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "06:00", ExecutablePath: stableExe, ExecutableMissing: true}, nil
+		},
+		func(string, string) error { enableCalled = true; return nil },
+		nil,
+		func() (string, error) { return stableExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if !enableCalled {
+		t.Fatal("expected a registration whose binary is gone to be repaired")
+	}
+	if view.ScheduleNotice == "" {
+		t.Error("expected the repair to be reported")
+	}
+}
+
+// Repairing a doomed path with another doomed path would just reset the clock
+// on the same silent failure, so the warning is the honest answer.
+func TestApplyScheduleStatusWarnsInsteadOfRepairingFromAnotherEphemeralBinary(t *testing.T) {
+	var enableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "07:30", ExecutablePath: ephemeralExe}, nil
+		},
+		func(string, string) error { enableCalled = true; return nil },
+		nil,
+		func() (string, error) { return ephemeralExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if enableCalled {
+		t.Fatal("must not re-register against a binary that is itself disposable")
+	}
+	if view.ScheduleError == "" {
+		t.Error("expected the unrepairable registration to be reported as an error")
+	}
+	if view.ScheduleNotice != "" {
+		t.Errorf("nothing was repaired, so nothing should claim it was: %q", view.ScheduleNotice)
+	}
+}
+
+func TestApplyScheduleStatusFallsBackToWarningWhenRepairFails(t *testing.T) {
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "07:30", ExecutablePath: ephemeralExe}, nil
+		},
+		func(string, string) error { return os.ErrPermission },
+		nil,
+		func() (string, error) { return stableExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if view.ScheduleError == "" {
+		t.Error("a failed repair must still warn about the broken registration")
+	}
+	if view.ScheduleNotice != "" {
+		t.Errorf("a failed repair must not report success: %q", view.ScheduleNotice)
+	}
+}
+
+// The repair has to be a no-op for a healthy task, or every settings page
+// load would rewrite the user's Task Scheduler entry for no reason.
+func TestApplyScheduleStatusLeavesHealthyRegistrationAlone(t *testing.T) {
+	var enableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "07:30", ExecutablePath: stableExe}, nil
+		},
+		func(string, string) error { enableCalled = true; return nil },
+		nil,
+		func() (string, error) { return stableExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if enableCalled {
+		t.Fatal("a healthy registration must not be rewritten")
+	}
+	if view.ScheduleError != "" || view.ScheduleNotice != "" {
+		t.Errorf("expected a quiet page for a healthy schedule, got error %q notice %q", view.ScheduleError, view.ScheduleNotice)
+	}
+}
+
 func newScheduleTestConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

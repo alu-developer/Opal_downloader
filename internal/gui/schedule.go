@@ -49,15 +49,67 @@ func applyScheduleStatus(view settingsViewData) settingsViewData {
 	if view.ScheduleTime == "" {
 		view.ScheduleTime = scheduler.DefaultTime
 	}
-	// A registered task whose binary is gone never runs and never reports
-	// anything, so without this the page shows a happily-enabled schedule
-	// that has silently been dead for weeks.
-	if info.Registered && info.ExecutableMissing {
-		view.ScheduleError = fmt.Sprintf(
-			"Your daily sync is registered but points at a program that no longer exists (%s), so it is not running. "+
-				"Re-enable the schedule below from your current installation to repair it.",
-			info.ExecutablePath)
+	if info.Registered {
+		view = repairDoomedSchedule(view, info)
 	}
+	return view
+}
+
+// scheduleIsDoomed reports whether a registered task's executable will not be
+// there when it matters. Two shapes of the same failure: the binary is
+// already gone, or it is still present but sits somewhere disposable (a Go
+// build-cache entry from a `go run .` session, say) and will be cleaned up
+// without warning.
+//
+// The second case is the one #122 could not fix. It only stopped *new*
+// registrations being created that way; a registration made before it shipped
+// still points at a doomed path and looks perfectly healthy until the day it
+// isn't.
+func scheduleIsDoomed(info scheduler.Info) bool {
+	if info.ExecutableMissing {
+		return true
+	}
+	if strings.TrimSpace(info.ExecutablePath) == "" {
+		return false
+	}
+	return errors.Is(scheduler.CheckExecutableStable(info.ExecutablePath), scheduler.ErrEphemeralExecutable)
+}
+
+// repairDoomedSchedule re-points a doomed registration at the running
+// executable, keeping its trigger time, and says so. Telling the user to
+// "re-enable the schedule to repair it" was the previous behaviour, and it
+// asks them to perform a repair they did not cause, do not understand, and
+// cannot verify - for a feature whose entire promise is that they never have
+// to think about it again.
+//
+// Yes, this writes to Task Scheduler during a page render. That is deliberate
+// and bounded: it only fires for a registration that is already broken, it
+// restores exactly what the user asked for rather than changing it, it is
+// idempotent (the repaired path is stable, so the next render finds nothing
+// to do), and it never happens silently - the page always reports it.
+//
+// Repair is skipped when the running executable is itself disposable:
+// swapping one doomed path for another would only reset the clock on the same
+// silent failure, and the user is better served by the warning.
+func repairDoomedSchedule(view settingsViewData, info scheduler.Info) settingsViewData {
+	if !scheduleIsDoomed(info) {
+		return view
+	}
+
+	exePath, err := exeForScheduleFunc()
+	if err == nil && scheduler.CheckExecutableStable(exePath) == nil {
+		if enableErr := scheduleEnableFunc(exePath, view.ScheduleTime); enableErr == nil {
+			view.ScheduleNotice = fmt.Sprintf(
+				"Your daily sync pointed at a program that would not have kept working (%s), so it has been repaired to run this copy (%s) at %s. Nothing else changed.",
+				info.ExecutablePath, exePath, view.ScheduleTime)
+			return view
+		}
+	}
+
+	view.ScheduleError = fmt.Sprintf(
+		"Your daily sync is registered but points at a program that will not keep working (%s), so it is not running reliably. "+
+			"Install opal-downloader somewhere permanent and enable the schedule below from there to repair it.",
+		info.ExecutablePath)
 	return view
 }
 

@@ -16,12 +16,6 @@ machine belong in local memory, not here.
 
 ## Now
 
-### Repair scheduled-task registrations that point at a build-cache binary
-#122 stops new ones being created and warns about existing ones, but an
-already-broken registration still needs repairing once, by re-enabling the
-schedule from a properly installed binary. Consider doing this automatically
-when the GUI detects it, instead of only telling the user.
-
 ### Decide whether `list` (and `dump-links`) should be hidden from end users
 Now that setup has a course picker, the one plausible end-user reason to run
 `list` — "what are my courses called, so I can type them in?" — is gone. The
@@ -81,6 +75,12 @@ equally un-diagnosable.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Repair a scheduled sync that points at a disposable binary**, instead of
+  telling the user to repair it themselves. Finishes what #122 started: that
+  one only stopped new doomed registrations being created. *The repair branch
+  is unobserved in the wild — verified live only in its refusing-to-repair
+  form, since triggering the repair means rewriting a real Task Scheduler
+  entry.*
 - **Suggest a per-course download folder** from the folder tree the user
   already keeps coursework in — abbreviation-aware, so `Algorithmen und
   Datenstrukturen` finds `AlgData`. *Matching is tuned against the

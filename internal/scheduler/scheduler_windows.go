@@ -263,20 +263,6 @@ func Status() (Info, error) {
 	return withExecutableState(Info{Registered: true, Time: hhmm}, exePath), nil
 }
 
-// withExecutableState fills Info's ExecutablePath/ExecutableMissing. An
-// empty exePath (the XML had no Exec Command, or could not be parsed) leaves
-// both untouched, so an unknown path is never reported as a missing one.
-func withExecutableState(info Info, exePath string) Info {
-	if strings.TrimSpace(exePath) == "" {
-		return info
-	}
-	info.ExecutablePath = exePath
-	if _, err := os.Stat(exePath); err != nil {
-		info.ExecutableMissing = true
-	}
-	return info
-}
-
 // parseTaskCommand extracts the registered action's executable path from a
 // schtasks /Query /XML response, or "" if it cannot be determined. Failure
 // is deliberately silent: this is diagnostic enrichment, and a task whose

@@ -65,3 +65,23 @@ func CheckExecutableStable(exePath string) error {
 	}
 	return nil
 }
+
+// withExecutableState fills Info's ExecutablePath/ExecutableMissing. An
+// empty exePath (the task XML had no Exec Command, or could not be parsed)
+// leaves both untouched, so an unknown path is never reported as a missing
+// one.
+//
+// Lives here rather than beside its only caller in scheduler_windows.go
+// because nothing about it is Windows-specific, and a build-tagged helper
+// cannot be exercised by the platform-neutral tests in this package - which
+// is exactly how it first shipped, and CI caught it.
+func withExecutableState(info Info, exePath string) Info {
+	if strings.TrimSpace(exePath) == "" {
+		return info
+	}
+	info.ExecutablePath = exePath
+	if _, err := os.Stat(exePath); err != nil {
+		info.ExecutableMissing = true
+	}
+	return info
+}

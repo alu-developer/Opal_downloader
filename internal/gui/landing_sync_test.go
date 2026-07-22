@@ -94,6 +94,9 @@ func TestApplySyncReadinessBlockedWhenNotLoggedIn(t *testing.T) {
 	}
 }
 
+// No usable config is the one blocked state the user can act on immediately,
+// so it has to be distinguishable from "configured but not logged in" - the
+// landing page turns it into a live setup button rather than a dead one.
 func TestApplySyncReadinessBlockedWhenConfigMissing(t *testing.T) {
 	s := &server{configPath: filepath.Join(t.TempDir(), "does-not-exist.yaml")}
 	data := landingData{LoggedIn: true}
@@ -102,8 +105,24 @@ func TestApplySyncReadinessBlockedWhenConfigMissing(t *testing.T) {
 	if data.SyncReady {
 		t.Fatal("expected sync to be blocked when the config cannot be loaded")
 	}
-	if !strings.Contains(data.SyncBlockedReason, "configuration") {
-		t.Fatalf("expected a config-specific reason, got %q", data.SyncBlockedReason)
+	if !data.SetupNeeded {
+		t.Fatal("expected SetupNeeded so the page offers setup instead of a dead sync button")
+	}
+	if strings.TrimSpace(data.SyncBlockedReason) == "" {
+		t.Fatal("expected the blocked state to explain itself")
+	}
+}
+
+// The not-logged-in case must NOT claim setup is needed: pointing a
+// first-time-setup button at Settings when the config is already fine sends
+// the user somewhere that cannot help them.
+func TestApplySyncReadinessNotLoggedInIsNotASetupProblem(t *testing.T) {
+	s := &server{configPath: writeLandingConfig(t, "\n  - Analysis")}
+	data := landingData{LoggedIn: false}
+	s.applySyncReadiness(&data)
+
+	if data.SetupNeeded {
+		t.Fatal("a valid config that just needs a login is not a setup problem")
 	}
 }
 

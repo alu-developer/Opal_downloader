@@ -345,10 +345,25 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 
 			var label = status.outcome === 'failure' ? 'failed' : 'had problems';
 			var dateStr = status.timestamp;
-			try { dateStr = new Date(status.timestamp).toLocaleString(); } catch (e) {}
+			var when = new Date(status.timestamp);
+			var ageDays = -1;
+			try {
+				dateStr = when.toLocaleString();
+				ageDays = Math.floor((Date.now() - when.getTime()) / 86400000);
+			} catch (e) {}
+
+			// A scheduled run only ever overwrites this file by running, so an
+			// old timestamp means nothing has run since - which is a different
+			// and more urgent problem than the failure being reported, and the
+			// one the user has to fix first. Without this the banner reads as
+			// news about this morning no matter how long it has been stuck.
+			var staleness = '';
+			if (ageDays >= 2) {
+				staleness = ' Nothing has run in the ' + ageDays + ' days since, so the daily sync is not working at all - check Settings.';
+			}
 
 			var text = document.createElement('span');
-			text.textContent = 'Last scheduled sync (' + dateStr + ') ' + label + ': ' + status.message + '. ';
+			text.textContent = 'Last scheduled sync (' + dateStr + ') ' + label + ': ' + status.message + '.' + staleness + ' ';
 			el.appendChild(text);
 
 			var link = document.createElement('a');
@@ -495,6 +510,9 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 		{{else if .SyncReady}}
 			<a class="cta" href="/sync?autostart=1">Sync now</a>
 			<p class="cta-note">Downloads new and updated files for {{if .SyncAllCourses}}all your courses{{else}}your {{.CourseCount}} selected course{{if ne .CourseCount 1}}s{{end}}{{end}}.</p>
+		{{else if .SetupNeeded}}
+			<a class="cta" href="/settings">Set up opal-downloader</a>
+			<p class="cta-note">{{.SyncBlockedReason}}</p>
 		{{else}}
 			<span class="cta disabled" aria-disabled="true">Sync now</span>
 			<p class="cta-note">{{.SyncBlockedReason}}</p>
@@ -535,6 +553,14 @@ type landingData struct {
 	SyncAllCourses    bool
 	SyncReady         bool
 	SyncBlockedReason string
+
+	// SetupNeeded marks the one blocked case the user can act on right here:
+	// there is no usable config yet. A first run then leads with a live
+	// "Set up opal-downloader" button instead of a dead grey "Sync now" and a
+	// sentence telling them to go find Settings among five equal-weight
+	// links. The other blocked case (configured but not logged in) keeps the
+	// disabled button, because logging in is not a page you fill in.
+	SetupNeeded bool
 
 	// SyncRunning reports that a sync/list job is already in flight, so the
 	// button offers to follow along instead of starting a competing run.
@@ -578,7 +604,8 @@ func (s *server) applySyncReadiness(data *landingData) {
 
 	loaded, err := config.Load(s.configPath)
 	if err != nil {
-		data.SyncBlockedReason = "No usable configuration yet - open Settings to set your download folder and courses."
+		data.SetupNeeded = true
+		data.SyncBlockedReason = "First time here? This sets your download folder and picks the courses to sync."
 		return
 	}
 

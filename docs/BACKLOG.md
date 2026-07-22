@@ -25,6 +25,29 @@ trivial, filed here if not.
 Explicitly from the perspective of a TU Dresden student who is *not* the
 maintainer: a stranger's first run is in scope.
 
+**First pass done (2026-07-23), no-credentials part only:** a fresh binary in
+an empty folder, no config, walked through landing/settings/TU-Fast/sync in a
+real browser. Two findings fixed on the spot (the landing page led with a dead
+"Sync now" instead of pointing at setup; a stale scheduled-failure banner
+claimed to be news). Still to walk: login, course selection, a real sync,
+status, scheduling, and changing a setting afterwards — all of which need the
+live account and a long run.
+
+Findings from that pass, not yet fixed:
+
+- **`/sync` offers a live "Sync" button with no configuration at all.** The
+  landing page carefully disables its own sync action and explains why; the
+  sync page, one link away, does not, so the same click is blocked in one
+  place and fails in the other.
+- **The dev-build update note renders green.** `{{if .UpdateAvailable}}warn
+  {{else}}ok{{end}}` puts "update checks are unavailable" in the same box
+  style as "you are up to date". Only developers ever see it, but the same
+  two-way branch will mis-style anything else that is neither.
+- **Three status boxes sit above the primary action.** A first run reads a
+  browser-window disclaimer, a login state, and an update state before
+  reaching the one control it needs. Worth deciding whether the pre-setup
+  landing page should show any of them.
+
 ---
 
 ## Next

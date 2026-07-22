@@ -87,6 +87,12 @@ type settingsViewData struct {
 	ScheduleTime      string
 	ScheduleError     string
 	ScheduleSaved     bool
+
+	// ScheduleNotice reports a repair the page carried out on its own (see
+	// repairDoomedSchedule). Separate from ScheduleError because nothing is
+	// wrong any more, and from ScheduleSaved because the user did not ask
+	// for it and deserves to be told what changed.
+	ScheduleNotice string
 }
 
 // isSyncAllCourses reports whether courses is the "sync everything" sentinel
@@ -689,6 +695,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	{{else}}
 	{{if .ScheduleError}}<div class="error"><strong>Could not update schedule:</strong> {{.ScheduleError}}</div>{{end}}
 	{{if .ScheduleSaved}}<div class="success">Schedule updated.</div>{{end}}
+	{{if .ScheduleNotice}}<div class="warning"><strong>Daily sync repaired:</strong> {{.ScheduleNotice}}</div>{{end}}
 	<form method="post" action="/settings/schedule" id="schedule-form">
 		<div class="field checkbox-row">
 			<input type="checkbox" id="schedule_enabled" name="schedule_enabled" {{if .ScheduleEnabled}}checked{{end}}>

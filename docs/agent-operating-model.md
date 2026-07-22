@@ -22,6 +22,26 @@ remains, and tells the assistant to pick up the next task itself.
 the hook is a no-op, so ordinary back-and-forth conversation is unaffected -
 asking a question and getting an answer still just ends.
 
+### Every gate here is silently absent unless the session started in this repo
+
+`.claude/settings.json` is *project* configuration: the assistant's tooling
+loads it from the directory the session was opened in. Open a session
+somewhere else — the home directory, another project — and point it at this
+repo by path, and **none of these hooks exist for that session**. Not the
+Stop gate, not the pre-push gate, not the rate-limit gate. Nothing announces
+this; the work simply proceeds ungated.
+
+Observed 2026-07-23: a full session ran from `C:\Users\alois`, shipped four
+PRs, and no gate ran once. Nothing bad shipped (the checks were run by hand
+and CI was green each time), but the safety net was *missing*, not satisfied
+— and "the gate did not complain" would have been a false reassurance.
+
+So: **start the session in the repo directory.** If you are the assistant and
+you cannot tell whether the hooks are live, assume they are not, and run
+`scripts/dev.ps1 all` yourself before every push rather than trusting the
+pre-push gate to catch you. Autopilot not engaging is the visible symptom of
+this; the missing pre-push gate is the part that actually matters.
+
 ### Starting and stopping it
 
 ```powershell

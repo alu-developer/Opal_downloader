@@ -167,6 +167,13 @@ inside a Pro plan's limits". Read it before deciding to stop and wait for
 input — stopping to ask "shall I continue?" is the specific failure it
 exists to prevent.
 
+**These hooks only exist if the session was started in this repo's
+directory.** `.claude/settings.json` is project configuration; a session
+opened elsewhere and pointed here by path runs with no autopilot gate, no
+pre-push gate, and no rate-limit gate, and says nothing about it. Run
+`scripts/dev.ps1 all` by hand before every push unless you know the gate is
+live. See the operating model doc for the incident that prompted this.
+
 Short version: a `Stop` hook (`.claude/hooks/autopilot-gate.ps1`) keeps the
 turn going while `.claude/queue/AUTOPILOT` exists and queued work remains,
 with expiry/iteration/rate-limit guards that all fail open. **Ending a run is

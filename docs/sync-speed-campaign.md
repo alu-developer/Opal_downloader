@@ -82,6 +82,7 @@ Ranked by expected gain, to be confirmed by measurement not by argument:
 | 2026-07-21 | HTTP hash as a change detector | **REJECTED — never hits.** Warm sync 317.6s vs 318.9s baseline. Section HTML is not reproducible across runs: 0/276 hashes matched. Details below. |
 | 2026-07-21 | Finer stability sampling | **SHIPPED.** Poll interval 400→150ms with maxPolls 20→53 (total budget unchanged). Discovery 4m27s→3m25s, ~23%, file-complete twice. |
 | 2026-07-21 | Research: is there a change signal at all? | **One lead survives.** REST API 403 at the proxy, RSS absent, no `*Site` URLs — but a personal notifications page exists at a stable URL. Blocked on a maintainer decision. |
+| 2026-07-21 | OPAL notification signal | **REJECTED — no course-level subscription.** Folder-only subscriptions cannot report a folder that did not exist yet, and new weekly folders are exactly where new files appear. Account restored. |
 | 2026-07-21 | Reuse the fallback page across downloads | **SHIPPED** (#115). Clicks per fallback file 4.33 → 2.00. Wall-clock deliberately not claimed — swamped by fast-path-miss variance. |
 
 ### 2026-07-21 — HTTP-first section discovery (probe, not yet implemented)
@@ -365,3 +366,34 @@ exactly, and was interrupted before it ran — **so the precise
 waits-versus-network split is unverified.** The conclusion that wait-tuning is
 finished does not depend on it; the four measurements above are sufficient for
 that much.
+
+
+### 2026-07-21 — the notification signal, the last surviving lead: REJECTED
+
+Driven live with the maintainer's approval, and rejected on correctness.
+
+The mechanism itself is fine and scriptable: a folder page carries
+`<button title="Abonnieren">`, which becomes `title="Abo beenden"` once
+subscribed. Notification e-mail was turned off (`/home/settings`, "Zeitraum
+für Benachrichtigungen" `3` → `0`) and verified **before** any subscription
+existed, so no mail was ever triggered.
+
+**What kills it: there is no course-level subscription.** Both course roots
+checked (`53290106881`, `53228666883`) have no subscribe control at all -
+only folders do. A subscription therefore cannot report a folder that did not
+exist when it was created, and these courses grow folders continuously
+(`Woche 07`, `Woche 08`, `Woche 09` all appear in crawl logs). A new week's
+folder is precisely where new files land, so "no news" would be reported for
+a course that just gained an entire folder of material.
+
+Skipping discovery on that signal would silently miss it - the same failure
+mode as the two earlier rejections.
+
+The account was restored afterwards: subscription removed, interval back to
+`3`, both verified by reload.
+
+**This exhausts the leads for the 30s target.** The standing conclusion above
+holds: ~3-4 minutes is the floor for a browser-per-section crawl, and closing
+the gap needs a change signal OPAL does not appear to offer. What remains, if
+the maintainer wants it, is a scheduled background sync so the wait is never
+in front of them - a different answer to the same problem.

@@ -269,6 +269,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Sync</title>
 <style>` + pageStyle + `
 	.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; align-items: center; }

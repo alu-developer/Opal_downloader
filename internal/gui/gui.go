@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -172,6 +173,7 @@ func Run(opts Options) error {
 	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
 	mux.HandleFunc("/feedback/open", srv.withRecover(srv.handleFeedbackOpen))
 	mux.HandleFunc("/scheduled-status", srv.withRecover(srv.handleScheduledStatus))
+	mux.HandleFunc("/logo.svg", srv.withRecover(handleLogo))
 	registerSyncRoutes(mux, srv, configPath)
 
 	httpServer := &http.Server{Handler: mux}
@@ -248,6 +250,7 @@ var panicPageTemplate = template.Must(template.New("panic").Parse(`<!DOCTYPE htm
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Something went wrong</title>
 <style>` + pageStyle + `</style>
 </head>
@@ -358,6 +361,44 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 	})();
 	</script>`
 
+// logoSVG is the app mark: a "D" (for downloader) whose counter is knocked
+// out as a downward triangle, on a tile filled with an opal-ish iridescent
+// gradient. Kept as a plain const rather than an embedded asset file so the
+// GUI stays what it is today - a package with no static-asset directory and
+// no go:embed - and served from handleLogo below.
+//
+// Deliberately simple geometry (one rect, one even-odd path): it has to stay
+// readable at 16px in a browser tab, where facet lines or a thin arrow shaft
+// would turn to mush.
+const logoSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<defs><linearGradient id="opal" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#3d8bfd"/><stop offset="45%" stop-color="#7b5cff"/>
+<stop offset="75%" stop-color="#e15fd0"/><stop offset="100%" stop-color="#2fd6c3"/>
+</linearGradient></defs>
+<rect width="64" height="64" rx="14" fill="url(#opal)"/>
+<path fill="#fff" fill-rule="evenodd" d="M20 14H34a18 18 0 0 1 0 36H20Z M27 24H45L36 42Z"/>
+</svg>
+`
+
+// handleLogo serves logoSVG. Cached hard: the mark only ever changes when a
+// new binary ships, and every page pulls it as a favicon.
+func handleLogo(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = io.WriteString(w, logoSVG)
+}
+
+// faviconLink is spliced into every page template's <head>, the same
+// "shared constant spliced into every page" pattern as pageStyle and
+// bannerChrome. An explicit <link> rather than relying on the browser's
+// implicit /favicon.ico probe, because that probe expects an .ico and
+// browsers disagree about honouring an SVG content-type there.
+const faviconLink = `<link rel="icon" href="/logo.svg" type="image/svg+xml">`
+
+// logoMark is the inline mark next to the landing page's <h1>. Decorative
+// only (the heading already says the name), hence the empty alt.
+const logoMark = `<img src="/logo.svg" alt="" width="30" height="30" style="vertical-align: -5px; margin-right: 0.5rem;">`
+
 // pageStyle is the shared look for every GUI page (landing, login, update,
 // settings, sync): same fonts/spacing/colors for headings, status boxes,
 // buttons, hints, and the back link, so no page looks structurally
@@ -391,12 +432,13 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader</title>
 <style>` + pageStyle + `</style>
 </head>
 <body>
 	` + bannerChrome + `
-	<h1>Opal Downloader</h1>
+	<h1>` + logoMark + `Opal Downloader</h1>
 
 	` + disclaimerHTML + `
 
@@ -577,6 +619,7 @@ var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE h
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Update</title>
 <style>` + pageStyle + `</style>
 </head>
@@ -652,6 +695,7 @@ var updateStartingTemplate = template.Must(template.New("update-starting").Parse
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Installing update</title>
 <style>` + pageStyle + `</style>
 </head>
@@ -671,6 +715,7 @@ var updateErrorTemplate = template.Must(template.New("update-error").Parse(`<!DO
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Update failed</title>
 <style>` + pageStyle + `</style>
 </head>

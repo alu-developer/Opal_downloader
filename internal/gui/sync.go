@@ -139,6 +139,12 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 			sp.job.publish(jobEvent{Kind: "file_skipped", Course: e.Course, File: e.File})
 		case syncer.EventMigration:
 			sp.job.publish(jobEvent{Kind: "log", Message: e.Message})
+		case syncer.EventDiscovery:
+			// Published as its own kind rather than a plain "log" so the page
+			// can collapse the discovery chatter into a single updating status
+			// line - a course with 100+ sections would otherwise bury the run's
+			// real output under one log row per section.
+			sp.job.publish(jobEvent{Kind: "discovery", Course: e.Course, Message: e.Message})
 		case syncer.EventError:
 			msg := ""
 			if e.Err != nil {
@@ -376,6 +382,15 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 		}
 
 		function handleEvent(e) {
+			// Discovery events update the live status line only. A real course
+			// can have 100+ sections, so logging a row each would bury the
+			// run's actual result under scan chatter - but the status line
+			// ticking every couple of seconds is exactly what makes a long
+			// crawl distinguishable from a hang.
+			if (e.kind === 'discovery') {
+				statusEl.textContent = 'Scanning: ' + e.message;
+				return;
+			}
 			addRow(e.kind, describe(e));
 			if (e.kind === 'done' || e.kind === 'cancelled' || e.kind === 'failed') {
 				statusEl.textContent = e.kind === 'done' ? 'Done.' : (e.kind === 'cancelled' ? 'Cancelled.' : 'Failed.');
@@ -398,7 +413,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				setRunning(data.running);
 				statusEl.textContent = data.running ? ('Running: ' + data.kind) : 'Idle.';
 			});
-			['course_started','file_downloaded','file_skipped','error','log','done','cancelled','failed'].forEach(function (kind) {
+			['course_started','file_downloaded','file_skipped','error','log','discovery','done','cancelled','failed'].forEach(function (kind) {
 				es.addEventListener(kind, function (ev) { handleEvent(JSON.parse(ev.data)); });
 			});
 			es.onerror = function () {

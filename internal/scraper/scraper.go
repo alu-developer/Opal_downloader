@@ -104,6 +104,22 @@ type OpalScraper struct {
 	debugLogMu   sync.Mutex
 	debugLogFile *os.File
 
+	// progressMu guards progressFn and progressStarted. Discovery is the long
+	// phase of a sync (it walks every section of every course) and used to
+	// report nothing at all until it had completely finished, so a caller had
+	// no way to tell a healthy long crawl from a hang. progressFn lets a
+	// caller observe it as it happens; see SetDiscoveryProgress.
+	//
+	// The mutex is not optional: with course_concurrency > 1 several course
+	// crawl goroutines call publishProgress concurrently
+	// (collectCourseFilesConcurrently, orchestrator.go), and the callback
+	// ultimately drives a GUI event log. Serializing here means callers get
+	// the same "events never interleave" guarantee the syncer's own progress
+	// callback already provides, instead of every caller needing its own lock.
+	progressMu      sync.Mutex
+	progressFn      func(DiscoveryProgress)
+	progressStarted int
+
 	// courseConcurrency is the number of courses crawled concurrently during
 	// discovery, each on its own browser tab/page (see
 	// collectCourseFilesConcurrently in orchestrator.go). Like

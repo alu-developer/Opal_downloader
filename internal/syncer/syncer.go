@@ -31,6 +31,38 @@ import (
 // with an actual sync that might be running on the machine.
 var acquireSyncLock = synclock.AcquireDefault
 
+// discoveryProgressReporter is the optional half of Downloader: a downloader
+// that can report what its crawl is doing while it does it. *scraper.OpalScraper
+// implements it; test fakes generally do not, which is why it is kept
+// separate from Downloader rather than folded into it.
+type discoveryProgressReporter interface {
+	SetDiscoveryProgress(func(scraper.DiscoveryProgress))
+}
+
+// formatDiscoveryProgress renders one crawl event as a single display line,
+// or "" for an event not worth showing. Kept here rather than in the GUI so
+// the CLI and any other front end describe a sync identically.
+func formatDiscoveryProgress(p scraper.DiscoveryProgress) string {
+	switch p.Phase {
+	case scraper.PhaseCoursesFound:
+		return fmt.Sprintf("Found %d course(s) - starting to scan them", p.TotalCourses)
+	case scraper.PhaseCourseStarted:
+		if p.TotalCourses > 0 {
+			return fmt.Sprintf("Scanning course %d of %d: %s", p.CourseIndex, p.TotalCourses, p.Course)
+		}
+		return fmt.Sprintf("Scanning course: %s", p.Course)
+	case scraper.PhaseSection:
+		section := strings.TrimSpace(p.Section)
+		if section == "" {
+			return fmt.Sprintf("%s - scanned %d section(s)", p.Course, p.SectionsDone)
+		}
+		return fmt.Sprintf("%s - section %d: %s", p.Course, p.SectionsDone, section)
+	case scraper.PhaseCourseDone:
+		return fmt.Sprintf("Finished %s - found %d file(s)", p.Course, p.FileCount)
+	}
+	return ""
+}
+
 // Downloader is the subset of *scraper.OpalScraper's behavior SyncCourses
 // depends on. Extracted as an interface so tests can exercise the
 // concurrent-download scheduling logic with a fake, without needing a real
@@ -73,6 +105,17 @@ const (
 	// EventMigration reports one line of a manifest key-scheme migration
 	// (see migrate.go). Message carries the text; no other field is set.
 	EventMigration
+	// EventDiscovery relays one crawl-phase progress event from the scraper
+	// (scraper.DiscoveryProgress). Message carries a ready-to-display line;
+	// Course is set when the event belongs to a specific course.
+	//
+	// This exists because discovery - the long half of a sync, which walks
+	// every section of every course - previously reported nothing at all
+	// until it had entirely finished, leaving the UI on a single static
+	// "Fetching courses from OPAL..." line for minutes with no way to tell
+	// progress from a hang. Every other event type here fires only in the
+	// download phase, i.e. after discovery has already returned.
+	EventDiscovery
 )
 
 // Event is a single incremental progress notification fired during
@@ -229,7 +272,16 @@ type downloadResult struct {
 // SyncCourses runs a sync with no progress callback; CLI output is
 // unchanged from before progress reporting was added.
 func SyncCourses(ctx context.Context, sc Downloader, cfg config.App, force bool) (Stats, error) {
-	return SyncCoursesWithProgress(ctx, sc, cfg, force, nil)
+	// Print the crawl's own progress, which is otherwise entirely silent
+	// between "Fetching courses from OPAL..." and the discovery summary -
+	// several minutes of nothing on a real account. Only discovery events are
+	// echoed; the per-file download lines are already printed by
+	// processRemoteFiles, and echoing those here would double them.
+	return SyncCoursesWithProgress(ctx, sc, cfg, force, func(e Event) {
+		if e.Type == EventDiscovery {
+			fmt.Printf("  %s\n", e.Message)
+		}
+	})
 }
 
 // SyncCoursesWithProgress runs a sync, invoking progress (if non-nil) with
@@ -269,6 +321,21 @@ func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App,
 	manifest, err := LoadManifest(manifestPath)
 	if err != nil {
 		return Stats{}, err
+	}
+
+	// Relay the scraper's crawl-phase progress, when the downloader supports
+	// it. Declared as its own optional interface rather than added to
+	// Downloader so the fake downloaders in this package's tests (and any
+	// other non-browser implementation) keep satisfying Downloader unchanged.
+	if reporter, ok := sc.(discoveryProgressReporter); ok {
+		reporter.SetDiscoveryProgress(func(p scraper.DiscoveryProgress) {
+			if line := formatDiscoveryProgress(p); line != "" {
+				progress(Event{Type: EventDiscovery, Course: p.Course, Message: line})
+			}
+		})
+		// Discovery is over by the time this returns; leaving the callback
+		// installed would let a later call publish into a stale closure.
+		defer reporter.SetDiscoveryProgress(nil)
 	}
 
 	remoteFiles, err := sc.ScrapeWithSavedSession(ctx, cfg.Courses)

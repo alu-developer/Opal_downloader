@@ -32,6 +32,10 @@ func newSyncPage(configPath string) *syncPage {
 
 func registerSyncRoutes(mux *http.ServeMux, srv *server, configPath string) {
 	sp := newSyncPage(configPath)
+	// Share the job with the server so handleLanding can render the "Sync
+	// now" button's running/idle state from the same source of truth the
+	// /sync page uses, rather than a second, drifting one.
+	srv.syncJob = sp.job
 	mux.HandleFunc("/sync", srv.withRecover(sp.handlePage))
 	mux.HandleFunc("/sync/stream", srv.withRecover(sp.handleStream))
 	mux.HandleFunc("/sync/start", srv.withRecover(sp.handleStart))

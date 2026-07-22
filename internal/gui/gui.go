@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,16 @@ type Options struct {
 type server struct {
 	configPath   string
 	buildVersion string
+
+	// syncJob is the same *job the /sync page drives, handed over by
+	// registerSyncRoutes so the landing page's "Sync now" button can report
+	// whether a run is already in flight. Without it the button would happily
+	// start a second sync that the overlap guard then rejects with a raw
+	// "already running" error - a self-inflicted failure for the one action
+	// the landing page exists to make easy. nil until registerSyncRoutes has
+	// run (and in tests that build a bare server), so every read must be
+	// nil-checked.
+	syncJob *job
 
 	// updateMu guards the cached result of the one-time startup update
 	// check (see checkForUpdateOnce). This is a short-lived local tool, not
@@ -426,6 +437,15 @@ const pageStyle = `
 	code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
 	.back { margin-top: 1.5rem; font-size: 0.9rem; }
 	.back a { color: #2a6fb0; }
+	.primary-action { margin: 1.5rem 0; }
+	.cta {
+		display: inline-block; padding: 0.75rem 1.75rem; font-size: 1.1rem;
+		font-weight: 600; color: #fff; background: #2a6fb0; border-radius: 6px;
+		text-decoration: none;
+	}
+	.cta:hover { background: #235d94; }
+	.cta.disabled { background: #b8b8b8; cursor: not-allowed; }
+	.cta-note { margin: 0.5rem 0 0; font-size: 0.9rem; color: #555; }
 `
 
 var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
@@ -466,11 +486,24 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 	</div>
 	{{end}}
 
+	<div class="primary-action">
+		{{if .SyncRunning}}
+			<a class="cta" href="/sync">Sync running &ndash; show progress</a>
+			<p class="cta-note">A sync is already in flight. Following it here won't start a second one.</p>
+		{{else if .SyncReady}}
+			<a class="cta" href="/sync?autostart=1">Sync now</a>
+			<p class="cta-note">Downloads new and updated files for {{if .SyncAllCourses}}all your courses{{else}}your {{.CourseCount}} selected course{{if ne .CourseCount 1}}s{{end}}{{end}}.</p>
+		{{else}}
+			<span class="cta disabled" aria-disabled="true">Sync now</span>
+			<p class="cta-note">{{.SyncBlockedReason}}</p>
+		{{end}}
+	</div>
+
 	<nav>
 		<ul>
 			<li><a href="/settings">Settings</a></li>
 			<li><a href="/tufast-setup">TU-Fast setup</a></li>
-			<li><a href="/sync">Sync / List / Dump links</a></li>
+			<li><a href="/sync">Sync options &amp; developer tools</a></li>
 			<li><a href="/update">Check for updates</a></li>
 			<li><a href="/feedback">Feedback / Problem melden</a></li>
 		</ul>
@@ -483,6 +516,27 @@ type landingData struct {
 	LoggedIn      bool
 	StateFile     string
 	StateModified string
+
+	// CourseCount/SyncAllCourses/SyncReady/SyncBlockedReason drive the
+	// landing page's primary "Sync now" action. SyncReady is false whenever
+	// starting a sync would fail (config missing/unreadable, not logged in
+	// yet), in which case SyncBlockedReason says which of those it is and the
+	// button renders disabled - the point is to explain the situation on the
+	// page the user is already looking at, instead of letting them click
+	// through to a failure.
+	//
+	// SyncAllCourses reflects the wildcard course filter. config.Load turns
+	// an empty courses list into []string{"*"} meaning "every course", so a
+	// zero count never reaches here and a naive len() would render a wildcard
+	// config as the plainly wrong "your 1 selected course".
+	CourseCount       int
+	SyncAllCourses    bool
+	SyncReady         bool
+	SyncBlockedReason string
+
+	// SyncRunning reports that a sync/list job is already in flight, so the
+	// button offers to follow along instead of starting a competing run.
+	SyncRunning bool
 
 	UpdateChecked   bool
 	UpdateAvailable bool
@@ -499,8 +553,47 @@ func (s *server) handleLanding(w http.ResponseWriter, r *http.Request) {
 	}
 	data := s.sessionStatus()
 	s.applyUpdateStatus(&data)
+	s.applySyncReadiness(&data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = landingTemplate.Execute(w, data)
+}
+
+// applySyncReadiness fills in the landing page's "Sync now" state: how many
+// courses are configured, whether a sync can usefully be started right now,
+// and whether one is already running.
+//
+// The checks are deliberately ordered cheapest-and-most-fundamental first
+// (can we even read a config? does it select any courses? are we logged
+// in?), so the reason shown is the first thing the user actually has to fix
+// rather than whichever check happened to run last. Like sessionStatus, this
+// stays a config/filesystem-only inspection - it must never launch a browser
+// or touch the network, because it runs on every load of the landing page.
+func (s *server) applySyncReadiness(data *landingData) {
+	if s.syncJob != nil {
+		running, _ := s.syncJob.isRunning()
+		data.SyncRunning = running
+	}
+
+	loaded, err := config.Load(s.configPath)
+	if err != nil {
+		data.SyncBlockedReason = "No usable configuration yet - open Settings to set your download folder and courses."
+		return
+	}
+
+	data.CourseCount = len(loaded.App.Courses)
+	for _, course := range loaded.App.Courses {
+		if strings.TrimSpace(course) == "*" {
+			data.SyncAllCourses = true
+			break
+		}
+	}
+
+	if !data.LoggedIn {
+		data.SyncBlockedReason = "Not logged in yet - run the login step first so a sync has a session to use."
+		return
+	}
+
+	data.SyncReady = true
 }
 
 // sessionStatus reports whether a session state file exists for the

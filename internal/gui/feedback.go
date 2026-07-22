@@ -37,6 +37,7 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Feedback</title>
 <style>` + pageStyle + `
 	textarea, input[type=text] { width: 100%; font: inherit; box-sizing: border-box; padding: 0.5rem; border-radius: 6px; border: 1px solid #ccc; }
@@ -113,6 +114,7 @@ var feedbackOpenedTemplate = template.Must(template.New("feedback-opened").Parse
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Feedback</title>
 <style>` + pageStyle + `
 	textarea { width: 100%; font: inherit; box-sizing: border-box; padding: 0.5rem; border-radius: 6px; border: 1px solid #ccc; background: #f7f7f7; color: #444; }

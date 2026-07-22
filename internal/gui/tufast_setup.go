@@ -403,6 +403,7 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - TU-Fast setup</title>
 <style>` + pageStyle + `
 	input[type=text] { width: 100%; box-sizing: border-box; padding: 0.4rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; margin-bottom: 0.5rem; }

@@ -443,6 +443,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 <html lang="en">
 <head>
 <meta charset="utf-8">
+` + faviconLink + `
 <title>Opal Downloader - Settings</title>
 <style>` + pageStyle + `
 	.field { margin-bottom: 1.1rem; }

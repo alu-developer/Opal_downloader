@@ -49,6 +49,15 @@ func applyScheduleStatus(view settingsViewData) settingsViewData {
 	if view.ScheduleTime == "" {
 		view.ScheduleTime = scheduler.DefaultTime
 	}
+	// A registered task whose binary is gone never runs and never reports
+	// anything, so without this the page shows a happily-enabled schedule
+	// that has silently been dead for weeks.
+	if info.Registered && info.ExecutableMissing {
+		view.ScheduleError = fmt.Sprintf(
+			"Your daily sync is registered but points at a program that no longer exists (%s), so it is not running. "+
+				"Re-enable the schedule below from your current installation to repair it.",
+			info.ExecutablePath)
+	}
 	return view
 }
 
@@ -82,6 +91,10 @@ func handleScheduleAction(configPath string) http.HandlerFunc {
 				actionErr = err
 			} else if exePath, err := exeForScheduleFunc(); err != nil {
 				actionErr = fmt.Errorf("resolving this program's own executable path: %w", err)
+			} else if err := scheduler.CheckExecutableStable(exePath); err != nil {
+				// Refuse rather than register a task that will silently stop
+				// working - see ErrEphemeralExecutable's doc comment.
+				actionErr = err
 			} else {
 				actionErr = scheduleEnableFunc(exePath, timeArg)
 			}

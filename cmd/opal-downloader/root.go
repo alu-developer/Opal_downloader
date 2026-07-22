@@ -975,6 +975,14 @@ func runSchedule(args []string) error {
 		if err != nil {
 			return fmt.Errorf("resolving this executable's own path: %w", err)
 		}
+		// Refuse to register a path that will not survive (a `go run`
+		// build-cache binary, a temp directory) - the resulting task fails
+		// silently once that file is cleaned up, and the user has no reason
+		// to suspect their scheduled sync stopped. See
+		// scheduler.ErrEphemeralExecutable.
+		if err := scheduler.CheckExecutableStable(exePath); err != nil {
+			return err
+		}
 		if err := scheduler.Enable(exePath, timeArg); err != nil {
 			return err
 		}

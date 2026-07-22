@@ -244,15 +244,39 @@ func Status() (Info, error) {
 		return Info{}, fmt.Errorf("schtasks /Query failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
+	// Report the registered binary and whether it still exists. A task whose
+	// action points at a file that has since been deleted stays "registered"
+	// forever while never actually running, and nothing else in the product
+	// would ever notice: the scheduled-status file is only written *by a run
+	// that happened*, so the GUI keeps showing the last successful run
+	// indefinitely. See scheduler.ErrEphemeralExecutable.
+	exePath := parseTaskCommand(out)
+
 	hhmm, parseErr := parseStartTime(out)
 	if parseErr != nil {
 		// Registered but its trigger time couldn't be parsed (e.g. someone
 		// hand-edited it in Task Scheduler's own UI into a shape this
 		// package doesn't recognize) - still report it as registered rather
 		// than claiming it doesn't exist.
-		return Info{Registered: true}, nil
+		return withExecutableState(Info{Registered: true}, exePath), nil
 	}
-	return Info{Registered: true, Time: hhmm}, nil
+	return withExecutableState(Info{Registered: true, Time: hhmm}, exePath), nil
+}
+
+// parseTaskCommand extracts the registered action's executable path from a
+// schtasks /Query /XML response, or "" if it cannot be determined. Failure
+// is deliberately silent: this is diagnostic enrichment, and a task whose
+// XML cannot be parsed here should still report as registered.
+func parseTaskCommand(schtasksOutput []byte) string {
+	decoded, err := decodeMaybeUTF16(schtasksOutput)
+	if err != nil {
+		return ""
+	}
+	var task queriedTask
+	if err := xml.Unmarshal(stripXMLDeclaration(decoded), &task); err != nil {
+		return ""
+	}
+	return strings.Trim(strings.TrimSpace(task.Actions.Exec.Command), `"`)
 }
 
 // taskNotFound reports whether schtasks' output indicates the task simply
@@ -273,6 +297,11 @@ type queriedTask struct {
 			StartBoundary string `xml:"StartBoundary"`
 		} `xml:"CalendarTrigger"`
 	} `xml:"Triggers"`
+	Actions struct {
+		Exec struct {
+			Command string `xml:"Command"`
+		} `xml:"Exec"`
+	} `xml:"Actions"`
 }
 
 // parseStartTime extracts the "HH:MM" time-of-day from a schtasks

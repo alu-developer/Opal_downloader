@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -9,8 +10,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 )
 
@@ -434,6 +437,60 @@ func handleBrowseFolder(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"path": path})
 }
 
+// discoverCoursesTimeout bounds the dashboard read. This is a
+// names-only discovery (scraper.DiscoverCourseNames stops after the
+// dashboard rather than crawling every section), so it is normally a few
+// seconds; the generous ceiling only exists so a first run that has to
+// establish a session, or an unusually slow OPAL, still completes rather
+// than failing at the exact moment the user is trying to set the tool up.
+const discoverCoursesTimeout = 3 * time.Minute
+
+// handleDiscoverCourses backs the settings page's "Find my courses" button:
+// it reads the user's OPAL dashboard and returns the course titles, so
+// courses can be ticked from a list instead of typed by hand. Getting a
+// course name subtly wrong is otherwise silent - the filter is an exact
+// (case-insensitive) match, so a typo just means that course never syncs
+// and nothing says why.
+//
+// Always responds 200 with a JSON body carrying either "courses" or
+// "error"; the page renders the error inline rather than treating it as a
+// transport failure, since the overwhelmingly common cause is simply "not
+// logged in yet", which is a normal state during setup and not a fault.
+func handleDiscoverCourses(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		writeErr := func(msg string) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": msg})
+		}
+
+		loaded, err := config.Load(configPath)
+		if err != nil {
+			writeErr("Could not read your configuration: " + err.Error())
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), discoverCoursesTimeout)
+		defer cancel()
+
+		sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
+		defer func() { _ = sc.Close() }()
+
+		names, err := sc.DiscoverCourseNames(ctx)
+		if err != nil {
+			writeErr("Could not read your courses from OPAL. Make sure you are logged in, then try again. (" + err.Error() + ")")
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{"courses": names})
+	}
+}
+
 var settingsTemplateFuncs = template.FuncMap{
 	"add1": func(i int) int { return i + 1 },
 	"itoa": strconv.Itoa,
@@ -528,6 +585,12 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<div class="field" id="courses-field">
 		<label>Courses</label>
 		<p class="hint">One row per course to sync, with an optional folder override for that course. Exact name match, case-insensitive.</p>
+
+		<div id="course-picker">
+			<button type="button" id="find-courses-btn">Find my courses</button>
+			<span id="find-courses-status" class="hint"></span>
+			<div id="discovered-courses"></div>
+		</div>
 		<table class="folders" id="courses-table">
 			<thead><tr><th>Course name</th><th>Folder (optional)</th><th></th></tr></thead>
 			<tbody>
@@ -682,6 +745,95 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 				'<button type="button" class="browse-btn">Browse...</button></div></td>' +
 				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
 			tbody.appendChild(tr);
+		});
+
+		// --- course picker -------------------------------------------------
+		// Ticking a discovered course adds/removes a row in the same courses
+		// table that already existed, rather than replacing it: the table also
+		// carries per-course folder overrides, so anything that discarded and
+		// rebuilt it would silently throw those away. Manual rows stay fully
+		// usable for a course discovery misses.
+		function courseNameInputs() {
+			return Array.prototype.slice.call(
+				document.querySelectorAll('#courses-table input[name="course_row_name[]"]'));
+		}
+		function findCourseRow(name) {
+			var target = name.trim().toLowerCase();
+			var match = null;
+			courseNameInputs().forEach(function (input) {
+				if (input.value.trim().toLowerCase() === target) { match = input.closest('tr'); }
+			});
+			return match;
+		}
+		function addCourseRow(name) {
+			var tbody = document.querySelector('#courses-table tbody');
+			var tr = document.createElement('tr');
+			tr.innerHTML = '<td><input type="text" name="course_row_name[]" placeholder="Analysis I"></td>' +
+				'<td><div class="path-field"><input type="text" name="course_row_folder[]" placeholder="Mathematik/Analysis">' +
+				'<button type="button" class="browse-btn">Browse...</button></div></td>' +
+				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
+			tbody.appendChild(tr);
+			tr.querySelector('input[name="course_row_name[]"]').value = name;
+			return tr;
+		}
+		function renderDiscovered(names) {
+			var box = document.getElementById('discovered-courses');
+			box.innerHTML = '';
+			if (!names.length) {
+				box.textContent = 'No courses found on your OPAL dashboard.';
+				return;
+			}
+			names.forEach(function (name) {
+				var id = 'disc-' + Math.random().toString(36).slice(2);
+				var row = document.createElement('div');
+				row.className = 'checkbox-row';
+				var cb = document.createElement('input');
+				cb.type = 'checkbox';
+				cb.id = id;
+				// Pre-tick whatever is already configured, so revisiting the
+				// page shows the current selection rather than a blank slate.
+				cb.checked = !!findCourseRow(name);
+				cb.addEventListener('change', function () {
+					var existing = findCourseRow(name);
+					if (cb.checked && !existing) { addCourseRow(name); }
+					// Only remove a row the user has not customised: dropping a
+					// row that carries a folder override would discard their work
+					// on a single stray click.
+					else if (!cb.checked && existing) {
+						var folder = existing.querySelector('input[name="course_row_folder[]"]');
+						if (folder && folder.value.trim()) {
+							cb.checked = true;
+							alert('This course has a folder override. Clear the folder first, or remove the row directly.');
+							return;
+						}
+						existing.remove();
+					}
+				});
+				var label = document.createElement('label');
+				label.htmlFor = id;
+				label.textContent = name;
+				row.appendChild(cb);
+				row.appendChild(label);
+				box.appendChild(row);
+			});
+		}
+		var findBtn = document.getElementById('find-courses-btn');
+		var findStatus = document.getElementById('find-courses-status');
+		findBtn.addEventListener('click', function () {
+			findBtn.disabled = true;
+			findStatus.textContent = ' Reading your OPAL dashboard...';
+			fetch('/settings/discover-courses', { method: 'POST' })
+				.then(function (r) { return r.json(); })
+				.then(function (j) {
+					if (j.error) {
+						findStatus.textContent = ' ' + j.error;
+						return;
+					}
+					findStatus.textContent = ' Found ' + j.courses.length + ' course(s). Tick the ones you want.';
+					renderDiscovered(j.courses);
+				})
+				.catch(function (err) { findStatus.textContent = ' Lookup failed: ' + err; })
+				.finally(function () { findBtn.disabled = false; });
 		});
 
 		document.getElementById('add-section-folder-row').addEventListener('click', function () {

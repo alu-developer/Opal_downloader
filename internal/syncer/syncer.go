@@ -603,8 +603,51 @@ func resolveCourseSubfolderBase(cfg config.App, courseName, sectionName string) 
 	return localBase, manifestBase
 }
 
+// fileChanged decides whether a discovered remote file needs to be
+// (re-)downloaded, by comparing OPAL's "Größe"/"Zuletzt geändert" column
+// values against what the manifest recorded the last time this file was
+// fetched.
+//
+// The one-sided cases below (remote has a signal, the manifest entry does
+// not) are not a detail - they are the fix for a bug that silently pinned
+// files at an outdated version forever. Both comparisons used to require
+// the value to be non-nil on *both* sides:
+//
+//	if remote.Size != nil && previous.Size != nil && *remote.Size != *previous.Size
+//
+// which looks reasonable but is a trap, because a manifest entry can only
+// ever gain a size/modified value by being downloaded, and with this
+// guard it could only be downloaded if it already had one. Any entry
+// written before size/modified parsing existed (or by a run where the
+// parse missed) was therefore stuck: every future sync skipped it, so it
+// never got re-recorded, so it stayed stuck. Nothing short of --force or
+// deleting the manifest could break the cycle, and neither is something a
+// user would know to do - the file just quietly stopped updating.
+//
+// Measured on the maintainer's real manifest (2026-07-22): 122 of 370
+// entries had both values nil, including
+// Analysis/Material/AnalysisSkriptChill.pdf - reported as "did not update
+// even though the file was extended upstream". A live crawl of that same
+// course showed OPAL now reports size=643686 modified="15.07.2026 um 12:52
+// Uhr" for it while the local copy sat at 568742 bytes, i.e. the signal was
+// available and the diff was real; only the nil manifest side stopped it
+// being seen. Re-probing two courses live (Analysis 30/30, Algorithmen und
+// Datenstrukturen 38/38) found a signal for every single file, confirming
+// the nil entries are stale history rather than an ongoing parser gap.
+//
+// Treating "remote knows, manifest doesn't" as changed costs one
+// re-download per affected entry, once: the download records the values, and
+// every sync afterwards compares normally. That is the cheapest way to heal
+// an entry, and it fails in the safe direction - a redundant download
+// rather than a missed update.
 func fileChanged(remote scraper.RemoteFile, hasPrevious bool, previous FileRecord) bool {
 	if !hasPrevious {
+		return true
+	}
+	if remote.Size != nil && previous.Size == nil {
+		return true
+	}
+	if remote.Modified != nil && previous.Modified == nil {
 		return true
 	}
 	if remote.Size != nil && previous.Size != nil && *remote.Size != *previous.Size {

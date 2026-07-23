@@ -397,3 +397,65 @@ holds: ~3-4 minutes is the floor for a browser-per-section crawl, and closing
 the gap needs a change signal OPAL does not appear to offer. What remains, if
 the maintainer wants it, is a scheduled background sync so the wait is never
 in front of them - a different answer to the same problem.
+
+### 2026-07-23 — re-measured, config was stale, and one unexplored axis found
+
+The maintainer reported the wait as still unacceptable ("30 seconds, not 5
+minutes... without this the project is senseless") and asked for another
+look. Before touching anything, re-ran the real no-op sync with `--profile`
+against the real account (6 courses, 344 files, `course_concurrency: 1` -
+the live config had never been updated after `DefaultCourseConcurrency` was
+raised to 2 on 2026-07-21):
+
+| phase | measured |
+|---|---|
+| discovery (course links) | 4.3s |
+| file collection (aggregate, serial) | 5m22.5s |
+| — 2026 LA20 | 39.0s (39 files, 34 sections) |
+| — Algorithmen und Datenstrukturen | 7.9s (38 files, 5 sections) |
+| — Analysis | 48.7s (30 files, 30 sections) |
+| — So26 Programmieren | 45.4s (14 files, 35 sections) |
+| — **Softwaretechnologie** | **2m48.1s (206 files, 160 sections)** |
+| — TUDMATH NuMa | 13.4s (17 files, 13 sections) |
+| downloads (0 new, 13 no-signal files byte-verified) | 3.9s |
+| **total** | **334.1s** |
+
+Confirms the standing conclusion: this run is consistent with the ~3-4 minute
+floor already established (a bit above it, plausibly normal variance plus
+today's byte-verification cost for signal-less files - see #123). One
+concrete, free fix applied: `course_concurrency` in the live config was still
+`1`, a stale value from before the 2026-07-21 default change to `2` (12%
+faster, byte-for-byte safe per that day's measurements) - bumped to match the
+code's own recommended default. Not re-measured separately since it's
+already proven safe; folded into whatever number the next full run reports.
+
+**One axis from "Where the leverage is" above was never actually tried:**
+item 2, section-level concurrency. Every rejected/shipped entry in this log
+attacks course-level concurrency (capped at 2-3 by real file loss at 4) or a
+change-detection signal (all rejected). Nothing here ever parallelized
+*within* a course. The crawl (`collectCourseFiles`, `internal/scraper/crawl.go`)
+is a real BFS over section URLs discovered incrementally (`page.Goto` per
+section, not a stateful AJAX tree-click - confirmed by reading the code, not
+assumed) - so a course's full section list is not known upfront, but each
+BFS *level*'s siblings are all queued and independent before any of them is
+visited. That is parallelizable without changing discovery order at all: pop
+a whole level, visit its members concurrently across several tabs (reusing
+the same per-section stability-poll/show-all-reclick correctness machinery
+course-level concurrency already needed), merge newly-discovered children
+into the next level, repeat. Load-balancing this across *all* courses' combined
+frontier (not one queue per course) would also stop the current "2 idle-ish
+workers while course_concurrency=2 but 5 of 6 courses are small and one -
+Softwaretechnologie, 160 of the account's 284 sections - dominates" problem,
+since 6 courses limits course-level parallelism to 6-way at best while ~284
+sections is the real amount of independent work available.
+
+**Not attempted yet.** This is a real rewrite of the crawl's concurrency
+model (today: N courses in parallel, each internally serial; proposed: one
+shared section frontier serviced by K tabs, courses just seed multiple root
+nodes into it) in the single most correctness-sensitive part of this
+codebase - every rejected/shipped entry above that touched concurrency did so
+against a documented history of *silent* file loss, not a loud error. Flagged
+to the maintainer rather than built blind; if pursued, it must follow this
+file's own rule (byte-for-byte against the known 344-file ground truth,
+multiple runs, real measurement) before being trusted at any concurrency
+level.

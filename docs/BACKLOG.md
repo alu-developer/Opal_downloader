@@ -16,6 +16,32 @@ machine belong in local memory, not here.
 
 ## Now
 
+### Sync speed: still ~5 minutes, maintainer says unacceptable
+Standing goal (2026-07-21, `docs/sync-speed-campaign.md`): a routine no-op
+sync should feel instant, target ~30s. That file is the full decision log -
+read it before touching this, several plausible-looking approaches (HTTP-fast-
+path discovery, hash-based change caching, an OPAL notification signal) were
+already built and live-tested against the real account, and are rejected for
+concrete, measured reasons. Re-litigating those without new evidence wastes a
+round trip.
+
+Re-measured 2026-07-23 against the real account: 334.1s no-op sync, of which
+discovery/crawling is ~322s (96.5%) and one course alone
+(Softwaretechnologie, 160 of the account's 284 total sections) is 168s of
+that. One free fix already applied: the live config still had
+`course_concurrency: 1`, a stale value from before the campaign raised the
+default to `2` - bumped to match.
+
+One real, unexplored axis identified and written up in the campaign log:
+section-level concurrency (parallelizing *within* a course's BFS crawl, not
+just across courses) - every rejected/shipped attempt so far only ever
+touched course-level concurrency or a change-detection signal. Not attempted
+yet: it's a rewrite of the crawl's concurrency model in the most correctness-
+sensitive part of this codebase (repeated history of *silent* file loss from
+concurrency changes), so it needs the maintainer's sign-off before being
+built, and the campaign's own rule (byte-for-byte against the known 344-file
+ground truth, multiple runs) before being trusted at any level.
+
 ### Dogfood the whole first-run journey
 Drive the GUI as a real first-time user — no config, through setup, login,
 course selection, a sync, status, scheduling, then changing a setting — and
@@ -60,37 +86,27 @@ items, not as an unread report. Keep it light — a heavy ritual gets skipped.
 
 ---
 
-## Blocked / needs evidence
-
-### Scheduled sync failed with "a sync is already running" 4 seconds after another started
-Ruled out so far: duplicate scheduled tasks (one task, one trigger), a
-double-acquire inside one run (a single lock call site exists), the
-smoke-check path (its own subcommand, not invoked by `sync --scheduled`), and
-a recycled PID (that was a real bug, fixed in #120, but the 4-second gap means
-a genuinely fresh lock rather than an inherited number).
-
-Remaining hypothesis: two real processes starting ~4s apart — the GUI and the
-scheduled run colliding, or the task being launched twice by something outside
-Task Scheduler's trigger list.
-
-**Blocked because it cannot be reproduced.** The schedule has since been
-re-registered, and the scheduled-run status file used to keep only the
-single most recent run, so there was no history to mine.
-
-**Prerequisite done (2026-07-23):** `internal/statuslog` now also appends
-every run to a rolling `~/.opal-downloader/scheduled-run-history.jsonl`
-(capped at 30 entries, same credential-scrubbing boundary as the single-run
-file) alongside the existing single-status file the GUI banner reads. Still
-blocked on an actual recurrence — this only ensures the *next* one leaves
-something to mine.
-
----
-
 ## Done recently
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Stopped treating "another sync already running" as a scheduled-sync
+  failure.** This closes what used to be the "blocked, needs evidence" sync-
+  lock-contention item above: reported live again (2026-07-19, "PID 34084,
+  4 seconds after another"), and reading the code showed the GUI's own "Sync
+  now" job runs a sync in-process (same PID as gui.exe) using the identical
+  `synclock` lock a scheduled run acquires - so this is routine overlap
+  between the GUI and the daily trigger, not an incident, and there was
+  nothing actionable for the user regardless of which process actually won
+  the race. Added `statuslog.OutcomeSkipped`, distinct from `OutcomeFailure`,
+  for exactly this case (`synclock.ErrHeld`); it's still recorded in the
+  status file/history for diagnosis but no longer fires the failure toast or
+  GUI banner. The rolling history log added earlier the same day turned out
+  not to be needed to close this - the fix didn't require catching another
+  occurrence, just correctly classifying the one already reported.
+- **Fixed the tufast-setup page's inconsistent "Home" link** — every other
+  page uses "&larr; Back", this one alone said plain "Home" with no arrow.
 - **Decided: leave legacy manifest orphans inert, don't prune.** Checked the
   real manifest (2026-07-23): 26 entries still use the pre-migration
   absolute-path key scheme (`_2. Semester/...`, `_4. Semester/...`), matching

@@ -323,11 +323,41 @@ more to preserve something the resume note already replaces.
 
 **The property that makes this affordable:** `.claude/hooks/resume-runner.ps1`
 does all its gating in PowerShell — off switch, already-running, cooldown,
-budget rung, is-there-actually-work — so **a quiet hour costs zero tokens**. A
-`claude` process starts only when all five gates pass. The old cron design
-could not have this: every fire is a model turn, including one that instantly
-concludes there is nothing to do. A resume mechanism that costs tokens to say
-"nothing to do" is firing precisely when tokens are scarce.
+budget rung, is-there-actually-work — so **a quiet hour costs no model turn**.
+The old cron design could not have this: every fire is a model turn, including
+one that instantly concludes there is nothing to do. A resume mechanism that
+costs tokens to say "nothing to do" is firing precisely when tokens are scarce.
+
+### The deadlock this had to solve first
+
+`rate-limit-status.json` is written by the status line, which only runs inside
+a live `claude` session (see "the budget signal" above). This runner exists for
+when there is **no** live session — so nothing refreshes that file while it
+waits. It sits frozen at whatever the last dying session wrote.
+
+Frozen is harmless while a window is still running: usage only climbs, so an
+old figure remains a valid floor and "still too high" stays true. The trap is
+what happens when both windows' `resets_at` finally pass. Every reading becomes
+unusable — an expired window describes a window that no longer exists — and
+that moment is *exactly* the moment the quota came back.
+
+The first version treated "no usable reading" as a reason to give up. That
+would have deadlocked the whole feature: it needs fresh numbers to decide it
+may start a session, and only a session produces fresh numbers. The hourly task
+would have logged `refusing to guess` forever, in silence. The maintainer
+spotted it by asking the obvious question — where do the fresh numbers come
+from? — before it ever ran in anger.
+
+So an unusable reading is now the one condition worth spending a keep-warm
+launch on: it forces a sync (`rate-limit-keepwarm.ps1 -Force`) and re-reads.
+That is the sole case where a quiet fire costs anything, it happens only at a
+window rollover, and the cost is one idle `claude` startup (~14s, measured).
+`-Force` is required because the ordinary reuse path hands back the same stale
+process — an idle `claude` makes no API calls, so it re-stamps its cached
+figures without ever learning new ones.
+
+A reading that *is* usable never triggers a refresh, since confirming a valid
+floor would be pure waste.
 
 Set it up with `scripts/register-resume-task.ps1` (`-Status` to inspect,
 `-Remove` to unregister). It runs hourly while logged on.

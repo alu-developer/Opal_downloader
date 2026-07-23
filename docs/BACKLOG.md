@@ -128,9 +128,20 @@ record.
   only advantage is preserving this conversation's context, which after a kill
   costs more to resume than a fresh session reading `docs/RESUME.md`.
   Set up / inspect / remove with `scripts/register-resume-task.ps1`.
+  **A deadlock nearly shipped here**, caught by the maintainer asking where the
+  runner gets fresh numbers from: `rate-limit-status.json` is only written by a
+  live session's status line, and this runner exists for when no session is
+  running. Once both windows' `resets_at` pass, every reading is unusable — and
+  that is exactly when the quota came back. Giving up there meant needing fresh
+  numbers to justify starting a session, while only a session produces fresh
+  numbers: it would have logged `refusing to guess` hourly, forever, silently.
+  An unusable reading now forces a keep-warm sync and re-reads; a usable one
+  never does.
   *Verified live: the real registered task was triggered and correctly logged
-  `skip  budget not recovered (5h >=26%, 7d >=87%)` without spawning anything —
-  the gate refusing to spend is the behaviour that matters most here.
+  `skip  budget not recovered` without spawning anything, and fired again on its
+  own hourly schedule. `keepwarm -Force` tested for real — killed the stale
+  process, resynced in 14s, file genuinely updated. The deadlock fix is
+  mutation-tested: removing the refresh reproduces `refusing to guess` exactly.
   **Unverified:** the launch path itself has never fired for real, because the
   budget has not recovered yet; tests cover it only in `-DryRun`.*
 - **Watch the token budget during a turn, not just between turns.** A run was

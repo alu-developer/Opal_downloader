@@ -1,4 +1,4 @@
-﻿# Restarts work by itself once the usage budget has recovered.
+# Restarts work by itself once the usage budget has recovered.
 #
 # WHY (maintainer's request, 2026-07-23): they asked to be restarted
 # automatically at a suitable time, so that recovering from a usage limit does
@@ -113,7 +113,43 @@ if (-not $Force) {
     if (-not (Test-Path $lib)) { Say "skip" "budget-lib.ps1 missing"; exit 0 }
     . $lib
     $budget = Get-BudgetFloor
-    if (-not $budget.Known) { Say "skip" "no usable budget reading - refusing to guess"; exit 0 }
+
+    # THE DEADLOCK THIS AVOIDS, because it is not obvious and nearly shipped:
+    #
+    # rate-limit-status.json is written by the status line, which only runs
+    # inside a live `claude` session. This runner exists precisely for when
+    # there is no live session - so nothing is refreshing the file while it
+    # waits. It sits frozen at the numbers from the moment the last session
+    # died.
+    #
+    # Frozen numbers are fine while a window is still running: usage only
+    # climbs, so the old figure is a valid floor and "still too high" stays
+    # true. But once BOTH windows' resets_at have passed, every reading
+    # becomes unusable (an expired window describes a window that no longer
+    # exists), Get-BudgetFloor reports Known=false - and the moment that
+    # happens is exactly the moment the quota came back.
+    #
+    # Refusing to guess there would have meant refusing forever: it needs
+    # fresh numbers to decide it may start a session, but only a session
+    # produces fresh numbers. The hourly task would have logged "refusing to
+    # guess" until someone noticed, which is the silent-uselessness this whole
+    # hook family was written to stamp out.
+    #
+    # So an unusable reading is not a reason to give up, it is the one moment
+    # worth spending a keep-warm launch on. -Force because the reuse path
+    # would hand back the same stale process: an idle `claude` re-stamps its
+    # cached figures without ever learning new ones.
+    if (-not $budget.Known) {
+        $keepwarm = $env:OPAL_KEEPWARM_CMD
+        if (-not $keepwarm) { $keepwarm = Join-Path $PSScriptRoot "rate-limit-keepwarm.ps1" }
+        if (Test-Path $keepwarm) {
+            Say "refreshing" "no usable reading (likely a window just rolled over) - forcing a keep-warm sync"
+            & $keepwarm -Force | Out-Null
+            $budget = Get-BudgetFloor
+        }
+    }
+
+    if (-not $budget.Known) { Say "skip" "no usable budget reading even after a refresh - refusing to guess"; exit 0 }
     $rung = Get-BudgetRung $budget
     if ($rung -ge 2) { Say "skip" "budget not recovered ($($budget.Reason))"; exit 0 }
     $budgetNote = $budget.Reason

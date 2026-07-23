@@ -346,12 +346,52 @@ try {
     $out = Invoke-Runner
     Assert-That "does not resume at rung 2" ($out -match "budget not recovered") "got: $out"
 
-    # Refusing to guess matters more here than anywhere else: guessing wrong
-    # spends money with nobody watching.
+    # THE DEADLOCK REGRESSION TEST.
+    #
+    # Both windows expired means "no usable reading", and that is exactly the
+    # moment the quota came back. The first version of this runner treated it
+    # as a reason to give up - which would have deadlocked the whole feature:
+    # nothing refreshes rate-limit-status.json while no session is running, so
+    # it needed fresh numbers to decide it may start a session, and only a
+    # session produces fresh numbers. It would have logged "refusing to guess"
+    # hourly, forever, in silence.
+    #
+    # A stub keep-warm stands in for the real one so this costs nothing: the
+    # real one launches `claude`, and a test suite must not spend money.
+    $stubKeepwarm = Join-Path $sandbox "stub-keepwarm.ps1"
+    $env:OPAL_KEEPWARM_CMD = $stubKeepwarm
+    $healthyStatus = @{
+        five_hour  = @{ used_percentage = 3; resets_at = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 18000) }
+        seven_day  = @{ used_percentage = 9; resets_at = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 500000) }
+        updated_at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    } | ConvertTo-Json -Depth 5 -Compress
+    # The stub writes what a real refresh would have produced after a rollover.
+    "param([switch]`$Force,[switch]`$NoWait)`n'$healthyStatus' | Set-Content '$statusFile' -Encoding utf8" |
+        Set-Content $stubKeepwarm -Encoding utf8
+
     Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
     Set-Status -FivePct 99 -FiveResetsIn -60 -SevenPct 99 -SevenResetsIn -60
     $out = Invoke-Runner
-    Assert-That "refuses to guess with no usable budget reading" ($out -match "refusing to guess") "got: $out"
+    Assert-That "an expired window triggers a refresh instead of giving up" ($out -match "refreshing") "got: $out"
+    Assert-That "and resumes once the refresh shows a recovered budget" ($out -match "would-launch") "got: $out"
+
+    # A refresh that produces nothing usable is the one case where giving up is
+    # right - guessing wrong here spends money with nobody watching.
+    "param([switch]`$Force,[switch]`$NoWait)" | Set-Content $stubKeepwarm -Encoding utf8
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 99 -FiveResetsIn -60 -SevenPct 99 -SevenResetsIn -60
+    $out = Invoke-Runner
+    Assert-That "still refuses to guess when a refresh yields nothing" ($out -match "even after a refresh") "got: $out"
+
+    # A usable reading must NOT trigger a refresh - a live window's old figure
+    # is a valid floor, so spending a launch to confirm it would be waste.
+    "param([switch]`$Force,[switch]`$NoWait)`n'BROKEN' | Set-Content '$statusFile' -Encoding utf8" |
+        Set-Content $stubKeepwarm -Encoding utf8
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 5 -SevenPct 88 -AgeSeconds 20000
+    $out = Invoke-Runner
+    Assert-That "a stale-but-live reading is used as-is, no refresh" (($out -notmatch "refreshing") -and ($out -match "budget not recovered")) "got: $out"
+    Remove-Item Env:\OPAL_KEEPWARM_CMD -ErrorAction SilentlyContinue
 
     Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
     Set-Status -FivePct 10 -SevenPct 10

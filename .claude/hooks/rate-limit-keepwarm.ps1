@@ -45,7 +45,18 @@ param(
     # a cold launch simply means this turn uses the previous (floor) reading
     # and the next one gets fresh numbers. The wait is still the default for
     # interactive/manual use, where confirmation is the whole point.
-    [switch]$NoWait
+    [switch]$NoWait,
+
+    # Kill any existing keep-warm process and start a genuinely new one.
+    #
+    # The reuse path below returns immediately when a process is younger than
+    # an hour - fine for keeping the file warm, useless when a caller needs
+    # numbers it does not already have. An idle process re-stamps updated_at
+    # with the SAME cached figures (it makes no API calls, so it never learns
+    # new ones); only a fresh launch syncs. resume-runner.ps1 depends on this:
+    # after a window rolls over it has no usable reading at all, and reusing a
+    # stale process would leave it with none.
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -57,7 +68,11 @@ $statusFile = Join-Path $env:USERPROFILE ".claude\rate-limit-status.json"
 $maxAgeSeconds = 3600
 
 $alive = $false
-if (Test-Path $pidFile) {
+if ($Force -and (Test-Path $pidFile)) {
+    $stalePid = Get-Content $pidFile -ErrorAction SilentlyContinue
+    if ($stalePid) { Stop-Process -Id $stalePid -Force -ErrorAction SilentlyContinue }
+}
+if (-not $Force -and (Test-Path $pidFile)) {
     $existingPid = Get-Content $pidFile -ErrorAction SilentlyContinue
     if ($existingPid) {
         $proc = Get-Process -Id $existingPid -ErrorAction SilentlyContinue

@@ -301,6 +301,110 @@ try {
     Remove-Item $offSwitch -Force -ErrorAction SilentlyContinue
 
     # =========================================================================
+    Write-Host "`nresume-runner (scheduled self-restart)" -ForegroundColor Cyan
+    # =========================================================================
+    # Every assertion here uses -DryRun. These gates decide whether to spend
+    # real money unattended; a test that actually launched `claude` would be
+    # charging the maintainer to run the test suite.
+    $fakeRepo = Join-Path $sandbox "fakerepo\docs"
+    New-Item -ItemType Directory -Path $fakeRepo -Force | Out-Null
+    $env:OPAL_RESUME_REPO_ROOT = (Split-Path $fakeRepo -Parent)
+    $runner = Join-Path $hooksDir "resume-runner.ps1"
+    $runnerState = Join-Path $queueDir ".resume-runner-state.json"
+
+    function Set-FakeWork {
+        param([switch]$None)
+        if ($None) {
+            "# Resume note`n`n_Nothing in flight._" | Set-Content (Join-Path $fakeRepo "RESUME.md") -Encoding utf8
+            "# Backlog`n`n## Now`n`n## Done recently`n`n### an old thing" | Set-Content (Join-Path $fakeRepo "BACKLOG.md") -Encoding utf8
+        } else {
+            "# Resume note`n`n_Nothing in flight._" | Set-Content (Join-Path $fakeRepo "RESUME.md") -Encoding utf8
+            "# Backlog`n`n## Now`n`n### a real pending item`n`n## Done recently" | Set-Content (Join-Path $fakeRepo "BACKLOG.md") -Encoding utf8
+        }
+    }
+
+    function Invoke-Runner {
+        $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -DryRun 2>$null
+        return (($out -join "`n"))
+    }
+
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-FakeWork
+    Set-Status -FivePct 10 -SevenPct 10
+    $out = Invoke-Runner
+    Assert-That "launches when budget is healthy and work exists" ($out -match "would-launch") "got: $out"
+
+    # The situation this was built in: 5h reset to near zero while 7d sat at
+    # 86%. A healthy 5h window must not mask an exhausted 7d one.
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 2 -SevenPct 86
+    $out = Invoke-Runner
+    Assert-That "a fresh 5h window does not mask an exhausted 7d one" ($out -match "budget not recovered") "got: $out"
+
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 75 -SevenPct 10
+    $out = Invoke-Runner
+    Assert-That "does not resume at rung 2" ($out -match "budget not recovered") "got: $out"
+
+    # Refusing to guess matters more here than anywhere else: guessing wrong
+    # spends money with nobody watching.
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 99 -FiveResetsIn -60 -SevenPct 99 -SevenResetsIn -60
+    $out = Invoke-Runner
+    Assert-That "refuses to guess with no usable budget reading" ($out -match "refusing to guess") "got: $out"
+
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 10 -SevenPct 10
+    Set-FakeWork -None
+    $out = Invoke-Runner
+    Assert-That "does not launch when there is no work" ($out -match "nothing in RESUME.md or BACKLOG") "got: $out"
+
+    # RESUME.md alone is enough, even with an empty backlog - that is the
+    # killed-mid-task case.
+    "# Resume note`n`n## In flight: something half-done" | Set-Content (Join-Path $fakeRepo "RESUME.md") -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "in-flight RESUME.md alone justifies a resume" ($out -match "would-launch") "got: $out"
+
+    # Cooldown: a run that dies immediately must not become a relaunch loop.
+    Set-FakeWork
+    @{ last_launch = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 600); last_pid = 0 } |
+        ConvertTo-Json | Set-Content $runnerState -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "respects the cooldown after a recent launch" ($out -match "cooldown") "got: $out"
+
+    @{ last_launch = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 10800); last_pid = 0 } |
+        ConvertTo-Json | Set-Content $runnerState -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "resumes again once the cooldown expires" ($out -match "would-launch") "got: $out"
+
+    # Two unattended agents in one worktree would be a mess.
+    @{ last_launch = 0; last_pid = $PID } | ConvertTo-Json | Set-Content $runnerState -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "will not start a second run while one is active" ($out -match "still active") "got: $out"
+
+    # One off switch for the whole family, not two.
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    New-Item $offSwitch -ItemType File -Force | Out-Null
+    $out = Invoke-Runner
+    Assert-That "AUTOPILOT.OFF stops the resume runner too" ($out -match "AUTOPILOT.OFF") "got: $out"
+    Remove-Item $offSwitch -Force -ErrorAction SilentlyContinue
+
+    Remove-Item Env:\OPAL_RESUME_REPO_ROOT -ErrorAction SilentlyContinue
+
+    # An unattended run must be bounded, since nobody is watching it.
+    Set-Status -FivePct 5 -SevenPct 5
+    Remove-Item $marker -Force -ErrorAction SilentlyContinue
+    $env:OPAL_UNATTENDED_RESUME = "1"
+    Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "u1"; source = "startup" } | Out-Null
+    Remove-Item Env:\OPAL_UNATTENDED_RESUME -ErrorAction SilentlyContinue
+    if (Test-Path $marker) {
+        $cfg = Get-Content $marker -Raw | ConvertFrom-Json
+        Assert-That "unattended runs get a tight iteration cap" ($cfg.max_iterations -le 5) "got $($cfg.max_iterations)"
+    } else {
+        Assert-That "unattended runs still arm autopilot" $false "no marker written"
+    }
+
+    # =========================================================================
     Write-Host "`nautopilot-gate (Stop)" -ForegroundColor Cyan
     # =========================================================================
     $backlog = Join-Path $repoRoot "docs\BACKLOG.md"

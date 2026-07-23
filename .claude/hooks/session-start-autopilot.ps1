@@ -85,6 +85,17 @@ $maxIterations = 20
 $budgetNote = $null
 $armed = $true
 
+# An unattended run started by resume-runner.ps1 gets a much smaller allowance
+# than a session the maintainer is sitting in front of. Nobody is watching it,
+# so its worst case has to be bounded by construction rather than by someone
+# noticing. The `claude` CLI has no --max-turns, so the iteration cap in this
+# marker IS the bound.
+$unattended = ($env:OPAL_UNATTENDED_RESUME -eq "1")
+if ($unattended) {
+    $expiresHours = 2
+    $maxIterations = 5
+}
+
 try {
     $lib = Join-Path $PSScriptRoot "budget-lib.ps1"
     if (Test-Path $lib) {
@@ -98,7 +109,7 @@ try {
             $armed = $false
             $budgetNote = "Autopilot NOT armed: $($budget.Reason), which is past the point where the Stop gate would refuse to continue anyway. Work normally, at whatever pace the maintainer asks for, and keep docs/RESUME.md current - budget is not a reason to refuse work, only a reason not to run unattended."
             Remove-Item $marker -Force -ErrorAction SilentlyContinue
-        } elseif ($rung -eq 2) {
+        } elseif ($rung -eq 2 -and -not $unattended) {
             $expiresHours = 2
             $maxIterations = 6
             $budgetNote = "Autopilot armed SHORT (${expiresHours}h, max $maxIterations continuations) because $($budget.Reason). Commit in small increments and keep docs/RESUME.md current."
@@ -110,7 +121,9 @@ if ($armed) {
     $expiresAt = [DateTimeOffset]::UtcNow.AddHours($expiresHours).ToUnixTimeSeconds()
     $cfg = @{ expires_at = $expiresAt; max_iterations = $maxIterations } | ConvertTo-Json -Compress
     try { $cfg | Set-Content $marker -Encoding utf8 -ErrorAction Stop } catch { exit 0 }
-    if (-not $budgetNote) {
+    if ($unattended) {
+        $budgetNote = "UNATTENDED RESUME RUN. Autopilot armed tight (${expiresHours}h, max $maxIterations continuations) because nobody is watching this one. Nothing you leave uncommitted survives it, and decisions reserved for the maintainer stay reserved - write the open question into docs/BACKLOG.md and move on rather than deciding it yourself."
+    } elseif (-not $budgetNote) {
         $budgetNote = "Autopilot armed automatically for this session (expires in ${expiresHours}h, max $maxIterations continuations - see docs/agent-operating-model.md)."
     }
 }

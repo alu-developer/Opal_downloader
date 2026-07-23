@@ -290,21 +290,55 @@ Ending a run remains the guards' call or the maintainer's, exactly as in §1.
   `turn-failures.log`, so a recurring pattern is visible instead of each
   failure erasing evidence of the last.
 
-### Still not solved: automatic resumption
+### Automatic resumption
 
-Everything above makes a kill *cheap*. Nothing above makes work *restart* on
-its own once the quota resets — the maintainer still has to open a session,
-which then immediately knows where it was.
+Everything above makes a kill *cheap*. This makes work *restart*. The
+maintainer asked for it explicitly on 2026-07-23 ("I don't want to have to open
+a new session again"), after being told what it costs.
 
-The previous answer here was a recurring `CronCreate` resume job. It is gone
-from this document because it did not work and should not be relied on: cron
-jobs are **session-only** (in memory, dead with the session, auto-expiring
-after 7 days) and only fire while the REPL is idle — so the one case that
-matters, a session killed by the limit, is the case it cannot rescue.
+**First, a correction worth keeping.** An earlier version of this section said a
+session-only cron "cannot rescue a session killed by the limit". That reasoning
+is wrong: a usage limit kills the **turn**, not the session — the REPL stays
+alive and idle, which is exactly when cron fires. The real reason the cron
+approach never helped is duller: it was only ever written down here as an
+instruction to schedule one, and nobody ever did. An instruction is not a
+mechanism.
 
-A real fix needs something outside the session that spends budget unattended
-(a scheduled headless `claude`). **That is the maintainer's money and their
-call**, and is not to be built without asking.
+Two layers, because they fail in different ways:
+
+| Layer | Survives | Dies when |
+|---|---|---|
+| In-session `CronCreate` job | A rate-limited turn in a session still open | Session closes; 7-day expiry |
+| `OpalDownloader-ResumeRunner` scheduled task | Closed terminals, reboots, logouts | Unregistered, or `AUTOPILOT.OFF` |
+
+**The property that makes this affordable:** `.claude/hooks/resume-runner.ps1`
+does all its gating in PowerShell — off switch, already-running, cooldown,
+budget rung, is-there-actually-work — so **a quiet hour costs zero tokens**. A
+`claude` process starts only when all five gates pass. The old cron design
+could not have this: every fire is a model turn, including one that instantly
+concludes there is nothing to do. A resume mechanism that costs tokens to say
+"nothing to do" is firing precisely when tokens are scarce.
+
+Set it up with `scripts/register-resume-task.ps1` (`-Status` to inspect,
+`-Remove` to unregister). It runs hourly while logged on.
+
+**Unattended runs are bounded by construction**, since nobody is watching:
+
+- `OPAL_UNATTENDED_RESUME=1` makes `SessionStart` arm **5** iterations / 2h
+  instead of the usual 20 / 4h. The `claude` CLI has no `--max-turns`, so that
+  marker *is* the bound.
+- `--model sonnet`, per §2. Escalating to Opus is a call the maintainer makes
+  in person; an unattended run does not get to make it.
+- A 2-hour cooldown, so a run that dies on startup cannot become a relaunch
+  loop that drains the budget faster than working would have.
+- It resumes only at rung 0–1, gating on the **worst** window. That matters:
+  the situation this was built in had 5h freshly reset to ~0% while 7d sat at
+  86%, and resuming on the healthy-looking number would have spent the scarce
+  one.
+
+The unattended prompt tells it to keep `docs/RESUME.md` current, commit as it
+goes, and **not** to make decisions reserved for a human — those get written
+into `docs/BACKLOG.md` as open questions instead.
 
 ## 3. Staying inside 5h / 7d limits
 

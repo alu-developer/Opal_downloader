@@ -1,6 +1,7 @@
 package statuslog
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,5 +162,114 @@ func TestSanitizeMessageEmptyFallsBackToPlaceholder(t *testing.T) {
 	got := SanitizeMessage("   ")
 	if got == "" {
 		t.Fatalf("expected a non-empty placeholder for an empty message")
+	}
+}
+
+func TestAppendHistoryRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scheduled-run-history.jsonl")
+
+	for i := 0; i < 3; i++ {
+		status := Status{
+			Timestamp: time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Hour),
+			Outcome:   OutcomeSuccess,
+			Message:   "run",
+		}
+		if err := AppendHistory(path, status); err != nil {
+			t.Fatalf("AppendHistory: %v", err)
+		}
+	}
+
+	got, err := ReadHistory(path)
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 history entries, got %d: %+v", len(got), got)
+	}
+	if !got[0].Timestamp.Before(got[2].Timestamp) {
+		t.Fatalf("expected entries in append (oldest-first) order, got %+v", got)
+	}
+}
+
+func TestAppendHistoryTrimsToMaxEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scheduled-run-history.jsonl")
+
+	for i := 0; i < maxHistoryEntries+5; i++ {
+		status := Status{
+			Timestamp: time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Hour),
+			Outcome:   OutcomeSuccess,
+			Message:   fmt.Sprintf("run %d", i),
+		}
+		if err := AppendHistory(path, status); err != nil {
+			t.Fatalf("AppendHistory: %v", err)
+		}
+	}
+
+	got, err := ReadHistory(path)
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(got) != maxHistoryEntries {
+		t.Fatalf("expected history capped at %d entries, got %d", maxHistoryEntries, len(got))
+	}
+	if got[len(got)-1].Message != fmt.Sprintf("run %d", maxHistoryEntries+4) {
+		t.Fatalf("expected the most recent run kept, got last entry %+v", got[len(got)-1])
+	}
+	if got[0].Message != "run 5" {
+		t.Fatalf("expected the oldest 5 runs trimmed off, got first entry %+v", got[0])
+	}
+}
+
+func TestReadHistoryMissingFileReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "does-not-exist.jsonl")
+
+	got, err := ReadHistory(path)
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected no entries for a missing file, got %+v", got)
+	}
+}
+
+func TestReadHistorySkipsCorruptLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scheduled-run-history.jsonl")
+
+	content := `{"timestamp":"2026-07-17T06:00:00Z","outcome":"success","message":"ok"}
+not valid json at all
+{"timestamp":"2026-07-17T07:00:00Z","outcome":"failure","message":"also ok"}
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	got, err := ReadHistory(path)
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected the corrupt line to be skipped and both good ones kept, got %d: %+v", len(got), got)
+	}
+}
+
+func TestAppendHistoryNeverIncludesSessionStateContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scheduled-run-history.jsonl")
+
+	maliciousMessage := `sync failed: {"cookies":[{"name":"JSESSIONID","value":"AbCdEf0123456789ZzYyXxWwVvUuTtSsRrQq"}]} | Cookie: JSESSIONID=AbCdEf0123456789ZzYyXxWwVvUuTtSsRrQq`
+	if err := AppendHistory(path, Status{Timestamp: time.Now(), Outcome: OutcomeFailure, Message: maliciousMessage}); err != nil {
+		t.Fatalf("AppendHistory: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading back history file: %v", err)
+	}
+	if strings.Contains(string(raw), "JSESSIONID") || strings.Contains(string(raw), "AbCdEf0123456789ZzYyXxWwVvUuTtSsRrQq") {
+		t.Fatalf("history file contains credential/session-shaped content; full contents:\n%s", raw)
 	}
 }

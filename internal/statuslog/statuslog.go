@@ -6,10 +6,15 @@
 // notification"). This is the core mechanism behind the GUI's
 // scheduled-sync banner (internal/gui/scheduled_status.go).
 //
-// Only the single most recent run is kept - Write always overwrites the
-// file in place. This is deliberate (see the queue task's "Non-goals": "No
-// historical log of every past scheduled run - just the most recent
-// outcome").
+// WriteDefault overwrites the single-run status file in place (used by the
+// GUI banner, which only ever wants "the most recent outcome") but also
+// appends the same status to a small bounded rolling history file (see
+// AppendHistory/historyFileName). That reverses this package's original
+// "Non-goals: no historical log" call - the "sync already running" 4
+// seconds after another started bug (docs/BACKLOG.md, "Blocked / needs
+// evidence") turned out to be undiagnosable precisely because only the
+// latest run's outcome survived a re-registration, so the next occurrence
+// needs more than one data point to go on.
 package statuslog
 
 import (
@@ -84,6 +89,20 @@ type Status struct {
 // fileName is the status file's name under ~/.opal-downloader/.
 const fileName = "last-scheduled-run.json"
 
+// historyFileName is the rolling-history file's name under
+// ~/.opal-downloader/. JSON Lines (one Status object per line) rather than a
+// single JSON array, so appending never requires reading and re-parsing the
+// whole file first, and one corrupt/truncated line (e.g. a write that
+// crashed mid-flush) can be skipped without losing every other entry.
+const historyFileName = "scheduled-run-history.jsonl"
+
+// maxHistoryEntries bounds the rolling history to a "small" log per its
+// purpose (giving the next occurrence of an intermittent bug something to
+// mine, not a permanent audit trail) - 30 entries covers a month of daily
+// runs, comfortably past the "a run every day" cadence this feature is
+// built around, while keeping the file trivially small.
+const maxHistoryEntries = 30
+
 // DefaultPath returns the real, single status-file path used in
 // production: ~/.opal-downloader/last-scheduled-run.json.
 func DefaultPath() (string, error) {
@@ -94,15 +113,125 @@ func DefaultPath() (string, error) {
 	return filepath.Join(home, ".opal-downloader", fileName), nil
 }
 
-// WriteDefault writes status to DefaultPath(). This is what production code
-// (cmd/opal-downloader's runSync) calls; tests exercise Write(path, status)
-// directly against a temp directory instead.
+// DefaultHistoryPath returns the real rolling-history file path used in
+// production: ~/.opal-downloader/scheduled-run-history.jsonl.
+func DefaultHistoryPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home directory for the scheduled-run history file: %w", err)
+	}
+	return filepath.Join(home, ".opal-downloader", historyFileName), nil
+}
+
+// AppendHistory adds status as one more line to the rolling history file at
+// path, trimming to the most recent maxHistoryEntries afterward. status.
+// Message goes through the same SanitizeMessage boundary as Write - this
+// file is just as local-only as the single-status one, but nothing here
+// should ever carry credential/session-shaped content either.
+func AppendHistory(path string, status Status) error {
+	status.Message = SanitizeMessage(status.Message)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating directory for scheduled-run history file: %w", err)
+	}
+
+	line, err := json.Marshal(status)
+	if err != nil {
+		return fmt.Errorf("encoding scheduled-run history entry: %w", err)
+	}
+
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading scheduled-run history file at %s: %w", path, err)
+	}
+
+	lines := splitNonEmptyLines(existing)
+	lines = append(lines, string(line))
+	if len(lines) > maxHistoryEntries {
+		lines = lines[len(lines)-maxHistoryEntries:]
+	}
+
+	data := []byte(strings.Join(lines, "\n") + "\n")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("writing scheduled-run history file at %s: %w", path, err)
+	}
+	return nil
+}
+
+// splitNonEmptyLines splits raw JSONL content into its non-blank lines,
+// tolerating a trailing newline (or no content at all).
+func splitNonEmptyLines(raw []byte) []string {
+	var lines []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// ReadHistoryDefault reads the rolling history file at DefaultHistoryPath().
+func ReadHistoryDefault() ([]Status, error) {
+	path, err := DefaultHistoryPath()
+	if err != nil {
+		return nil, err
+	}
+	return ReadHistory(path)
+}
+
+// ReadHistory reads and parses the rolling history file at path, oldest
+// entry first. A line that fails to parse (partial write, disk corruption)
+// is skipped rather than failing the whole read - consistent with this
+// package's "degrade rather than crash" contract for Read, except here
+// there may be good entries on either side of a bad one worth keeping. A
+// missing file returns an empty slice, not an error.
+func ReadHistory(path string) ([]Status, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading scheduled-run history file at %s: %w", path, err)
+	}
+
+	var out []Status
+	for _, line := range splitNonEmptyLines(raw) {
+		var status Status
+		if err := json.Unmarshal([]byte(line), &status); err != nil {
+			continue
+		}
+		if status.Outcome == "" {
+			continue
+		}
+		out = append(out, status)
+	}
+	return out, nil
+}
+
+// WriteDefault writes status to DefaultPath() and appends it to
+// DefaultHistoryPath(). This is what production code (cmd/opal-downloader's
+// runSync) calls; tests exercise Write(path, status) directly against a temp
+// directory instead.
+//
+// A history-append failure is deliberately not returned as an error: the
+// single-run status file (which the GUI banner depends on) is the
+// load-bearing write, and history is a best-effort diagnostic aid on top of
+// it, not something that should make a scheduled run report failure to the
+// user over.
 func WriteDefault(status Status) error {
 	path, err := DefaultPath()
 	if err != nil {
 		return err
 	}
-	return Write(path, status)
+	if err := Write(path, status); err != nil {
+		return err
+	}
+
+	if historyPath, err := DefaultHistoryPath(); err == nil {
+		_ = AppendHistory(historyPath, status)
+	}
+	return nil
 }
 
 // Write persists status to path, creating its parent directory if needed.

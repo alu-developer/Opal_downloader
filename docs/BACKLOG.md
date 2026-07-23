@@ -74,10 +74,15 @@ scheduled run colliding, or the task being launched twice by something outside
 Task Scheduler's trigger list.
 
 **Blocked because it cannot be reproduced.** The schedule has since been
-re-registered, and the scheduled-run status file keeps only the single most
-recent run, so there is no history to mine. **Do this first:** add a small
-rolling log of scheduled-run outcomes. Otherwise the next occurrence is
-equally un-diagnosable.
+re-registered, and the scheduled-run status file used to keep only the
+single most recent run, so there was no history to mine.
+
+**Prerequisite done (2026-07-23):** `internal/statuslog` now also appends
+every run to a rolling `~/.opal-downloader/scheduled-run-history.jsonl`
+(capped at 30 entries, same credential-scrubbing boundary as the single-run
+file) alongside the existing single-status file the GUI banner reads. Still
+blocked on an actual recurrence — this only ensures the *next* one leaves
+something to mine.
 
 ---
 

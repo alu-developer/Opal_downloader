@@ -184,3 +184,33 @@ func TestLandingPageRendersPrimarySyncAction(t *testing.T) {
 		t.Fatal("landing page still advertises the developer tools in its nav label")
 	}
 }
+
+// A first run with no config yet cannot possibly be logged in - there's no
+// OPAL URL or credentials to log into. Showing "Not logged in yet" above the
+// setup button the finding is actually meant to reach is noise, not signal.
+func TestLandingPageHidesLoginStatusWhenSetupNeeded(t *testing.T) {
+	s := &server{configPath: filepath.Join(t.TempDir(), "does-not-exist.yaml")}
+	rec := httptest.NewRecorder()
+	s.handleLanding(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	body := rec.Body.String()
+	if strings.Contains(body, "Not logged in yet") {
+		t.Fatalf("expected no login-status box before setup, body was:\n%s", body)
+	}
+	if !strings.Contains(body, "Set up opal-downloader") {
+		t.Fatalf("expected the setup CTA, body was:\n%s", body)
+	}
+}
+
+// Once a config exists, the login state is meaningful again and must come
+// back.
+func TestLandingPageShowsLoginStatusOnceConfigured(t *testing.T) {
+	s := &server{configPath: writeLandingConfig(t, "\n  - Analysis")}
+	rec := httptest.NewRecorder()
+	s.handleLanding(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Not logged in yet") {
+		t.Fatalf("expected the login-status box once configured, body was:\n%s", body)
+	}
+}

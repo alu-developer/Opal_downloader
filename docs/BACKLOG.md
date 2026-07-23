@@ -27,18 +27,17 @@ maintainer: a stranger's first run is in scope.
 
 **First pass done (2026-07-23), no-credentials part only:** a fresh binary in
 an empty folder, no config, walked through landing/settings/TU-Fast/sync in a
-real browser. Two findings fixed on the spot (the landing page led with a dead
-"Sync now" instead of pointing at setup; a stale scheduled-failure banner
-claimed to be news). Still to walk: login, course selection, a real sync,
-status, scheduling, and changing a setting afterwards — all of which need the
-live account and a long run.
+real browser. All findings from this pass are now fixed (see "Done recently"
+below) except one deliberately left open: the "three status boxes" finding
+led to hiding the login-state box before setup (it's meaningless with no
+config to log into), but the update-check box was kept — knowing whether
+you're on a stale binary seemed worth the one extra box regardless of setup
+progress, and that's more a taste call than the login box was. Revisit if it
+still feels cluttered.
 
-Findings from that pass, not yet fixed:
-
-- **Three status boxes sit above the primary action.** A first run reads a
-  browser-window disclaimer, a login state, and an update state before
-  reaching the one control it needs. Worth deciding whether the pre-setup
-  landing page should show any of them.
+Still to walk: login, course selection, a real sync, status, scheduling, and
+changing a setting afterwards — all of which need the live account and a
+long run.
 
 ---
 
@@ -83,6 +82,10 @@ equally un-diagnosable.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Hid the pre-setup landing page's login-state box.** A first run with no
+  config yet can't be logged in - there's no OPAL URL or credentials to log
+  into - so "Not logged in yet" above the setup button was noise, not signal.
+  Comes back automatically once a config exists.
 - **Auto-arm autopilot on session start**, instead of requiring the marker
   file to be created by hand (in practice it rarely was, so autopilot rarely
   ran even for sessions opened correctly in this directory). Does not help a

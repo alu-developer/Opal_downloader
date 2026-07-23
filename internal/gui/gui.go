@@ -480,6 +480,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 
 	` + disclaimerHTML + `
 
+	{{if not .SetupNeeded}}
 	<div class="status {{if .LoggedIn}}ok{{else}}warn{{end}}">
 		{{if .LoggedIn}}
 			Logged in (session saved {{if .StateModified}}{{.StateModified}}{{else}}earlier{{end}}). May still need a fresh login if it expired.
@@ -487,6 +488,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			Not logged in yet.
 		{{end}}
 	</div>
+	{{end}}
 
 	{{if .UpdateChecked}}
 	<div class="status {{if .UpdateAvailable}}warn{{else if .UpdateDevBuild}}neutral{{else}}ok{{end}}">

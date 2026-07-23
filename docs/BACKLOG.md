@@ -35,10 +35,6 @@ live account and a long run.
 
 Findings from that pass, not yet fixed:
 
-- **The dev-build update note renders green.** `{{if .UpdateAvailable}}warn
-  {{else}}ok{{end}}` puts "update checks are unavailable" in the same box
-  style as "you are up to date". Only developers ever see it, but the same
-  two-way branch will mis-style anything else that is neither.
 - **Three status boxes sit above the primary action.** A first run reads a
   browser-window disclaimer, a login state, and an update state before
   reaching the one control it needs. Worth deciding whether the pre-setup
@@ -87,6 +83,14 @@ equally un-diagnosable.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Auto-arm autopilot on session start**, instead of requiring the marker
+  file to be created by hand (in practice it rarely was, so autopilot rarely
+  ran even for sessions opened correctly in this directory). Does not help a
+  session opened outside this directory - see the "gates are absent" section
+  above, unchanged.
+- **Gave the dev-build update note its own neutral status-box style**,
+  instead of reusing "up to date"'s green on the landing page or the
+  error/warn red on `/update`.
 - **Gate the `/sync` page's own Sync/List buttons on the same readiness check
   the landing page already applies**, instead of leaving them live when no
   config exists or nobody is logged in. *Verified via handler-level tests

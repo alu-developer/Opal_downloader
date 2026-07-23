@@ -44,10 +44,30 @@ this; the missing pre-push gate is the part that actually matters.
 
 ### Starting and stopping it
 
+**Armed automatically since 2026-07-23.** A `SessionStart` hook
+(`.claude/hooks/session-start-autopilot.ps1`, matcher `startup` only) writes
+a fresh 4-hour/20-iteration marker at the start of every session opened in
+this directory, unless `.claude/queue/AUTOPILOT.OFF` is present. This
+replaced manually running the snippet below, which in practice meant
+autopilot was armed rarely - most sessions, including ones started correctly
+in this directory, simply never had a marker. It only fires on `startup`
+(not resume/clear/compact/fork), so it never resets an in-flight session's
+budget.
+
+This does **not** fix the other half of the problem: a session opened
+elsewhere and pointed here by path still gets no `SessionStart` hook either,
+for the same reason it gets no `Stop` hook - see the section above. There is
+no hook-based fix for that; it requires actually starting the session in
+this directory.
+
+The snippet below still works for arming a stretch by hand (e.g. a longer
+one than 4 hours, or to re-arm after `AUTOPILOT.OFF` without waiting for the
+next session):
+
 ```powershell
-# start a 4-hour autonomous stretch, max 20 continuations
-$exp = [DateTimeOffset]::UtcNow.AddHours(4).ToUnixTimeSeconds()
-"{`"expires_at`": $exp, `"max_iterations`": 20}" |
+# start a longer autonomous stretch, e.g. 8 hours, max 40 continuations
+$exp = [DateTimeOffset]::UtcNow.AddHours(8).ToUnixTimeSeconds()
+"{`"expires_at`": $exp, `"max_iterations`": 40}" |
   Set-Content .claude/queue/AUTOPILOT -Encoding utf8
 
 # stop it (maintainer only - this is the off switch)

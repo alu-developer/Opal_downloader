@@ -35,6 +35,19 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/session-start-autopilot.ps1",
+            "timeout": 15,
+            "statusMessage": "Arming autopilot..."
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

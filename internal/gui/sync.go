@@ -24,14 +24,15 @@ import (
 type syncPage struct {
 	configPath string
 	job        *job
+	srv        *server
 }
 
-func newSyncPage(configPath string) *syncPage {
-	return &syncPage{configPath: configPath, job: newJob()}
+func newSyncPage(configPath string, srv *server) *syncPage {
+	return &syncPage{configPath: configPath, job: newJob(), srv: srv}
 }
 
 func registerSyncRoutes(mux *http.ServeMux, srv *server, configPath string) {
-	sp := newSyncPage(configPath)
+	sp := newSyncPage(configPath, srv)
 	// Share the job with the server so handleLanding can render the "Sync
 	// now" button's running/idle state from the same source of truth the
 	// /sync page uses, rather than a second, drifting one.
@@ -266,13 +267,32 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
+// syncPageData drives the /sync page's own readiness gate. It mirrors the
+// landing page's SyncReady/SetupNeeded/SyncBlockedReason (see gui.go's
+// applySyncReadiness) so the same click that the landing page carefully
+// disables and explains isn't left live one link away, on the page that
+// actually performs it.
+type syncPageData struct {
+	SyncReady         bool
+	SetupNeeded       bool
+	SyncBlockedReason string
+}
+
 func (sp *syncPage) handlePage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/sync" {
 		http.NotFound(w, r)
 		return
 	}
+	data := syncPageData{SyncReady: true}
+	if sp.srv != nil {
+		landing := sp.srv.sessionStatus()
+		sp.srv.applySyncReadiness(&landing)
+		data.SyncReady = landing.SyncReady
+		data.SetupNeeded = landing.SetupNeeded
+		data.SyncBlockedReason = landing.SyncBlockedReason
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = syncTemplate.Execute(w, nil)
+	_ = syncTemplate.Execute(w, data)
 }
 
 var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
@@ -301,9 +321,16 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	` + bannerChrome + `
 	<h1>Sync</h1>
 
+	{{if not .SyncReady}}
+	<div class="status warn">
+		{{.SyncBlockedReason}}
+		{{if .SetupNeeded}}<p style="margin: 0.5rem 0 0;"><a href="/settings">Set up opal-downloader</a></p>{{end}}
+	</div>
+	{{end}}
+
 	<div class="actions">
-		<button class="primary" id="btn-sync">Sync</button>
-		<button id="btn-list">List courses</button>
+		<button class="primary" id="btn-sync"{{if not .SyncReady}} disabled{{end}}>Sync</button>
+		<button id="btn-list"{{if not .SyncReady}} disabled{{end}}>List courses</button>
 		<button class="stop" id="btn-cancel" disabled>Cancel</button>
 	</div>
 
@@ -326,10 +353,11 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 		var btnSync = document.getElementById('btn-sync');
 		var btnList = document.getElementById('btn-list');
 		var btnCancel = document.getElementById('btn-cancel');
+		var syncBlocked = {{if .SyncReady}}false{{else}}true{{end}};
 
 		function setRunning(running) {
-			btnSync.disabled = running;
-			btnList.disabled = running;
+			btnSync.disabled = running || syncBlocked;
+			btnList.disabled = running || syncBlocked;
 			btnCancel.disabled = !running;
 		}
 

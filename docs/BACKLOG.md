@@ -35,10 +35,6 @@ live account and a long run.
 
 Findings from that pass, not yet fixed:
 
-- **`/sync` offers a live "Sync" button with no configuration at all.** The
-  landing page carefully disables its own sync action and explains why; the
-  sync page, one link away, does not, so the same click is blocked in one
-  place and fails in the other.
 - **The dev-build update note renders green.** `{{if .UpdateAvailable}}warn
   {{else}}ok{{end}}` puts "update checks are unavailable" in the same box
   style as "you are up to date". Only developers ever see it, but the same
@@ -91,6 +87,11 @@ equally un-diagnosable.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Gate the `/sync` page's own Sync/List buttons on the same readiness check
+  the landing page already applies**, instead of leaving them live when no
+  config exists or nobody is logged in. *Verified via handler-level tests
+  (exact rendered HTML/disabled state); not exercised in a live browser
+  window - this sandbox can't run the native WebView2 binary.*
 - **Repair a scheduled sync that points at a disposable binary**, instead of
   telling the user to repair it themselves. Finishes what #122 started: that
   one only stopped new doomed registrations being created. *The repair branch

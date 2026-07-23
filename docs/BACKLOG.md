@@ -106,20 +106,7 @@ enough to justify keeping a known-hazardous test around.
 
 ## Next
 
-### Decide: should a killed run restart itself? (needs the maintainer)
-A turn killed by the usage limit is now cheap to lose — it is recorded, WIP is
-captured, and the next session is handed `docs/RESUME.md` (see "Done recently").
-What is still missing is *restarting*: the maintainer has to open a session,
-which then immediately knows where it was.
-
-Closing that gap means something outside the session spending budget
-unattended — a scheduled headless `claude` that wakes after the quota resets
-and picks the work back up. That is real recurring spend against a Pro plan, so
-it is the maintainer's call, not a decision to make while they are away. The
-previous answer here (a recurring `CronCreate` job, documented in the operating
-model until 2026-07-23) is not a substitute: cron jobs are session-only and
-only fire while the REPL is idle, so they cannot rescue the one case that
-matters.
+(nothing queued right now)
 
 ---
 
@@ -128,6 +115,24 @@ matters.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Made work resume by itself once the budget recovers.** Closes the
+  "should a killed run restart itself?" question — the maintainer asked for it
+  directly (2026-07-23) after being told the cost. An hourly Windows scheduled
+  task runs `.claude/hooks/resume-runner.ps1`, whose five gates (off switch,
+  already-running, 2h cooldown, budget rung, is-there-work) all run in
+  PowerShell and cost **zero tokens**, so a quiet hour is free and a `claude`
+  process starts only when all five pass. Unattended runs are bounded by
+  construction: 5 autopilot iterations instead of 20, `--model sonnet`, and a
+  cooldown so a run that dies on startup cannot become a relaunch loop.
+  An in-session cron job was considered as a second layer and rejected: its
+  only advantage is preserving this conversation's context, which after a kill
+  costs more to resume than a fresh session reading `docs/RESUME.md`.
+  Set up / inspect / remove with `scripts/register-resume-task.ps1`.
+  *Verified live: the real registered task was triggered and correctly logged
+  `skip  budget not recovered (5h >=26%, 7d >=87%)` without spawning anything —
+  the gate refusing to spend is the behaviour that matters most here.
+  **Unverified:** the launch path itself has never fired for real, because the
+  budget has not recovered yet; tests cover it only in `-DryRun`.*
 - **Watch the token budget during a turn, not just between turns.** A run was
   killed mid-turn by the 5-hour limit (2026-07-23) and left no trace;
   diagnosing it meant comparing commit timestamps against window-reset

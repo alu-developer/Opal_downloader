@@ -304,12 +304,22 @@ approach never helped is duller: it was only ever written down here as an
 instruction to schedule one, and nobody ever did. An instruction is not a
 mechanism.
 
-Two layers, because they fail in different ways:
+**One mechanism, not two.** The `OpalDownloader-ResumeRunner` scheduled task
+survives closed terminals, reboots and logouts; it stops only when unregistered
+or when `AUTOPILOT.OFF` exists.
 
-| Layer | Survives | Dies when |
-|---|---|---|
-| In-session `CronCreate` job | A rate-limited turn in a session still open | Session closes; 7-day expiry |
-| `OpalDownloader-ResumeRunner` scheduled task | Closed terminals, reboots, logouts | Unregistered, or `AUTOPILOT.OFF` |
+An in-session `CronCreate` job was considered as a second layer and
+**deliberately rejected**, despite being the obvious pairing:
+
+- Its only real advantage is continuing *this* conversation with its context
+  intact. But after a kill that is a liability, not a benefit — resuming a
+  large context costs far more than a fresh session reading `docs/RESUME.md`,
+  which is precisely what that file was built to make cheap.
+- Every cron fire is a model turn, including one that concludes there is
+  nothing to do. The scheduled task's gates are free.
+
+So the cheap path *is* the fresh session. Adding cron would have meant paying
+more to preserve something the resume note already replaces.
 
 **The property that makes this affordable:** `.claude/hooks/resume-runner.ps1`
 does all its gating in PowerShell — off switch, already-running, cooldown,

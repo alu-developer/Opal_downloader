@@ -143,6 +143,17 @@ func DefaultHistoryPath() (string, error) {
 // Message goes through the same SanitizeMessage boundary as Write - this
 // file is just as local-only as the single-status one, but nothing here
 // should ever carry credential/session-shaped content either.
+//
+// Not safe against two callers racing on the same path: this is a plain
+// read-modify-write, not a locked append, so two concurrent calls can lose
+// one entry to a last-write-wins overwrite. Accepted rather than fixed with
+// real file locking: WriteDefault (this function's only caller) only ever
+// runs from `sync --scheduled`, so the sole way to hit this race is two
+// scheduled runs actually overlapping - precisely the rare event this log
+// exists to help diagnose, and losing one entry from a best-effort
+// diagnostic aid is a far smaller cost than the cross-platform locking
+// complexity would be for what's meant to stay "a small rolling log", not a
+// hardened audit trail.
 func AppendHistory(path string, status Status) error {
 	status.Message = SanitizeMessage(status.Message)
 

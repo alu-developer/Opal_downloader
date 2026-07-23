@@ -79,10 +79,7 @@ watching the native window.
 
 ## Next
 
-### A cheap recurring review pass
-Roughly weekly: a correctness review plus a simplification pass, scoped to
-what changed since last time so cost stays flat. Output lands here as backlog
-items, not as an unread report. Keep it light — a heavy ritual gets skipped.
+(nothing queued right now)
 
 ---
 
@@ -91,6 +88,15 @@ items, not as an unread report. Keep it light — a heavy ritual gets skipped.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Set up the recurring review pass as an actual weekly cron**, not just a
+  backlog note. A scheduled cloud routine (Monday 06:00 UTC) reviews only the
+  commits since its own last run (tracked via `docs/last-review-commit.txt`),
+  looks for correctness bugs and simplification opportunities in that diff,
+  files genuine findings here, and commits/pushes directly — matching how
+  this repo already operates. "Nothing to report" is treated as a fine
+  outcome, not padded with invented findings. Maintainer confirmed the
+  ongoing-cost tradeoff (a real recurring cloud-agent run against their Pro
+  plan budget) before this was created rather than assuming it.
 - **Stopped treating "another sync already running" as a scheduled-sync
   failure.** This closes what used to be the "blocked, needs evidence" sync-
   lock-contention item above: reported live again (2026-07-19, "PID 34084,

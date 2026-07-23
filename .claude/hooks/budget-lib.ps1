@@ -1,4 +1,4 @@
-# Shared reader for ~/.claude/rate-limit-status.json.
+﻿# Shared reader for ~/.claude/rate-limit-status.json.
 #
 # Dot-sourced by autopilot-gate.ps1 (Stop) and budget-guard.ps1 (PreToolUse).
 # It exists because those two used to carry their own copies of this logic and
@@ -31,7 +31,14 @@ function Get-BudgetFloor {
         Reason     [string] - short human-readable explanation, for hook messages
     #>
     param(
-        [string]$StatusPath = (Join-Path $env:USERPROFILE ".claude\rate-limit-status.json"),
+        # OPAL_RATE_LIMIT_STATUS lets scripts/test-hooks.ps1 point the whole
+        # hook family at a synthetic status file. Tests must never read the
+        # real one: its numbers change under them, so assertions would pass or
+        # fail depending on the maintainer's actual usage that hour.
+        [string]$StatusPath = $(
+            if ($env:OPAL_RATE_LIMIT_STATUS) { $env:OPAL_RATE_LIMIT_STATUS }
+            else { Join-Path $env:USERPROFILE ".claude\rate-limit-status.json" }
+        ),
         [int64]$Now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     )
 

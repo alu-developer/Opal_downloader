@@ -71,9 +71,36 @@ the same as clicking through the GUI as a stranger would.
 
 Still to walk *in the browser*: course selection, status, and changing a
 setting afterwards — same WebView2 sandbox limitation noted elsewhere in
-this file (e.g. the sync-page-buttons entry below) applies here too; this
-sandbox can only verify those at the handler/HTTP level, not by actually
-watching the native window.
+this file (e.g. the sync-page-buttons entry below) applies here too. Also
+deliberately not run via `gui`/`main.exe gui` in this sandbox: `Run` always
+calls `openNativeWindow` unconditionally on Windows, which would pop a real,
+visible window on the maintainer's actual desktop with no warning - not
+something to trigger from an unattended session.
+
+**Handler-level pass done (2026-07-23)** against the real account instead:
+stood up the real mux/handlers over `httptest`, hit them with plain HTTP.
+Landing, settings, and sync pages all render correctly; course discovery
+against the real account found 8 courses (2 more than the 6 in the current
+`courses` filter - "[WS25/26] Programmierung" and "Helfende DMS" - not a bug,
+just means the account has courses the config doesn't track, which is
+expected/normal). No UX issues found at this level, though this still isn't
+the same as watching a stranger actually click through it.
+
+**Incident during this pass, already resolved:** the probe's own settings-
+POST round-trip check briefly wiped the real `course_folders`,
+`subfolder_destinations`, and `use_section_subfolders` in the live
+`config.yaml` (a bug in the probe's crude form-scraper, which only
+resubmitted a handful of hardcoded field names and silently dropped the
+`name="...[]"` array-style rows those settings actually use) — caught
+immediately via a manual backup taken before the run, restored exactly, no
+lasting damage. Confirmed by reading `settings.go`'s real POST handler
+(`r.PostForm["subfolder_dest_key[]"]` etc.) that the actual shipped
+settings page is NOT vulnerable to this: its rendered `<input name="...[]">`
+rows are real, server-rendered form controls that any normal browser
+submission includes natively, JS or not - this was purely an artifact of the
+probe's own incomplete field list, not a product bug. The probe file was
+deleted rather than fixed, since a settings-round-trip check isn't valuable
+enough to justify keeping a known-hazardous test around.
 
 ---
 

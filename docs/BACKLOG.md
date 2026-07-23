@@ -35,19 +35,23 @@ you're on a stale binary seemed worth the one extra box regardless of setup
 progress, and that's more a taste call than the login box was. Revisit if it
 still feels cluttered.
 
-Still to walk: login, course selection, a real sync, status, scheduling, and
-changing a setting afterwards — all of which need the live account and a
-long run.
+**Scheduling/login/sync exercised for real (2026-07-23), but not through the
+GUI:** fixing the scheduled-task working-directory bug (see "Done recently")
+required actually triggering the real Windows Task Scheduler task against
+the live account, which incidentally exercised login (interactive relogin
+path), a real sync (2 downloaded, 342 skipped), and the scheduled-run path
+end to end. That's real signal the underlying mechanics work, but it's not
+the same as clicking through the GUI as a stranger would.
+
+Still to walk *in the browser*: course selection, status, and changing a
+setting afterwards — same WebView2 sandbox limitation noted elsewhere in
+this file (e.g. the sync-page-buttons entry below) applies here too; this
+sandbox can only verify those at the handler/HTTP level, not by actually
+watching the native window.
 
 ---
 
 ## Next
-
-### Clean up legacy manifest orphans
-Around two dozen manifest entries still use an old absolute-path key scheme
-that current key derivation no longer produces. They are dead weight: never
-matched, never updated, never cleaned. Decide whether to prune them during
-the existing migration pass or leave them inert.
 
 ### A cheap recurring review pass
 Roughly weekly: a correctness review plus a simplification pass, scoped to
@@ -82,6 +86,17 @@ equally un-diagnosable.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Decided: leave legacy manifest orphans inert, don't prune.** Checked the
+  real manifest (2026-07-23): 26 entries still use the pre-migration
+  absolute-path key scheme (`_2. Semester/...`, `_4. Semester/...`), matching
+  the count from the original migration run. `delete(manifest.Files, ...)` is
+  used exactly once in the whole codebase, immediately followed by
+  re-inserting under the new key (a rename, not a deletion) — nowhere does
+  the manifest ever forget an entry outright, for files removed from OPAL or
+  otherwise. Adding a prune path would break that invariant for 26 dead JSON
+  keys in a 370-entry file: no perf or correctness cost either way. Not
+  revisiting unless the manifest's never-delete design changes for other
+  reasons.
 - **Set the scheduled task's working directory.** Task Scheduler launches an
   action with no working directory set to `C:\Windows\System32`, not the
   exe's own folder; every subcommand resolves `config.yaml` relative to the

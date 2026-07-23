@@ -34,6 +34,21 @@ const (
 	OutcomeSuccess Outcome = "success"
 	OutcomePartial Outcome = "partial"
 	OutcomeFailure Outcome = "failure"
+
+	// OutcomeSkipped means this run never actually attempted a sync because
+	// another opal-downloader process already held the sync lock (see
+	// synclock.ErrHeld) - most commonly the GUI running its own in-process
+	// "Sync now" job at the same moment Task Scheduler's daily trigger fired.
+	// Deliberately distinct from OutcomeFailure: nothing went wrong, another
+	// instance is (or just was) doing the work, and there is nothing for the
+	// user to fix. Both the scheduled-failure toast notification and the GUI
+	// banner treat this the same as OutcomeSuccess (see notify_on_scheduled_
+	// failure's gate in cmd/opal-downloader/root.go and
+	// internal/gui/scheduled_status.go) - surfacing it as a "failure" is
+	// exactly the noise reported live on the maintainer's machine (2026-07-23):
+	// a scheduled run 4 seconds behind another one is routine overlap, not an
+	// incident.
+	OutcomeSkipped Outcome = "skipped"
 )
 
 // LoginPath records which of ensureSession's two branches (see

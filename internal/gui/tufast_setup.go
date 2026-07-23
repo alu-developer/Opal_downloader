@@ -575,7 +575,7 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 	{{end}}
 	{{end}}
 
-	<p class="back"><a href="/">Home</a></p>
+	<p class="back"><a href="/">&larr; Back</a></p>
 </body>
 </html>
 `))

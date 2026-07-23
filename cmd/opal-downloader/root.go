@@ -713,6 +713,14 @@ func buildScheduledRunStatus(now time.Time, runErr error, stats syncer.Stats, at
 	}
 
 	switch {
+	case errors.Is(runErr, synclock.ErrHeld):
+		// Lock contention, not a failure: another opal-downloader process
+		// (most likely the GUI running its own "Sync now" job) already had
+		// the sync in hand when this run tried to start. Reported separately
+		// from OutcomeFailure so it doesn't trigger the failure toast or the
+		// GUI banner - see statuslog.OutcomeSkipped's doc comment.
+		status.Outcome = statuslog.OutcomeSkipped
+		status.Message = "Skipped: " + statuslog.SanitizeMessage(runErr.Error()) + " - another opal-downloader process was already syncing."
 	case runErr != nil:
 		status.Outcome = statuslog.OutcomeFailure
 		status.Message = statuslog.SanitizeMessage(runErr.Error())

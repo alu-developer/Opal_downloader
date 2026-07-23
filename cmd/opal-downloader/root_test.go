@@ -285,3 +285,22 @@ func TestBuildScheduledRunStatus_SyncLockHeldIsLoginPathUnknown(t *testing.T) {
 		t.Fatalf("expected LoginPathUnknown, got %q", status.LoginPath)
 	}
 }
+
+// TestBuildScheduledRunStatus_SyncLockHeldIsSkippedNotFailure covers the
+// live-reported bug (2026-07-19, docs/BACKLOG.md's "sync already running"
+// entry): another opal-downloader process (typically the GUI's own
+// in-process "Sync now" job) holding the lock when the scheduled run tries
+// to start is routine overlap, not an incident - it must not be classified
+// as OutcomeFailure (which would fire the scheduled-failure toast
+// notification and the GUI banner over something the user can't act on).
+func TestBuildScheduledRunStatus_SyncLockHeldIsSkippedNotFailure(t *testing.T) {
+	runErr := fmt.Errorf("%w (PID 1234, started at 2026-07-17T06:00:00Z)", synclock.ErrHeld)
+	status := buildScheduledRunStatus(time.Now(), runErr, syncer.Stats{}, true, false)
+
+	if status.Outcome != statuslog.OutcomeSkipped {
+		t.Fatalf("expected OutcomeSkipped, got %q", status.Outcome)
+	}
+	if !strings.Contains(status.Message, "PID 1234") {
+		t.Fatalf("expected the message to still name the holding PID for diagnosis, got %q", status.Message)
+	}
+}

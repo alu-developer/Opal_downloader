@@ -30,11 +30,13 @@ type scheduledStatusResponse struct {
 // outcome as JSON for bannerChrome's client-side script to render. Always
 // responds 200 with a JSON body - either a real status object, or the bare
 // JSON literal `null` when there is nothing to report (no status file yet,
-// or it's unreadable/corrupt, or the last run's outcome was "success") -
-// never an HTTP error status, so a missing/corrupt file degrades silently
-// on the client (bannerChrome's render() already treats a falsy body as
-// "show nothing") rather than surfacing as a visible error. See this
-// task's "GUI must degrade silently" acceptance criterion.
+// it's unreadable/corrupt, the last run's outcome was "success", or it was
+// "skipped" - see statuslog.OutcomeSkipped's doc comment for why a skipped
+// run is treated the same as success here) - never an HTTP error status, so
+// a missing/corrupt file degrades silently on the client (bannerChrome's
+// render() already treats a falsy body as "show nothing") rather than
+// surfacing as a visible error. See this task's "GUI must degrade silently"
+// acceptance criterion.
 func (s *server) handleScheduledStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
@@ -45,7 +47,7 @@ func (s *server) handleScheduledStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	status, ok := readScheduledStatusFunc()
-	if !ok || status.Outcome == statuslog.OutcomeSuccess {
+	if !ok || status.Outcome == statuslog.OutcomeSuccess || status.Outcome == statuslog.OutcomeSkipped {
 		_, _ = w.Write([]byte("null"))
 		return
 	}

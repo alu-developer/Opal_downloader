@@ -133,6 +133,24 @@ number is meaningless and must be ignored - otherwise a stale-and-expired
 reading gates every future run forever. A window still inside its period is
 usable even when the file is old, since usage only climbs within a window.
 
+That rule now lives in one place, `.claude/hooks/budget-lib.ps1`, shared by
+every hook that reads the budget. It used to be copied into each, and the
+copies had already drifted: `rate-limit-gate.ps1` had no freshness check at
+all. `Get-BudgetFloor` returns the reading; `Get-BudgetRung` maps it onto the
+severity ladder in §2b.
+
+**Treat every reading as a lower bound.** The keep-warm process only re-stamps
+cached numbers while idle — real figures refresh when a new `claude` process
+starts, hourly. "60%" means "at least 60%, possibly an hour's worth more". It
+never means "40% left".
+
+A second trap, fixed 2026-07-23: keep-warm's cold-launch confirmation wait is
+42s, and the `Stop` hook that calls it had a 15s timeout. A cold launch killed
+the gate mid-wait, so the gate produced no output, the turn ended, and
+autopilot silently stopped — an invisible failure hiding inside the freshness
+machinery itself. Hook callers now pass `-NoWait` (this turn uses the previous
+floor, the next gets fresh numbers) and the timeout is 60s.
+
 **A transcript-derived estimate was built here and REMOVED the same day.**
 Summing `message.usage` over a rolling window looked reasonable and produced
 83.5% for a 5-hour window that was really at 46% - it would have stopped
@@ -143,12 +161,28 @@ machinery.
 
 ### Testing the gate must never touch the real queue
 
-Set `OPAL_AUTOPILOT_QUEUE_DIR` to a throwaway directory. On 2026-07-21 a
-verification run ended by deleting `AUTOPILOT` plus both state files to clean
-up after itself, and killed the live autopilot - taking the session record
-with it, which is precisely what defeats the restore-on-delete protection. The
-maintainer had to restart the run manually. Isolate the test, don't clean up
-the real thing.
+`scripts/test-hooks.ps1` covers this machinery (58 assertions), and runs as
+part of `scripts/dev.ps1 all`. It exists because none of these hooks had any
+tests until 2026-07-23, which is how both bugs above shipped — each was found
+by reading the code after an incident, which does not scale to finding the
+next one.
+
+Two isolation rules, both learned the hard way:
+
+- Set `OPAL_AUTOPILOT_QUEUE_DIR` to a throwaway directory. On 2026-07-21 a
+  verification run ended by deleting `AUTOPILOT` plus both state files to
+  clean up after itself, and killed the live autopilot - taking the session
+  record with it, which is precisely what defeats the restore-on-delete
+  protection. The maintainer had to restart the run manually. Isolate the
+  test, don't clean up the real thing.
+- Set `OPAL_RATE_LIMIT_STATUS` to a synthetic status file. Reading the real
+  one makes assertions pass or fail depending on the maintainer's actual usage
+  that hour.
+
+When adding assertions, check they can actually fail — mutate the code under
+test and confirm red. The expired-window rule was verified this way:
+reintroducing the old bug fails three assertions across the reader, the
+guard's behaviour, and the deny path.
 
 ### Known limitation: the budget data goes stale
 
@@ -157,11 +191,16 @@ the real thing.
 non-interactive sessions** - which is precisely where autopilot matters. On
 2026-07-21 that file was found 10 hours stale, still reporting 1% / 15%.
 
-That is why the hook checks the file's age and treats stale data as unknown
-rather than as "plenty of budget left". The `PreToolUse` rate-limit gate for
-subagent launches (`.claude/hooks/rate-limit-gate.ps1`) has the same blind
-spot and does **not** check freshness - it fails open on stale data. Worth
-fixing; until then, do not treat either gate as a hard guarantee.
+That is why every reading is treated as a floor, and why an expired window
+reads as unknown rather than as a number. The old `rate-limit-gate.ps1`, which
+had no freshness check at all, is gone: its subagent-deny job moved into
+`budget-guard.ps1` and now goes through the shared rule.
+
+What remains genuinely unsolved is that no signal here is *live*. Between
+hourly keep-warm refreshes the number does not move, so a fast-burning turn can
+cross several rungs before the guard sees any of it. This is the reason the
+whole design targets cheap failure rather than avoidance — do not treat any
+gate here as a hard guarantee.
 
 ## 2. Model and effort
 
@@ -186,31 +225,86 @@ those should default to something cheap for search/read work.
 
 ## 2b. When the usage limit is hit mid-run
 
-Hitting the limit stops the turn dead. Nothing restarts it, so historically
-the maintainer had to notice and write "continue" — the exact manual step
-this whole model exists to remove.
+Hitting the limit stops the turn dead, instantly. **No `Stop` hook runs**, so
+every guard described above — expiry, iteration cap, budget thresholds — is
+bypassed entirely. This is not a rare edge case; it happened on 2026-07-23 and
+is the reason the machinery below exists.
 
-**Whenever autopilot is enabled, also schedule a resume check.** A recurring
-`CronCreate` job (~every 23 minutes) that:
+### What went wrong on 2026-07-23
 
-- does nothing at all if `.claude/queue/AUTOPILOT` is missing, expired, or
-  the queue is empty — it must not burn tokens deciding that;
-- otherwise resumes the highest-value queued task, reading
-  `docs/sync-speed-campaign.md` and the task file to reconstruct state
-  instead of re-running measurements.
+Every rate-limit guard the repo had lived on the `Stop` hook, i.e. *between*
+turns. A single long turn therefore ran past the budget with nothing watching
+it, and was killed mid-run. The session record showed **1–2 autopilot
+continuations against a cap of 20** — the gate was never given a chance to
+fire, because the run never reached a stopping point.
 
-While the limit is in force the fire simply fails; once the quota resets, the
-next fire picks the work back up on its own.
+Worse, nothing recorded the kill. Working out what had even happened, hours
+later, meant comparing commit timestamps (last commit 11:46) against
+rate-limit-window reset arithmetic. A failure mode the maintainer explicitly
+cares about was invisible after the fact.
 
-**Known limits of this mechanism, do not oversell it:**
+### The design rule: make the wall cheap, do not try to predict it
 
-- Cron jobs are **session-only** — in memory, gone if the session ends, and
-  auto-expiring after 7 days. It rescues a rate-limited session, not a dead
-  one.
-- Jobs only fire while the REPL is idle.
-- The budget data itself is unreliable (see the stale-status-file note
-  above), so this cannot *predict* a limit. It only recovers from one, which
-  is the achievable half.
+The budget data cannot support prediction. It is a **floor** that can be an
+hour stale (see below), and the one attempt at a precise estimator was removed
+the day it was written for reporting 83.5% against a real 46%. Anything built
+on "we have N% left" is building on sand.
+
+So the goal is not avoidance. It is that **being killed costs the current turn
+and nothing more**. Three pieces, in the order they fire:
+
+| Piece | Hook | Job |
+|---|---|---|
+| `budget-guard.ps1` | `PreToolUse`, no matcher | The only check that runs *during* a turn. As the floor climbs it tells the assistant, mid-turn, to commit and write down where it got to. |
+| `turn-failure-checkpoint.ps1` | `StopFailure` | Fires *because* the turn died. Records what happened and captures uncommitted work. |
+| `session-start-autopilot.ps1` | `SessionStart` | Hands the next session the failure record and `docs/RESUME.md`. |
+
+**The rungs** (worst window wins; thresholds are on the floor, so the real
+figure is always at least this):
+
+| Rung | 5h | 7d | Effect |
+|---|---|---|---|
+| 1 notice | ≥50% | ≥65% | Work in savable increments; keep `docs/RESUME.md` current. |
+| 2 checkpoint | ≥70% | ≥80% | Commit what is correct now, even mid-task. Update the resume note. |
+| 3 critical | ≥80% | ≥85% | As above, plus new subagent launches are **denied**. |
+
+Advice is throttled — once when the rung rises, then at most every 15 minutes.
+An unthrottled reminder on every tool call would burn the budget it protects.
+
+**Rung 3 is not a stop condition.** It says "stay savable", not "stop working".
+Ending a run remains the guards' call or the maintainer's, exactly as in §1.
+
+### What survives a kill
+
+- **`docs/RESUME.md`** — tracked in git, deliberately messy, holds the thought
+  that would otherwise exist only in a context window. Keep it current *while*
+  working; the end of a task is precisely the part that does not always
+  arrive.
+- **Uncommitted work** — `turn-failure-checkpoint.ps1` runs `git stash create`
+  and points `refs/wip-checkpoints/<unix>` at the result. That captures the
+  tree in a recoverable commit **without touching the working tree, the index,
+  the stash, or any branch**. Deliberately not a real commit: committing
+  half-finished work unattended, at an arbitrary instant, is a side effect a
+  hook has no business causing. The next session is told the SHA.
+- **`.claude/queue/LAST_FAILURE.json`** and an append-only
+  `turn-failures.log`, so a recurring pattern is visible instead of each
+  failure erasing evidence of the last.
+
+### Still not solved: automatic resumption
+
+Everything above makes a kill *cheap*. Nothing above makes work *restart* on
+its own once the quota resets — the maintainer still has to open a session,
+which then immediately knows where it was.
+
+The previous answer here was a recurring `CronCreate` resume job. It is gone
+from this document because it did not work and should not be relied on: cron
+jobs are **session-only** (in memory, dead with the session, auto-expiring
+after 7 days) and only fire while the REPL is idle — so the one case that
+matters, a session killed by the limit, is the case it cannot rescue.
+
+A real fix needs something outside the session that spends budget unattended
+(a scheduled headless `claude`). **That is the maintainer's money and their
+call**, and is not to be built without asking.
 
 ## 3. Staying inside 5h / 7d limits
 

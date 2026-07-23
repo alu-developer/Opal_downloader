@@ -183,10 +183,23 @@ it. Default model is
 Sonnet at medium effort; escalating to Opus/high is a deliberate call the
 maintainer has to make, so ask for it explicitly when a task needs it.
 
+**A usage-limit kill bypasses all of that** — it stops the turn dead and no
+`Stop` hook runs. So `.claude/hooks/budget-guard.ps1` (`PreToolUse`) watches
+the budget *during* a turn and, as it climbs, tells you to commit and to keep
+**`docs/RESUME.md`** current. Do that: the resume note plus small commits are
+what survive a kill, and `docs/RESUME.md` is what the next session is handed.
+Budget pressure is never a reason to stop working — only a reason to stay
+savable. Hook behaviour is covered by `scripts/test-hooks.ps1`.
+
 ## Task tracking: `docs/BACKLOG.md`, not the old queue
 
 Work is tracked in `docs/BACKLOG.md` (see "Start here" above). Plain prose,
 tracked in git, updated alongside the code.
+
+`docs/RESUME.md` is its short-lived companion: what is in flight *right now*,
+kept current while working rather than at the end. The backlog stays tidy and
+says what should happen; the resume note is allowed to be messy and says where
+you actually are. Clear it back to its placeholder line when the work lands.
 
 The older `.claude/queue/` workflow — `task-capture` / `queue-run` /
 `queue-review` against `todo/`, `in-progress/`, `done/`, `blocked/` — is
@@ -202,7 +215,9 @@ on a machine, treat `docs/BACKLOG.md` as authoritative.
 
 ## Maintenance
 
-- `scripts/dev.ps1 all` — local build/vet/test/lint, run before any PR.
+- `scripts/dev.ps1 all` — local build/vet/test/lint, run before any PR. Also
+  runs `scripts/test-hooks.ps1` (the `.claude/hooks/` autopilot and budget
+  machinery); `scripts/dev.ps1 hooks` runs just that part.
 - `scripts/test-fresh-install.ps1` — validates the no-credentials setup path
   (clone through `init`); see `docs/setup-friction.md` for known friction.
 - `docs/manual-setup-checklist.md` — manual checklist for the

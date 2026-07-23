@@ -106,7 +106,20 @@ enough to justify keeping a known-hazardous test around.
 
 ## Next
 
-(nothing queued right now)
+### Decide: should a killed run restart itself? (needs the maintainer)
+A turn killed by the usage limit is now cheap to lose — it is recorded, WIP is
+captured, and the next session is handed `docs/RESUME.md` (see "Done recently").
+What is still missing is *restarting*: the maintainer has to open a session,
+which then immediately knows where it was.
+
+Closing that gap means something outside the session spending budget
+unattended — a scheduled headless `claude` that wakes after the quota resets
+and picks the work back up. That is real recurring spend against a Pro plan, so
+it is the maintainer's call, not a decision to make while they are away. The
+previous answer here (a recurring `CronCreate` job, documented in the operating
+model until 2026-07-23) is not a substitute: cron jobs are session-only and
+only fire while the REPL is idle, so they cannot rescue the one case that
+matters.
 
 ---
 
@@ -115,6 +128,34 @@ enough to justify keeping a known-hazardous test around.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Watch the token budget during a turn, not just between turns.** A run was
+  killed mid-turn by the 5-hour limit (2026-07-23) and left no trace;
+  diagnosing it meant comparing commit timestamps against window-reset
+  arithmetic. Every guard lived on the `Stop` hook — *between* turns — so one
+  long turn ran past the budget unwatched, with 1–2 autopilot continuations
+  used against a cap of 20. A usage-limit kill never reaches `Stop`, so none of
+  the existing guards could ever have fired.
+  Now: `budget-guard.ps1` (`PreToolUse`, every tool call) escalates advice as
+  the budget floor climbs — commit, update `docs/RESUME.md`, and at the top
+  rung no new subagents; `turn-failure-checkpoint.ps1` (`StopFailure`) records
+  the kill and captures uncommitted work as a `refs/wip-checkpoints/` commit
+  without touching the working tree; `SessionStart` hands the next session the
+  failure record and the resume note, and won't arm a full autonomous stretch
+  on a budget the `Stop` gate would veto immediately.
+  It deliberately does **not** try to predict the limit — the data is a floor
+  that can be an hour stale, and the one precise estimator attempted here was
+  removed the day it was written for reporting 83.5% against a real 46%. The
+  goal is that a kill costs one turn, not a session's train of thought.
+  Two latent bugs fixed on the way: keep-warm's 42s cold-launch wait sat inside
+  a 15s `Stop` hook timeout and was silently ending autopilot, and
+  `rate-limit-gate.ps1` (now deleted, folded into `budget-guard.ps1`) had no
+  freshness check and would gate on an already-rolled-over window.
+  *Verified: `budget-guard` fired live at rung 3 on a real tool call during
+  this work; 58 new assertions in `scripts/test-hooks.ps1`, now part of
+  `dev.ps1 all`, and mutation-tested to confirm they fail when the code is
+  wrong. **Unverified:** `StopFailure` has not been observed firing for real —
+  that needs an actual API kill; tests drive the script directly via synthetic
+  stdin, which covers everything except whether the harness invokes it.*
 - **Set up the recurring review pass as an actual weekly cron**, not just a
   backlog note. A scheduled cloud routine (Monday 06:00 UTC) reviews only the
   commits since its own last run (tracked via `docs/last-review-commit.txt`),

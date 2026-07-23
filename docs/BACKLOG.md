@@ -82,6 +82,16 @@ equally un-diagnosable.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Set the scheduled task's working directory.** Task Scheduler launches an
+  action with no working directory set to `C:\Windows\System32`, not the
+  exe's own folder; every subcommand resolves `config.yaml` relative to the
+  current working directory, so a scheduled run failed with `config file not
+  found: C:\windows\system32\config.yaml` — caught live on the maintainer's
+  machine (2026-07-23), even though the registered exe path itself was
+  already stable (a different failure than the still-doomed-path repair
+  logic below covers). *Verified live end-to-end: rebuilt, re-registered the
+  real scheduled task, triggered it, watched it complete
+  (`LastTaskResult: 0`, "2 downloaded, 342 skipped").*
 - **Hid the pre-setup landing page's login-state box.** A first run with no
   config yet can't be logged in - there's no OPAL URL or credentials to log
   into - so "Not logged in yet" above the setup button was noise, not signal.

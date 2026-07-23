@@ -47,6 +47,7 @@ func TestBuildTaskXMLContainsExpectedSettings(t *testing.T) {
 		"<LogonType>InteractiveToken</LogonType>",
 		`<Command>C:\fake\opal-downloader.exe</Command>`,
 		"<Arguments>sync --scheduled</Arguments>",
+		`<WorkingDirectory>C:\fake</WorkingDirectory>`,
 		"T06:30:00",
 	} {
 		if !strings.Contains(xmlText, want) {

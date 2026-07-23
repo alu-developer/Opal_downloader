@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -77,8 +78,9 @@ type actions struct {
 }
 
 type execAction struct {
-	Command   string `xml:"Command"`
-	Arguments string `xml:"Arguments"`
+	Command          string `xml:"Command"`
+	Arguments        string `xml:"Arguments"`
+	WorkingDirectory string `xml:"WorkingDirectory"`
 }
 
 // buildTaskXML renders the Task Scheduler XML definition for the daily
@@ -158,6 +160,15 @@ func buildTaskXML(exePath, hhmm string) ([]byte, error) {
 			Exec: execAction{
 				Command:   exePath,
 				Arguments: "sync --scheduled",
+				// Task Scheduler launches an action with no working directory
+				// set to C:\Windows\System32, not exePath's own folder. Every
+				// subcommand resolves config.yaml relative to os.Getwd()
+				// (projectDir() in cmd/opal-downloader/root.go), so without
+				// this, a scheduled run fails with "config file not found:
+				// C:\windows\system32\config.yaml" - found live on the
+				// maintainer's machine (2026-07-23) even though the exe path
+				// itself was already stable.
+				WorkingDirectory: filepath.Dir(exePath),
 			},
 		},
 	}

@@ -100,43 +100,33 @@ $keepwarm = Join-Path $PSScriptRoot "rate-limit-keepwarm.ps1"
 if (Test-Path $keepwarm) {
     # & on the script path, never a child powershell.exe: a child inherits
     # this hook's stdin and blocks forever trying to read it.
-    & $keepwarm | Out-Null
+    #
+    # -NoWait because a cold launch's 42s confirmation wait exceeds this hook's
+    # own timeout, which used to kill the gate mid-wait and silently end
+    # autopilot. This turn uses the previous floor reading; the next gets the
+    # fresh one.
+    & $keepwarm -NoWait | Out-Null
 }
 
-$statusPath = Join-Path $env:USERPROFILE ".claude\rate-limit-status.json"
+# Per-window staleness handling now lives in budget-lib.ps1, shared with the
+# PreToolUse guard, because two copies of this rule had already drifted apart
+# once (the old rate-limit-gate.ps1 had no freshness check at all).
 $rateKnown = $false
 $five = $null
 $seven = $null
-if (Test-Path $statusPath) {
-    try {
-        $rl = Get-Content $statusPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        $age = $now - [int64]$rl.updated_at
-
-        # Per-window staleness, not one blanket check (queue-run's research):
-        # a window whose resets_at has passed rolled over since the file was
-        # written, so its number is meaningless - treating that as "high" would
-        # gate every future run forever. A window still inside its period is
-        # usable even when the file is old, because usage only climbs: the last
-        # reading is a floor.
-        if ($age -lt 600) {
-            $rateKnown = $true
-            $five = $rl.five_hour.used_percentage
-            $seven = $rl.seven_day.used_percentage
-        } else {
-            if ($null -ne $rl.five_hour.resets_at -and [int64]$rl.five_hour.resets_at -gt $now) {
-                $five = $rl.five_hour.used_percentage
-                $rateKnown = $true
-            }
-            if ($null -ne $rl.seven_day.resets_at -and [int64]$rl.seven_day.resets_at -gt $now) {
-                $seven = $rl.seven_day.used_percentage
-                $rateKnown = $true
-            }
-        }
+try {
+    $lib = Join-Path $PSScriptRoot "budget-lib.ps1"
+    if (Test-Path $lib) {
+        . $lib
+        $budget = Get-BudgetFloor -Now $now
+        $rateKnown = $budget.Known
+        $five = $budget.FiveHour
+        $seven = $budget.SevenDay
 
         if (($null -ne $five) -and ($five -ge 75)) { Allow-Stop }
         if (($null -ne $seven) -and ($seven -ge 80)) { Allow-Stop }
-    } catch { }
-}
+    }
+} catch { }
 
 if (-not $rateKnown -and $count -ge 8) {
     # No usable budget reading at all: allow a short autonomous stretch, not a
@@ -207,6 +197,8 @@ $reason = @"
 AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) item(s) remain in docs/BACKLOG.md: $names
 
 Do not stop to ask whether to continue. Pick the highest-value remaining task yourself and work it end to end: implement, run scripts/dev.ps1 all, verify against the task's own acceptance criteria, open a PR, and merge it once checks pass and every criterion is genuinely met.
+
+Keep docs/RESUME.md pointing at what you are actually doing right now, and commit each piece as it becomes correct. A turn killed by the usage limit never reaches this hook, so anything not written down by then is gone.
 
 Rules that still apply: never report a criterion as verified without exercising it; label anything unverified explicitly; a negative result is a valid outcome to report and file. Stop early only if a task genuinely needs a human decision - if so, move it to .claude/queue/blocked/ with the open question written down, then continue with the next task.
 

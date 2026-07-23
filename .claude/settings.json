@@ -2,6 +2,16 @@
   "hooks": {
     "PreToolUse": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/budget-guard.ps1",
+            "timeout": 10,
+            "statusMessage": "Checking budget..."
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -22,17 +32,6 @@
             "statusMessage": "Checking pre-push gate..."
           }
         ]
-      },
-      {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/rate-limit-gate.ps1",
-            "timeout": 15,
-            "statusMessage": "Checking rate-limit gate before launching agent..."
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -48,13 +47,25 @@
         ]
       }
     ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/turn-failure-checkpoint.ps1",
+            "timeout": 20,
+            "statusMessage": "Recording turn failure..."
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/autopilot-gate.ps1",
-            "timeout": 15,
+            "timeout": 60,
             "statusMessage": "Checking autopilot gate..."
           }
         ]

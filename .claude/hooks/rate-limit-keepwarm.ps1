@@ -31,6 +31,23 @@
 #
 # Windows-only. Exits 0 always; a failure here must never block anything.
 
+param(
+    # Start the process but do not wait for proof of a sync.
+    #
+    # The confirmation wait below can take 42s. The Stop hook that calls this
+    # is registered with a 15s timeout, so on a COLD launch the hook was being
+    # killed mid-wait - which means the autopilot gate produced no output, the
+    # turn ended, and autopilot silently stopped. Exactly the class of
+    # invisible failure this hook family exists to remove, hiding inside the
+    # freshness machinery itself.
+    #
+    # Callers that read the file immediately afterwards do not need the wait:
+    # a cold launch simply means this turn uses the previous (floor) reading
+    # and the next one gets fresh numbers. The wait is still the default for
+    # interactive/manual use, where confirmation is the whole point.
+    [switch]$NoWait
+)
+
 $ErrorActionPreference = 'SilentlyContinue'
 
 $pidFile = Join-Path $env:USERPROFILE ".claude\queue-run-keepwarm.pid"
@@ -69,6 +86,11 @@ try {
     Set-Content -Path $pidFile -Value $p.Id -ErrorAction SilentlyContinue
 } catch {
     Write-Output "keepwarm: launch failed: $($_.Exception.Message)"
+    exit 0
+}
+
+if ($NoWait) {
+    Write-Output "keepwarm: launched (not waiting for sync confirmation)"
     exit 0
 }
 

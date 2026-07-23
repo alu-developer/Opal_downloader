@@ -444,6 +444,7 @@ const pageStyle = `
 	.status { border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
 	.status.ok { background: #e6f4ea; border: 1px solid #8cc98f; }
 	.status.warn { background: #fdecea; border: 1px solid #e0a6a6; }
+	.status.neutral { background: #f0f0f0; border: 1px solid #ccc; }
 	.error { background: #fdecea; border: 1px solid #d93025; color: #7a1712; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
 	.success { background: #e6f4ea; border: 1px solid #34a853; color: #1e4620; border-radius: 6px; padding: 0.75rem 1rem; margin: 1.25rem 0; }
 	.warning { background: #fff8e1; border: 1px solid #e0c46c; color: #6b5300; border-radius: 6px; padding: 0.6rem 1rem; margin: 0.75rem 0; font-size: 0.9rem; }
@@ -488,7 +489,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 	</div>
 
 	{{if .UpdateChecked}}
-	<div class="status {{if .UpdateAvailable}}warn{{else}}ok{{end}}">
+	<div class="status {{if .UpdateAvailable}}warn{{else if .UpdateDevBuild}}neutral{{else}}ok{{end}}">
 		{{if .UpdateAvailable}}
 			An update is available: <code>{{.CurrentVersion}}</code> &rarr; <code>{{.LatestVersion}}</code>.
 			<form method="post" action="/update/start" style="margin-top: 0.5rem;">
@@ -752,7 +753,7 @@ var updatePageTemplate = template.Must(template.New("update").Parse(`<!DOCTYPE h
 	{{if not .Checked}}
 	<div class="status warn">Still checking for updates - refresh this page in a moment.</div>
 	{{else if .DevBuild}}
-	<div class="status warn">Update checks are unavailable for development builds (<code>{{.CurrentVersion}}</code>). Build with <code>-ldflags</code> to embed a real version, or check <a href="https://github.com/alu-developer/Opal_downloader/releases" target="_blank" rel="noopener">GitHub Releases</a> manually.</div>
+	<div class="status neutral">Update checks are unavailable for development builds (<code>{{.CurrentVersion}}</code>). Build with <code>-ldflags</code> to embed a real version, or check <a href="https://github.com/alu-developer/Opal_downloader/releases" target="_blank" rel="noopener">GitHub Releases</a> manually.</div>
 	{{else if .Result}}
 	<div class="status warn">Could not check for updates: {{.Result}}</div>
 	{{else if .Available}}

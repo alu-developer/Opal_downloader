@@ -145,8 +145,28 @@ record.
   so an unattended agent was not turned loose on the working tree. Both bugs are
   mutation-tested: restoring the bare `claude` fails the resolution assertion,
   and restoring the argument form fails four, with the stub capturing the prompt
-  truncated at line one exactly as predicted. 86 hook assertions, `dev.ps1 all`
+  truncated at line one exactly as predicted. 90 hook assertions, `dev.ps1 all`
   green.*
+- **Stopped the resume runner joining a session already working in the tree.**
+  Found by the fix above working: the very next hourly fire launched a real
+  unattended agent into this worktree while an interactive session was editing
+  it. Two agents, one tree, no lock between them — the run was killed before it
+  committed anything, tree clean. The existing gate only asked whether a
+  *previous unattended run* was alive, which says nothing about a human's
+  session. Now `budget-guard.ps1` stamps `.session-heartbeat.json` on every tool
+  call and the runner skips while that stamp is under 20 minutes old.
+  The obvious implementation — "is any `claude` process alive?" — would have
+  deadlocked: the keep-warm process is permanently alive and idle, so it would
+  have vetoed every launch forever. Stamping from the tool-call hook separates
+  *working* from *running*, and a stamp that ages out means a session dying
+  cannot wedge the runner shut. An idle open session is the accepted false
+  negative; it isn't editing anything.
+  *Verified live: the real runner now reports `a session is active in this tree
+  (0m since its last tool call)` against this session's own heartbeat. Both
+  directions mutation-tested — removing the gate fails the "won't launch" test,
+  and making the heartbeat immortal fails the ages-out test — plus a third
+  proving the stamp really comes from `budget-guard` on a healthy budget, where
+  it returns early.*
 - **Made work resume by itself once the budget recovers.** Closes the
   "should a killed run restart itself?" question — the maintainer asked for it
   directly (2026-07-23) after being told the cost. An hourly Windows scheduled

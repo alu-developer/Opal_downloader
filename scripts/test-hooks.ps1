@@ -344,6 +344,10 @@ try {
     $env:OPAL_RESUME_REPO_ROOT = (Split-Path $fakeRepo -Parent)
     $runner = Join-Path $hooksDir "resume-runner.ps1"
     $runnerState = Join-Path $queueDir ".resume-runner-state.json"
+    # The budget-guard tests above stamped a session heartbeat into this same
+    # sandbox queue, and gate 2b honours it. Clear it so these assertions test
+    # what they say they test; the heartbeat gate has its own tests below.
+    Remove-Item (Join-Path $queueDir ".session-heartbeat.json") -Force -ErrorAction SilentlyContinue
 
     function Set-FakeWork {
         param([switch]$None)
@@ -454,6 +458,38 @@ try {
     @{ last_launch = 0; last_pid = $PID } | ConvertTo-Json | Set-Content $runnerState -Encoding utf8
     $out = Invoke-Runner
     Assert-That "will not start a second run while one is active" ($out -match "still active") "got: $out"
+
+    # ...and neither would one unattended agent joining the maintainer's own
+    # session. Gate 2 above only knows about runs the runner itself started; on
+    # 2026-07-26, the first hour the launch path worked, it launched into a tree
+    # an interactive session was already editing.
+    $heartbeat = Join-Path $queueDir ".session-heartbeat.json"
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    @{ at = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 120); session_id = "live" } |
+        ConvertTo-Json -Compress | Set-Content $heartbeat -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "will not launch into a tree a live session is working in" ($out -match "session is active") "got: $out"
+
+    # THE DEADLOCK THIS MUST NOT BECOME. A heartbeat that never ages out - or a
+    # check based on "is any claude process alive", which the permanently-idle
+    # keep-warm process would satisfy forever - would wedge this shut in silence,
+    # the same failure shape as gate 4's.
+    @{ at = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 3600); session_id = "dead" } |
+        ConvertTo-Json -Compress | Set-Content $heartbeat -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "a stale heartbeat ages out instead of wedging it shut" ($out -match "would-launch") "got: $out"
+
+    Remove-Item $heartbeat -Force -ErrorAction SilentlyContinue
+    $out = Invoke-Runner
+    Assert-That "no heartbeat at all is not treated as a session" ($out -match "would-launch") "got: $out"
+
+    # The stamp has to come from the hook that fires on every tool call, or the
+    # gate above is asserting against a file nothing writes.
+    Remove-Item $heartbeat -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 5 -SevenPct 5
+    Invoke-Hook "budget-guard.ps1" @{ session_id = "hb1"; tool_name = "Read" } | Out-Null
+    Assert-That "budget-guard stamps the heartbeat even on a healthy budget" (Test-Path $heartbeat) "no heartbeat written"
+    Remove-Item $heartbeat -Force -ErrorAction SilentlyContinue
 
     # One off switch for the whole family, not two.
     Remove-Item $runnerState -Force -ErrorAction SilentlyContinue

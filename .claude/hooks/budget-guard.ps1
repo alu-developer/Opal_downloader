@@ -51,6 +51,32 @@ try {
     }
 } catch { }
 
+$queueDir = $env:OPAL_AUTOPILOT_QUEUE_DIR
+if (-not $queueDir) { $queueDir = Join-Path $PSScriptRoot "..\queue" }
+if (-not (Test-Path $queueDir)) {
+    try { New-Item -ItemType Directory -Path $queueDir -Force | Out-Null } catch { Allow-Silently }
+}
+
+# --- heartbeat: "somebody is working in this tree right now" -------------------
+# For resume-runner.ps1. It used to check only whether a PREVIOUS UNATTENDED run
+# was alive, which said nothing about the maintainer having a session open - so
+# the first hour its launch path actually worked (2026-07-26), it started a
+# second agent into a worktree an interactive session was already editing.
+#
+# This hook is the right place to stamp it because it fires on every tool call:
+# a session doing work stamps continuously, and an idle `claude` (the keep-warm
+# process, which is permanently alive and must NOT count as work) never stamps
+# at all. Checking for live `claude` processes instead would have deadlocked on
+# exactly that.
+#
+# Deliberately before the budget check below, which returns early on a healthy
+# budget - that is when a session is most likely to be running.
+try {
+    @{ at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); session_id = $sessionId } |
+        ConvertTo-Json -Compress |
+        Set-Content (Join-Path $queueDir ".session-heartbeat.json") -Encoding utf8 -ErrorAction Stop
+} catch { }
+
 $lib = Join-Path $PSScriptRoot "budget-lib.ps1"
 if (-not (Test-Path $lib)) { Allow-Silently }
 . $lib
@@ -84,11 +110,6 @@ if ($rung -ge 3 -and $toolName -eq 'Agent') {
 # --- throttle -----------------------------------------------------------------
 # Speak up when the rung first rises, then at most every 15 minutes while it
 # holds. Re-notifying on every tool call would be self-defeating.
-$queueDir = $env:OPAL_AUTOPILOT_QUEUE_DIR
-if (-not $queueDir) { $queueDir = Join-Path $PSScriptRoot "..\queue" }
-if (-not (Test-Path $queueDir)) {
-    try { New-Item -ItemType Directory -Path $queueDir -Force | Out-Null } catch { Allow-Silently }
-}
 $statePath = Join-Path $queueDir ".budget-guard-state.json"
 
 $state = $null

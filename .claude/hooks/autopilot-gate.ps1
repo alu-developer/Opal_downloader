@@ -165,17 +165,16 @@ try {
 # moved with the work it counts.
 #
 # An item is a "### " heading appearing before the "## Done recently"
-# section. Everything from that heading onward is history, not work.
+# section, MINUS any flagged "**Blocked:**" (Get-BacklogItems, budget-lib.ps1)
+# - a heading needing a maintainer decision or a live/attended session is not
+# something continuing the turn can make progress on, and counting it as work
+# forced endless nagging with nowhere to go. Everything from "Done recently"
+# onward is history, not work.
 $backlog = Join-Path $repoRoot "docs\BACKLOG.md"
 if (-not (Test-Path $backlog)) { Allow-Stop }
-$lines = @(Get-Content $backlog -ErrorAction SilentlyContinue)
-if ($lines.Count -eq 0) { Allow-Stop }
-
-$todo = @()
-foreach ($line in $lines) {
-    if ($line -match '^##\s+Done recently') { break }
-    if ($line -match '^###\s+(.+)$') { $todo += $Matches[1].Trim() }
-}
+try {
+    $todo = @(Get-BacklogItems -BacklogPath $backlog | Where-Object { -not $_.Blocked } | ForEach-Object { $_.Title })
+} catch { Allow-Stop }
 if ($todo.Count -eq 0) { Allow-Stop }
 
 # --- continue ----------------------------------------------------------------

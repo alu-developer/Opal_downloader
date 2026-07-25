@@ -119,6 +119,34 @@ if ($state.last_pid -and [int]$state.last_pid -gt 0) {
     }
 }
 
+# --- gate 2b: is a human's session working in this tree right now? ------------
+# Gate 2 only knows about runs THIS script started. It says nothing about the
+# maintainer having a session open - and on 2026-07-26, the first hour the
+# launch path actually worked, this fired into a worktree an interactive session
+# was already editing. Two agents, one tree, no lock between them.
+#
+# budget-guard.ps1 stamps a heartbeat on every tool call, so "working" means a
+# recent stamp. Deliberately NOT "is any claude process alive": the keep-warm
+# process is permanently alive and idle, so that test would never let this
+# launch again - the same shape as the deadlock in gate 4.
+#
+# Fails toward launching, not toward silence: a session that dies leaves a stamp
+# that ages out within the window, so this can never wedge shut permanently. An
+# idle open session is the accepted false negative - it is not editing anything.
+if (-not $Force) {
+    $heartbeat = Join-Path $queueDir ".session-heartbeat.json"
+    if (Test-Path $heartbeat) {
+        try {
+            $hb = Get-Content $heartbeat -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $age = $now - [int64]$hb.at
+            if ($age -ge 0 -and $age -lt 1200) {
+                Say "skip" "a session is active in this tree ($([math]::Round($age / 60))m since its last tool call)"
+                exit 0
+            }
+        } catch { }
+    }
+}
+
 # --- gate 3: cooldown ---------------------------------------------------------
 # A run that dies immediately must not turn into a relaunch loop that drains
 # the budget faster than working would have.

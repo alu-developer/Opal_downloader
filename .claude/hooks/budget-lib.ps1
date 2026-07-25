@@ -112,6 +112,50 @@ function Get-BudgetFloor {
     return $result
 }
 
+function Get-BacklogItems {
+    <#
+    .SYNOPSIS
+      Parses docs/BACKLOG.md's "### " headings (before "## Done recently")
+      into items, each flagged Blocked if the first non-blank line of its body
+      starts with "**Blocked:**".
+
+    .DESCRIPTION
+      Shared by autopilot-gate.ps1 (should a turn keep going?) and
+      resume-runner.ps1 (should a whole new unattended session be launched?).
+      Both used to count every "### " heading as work, with no way to tell a
+      genuinely actionable item from one already written up as waiting on a
+      maintainer decision or a live/attended session - so an all-blocked
+      backlog still forced endless mid-turn nagging and hourly relaunches that
+      could never make progress. "**Blocked:**" is prose already used
+      elsewhere in this file for exactly this situation; this just makes it
+      machine-readable too.
+
+    .OUTPUTS
+      Array of PSCustomObject { Title; Blocked }
+    #>
+    param([Parameter(Mandatory)][string]$BacklogPath)
+
+    $items = @()
+    if (-not (Test-Path $BacklogPath)) { return $items }
+
+    $current = $null
+    foreach ($line in @(Get-Content $BacklogPath -ErrorAction SilentlyContinue)) {
+        if ($line -match '^##\s+Done recently') { break }
+        if ($line -match '^###\s+(.+)$') {
+            if ($null -ne $current) { $items += $current }
+            $current = [pscustomobject]@{ Title = $Matches[1].Trim(); Blocked = $false; SeenBody = $false }
+            continue
+        }
+        if ($null -ne $current -and -not $current.SeenBody) {
+            if ($line.Trim() -eq '') { continue }
+            if ($line -match '^\*\*Blocked:') { $current.Blocked = $true }
+            $current.SeenBody = $true
+        }
+    }
+    if ($null -ne $current) { $items += $current }
+    return $items
+}
+
 function Get-BudgetRung {
     <#
     .SYNOPSIS

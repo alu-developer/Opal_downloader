@@ -38,11 +38,40 @@ param(
     # Report the decision without launching anything.
     [switch]$DryRun,
     # Skip the budget and cooldown gates. For testing the launch path only.
-    [switch]$Force
+    [switch]$Force,
+    # Print the resolved `claude` launcher and exit. Exists so the test suite
+    # can assert against THIS resolution rather than reimplementing it - see
+    # the comment on Resolve-ClaudeLauncher for why that distinction matters.
+    [switch]$WhichClaude
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
 Set-StrictMode -Off
+
+function Resolve-ClaudeLauncher {
+    # WHY THIS EXISTS AT ALL, i.e. why not just -FilePath "claude":
+    #
+    # `Start-Process` does not resolve a bare name the way the PowerShell prompt
+    # does. The prompt walks PATHEXT and finds claude.cmd; Start-Process hands
+    # the raw string to the Windows loader, which takes the FIRST matching file
+    # on PATH regardless of extension. npm installs three side by side:
+    #
+    #     claude       <- extensionless POSIX shim, for Git Bash. Not a PE binary.
+    #     claude.cmd   <- the Windows entry point
+    #     claude.ps1
+    #
+    # So the loader picked the shim and failed with "%1 is not a valid Win32
+    # application" - every single time, for two days, while the gates below
+    # reported healthy and the log said "launch-failed" to nobody. The feature
+    # was never once able to do the one thing it exists for.
+    if ($env:OPAL_RESUME_CLAUDE_CMD) { return $env:OPAL_RESUME_CLAUDE_CMD }
+    foreach ($c in @(Get-Command claude -All -ErrorAction SilentlyContinue)) {
+        if ($c.CommandType -eq 'Application' -and $c.Source -match '\.(cmd|bat|exe)$') { return $c.Source }
+    }
+    return $null
+}
+
+if ($WhichClaude) { Write-Output (Resolve-ClaudeLauncher); exit 0 }
 
 function Say { param([string]$Decision, [string]$Detail = "")
     $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -190,17 +219,29 @@ This run is bounded and unsupervised. That means:
 
 if ($DryRun) { Say "would-launch" $budgetNote; exit 0 }
 
-$runLog = Join-Path $queueDir "resume-run-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()).log"
+$claudeCmd = Resolve-ClaudeLauncher
+if (-not $claudeCmd) { Say "launch-failed" "no executable claude (.cmd/.exe) found on PATH"; exit 0 }
+
+# The prompt goes in over stdin, not as an argument. A .cmd is executed by
+# cmd.exe, which treats a newline in its command line as end-of-command - the
+# multi-line prompt below would arrive truncated at line one, and the rest
+# would be interpreted as commands. `claude -p` with no query argument reads
+# the prompt from stdin, which has no such hazard and no quoting rules.
+$stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$runLog = Join-Path $queueDir "resume-run-$stamp.log"
+$promptFile = Join-Path $queueDir "resume-prompt-$stamp.txt"
 $launched = $null
 try {
+    Set-Content -Path $promptFile -Value $prompt -Encoding utf8 -ErrorAction Stop
     $env:OPAL_UNATTENDED_RESUME = "1"
     # --model sonnet: the documented default. An unattended run does not get to
     # escalate to Opus - that is the maintainer's call, made in person.
     # --dangerously-skip-permissions: required for any unattended launch, same
     # reasoning as rate-limit-keepwarm.ps1 (it skips the startup trust dialog).
-    $launched = Start-Process -FilePath "claude" `
-        -ArgumentList @('-p', $prompt, '--model', 'sonnet', '--dangerously-skip-permissions') `
+    $launched = Start-Process -FilePath $claudeCmd `
+        -ArgumentList @('-p', '--model', 'sonnet', '--dangerously-skip-permissions') `
         -WorkingDirectory $repoRoot `
+        -RedirectStandardInput $promptFile `
         -RedirectStandardOutput $runLog `
         -RedirectStandardError "$runLog.err" `
         -WindowStyle Hidden -PassThru -ErrorAction Stop

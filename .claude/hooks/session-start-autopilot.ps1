@@ -65,6 +65,45 @@ if (Test-Path $failureFile) {
     Remove-Item $failureFile -Force -ErrorAction SilentlyContinue
 }
 
+# --- did the unattended resume runner fail to start anything? -----------------
+# resume-runner.ps1 runs on a Windows scheduled task with no human attached. Its
+# only output is a line in resume-runner.log, and nobody reads that file - which
+# is how a broken launch path (it invoked npm's extensionless POSIX shim, which
+# Windows cannot execute) survived two days and six failed hourly attempts while
+# every gate above it reported healthy. A watchdog whose failures are invisible
+# is worse than none: it looks like a working safety net.
+#
+# So: report unreported launch-failed lines to the next session that opens, once
+# each. Timestamped high-water mark rather than deleting the log, because the
+# log is also the evidence for diagnosing whatever went wrong.
+$resumeLog = Join-Path $queueDir "resume-runner.log"
+$reportState = Join-Path $queueDir ".resume-report-state.json"
+if (Test-Path $resumeLog) {
+    try {
+        $lastSeen = ""
+        if (Test-Path $reportState) {
+            $rs = Get-Content $reportState -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($rs.last_reported) { $lastSeen = [string]$rs.last_reported }
+        }
+        $failures = @()
+        $newest = $lastSeen
+        foreach ($line in @(Get-Content $resumeLog -Tail 200 -ErrorAction Stop)) {
+            # "<iso8601>`t<decision>`t<detail>"
+            $parts = $line -split "`t"
+            if ($parts.Count -lt 2 -or $parts[1] -ne "launch-failed") { continue }
+            if ($parts[0] -le $lastSeen) { continue }
+            $failures += $line
+            if ($parts[0] -gt $newest) { $newest = $parts[0] }
+        }
+        if ($failures.Count -gt 0) {
+            $detail = ($failures | Select-Object -Last 3) -join "`n"
+            $notes += "THE SCHEDULED RESUME RUNNER COULD NOT START A SESSION: $($failures.Count) launch-failed entry/entries in .claude/queue/resume-runner.log since this was last reported. Its gates decided a resume was warranted and then the launch itself failed, so no unattended work happened. Treat this as a bug to fix, not a log line. Most recent:`n`n$detail"
+            @{ last_reported = $newest } | ConvertTo-Json -Compress |
+                Set-Content $reportState -Encoding utf8 -ErrorAction SilentlyContinue
+        }
+    } catch { }
+}
+
 # --- where was the last session up to? ----------------------------------------
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $resumePath = Join-Path $repoRoot "docs\RESUME.md"

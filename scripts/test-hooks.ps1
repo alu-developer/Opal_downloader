@@ -300,6 +300,39 @@ try {
     Assert-That "AUTOPILOT.OFF prevents arming" (-not (Test-Path $marker)) "armed over the off switch"
     Remove-Item $offSwitch -Force -ErrorAction SilentlyContinue
 
+    # A failing scheduled resume runner has no human to tell. Its launch path was
+    # broken for two days and six attempts, and the only trace was a log line
+    # nobody reads - so the next interactive session has to be told, once.
+    $resumeLogT = Join-Path $queueDir "resume-runner.log"
+    $reportStateT = Join-Path $queueDir ".resume-report-state.json"
+    Remove-Item $reportStateT -Force -ErrorAction SilentlyContinue
+    @(
+        "2026-07-24T06:26:59Z`tskip`tbudget not recovered (7d >=86%)"
+        "2026-07-24T06:52:51Z`tlaunch-failed`t%1 is not a valid Win32 application."
+    ) -join "`n" | Set-Content $resumeLogT -Encoding utf8
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "r1"; source = "startup" }
+    Assert-That "a failed unattended launch is reported to the next session" `
+        ($out -match "COULD NOT START A SESSION") "got: $out"
+    Assert-That "and it quotes the actual failure, not just a count" `
+        ($out -match "not a valid Win32 application") "got: $out"
+
+    # Reported once. Re-announcing the same dead attempt every startup would
+    # train the reader to ignore it, which is the failure mode being fixed.
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "r2"; source = "startup" }
+    Assert-That "the same failure is not re-announced next time" `
+        ($out -notmatch "COULD NOT START A SESSION") "got: $out"
+
+    Add-Content $resumeLogT -Value "2026-07-25T12:52:50Z`tlaunch-failed`tsomething new broke" -Encoding utf8
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "r3"; source = "startup" }
+    Assert-That "but a NEW failure is" ($out -match "something new broke") "got: $out"
+
+    # Skips are the normal quiet hour - reporting them would be noise.
+    Add-Content $resumeLogT -Value "2026-07-25T13:52:50Z`tskip`tcooldown, 42m remaining" -Encoding utf8
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "r4"; source = "startup" }
+    Assert-That "a routine skip is not reported as a failure" `
+        ($out -notmatch "COULD NOT START A SESSION") "got: $out"
+    Remove-Item $resumeLogT, $reportStateT -Force -ErrorAction SilentlyContinue
+
     # =========================================================================
     Write-Host "`nresume-runner (scheduled self-restart)" -ForegroundColor Cyan
     # =========================================================================
@@ -428,6 +461,76 @@ try {
     $out = Invoke-Runner
     Assert-That "AUTOPILOT.OFF stops the resume runner too" ($out -match "AUTOPILOT.OFF") "got: $out"
     Remove-Item $offSwitch -Force -ErrorAction SilentlyContinue
+
+    # =========================================================================
+    Write-Host "`nresume-runner: the launch itself" -ForegroundColor Cyan
+    # =========================================================================
+    # EVERY assertion above this point uses -DryRun, which returns before
+    # Start-Process is ever reached. That is precisely how the runner shipped
+    # unable to launch anything at all: `Start-Process -FilePath "claude"` does
+    # not walk PATHEXT the way the shell prompt does, so it picked npm's
+    # extensionless POSIX shim and died with "%1 is not a valid Win32
+    # application" on all six real attempts over two days. Fully green tests,
+    # a feature that never once worked.
+    #
+    # A stub launcher (OPAL_RESUME_CLAUDE_CMD) makes the real launch path
+    # testable for free - a stub .cmd costs nothing, where a real `claude` would
+    # charge the maintainer to run the test suite.
+    $stubOut = Join-Path $sandbox "stub-claude-out.txt"
+    $stubCmd = Join-Path $sandbox "stub-claude.cmd"
+    @(
+        '@echo off'
+        "echo ARGS: %*> ""$stubOut"""
+        "powershell -NoProfile -Command ""[Console]::In.ReadToEnd()"" >> ""$stubOut"""
+    ) -join "`r`n" | Set-Content $stubCmd -Encoding ascii
+
+    $env:OPAL_RESUME_CLAUDE_CMD = $stubCmd
+    Remove-Item $runnerState, $stubOut -Force -ErrorAction SilentlyContinue
+    Set-FakeWork
+    Set-Status -FivePct 10 -SevenPct 10
+    $launchOut = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner 2>$null) -join "`n"
+    Assert-That "the real launch path actually launches" ($launchOut -match "launched\s+pid \d+") "got: $launchOut"
+
+    # A launch that "succeeded" without the child ever running would look
+    # identical in the log, so wait for the stub's own evidence.
+    $deadline = (Get-Date).AddSeconds(30)
+    while (-not (Test-Path $stubOut) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+    $stubText = ""
+    if (Test-Path $stubOut) {
+        # The stub appends stdin after its args; give it a moment to finish.
+        $deadline = (Get-Date).AddSeconds(30)
+        do {
+            Start-Sleep -Milliseconds 200
+            $stubText = (Get-Content $stubOut -Raw -ErrorAction SilentlyContinue)
+        } while (($stubText -notmatch "unattended") -and (Get-Date) -lt $deadline)
+    }
+    Assert-That "the launched process really ran" ($stubText -match "ARGS:") "stub wrote: $stubText"
+    Assert-That "it runs at the documented unattended default (sonnet)" ($stubText -match "--model sonnet") "stub wrote: $stubText"
+    Assert-That "it skips the trust dialog no human is there to answer" ($stubText -match "--dangerously-skip-permissions") "stub wrote: $stubText"
+
+    # THE MULTI-LINE PROMPT REGRESSION. A .cmd is run by cmd.exe, which ends its
+    # command line at the first newline - passing this prompt as an argument
+    # would deliver line one and try to EXECUTE the rest. It goes over stdin
+    # instead, so assert a late line of it actually arrived.
+    Assert-That "the whole prompt arrives, not just its first line" `
+        (($stubText -match "resuming unattended") -and ($stubText -match "docs/agent-operating-model\.md")) "stub wrote: $stubText"
+    Assert-That "the prompt is not passed as an argument" ($stubText -notmatch "ARGS:.*resuming unattended") "stub wrote: $stubText"
+
+    $st = Get-Content $runnerState -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+    Assert-That "a real launch records its pid, so the next hour can see it" ([int]$st.last_pid -gt 0) "state: $st"
+    Assert-That "and stamps the cooldown clock" ([int64]$st.last_launch -gt 0) "state: $st"
+    Remove-Item Env:\OPAL_RESUME_CLAUDE_CMD -ErrorAction SilentlyContinue
+
+    # THE ACTUAL BUG, asked of the runner itself rather than of a stub: what
+    # will it hand to Start-Process on this machine? Reimplementing the
+    # resolution here would only assert that two copies of the same idea agree,
+    # which is exactly what a bug in the real one looks like.
+    if (@(Get-Command claude -All -ErrorAction SilentlyContinue).Count -gt 0) {
+        $resolved = ((& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -WhichClaude 2>$null) -join "").Trim()
+        Assert-That "resolves claude to something Windows can execute" `
+            ($resolved -and (Test-Path $resolved) -and ($resolved -match '\.(cmd|bat|exe)$')) `
+            "resolved to '$resolved'; PATH has: $((Get-Command claude -All | ForEach-Object { $_.Source }) -join ', ')"
+    }
 
     Remove-Item Env:\OPAL_RESUME_REPO_ROOT -ErrorAction SilentlyContinue
 

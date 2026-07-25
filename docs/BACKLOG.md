@@ -115,6 +115,38 @@ enough to justify keeping a known-hazardous test around.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Made the self-resume runner able to actually start a session.** It never
+  once did. Reported by the maintainer (2026-07-26) as "hasn't worked so far";
+  `.claude/queue/resume-runner.log` showed six `launch-failed` lines over two
+  days, every one of them `%1 is not a valid Win32 application`. All five gates
+  were correct — they decided a resume was warranted, and then the launch died.
+  Cause: `Start-Process -FilePath "claude"` does not resolve a bare name the way
+  the shell prompt does. The prompt walks PATHEXT and finds `claude.cmd`;
+  Start-Process hands the raw string to the Windows loader, which takes the
+  first PATH match by name — npm's extensionless POSIX shim, not a PE binary.
+  A second bug was sitting behind it, never reached: the multi-line prompt was
+  passed as a `-ArgumentList` argument, and a `.cmd` runs under cmd.exe, which
+  ends its command line at the first newline. It would have delivered line one
+  and tried to *execute* the rest — `--model sonnet` included, so the run would
+  not even have been on the intended model. The prompt now goes over stdin,
+  which has no quoting or newline rules.
+  **Why it stayed invisible for two days:** the runner's only output is a log
+  line, and nothing reads that file. `SessionStart` now reports unacknowledged
+  `launch-failed` entries to the next interactive session, once each — a
+  watchdog whose failures are silent is worse than none, because it looks like
+  a working safety net.
+  The tests were fully green throughout: every resume-runner assertion used
+  `-DryRun`, which returns before `Start-Process` is reached. The launch path is
+  now testable via an `OPAL_RESUME_CLAUDE_CMD` stub, and `-WhichClaude` lets the
+  suite ask the runner what it would execute rather than reimplementing the
+  resolution and asserting two copies of the same idea agree.
+  *Verified live end-to-end: the real runner launched the real `claude`, which
+  read its prompt over stdin and replied — run in an isolated `OPAL_RESUME_REPO_ROOT`
+  so an unattended agent was not turned loose on the working tree. Both bugs are
+  mutation-tested: restoring the bare `claude` fails the resolution assertion,
+  and restoring the argument form fails four, with the stub capturing the prompt
+  truncated at line one exactly as predicted. 86 hook assertions, `dev.ps1 all`
+  green.*
 - **Made work resume by itself once the budget recovers.** Closes the
   "should a killed run restart itself?" question — the maintainer asked for it
   directly (2026-07-23) after being told the cost. An hourly Windows scheduled
@@ -142,8 +174,9 @@ record.
   own hourly schedule. `keepwarm -Force` tested for real — killed the stale
   process, resynced in 14s, file genuinely updated. The deadlock fix is
   mutation-tested: removing the refresh reproduces `refusing to guess` exactly.
-  **Unverified:** the launch path itself has never fired for real, because the
-  budget has not recovered yet; tests cover it only in `-DryRun`.*
+  **The launch path was flagged unverified here, and was in fact broken** — see
+  the entry above; "tests cover it only in `-DryRun`" was the whole problem, not
+  a caveat.*
 - **Watch the token budget during a turn, not just between turns.** A run was
   killed mid-turn by the 5-hour limit (2026-07-23) and left no trace;
   diagnosing it meant comparing commit timestamps against window-reset

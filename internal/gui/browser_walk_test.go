@@ -621,3 +621,132 @@ func TestBrowserUnsavedChangesWalk(t *testing.T) {
 		t.Fatalf("uncaught JavaScript errors during the walk: %v", pageErrors)
 	}
 }
+
+// What the sync log shows a user, in a real browser.
+//
+// The maintainer's complaint (2026-07-26) was that the run's output is written
+// for a developer: their account is ~345 files of which almost none change, so
+// a routine sync produced ~345 "skipped: course / file" rows and the live
+// status line sat on one arbitrary filename for minutes - which reads as a
+// hang, and was in fact reported as one.
+//
+// Driven by publishing synthetic events into the real job, which the page
+// receives over the real SSE stream and renders with the real JavaScript. A
+// live sync would take minutes and could not produce an error on demand.
+func TestBrowserSyncLogIsWrittenForAUser(t *testing.T) {
+	if os.Getenv("OPAL_GUI_BROWSER_WALK") == "" {
+		t.Skip("set OPAL_GUI_BROWSER_WALK=1 to run the browser walk (needs Playwright browsers)")
+	}
+
+	stubScheduler(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	yaml := "download_path: " + filepath.ToSlash(filepath.Join(dir, "downloads")) + "\n" +
+		"courses:\n  - Analysis I\nsync: true\n" +
+		"opal_url: https://bildungsportal.sachsen.de/opal/\n" +
+		"session_state_file: " + filepath.ToSlash(filepath.Join(dir, "state.json")) + "\n"
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	srv := &server{configPath: configPath, buildVersion: "test", feedback: &feedbackState{}}
+	ts := httptest.NewServer(newMux(srv, configPath))
+	defer ts.Close()
+
+	scraper.EnsurePlaywrightBrowsersPath()
+	pw, err := playwright.Run()
+	if err != nil {
+		t.Fatalf("playwright: %v", err)
+	}
+	defer pw.Stop()
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
+	if err != nil {
+		t.Fatalf("launch chromium: %v", err)
+	}
+	defer browser.Close()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+	var pageErrors []string
+	page.On("pageerror", func(err error) { pageErrors = append(pageErrors, err.Error()) })
+
+	// The /sync page holds its SSE stream open forever, so it never reaches
+	// network-idle even when nothing is running. Waiting for the DOM is right.
+	if _, err := page.Goto(ts.URL+"/sync", playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	}); err != nil {
+		t.Fatalf("goto sync: %v", err)
+	}
+
+	// The stream has to be attached before events are published, or they are
+	// only seen via replay and the test proves nothing about live rendering.
+	if _, err := page.WaitForFunction(`document.getElementById('status').textContent === 'Idle.'`, nil); err != nil {
+		t.Fatalf("sync page never settled to idle: %v", err)
+	}
+
+	srv.syncJob.publish(jobEvent{Kind: "course_started", Course: "Analysis I", CourseIndex: 1, TotalCourses: 1})
+	for _, name := range []string{"woche01.pdf", "woche02.pdf", "hybrid_quicksort.ipynb"} {
+		srv.syncJob.publish(jobEvent{Kind: "file_skipped", Course: "Analysis I", File: name})
+	}
+	srv.syncJob.publish(jobEvent{Kind: "file_downloaded", Course: "Analysis I", File: "woche03.pdf"})
+
+	// --- the status line counts, it does not name a file ---------------------
+	if _, err := page.WaitForFunction(
+		`document.getElementById('status').textContent.indexOf('4 files checked') !== -1`, nil,
+	); err != nil {
+		status, _ := page.Locator("#status").TextContent()
+		t.Fatalf("status line never showed a running total (was %q): %v", status, err)
+	}
+	status, err := page.Locator("#status").TextContent()
+	if err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if strings.Contains(status, "hybrid_quicksort.ipynb") {
+		t.Fatalf("the status line is still parked on a filename, which is what read as a hang: %q", status)
+	}
+	if !strings.Contains(status, "1 downloaded") {
+		t.Fatalf("status line does not say what the run achieved: %q", status)
+	}
+
+	// --- an up-to-date file is counted, not listed ---------------------------
+	logText, err := page.Locator("#log").TextContent()
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	for _, name := range []string{"woche01.pdf", "woche02.pdf", "hybrid_quicksort.ipynb"} {
+		if strings.Contains(logText, name) {
+			t.Fatalf("an already-up-to-date file still gets its own log row (%q found in the log)", name)
+		}
+	}
+	if !strings.Contains(logText, "woche03.pdf") {
+		t.Fatalf("a downloaded file is missing from the log, which is the one thing the log is for: %q", logText)
+	}
+
+	// --- the summary is a sentence, not a field dump -------------------------
+	srv.syncJob.publish(jobEvent{Kind: "done", Downloaded: 1, Skipped: 3, Errors: 0,
+		Message: "Done. 1 downloaded, 3 already up to date, 0 failed."})
+
+	if _, err := page.WaitForFunction(
+		`document.getElementById('summary').textContent.length > 0`, nil,
+	); err != nil {
+		t.Fatalf("no summary after the run finished: %v", err)
+	}
+	summary, err := page.Locator("#summary").TextContent()
+	if err != nil {
+		t.Fatalf("read summary: %v", err)
+	}
+	if strings.Contains(summary, "skipped=") || strings.Contains(summary, "downloaded=") {
+		t.Fatalf("the summary is still a field dump: %q", summary)
+	}
+	if !strings.Contains(summary, "already up to date") {
+		t.Fatalf("the summary does not explain what happened to the unchanged files: %q", summary)
+	}
+
+	if len(pageErrors) > 0 {
+		t.Fatalf("uncaught JavaScript errors: %v", pageErrors)
+	}
+}

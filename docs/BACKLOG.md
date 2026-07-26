@@ -21,11 +21,16 @@ machine belong in local memory, not here.
 Ten things, described in one go, listed in the order they are being worked.
 Two are done (see "Done recently"); the rest are below.
 
-- **Diagnostic chatter is aimed at the wrong audience.** "skipping section",
-  per-file `skipped:` rows — the maintainer's read: a normal user should
-  never see this, and if there is a developer-facing channel for it, it
-  should live there instead. Needs the logging item below to exist first —
-  "hide it from the user" is only half an answer without somewhere for it to go.
+- **Diagnostic chatter, the CLI half.** The GUI half shipped (see "Done
+  recently"). What is left is the scraper's own `fmt.Printf` output -
+  the "Warning: skipping section" family, `[audit]` lines, browser-profile
+  paths - which goes to stdout with no way to turn it down and no file to
+  find it in later. Needs the logging item below to exist first: "hide it
+  from the user" is only half an answer without somewhere for it to go.
+  Worth knowing: the maintainer asked whether dev tooling already covers
+  this. Honest answer is *nearly* - there is a dev mode and `dump-links`,
+  but dev mode means "visible browser", not "more logging", so there is no
+  verbosity switch to route this to today.
 - **Logging layers and encapsulation** (maintainer relaying their dad's
   point about long-lived projects). Today the tool has exactly one output
   channel: `fmt.Printf` to stdout, some of it forwarded into the GUI log.
@@ -360,6 +365,23 @@ enough to justify keeping a known-hazardous test around.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Rewrote the sync log for a user instead of a developer.** The maintainer's
+  account is ~345 files of which almost none change, so a routine sync printed
+  ~345 `skipped: course / file` rows and buried the handful of lines that say
+  what the run actually did. Worse, the live status line named whichever file
+  was being checked, so it sat on one arbitrary filename for minutes — which
+  reads as a hang, and was reported as one (`hybrid_quicksort.ipynb`, the
+  separate hang item below). Now an already-up-to-date file is counted, not
+  listed: the status line shows a running "N files checked, M downloaded" total
+  that visibly ticks, downloads and errors still get their own rows, and the
+  closing summary is a sentence ("Everything was already up to date (345 files
+  checked)") rather than `downloaded=0 skipped=345 errors=0`, which made a
+  successful no-op look like a run that did nothing for an unclear reason.
+  *Verified in a real browser (`TestBrowserSyncLogIsWrittenForAUser`) by
+  publishing events into the real job and letting the real SSE stream drive the
+  real JavaScript — a live sync takes minutes and cannot produce an error on
+  demand. Mutation-tested: restoring the per-file rows fails it.*
 
 - **Warn before settings edits are thrown away.** Reported by the maintainer
   (2026-07-26): change a field, click away, and it is gone with nothing said.

@@ -159,7 +159,7 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 				Downloaded: e.Stats.Downloaded,
 				Skipped:    e.Stats.Skipped,
 				Errors:     e.Stats.Errors,
-				Message:    fmt.Sprintf("Done. downloaded=%d skipped=%d errors=%d", e.Stats.Downloaded, e.Stats.Skipped, e.Stats.Errors),
+				Message:    fmt.Sprintf("Done. %d downloaded, %d already up to date, %d failed.", e.Stats.Downloaded, e.Stats.Skipped, e.Stats.Errors),
 			})
 		}
 	}
@@ -383,7 +383,6 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			switch (e.kind) {
 				case 'course_started': return '[course] ' + courseProgress(e) + e.course;
 				case 'file_downloaded': return '  downloaded: ' + e.course + ' / ' + e.file;
-				case 'file_skipped': return '  skipped: ' + e.course + ' / ' + e.file;
 				case 'error': return '  ERROR: ' + e.course + ' / ' + e.file + ' - ' + e.error;
 				case 'log': return e.course ? ('[' + e.course + '] ' + e.message) : e.message;
 				case 'done': return e.message || 'Done.';
@@ -393,6 +392,15 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			}
 		}
 
+		// Running totals for the status line. A typical account is ~345 files
+		// of which almost none change, so counting is the only honest way to
+		// show what a run is doing: naming each already-current file produced
+		// hundreds of rows a user has no use for, and left the status line
+		// sitting on one arbitrary filename for minutes at a time, which reads
+		// as a hang rather than as progress.
+		var counts = { checked: 0, downloaded: 0, errors: 0 };
+		var currentCourse = '';
+
 		// statusText renders a one-line "what's happening right now" summary
 		// for the #status line, distinct from describe()'s full log-row text
 		// (which stays in #log). Returns null for event kinds that shouldn't
@@ -401,18 +409,45 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 		function statusText(e) {
 			switch (e.kind) {
 				case 'course_started':
+					currentCourse = e.course;
 					return 'Running: ' + courseProgress(e) + '- ' + e.course;
 				case 'file_downloaded':
-					return 'Running: downloading - ' + e.course + ' / ' + e.file;
 				case 'file_skipped':
-					return 'Running: skipping - ' + e.course + ' / ' + e.file;
 				case 'error':
-					return 'Running: error on ' + e.course + ' / ' + e.file;
+					return runningTotals(e.course || currentCourse);
 				case 'log':
 					return e.course ? ('Running: ' + e.course + ' - ' + e.message) : ('Running: ' + e.message);
 				default:
 					return null;
 			}
+		}
+
+		// summarize is the one line a user reads after a run. "Everything was
+		// already up to date" is the normal outcome and deserves to be said in
+		// words: downloaded=0 skipped=345 errors=0 makes a successful no-op
+		// look like a run that did nothing for an unclear reason.
+		function summarize(e) {
+			var downloaded = e.downloaded || 0, skipped = e.skipped || 0, errors = e.errors || 0;
+			var parts = [];
+			if (downloaded) {
+				parts.push(downloaded + ' new file' + (downloaded === 1 ? '' : 's') + ' downloaded');
+			}
+			if (skipped) {
+				parts.push(skipped + ' already up to date');
+			}
+			if (errors) {
+				parts.push(errors + ' could not be downloaded - see the log above');
+			}
+			if (!parts.length) { return 'Nothing to download.'; }
+			if (!downloaded && !errors) { return 'Everything was already up to date (' + skipped + ' files checked).'; }
+			return parts.join(', ') + '.';
+		}
+
+		function runningTotals(course) {
+			var parts = [counts.checked + ' file' + (counts.checked === 1 ? '' : 's') + ' checked'];
+			if (counts.downloaded) { parts.push(counts.downloaded + ' downloaded'); }
+			if (counts.errors) { parts.push(counts.errors + ' failed'); }
+			return 'Running: ' + (course ? course + ' - ' : '') + parts.join(', ');
 		}
 
 		function handleEvent(e) {
@@ -425,7 +460,18 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				statusEl.textContent = 'Scanning: ' + e.message;
 				return;
 			}
-			addRow(e.kind, describe(e));
+
+			if (e.kind === 'file_downloaded' || e.kind === 'file_skipped') { counts.checked++; }
+			if (e.kind === 'file_downloaded') { counts.downloaded++; }
+			if (e.kind === 'error') { counts.errors++; }
+
+			// A file that was already up to date is counted, not listed. It is
+			// the overwhelmingly common outcome - on a routine run essentially
+			// every file is one - so a row each buries the handful of lines
+			// that say what the run actually did.
+			if (e.kind !== 'file_skipped') {
+				addRow(e.kind, describe(e));
+			}
 			if (e.kind === 'done' || e.kind === 'cancelled' || e.kind === 'failed') {
 				statusEl.textContent = e.kind === 'done' ? 'Done.' : (e.kind === 'cancelled' ? 'Cancelled.' : 'Failed.');
 				setRunning(false);
@@ -434,7 +480,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				if (st) { statusEl.textContent = st; }
 			}
 			if (e.kind === 'done' && (e.downloaded || e.skipped || e.errors)) {
-				summaryEl.textContent = 'downloaded=' + (e.downloaded||0) + ' skipped=' + (e.skipped||0) + ' errors=' + (e.errors||0);
+				summaryEl.textContent = summarize(e);
 			}
 		}
 

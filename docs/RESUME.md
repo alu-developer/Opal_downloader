@@ -22,9 +22,20 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 **Working the 2026-07-26 maintainer feedback batch** (ten items, listed at the
 top of `docs/BACKLOG.md` in the order they are being worked).
 
-Order: mojibake + guard → unsaved-settings warning → logging layers (which is
-the mechanism the "hide diagnostic chatter" item needs) → course-picker rework
-→ move scheduling off the settings page → TU-Fast indicator-based wait →
-server-load policy → hang watchdog. Code size is a standing rule, not a step.
+Done so far: mojibake + guard; unsaved-settings warning; the GUI sync log
+rewritten for a user (skip rows collapsed into a running count).
 
-Each lands as its own commit. Cross off items in the backlog list as they go.
+Next, in order: the `internal/logging` package (two audiences - user vs
+diagnostic - fanned out to a console sink and a scrubbed rotating file sink;
+this is what the scraper's "Warning: skipping section" family should go to,
+and it is the CLI half of the chatter complaint) → course-picker rework →
+move scheduling off the settings page onto its own → TU-Fast indicator-based
+wait → server-load policy → hang watchdog. Code size is a standing rule.
+
+Useful finding while working: the GUI never showed "skipping section" at all -
+the scraper's `fmt.Printf` goes to a stdout nobody sees when the GUI runs as a
+window. What the maintainer was actually reading was one `skipped:` row per
+file, ~345 per run. Both readings point the same way, so both get fixed, but
+the CLI half is the one still outstanding.
+
+Each lands as its own commit. Cross items off the backlog list as they go.

@@ -169,6 +169,33 @@ there waits minutes with no warning. Worth either renaming, warning up front,
 or serving from the dashboard listing rather than a full crawl; which of those
 is a product call, so it is filed rather than decided.
 
+**Scheduling walked (2026-07-26), and it turned up a hazard in the walks
+themselves.** Rendering `/settings` calls `applyScheduleStatus`, which can
+*write* to Task Scheduler during a page render (`repairDoomedSchedule`
+re-points a registration whose executable looks doomed). A GUI test's
+`os.Executable()` is a binary in the temp directory — so on a machine whose
+task happened to look doomed, the browser walks committed earlier today would
+have re-pointed the maintainer's real daily sync at a binary deleted seconds
+later. It did not happen, because their task points at a stable path and the
+repair never fired. That is luck. All GUI tests now stub the scheduler seams.
+
+The walk itself (`TestBrowserSchedulingWalk`) ticks the box, sets a time,
+saves, reloads, and unticks — asserting the toggle reflects the *scheduler's*
+state rather than its own, since it is re-queried on every render. It runs
+against stubs on purpose: `scheduler.TaskName` is a single global constant and
+the maintainer's live daily sync is registered under it, so a real enable would
+overwrite that task and a real disable would delete it — **the disable path has
+no guard at all**. That is worth knowing independently of testing.
+
+What *is* checked against the real Task Scheduler is the refusal
+(`TestSchedulingRefusesToRegisterADisposableBinaryForReal`, opt-in via
+`OPAL_GUI_LIVE_SCHEDULE=1`): enabling from a disposable binary must fail before
+writing anything. *Verified live: the refusal rendered, and the real
+registration was byte-identical before and after — still 08:00, same
+executable.* Deliberately **not** mutation-tested: the mutation is "register
+anyway", which would overwrite the maintainer's real scheduled sync. The
+stubbed walk is mutation-tested instead (dropping the disable call fails it).
+
 Still genuinely unverified: nothing here is a human *looking* at the pages.
 The walk asserts structure and behaviour, not that the result reads well, and
 it runs headless so it would not catch a purely visual break. Also still not

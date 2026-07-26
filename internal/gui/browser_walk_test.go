@@ -43,6 +43,8 @@ func TestBrowserFirstRunWalk(t *testing.T) {
 		t.Skip("set OPAL_GUI_BROWSER_WALK=1 to run the browser walk (needs Playwright browsers)")
 	}
 
+	stubScheduler(t)
+
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	downloadPath := filepath.Join(dir, "downloads")
@@ -219,6 +221,137 @@ func TestBrowserFirstRunWalk(t *testing.T) {
 	}
 }
 
+// Turning the daily automatic sync on and off, clicked in a real browser.
+//
+// Approved by the maintainer on 2026-07-26 ("jo, mach mal"), including that it
+// touches scheduling. It nevertheless runs against stubbed scheduler seams,
+// because of something they could not have known when approving:
+// scheduler.TaskName is a single global constant, and their own live daily
+// sync is registered under it. A real enable would overwrite that task with
+// one pointing at the test binary, and a real disable would simply delete it -
+// there is no guard on the disable path at all. Nothing worth learning here is
+// worth deleting somebody's scheduled job for.
+//
+// What is verified for real against Task Scheduler, separately and safely, is
+// that enabling from a disposable binary REFUSES before writing anything -
+// see TestSchedulingRefusesToRegisterADisposableBinaryForReal below.
+func TestBrowserSchedulingWalk(t *testing.T) {
+	if os.Getenv("OPAL_GUI_BROWSER_WALK") == "" {
+		t.Skip("set OPAL_GUI_BROWSER_WALK=1 to run the browser walk (needs Playwright browsers)")
+	}
+
+	calls := stubScheduler(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	yaml := "download_path: " + filepath.ToSlash(filepath.Join(dir, "downloads")) + "\n" +
+		"courses:\n  - Analysis I\nsync: true\n" +
+		"opal_url: https://bildungsportal.sachsen.de/opal/\n" +
+		"session_state_file: " + filepath.ToSlash(filepath.Join(dir, "state.json")) + "\n"
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	srv := &server{configPath: configPath, buildVersion: "test", feedback: &feedbackState{}}
+	ts := httptest.NewServer(newMux(srv, configPath))
+	defer ts.Close()
+
+	scraper.EnsurePlaywrightBrowsersPath()
+	pw, err := playwright.Run()
+	if err != nil {
+		t.Fatalf("playwright: %v", err)
+	}
+	defer pw.Stop()
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
+	if err != nil {
+		t.Fatalf("launch chromium: %v", err)
+	}
+	defer browser.Close()
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+
+	goSettings := func() {
+		t.Helper()
+		if _, err := page.Goto(ts.URL+"/settings", playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateLoad,
+		}); err != nil {
+			t.Fatalf("goto /settings: %v", err)
+		}
+	}
+
+	goSettings()
+
+	// Off by default, and it must stay that way: nothing should register a
+	// scheduled job on somebody's machine without them asking.
+	if checked, err := page.Locator("#schedule_enabled").IsChecked(); err != nil || checked {
+		t.Fatalf("daily sync starts enabled (checked=%v err=%v); it is opt-in", checked, err)
+	}
+
+	// --- turn it on -----------------------------------------------------------
+	if err := page.Check("#schedule_enabled"); err != nil {
+		t.Fatalf("check schedule_enabled: %v", err)
+	}
+	if err := page.Fill("#schedule_time", "07:30"); err != nil {
+		t.Fatalf("fill schedule_time: %v", err)
+	}
+	if err := page.Click(`#schedule-form button[type="submit"]`); err != nil {
+		t.Fatalf("submit schedule form: %v", err)
+	}
+	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State: playwright.LoadStateLoad,
+	}); err != nil {
+		t.Fatalf("wait after enabling: %v", err)
+	}
+
+	if calls.enabled != 1 {
+		t.Fatalf("expected exactly one enable, got %d", calls.enabled)
+	}
+	if calls.at != "07:30" {
+		t.Fatalf("the time typed into the form did not reach the scheduler, got %q", calls.at)
+	}
+
+	// The toggle is re-queried from the scheduler on every render rather than
+	// remembered, so this is the page agreeing with the OS, not with itself.
+	if checked, err := page.Locator("#schedule_enabled").IsChecked(); err != nil || !checked {
+		t.Fatalf("the toggle does not reflect the registration it just made (checked=%v err=%v)", checked, err)
+	}
+	if v, err := page.Locator("#schedule_time").InputValue(); err != nil || v != "07:30" {
+		t.Fatalf("the registered time is not shown back, got %q err=%v", v, err)
+	}
+
+	// A reload must still show it on - the state lives in Task Scheduler, not
+	// in the response to the POST.
+	goSettings()
+	if checked, err := page.Locator("#schedule_enabled").IsChecked(); err != nil || !checked {
+		t.Fatalf("the schedule looks off again after a reload (checked=%v err=%v)", checked, err)
+	}
+
+	// --- turn it off ----------------------------------------------------------
+	if err := page.Uncheck("#schedule_enabled"); err != nil {
+		t.Fatalf("uncheck schedule_enabled: %v", err)
+	}
+	if err := page.Click(`#schedule-form button[type="submit"]`); err != nil {
+		t.Fatalf("submit schedule form to disable: %v", err)
+	}
+	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State: playwright.LoadStateLoad,
+	}); err != nil {
+		t.Fatalf("wait after disabling: %v", err)
+	}
+
+	if calls.disabled != 1 {
+		t.Fatalf("expected exactly one disable, got %d", calls.disabled)
+	}
+	if checked, err := page.Locator("#schedule_enabled").IsChecked(); err != nil || checked {
+		t.Fatalf("the toggle still looks enabled after disabling (checked=%v err=%v)", checked, err)
+	}
+	if calls.enabled != 1 {
+		t.Fatalf("disabling should not have re-registered anything, enables=%d", calls.enabled)
+	}
+}
+
 // Every page a stranger can reach from the nav, loaded in a real browser.
 //
 // A page that throws on load, or strands the user with no way back, is invisible
@@ -230,6 +363,8 @@ func TestBrowserEveryPageLoads(t *testing.T) {
 	if os.Getenv("OPAL_GUI_BROWSER_WALK") == "" {
 		t.Skip("set OPAL_GUI_BROWSER_WALK=1 to run the browser walk (needs Playwright browsers)")
 	}
+
+	stubScheduler(t)
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")

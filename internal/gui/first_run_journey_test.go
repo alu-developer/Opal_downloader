@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/scheduler"
 )
 
 // The first run, walked as a sequence rather than as isolated handlers.
@@ -26,7 +27,66 @@ import (
 // pointed at the live config.yaml and wiped its course_folders,
 // subfolder_destinations and use_section_subfolders.
 
+// scheduleCalls records what a walk asked the scheduler to do.
+type scheduleCalls struct {
+	enabled  int
+	disabled int
+	exe      string
+	at       string
+	info     scheduler.Info
+}
+
+// stubScheduler replaces this package's scheduler seams for the duration of a
+// test.
+//
+// NOT optional hygiene. Rendering /settings calls applyScheduleStatus, which
+// can *write* to Task Scheduler during a page render (repairDoomedSchedule
+// re-points a registration whose executable looks doomed). A GUI test renders
+// /settings with the test binary as os.Executable() - which lives in a temp
+// directory - so an unstubbed walk on a machine whose task happened to look
+// doomed would re-point the user's real daily sync at a binary that is deleted
+// when the test ends.
+//
+// It did not happen: the maintainer's task pointed at a stable path, so the
+// repair never fired. That is luck, not a design, and luck is not what should
+// stand between a test and someone's scheduled job. There is no guard on the
+// disable path at all: the task name is a single global constant
+// (scheduler.TaskName), so any real disable deletes whatever is registered.
+func stubScheduler(t *testing.T) *scheduleCalls {
+	t.Helper()
+	calls := &scheduleCalls{}
+
+	oldStatus, oldEnable := scheduleStatusFunc, scheduleEnableFunc
+	oldDisable, oldExe := scheduleDisableFunc, exeForScheduleFunc
+	t.Cleanup(func() {
+		scheduleStatusFunc, scheduleEnableFunc = oldStatus, oldEnable
+		scheduleDisableFunc, exeForScheduleFunc = oldDisable, oldExe
+	})
+
+	// A path that reads as a real installation: CheckExecutableStable is called
+	// directly (not through a seam) and rejects anything under the temp
+	// directory, which is where a test binary lives.
+	const stableExe = `C:\Program Files\opal-downloader\opal-downloader.exe`
+
+	scheduleStatusFunc = func() (scheduler.Info, error) { return calls.info, nil }
+	scheduleEnableFunc = func(exe, at string) error {
+		calls.enabled++
+		calls.exe, calls.at = exe, at
+		calls.info = scheduler.Info{Registered: true, Time: at, ExecutablePath: exe}
+		return nil
+	}
+	scheduleDisableFunc = func() error {
+		calls.disabled++
+		calls.info = scheduler.Info{}
+		return nil
+	}
+	exeForScheduleFunc = func() (string, error) { return stableExe, nil }
+	return calls
+}
+
 func TestFirstRunJourney(t *testing.T) {
+	stubScheduler(t)
+
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	downloadPath := filepath.Join(dir, "downloads")

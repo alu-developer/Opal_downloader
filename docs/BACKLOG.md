@@ -16,6 +16,31 @@ machine belong in local memory, not here.
 
 ## Now
 
+### Your daily sync is probably losing files right now (`course_concurrency: 2`)
+Found while baselining the section-concurrency work (2026-07-26), against the
+real account:
+
+| run | files | Analysis | wall clock |
+|---|---|---|---|
+| `course_concurrency: 1` | **345** | 30 | 227.9s |
+| `course_concurrency: 2` | **336** | 21 | 228.2s |
+
+Two is **nine files short and not faster** — 0.3s apart, inside noise. The live
+`config.yaml` is set to 2, so real syncs have been quietly missing Analysis
+files. Nothing warns: the run reports success.
+
+This contradicts the "Concurrency SOLVED" entry below and the
+`DefaultCourseConcurrency = 2` decision it justified. It is *not* a new
+discovery so much as a re-appearance: `docs/sync-speed-campaign.md`'s
+2026-07-17 entry recorded the same course losing the same sort of count
+("Analysis: -8 files in 3 of 4 runs").
+
+**Not acted on yet, deliberately.** One run each. Changing a default on a
+single pair of runs is exactly the mistake the campaign log keeps recording, so
+this needs a repeat — but it should be repeated *soon*, and if it holds, the
+default and the maintainer's config should both go back to 1, since 2 is
+currently paying files for no speed at all.
+
 ### Sync speed: still ~5 minutes, maintainer says unacceptable
 **Blocked:** the one unexplored axis (section-level concurrency) is a rewrite
 of the crawl's concurrency model in the most correctness-sensitive part of

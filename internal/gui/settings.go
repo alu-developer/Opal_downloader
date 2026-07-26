@@ -998,6 +998,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			}
 		});
 	</script>
+	` + unsavedChangesGuard + `
 </body>
 </html>
 `))

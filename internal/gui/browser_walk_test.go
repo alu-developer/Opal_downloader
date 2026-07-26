@@ -31,6 +31,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
@@ -456,5 +457,167 @@ func TestBrowserEveryPageLoads(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Leaving the settings page with unsaved edits, in a real browser.
+//
+// Reported by the maintainer (2026-07-26): "when going out of settings,
+// nothing is saved without a warning... like, if you change something you may
+// just forget to click: save settings". Saving is a separate deliberate click
+// and the page has enough fields that "did I already save?" cannot be answered
+// by looking at it.
+//
+// This has to be a browser test. The guard is entirely client-side - it
+// compares a snapshot of every form against its current state - so a
+// handler-level test sees nothing but an unchanged template.
+func TestBrowserUnsavedChangesWalk(t *testing.T) {
+	if os.Getenv("OPAL_GUI_BROWSER_WALK") == "" {
+		t.Skip("set OPAL_GUI_BROWSER_WALK=1 to run the browser walk (needs Playwright browsers)")
+	}
+
+	stubScheduler(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	yaml := "download_path: " + filepath.ToSlash(filepath.Join(dir, "downloads")) + "\n" +
+		"courses:\n  - Analysis I\nsync: true\n" +
+		"opal_url: https://bildungsportal.sachsen.de/opal/\n" +
+		"session_state_file: " + filepath.ToSlash(filepath.Join(dir, "state.json")) + "\n"
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	srv := &server{configPath: configPath, buildVersion: "test", feedback: &feedbackState{}}
+	ts := httptest.NewServer(newMux(srv, configPath))
+	defer ts.Close()
+
+	scraper.EnsurePlaywrightBrowsersPath()
+	pw, err := playwright.Run()
+	if err != nil {
+		t.Fatalf("playwright: %v", err)
+	}
+	defer pw.Stop()
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
+	if err != nil {
+		t.Fatalf("launch chromium: %v", err)
+	}
+	defer browser.Close()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+
+	var pageErrors []string
+	page.On("pageerror", func(err error) { pageErrors = append(pageErrors, err.Error()) })
+
+	// Answer the leave-confirmation the way the test needs at the time. Default
+	// is "stay", which is both the safe answer and the one that proves the
+	// guard actually blocked the navigation.
+	var dialogs []string
+	leaveAnyway := false
+	page.On("dialog", func(d playwright.Dialog) {
+		dialogs = append(dialogs, d.Message())
+		if leaveAnyway {
+			_ = d.Accept()
+		} else {
+			_ = d.Dismiss()
+		}
+	})
+
+	gotoSettings := func() {
+		t.Helper()
+		if _, err := page.Goto(ts.URL+"/settings", playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateNetworkidle,
+		}); err != nil {
+			t.Fatalf("goto settings: %v", err)
+		}
+	}
+	barVisible := func() bool {
+		t.Helper()
+		visible, err := page.Locator("#unsaved-bar").IsVisible()
+		if err != nil {
+			t.Fatalf("read unsaved bar: %v", err)
+		}
+		return visible
+	}
+
+	gotoSettings()
+	if barVisible() {
+		t.Fatal("the unsaved-changes bar is showing on a freshly loaded page, before anything was edited")
+	}
+
+	// --- an edit raises the bar ---------------------------------------------
+	original, err := page.Locator("#download_path").InputValue()
+	if err != nil {
+		t.Fatalf("read download path: %v", err)
+	}
+	if err := page.Fill("#download_path", filepath.Join(dir, "somewhere-else")); err != nil {
+		t.Fatalf("edit download path: %v", err)
+	}
+	if !barVisible() {
+		t.Fatal("edited a field and the unsaved-changes bar stayed hidden")
+	}
+
+	// --- undoing the edit lowers it again ------------------------------------
+	// The bar tracks a snapshot, not "has anyone typed". Typing a character and
+	// removing it must leave the page clean, or the warning becomes noise that
+	// people learn to click through.
+	if err := page.Fill("#download_path", original); err != nil {
+		t.Fatalf("restore download path: %v", err)
+	}
+	if barVisible() {
+		t.Fatal("restoring a field to its original value left the unsaved-changes bar up")
+	}
+
+	// --- leaving with unsaved edits asks first --------------------------------
+	if err := page.Fill("#download_path", filepath.Join(dir, "somewhere-else")); err != nil {
+		t.Fatalf("re-edit download path: %v", err)
+	}
+	if err := page.Click("p.back a"); err != nil {
+		t.Fatalf("click the back link: %v", err)
+	}
+	if len(dialogs) == 0 {
+		t.Fatal("navigating away with unsaved edits did not ask for confirmation")
+	}
+	if url := page.URL(); !strings.HasSuffix(url, "/settings") {
+		t.Fatalf("declining the leave-confirmation still navigated away, now at %s", url)
+	}
+
+	// --- saving clears it -----------------------------------------------------
+	if err := page.Click(`#settings-form button[type="submit"]`); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State: playwright.LoadStateNetworkidle,
+	}); err != nil {
+		t.Fatalf("wait after save: %v", err)
+	}
+	if barVisible() {
+		t.Fatal("the unsaved-changes bar survived a save")
+	}
+
+	// Submitting must not itself trip the guard: the page unloads on save, and a
+	// confirmation there would fire on every single save.
+	if n := len(dialogs); n != 1 {
+		t.Fatalf("expected exactly one confirmation (the declined one), got %d: %v", n, dialogs)
+	}
+
+	// --- and accepting really does leave --------------------------------------
+	leaveAnyway = true
+	if err := page.Fill("#download_path", filepath.Join(dir, "third-place")); err != nil {
+		t.Fatalf("edit again: %v", err)
+	}
+	if err := page.Click("p.back a"); err != nil {
+		t.Fatalf("click the back link again: %v", err)
+	}
+	if err := page.WaitForURL(ts.URL + "/"); err != nil {
+		t.Fatalf("accepting the leave-confirmation did not navigate home: %v", err)
+	}
+
+	if len(pageErrors) > 0 {
+		t.Fatalf("uncaught JavaScript errors during the walk: %v", pageErrors)
 	}
 }

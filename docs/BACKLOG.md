@@ -18,57 +18,48 @@ machine belong in local memory, not here.
 
 ### Maintainer feedback batch, 2026-07-26
 
-Ten things, described in one go. Captured here in the order they will be
-worked; the first four are the ones a user actually feels.
+Ten things, described in one go, listed in the order they are being worked.
+Two are done (see "Done recently"); the rest are below.
 
-1. **Mojibake in the preview hint.** `internal/gui/sync.go` rendered the
-   preview hint's em-dashes as three junk characters each - UTF-8 text
-   read as Latin-1 and re-saved. Two more sat in
-   `internal/config/config.go`'s comments. Needs a guard, not just a fix:
-   the damage is invisible in review (the reviewer's terminal renders it
-   as the characters it was mistaken for) and nothing in `dev.ps1` looked
-   for it.
-2. **Leaving Settings loses unsaved edits silently.** Change a field, click
-   away, no warning, no save. The page has two independent forms, so "did I
-   save?" is genuinely hard to answer from looking at it.
-3. **Diagnostic chatter is aimed at the wrong audience.** "skipping section",
-   per-file `skipped:` rows — the maintainer's read: a normal user should
-   never see this, and if there is a developer-facing channel for it, it
-   should live there instead. Connects directly to item 4.
-4. **Logging layers and encapsulation** (maintainer relaying their dad's
-   point about long-lived projects). Today the tool has exactly one output
-   channel: `fmt.Printf` to stdout, some of it forwarded into the GUI log.
-   No levels, no file, no separation between "what the user needs to know"
-   and "what I need when this breaks in six months". Worth designing rather
-   than bolting on — and it is the mechanism item 3 needs.
-5. **Course selection feels scattered.** "Sync all courses" hides the picker,
-   "Find my courses" fetches a list, "+ Add course" makes a manual row,
-   "Suggest folders" fills the other column — four controls in three places
-   for one job. Should be one obvious path with the manual route as the
-   escape hatch.
-6. **Scheduled runs do not belong under Settings.** Maintainer's observation:
-   Settings is really folder configuration, and a daily-run schedule is a
-   different kind of thing. Their suggestion: its own page, or folded into
-   sync options. Product call delegated ("mach dir gedanken, was am besten
-   für den nutzer ist").
-7. **TU-Fast's refresh waits on a clock, not on evidence.** Sometimes TU-Fast
-   does not act; the reload that fixes it then takes far too long, because
-   the wait is a fixed duration rather than a check for something observable.
-   Should key off indicators.
-8. **Server load, as a standing constraint.** If this ever gets more than a
-   handful of users, a tool that crawls every section of every course on a
-   schedule is a load source on someone else's infrastructure. The
-   maintainer wants this designed in for the long term, not spot-checked
-   once. Note the interaction with the sync-speed campaign below: the two
-   goals pull in opposite directions and that trade-off should be explicit.
-9. **A sync hung once.** Status line stuck on `Running: skipping - …
-   /Woche 07/hybrid_quicksort.ipynb`. Seen once, not reproduced. The status
-   line only shows the last event, so this says the run stopped producing
-   events — it does not say where. There is no watchdog that would notice.
-10. **Code size.** Offered as a suggestion, not a task: keep it from bloating.
-    `internal/scraper/crawl.go` is 1248 lines, `internal/gui/gui.go` 1009,
-    `internal/gui/settings.go` 1003. Best handled as a standing rule while
-    touching those files, not a rewrite.
+- **Diagnostic chatter is aimed at the wrong audience.** "skipping section",
+  per-file `skipped:` rows — the maintainer's read: a normal user should
+  never see this, and if there is a developer-facing channel for it, it
+  should live there instead. Needs the logging item below to exist first —
+  "hide it from the user" is only half an answer without somewhere for it to go.
+- **Logging layers and encapsulation** (maintainer relaying their dad's
+  point about long-lived projects). Today the tool has exactly one output
+  channel: `fmt.Printf` to stdout, some of it forwarded into the GUI log.
+  No levels, no file, no separation between "what the user needs to know"
+  and "what I need when this breaks in six months". Worth designing rather
+  than bolting on — and it is the mechanism the item above needs.
+- **Course selection feels scattered.** "Sync all courses" hides the picker,
+  "Find my courses" fetches a list, "+ Add course" makes a manual row,
+  "Suggest folders" fills the other column — four controls in three places
+  for one job. Should be one obvious path with the manual route as the
+  escape hatch.
+- **Scheduled runs do not belong under Settings.** Maintainer's observation:
+  Settings is really folder configuration, and a daily-run schedule is a
+  different kind of thing. Their suggestion: its own page, or folded into
+  sync options. Product call delegated ("mach dir gedanken, was am besten
+  für den nutzer ist").
+- **TU-Fast's refresh waits on a clock, not on evidence.** Sometimes TU-Fast
+  does not act; the reload that fixes it then takes far too long, because
+  the wait is a fixed duration rather than a check for something observable.
+  Should key off indicators.
+- **Server load, as a standing constraint.** If this ever gets more than a
+  handful of users, a tool that crawls every section of every course on a
+  schedule is a load source on someone else's infrastructure. The
+  maintainer wants this designed in for the long term, not spot-checked
+  once. Note the interaction with the sync-speed campaign below: the two
+  goals pull in opposite directions and that trade-off should be explicit.
+- **A sync hung once.** Status line stuck on `Running: skipping - …
+  /Woche 07/hybrid_quicksort.ipynb`. Seen once, not reproduced. The status
+  line only shows the last event, so this says the run stopped producing
+  events — it does not say where. There is no watchdog that would notice.
+- **Code size.** Offered as a suggestion, not a task: keep it from bloating.
+  `internal/scraper/crawl.go` is 1248 lines, `internal/gui/gui.go` 1009,
+  `internal/gui/settings.go` 1003. Best handled as a standing rule while
+  touching those files, not a rewrite.
 
 ### One thing needs your hand: `course_concurrency: 2` in your `config.yaml`
 **Blocked:** the code default is fixed; your live config still overrides it.
@@ -369,6 +360,36 @@ enough to justify keeping a known-hazardous test around.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Warn before settings edits are thrown away.** Reported by the maintainer
+  (2026-07-26): change a field, click away, and it is gone with nothing said.
+  Three layers, because no one of them covers every way out of a page — a
+  persistent bar while anything is unsaved (the layer that actually helps: it
+  removes the need to remember, rather than interrupting at the moment of
+  leaving), a confirmation on in-page links (how the user navigates in the real
+  WebView2 window, which has no address bar and no back button), and
+  `beforeunload` for closing the window. Dirtiness is measured against a
+  snapshot taken on load rather than "has anyone typed", so an edit that is
+  undone leaves the page clean — a warning that cries wolf gets clicked
+  through. Re-checked on a timer as well as on input, because every change this
+  page makes in JavaScript (added rows, "Suggest folders", "Browse...") assigns
+  `.value`, which fires no event and is invisible to a MutationObserver too.
+  *Verified in a real headless browser (`TestBrowserUnsavedChangesWalk`) and
+  screenshotted, since the last GUI bug here was invisible white-on-white text
+  that every assertion passed through. Mutation-tested: removing the guard
+  fails the walk.*
+- **Stopped shipping mojibake, and made it detectable.** The sync page's
+  preview hint rendered its em-dashes as three junk characters each; two more
+  sat in `config.go`'s comments. A human found the first by reading the running
+  program, which is the only way any of them could have been found — the damage
+  is invisible in review, because the reviewer's terminal renders the broken
+  bytes as the characters they were mistaken for. So the fix is a guard
+  (`encoding_test.go`) rather than three edits: it scans git-tracked text for
+  the lead characters that produce essentially all mojibake, in combinations
+  that cannot occur in German or English. Tracked files rather than a directory
+  walk — a plain walk also reads the gitignored `tmp/` dumps of real OPAL
+  pages, 77 findings this repo cannot fix, which would have made the guard
+  useless on its first run. *Mutation-tested both directions.*
 
 - **Made the self-resume runner able to actually start a session.** It never
   once did. Reported by the maintainer (2026-07-26) as "hasn't worked so far";

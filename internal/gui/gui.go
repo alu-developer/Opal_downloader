@@ -398,6 +398,150 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 	})();
 	</script>`
 
+// unsavedChangesGuard warns before edits are thrown away. Spliced into any
+// page template whose forms hold user data (settings.go, schedule_page.go),
+// the same "shared constant spliced into every page" pattern as pageStyle,
+// faviconLink and bannerChrome above.
+//
+// The problem it solves, reported by the maintainer (2026-07-26): change a
+// field, navigate away, and the edit is gone with nothing said. Saving is a
+// separate deliberate click, and the pages carry enough fields that "did I
+// already save?" is not answerable by looking.
+//
+// Three layers, because no single one covers the ways out of a page:
+//
+//  1. A persistent bar while anything is unsaved. This is the layer that
+//     actually helps - it removes the need to remember, rather than
+//     interrupting at the moment of leaving. The other two are backstops.
+//  2. A confirm() on in-page links, which is how the user navigates in the
+//     real window (WebView2, no address bar and no back button).
+//  3. beforeunload, for closing the window or a reload.
+//
+// Dirtiness is measured against a snapshot taken on load, not set by the
+// first keystroke: typing a character and deleting it again leaves the form
+// clean, and rows added and then removed do not linger as a false warning.
+// The snapshot is re-taken after a save, because the page re-renders.
+//
+// Forms are found at runtime rather than named, so a page that grows another
+// form is covered without anyone remembering to come back here.
+const unsavedChangesGuard = `<div id="unsaved-bar" role="status" style="display:none;"></div>
+	<style>
+	#unsaved-bar {
+		position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+		background: #fff6d8; border-top: 1px solid #e0c04a; color: #4a3a00;
+		padding: 0.6rem 1rem; font-size: 0.95rem;
+		display: flex; gap: 0.75rem; align-items: center; justify-content: center;
+	}
+	#unsaved-bar a { color: #4a3a00; }
+	/* Keep the bar from covering the last control on the page. */
+	body.has-unsaved { padding-bottom: 3.5rem; }
+	</style>
+	<script>
+	(function () {
+		var forms = Array.prototype.slice.call(document.querySelectorAll('form'));
+		if (!forms.length) { return; }
+
+		var bar = document.getElementById('unsaved-bar');
+		var saving = false;
+		var snapshots = new WeakMap();
+
+		function stateOf(form) {
+			try {
+				return new URLSearchParams(new FormData(form)).toString();
+			} catch (e) {
+				// If a browser will not serialize the form, the guard cannot
+				// tell dirty from clean. Reporting "clean" is the honest
+				// answer: a bar that is always on teaches people to ignore it.
+				return null;
+			}
+		}
+
+		function snapshot() {
+			forms.forEach(function (form) { snapshots.set(form, stateOf(form)); });
+		}
+
+		function dirtyForms() {
+			return forms.filter(function (form) {
+				var before = snapshots.get(form);
+				var now = stateOf(form);
+				return before !== null && now !== null && before !== now;
+			});
+		}
+
+		function saveButtonFor(form) {
+			return form.querySelector('button[type=submit], input[type=submit]');
+		}
+
+		function refresh() {
+			var dirty = dirtyForms();
+			document.body.classList.toggle('has-unsaved', dirty.length > 0);
+			if (!dirty.length) { bar.style.display = 'none'; return; }
+
+			bar.textContent = '';
+			var text = document.createElement('span');
+			text.textContent = 'You have unsaved changes.';
+			bar.appendChild(text);
+
+			// Point at the button rather than submitting from the bar: with
+			// more than one form on a page, a bar that saves would have to
+			// guess which, and guessing wrong writes the wrong thing.
+			var target = saveButtonFor(dirty[0]);
+			if (target) {
+				var link = document.createElement('a');
+				link.href = '#';
+				link.textContent = 'Take me to ' + (target.textContent || 'Save').trim();
+				link.addEventListener('click', function (ev) {
+					ev.preventDefault();
+					target.scrollIntoView({ block: 'center' });
+					target.focus({ preventScroll: true });
+				});
+				bar.appendChild(link);
+			}
+			bar.style.display = 'flex';
+		}
+
+		document.addEventListener('input', refresh);
+		document.addEventListener('change', refresh);
+		// Those two events miss every change this page makes in JavaScript:
+		// rows added by "+ Add course", rows removed by "Remove", and folder
+		// paths written by "Suggest folders" and "Browse..." - assigning
+		// .value fires nothing, and a MutationObserver would not see it
+		// either, because it is a property, not an attribute. Re-checking on
+		// a timer catches all of them for the cost of serializing two small
+		// forms once a second.
+		setInterval(refresh, 1000);
+
+		forms.forEach(function (form) {
+			form.addEventListener('submit', function () {
+				saving = true;
+				document.body.classList.remove('has-unsaved');
+			});
+		});
+
+		document.addEventListener('click', function (ev) {
+			var link = ev.target.closest ? ev.target.closest('a[href]') : null;
+			if (!link || saving || link.getAttribute('href').charAt(0) === '#') { return; }
+			if (link.target === '_blank') { return; }
+			if (!dirtyForms().length) { return; }
+			if (!window.confirm('You have unsaved changes on this page. Leave without saving?')) {
+				ev.preventDefault();
+			}
+		}, true);
+
+		window.addEventListener('beforeunload', function (ev) {
+			if (saving || !dirtyForms().length) { return; }
+			ev.preventDefault();
+			// Assigning returnValue is what actually triggers the prompt in
+			// Chromium, which is what WebView2 is; preventDefault alone is the
+			// newer spelling and is not honoured everywhere yet.
+			ev.returnValue = '';
+		});
+
+		snapshot();
+		refresh();
+	})();
+	</script>`
+
 // logoSVG is the app mark: a "D" (for downloader) whose counter is knocked
 // out as a downward triangle, on a tile filled with an opal-ish iridescent
 // gradient. Kept as a plain const rather than an embedded asset file so the

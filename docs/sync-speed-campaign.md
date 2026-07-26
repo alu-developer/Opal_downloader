@@ -459,3 +459,66 @@ to the maintainer rather than built blind; if pursued, it must follow this
 file's own rule (byte-for-byte against the known 344-file ground truth,
 multiple runs, real measurement) before being trusted at any concurrency
 level.
+
+### 2026-07-26 — section-level concurrency: built, and the baseline runs found a live bug first
+
+The maintainer signed off on the rewrite ("du hast die permission, um für die
+crawl-nebenläufigkeit umzubauen"), which is what the previous entry was
+waiting for.
+
+**What was built** (`internal/scraper/section_pool.go`, `--section-concurrency`,
+`config.section_concurrency`): level-synchronised BFS *within* a course. A
+whole BFS level is popped, its sections are visited concurrently on their own
+tabs, and the results are merged **serially in pop order**. Deliberately
+narrower than the "one global frontier across all courses" sketch in the
+previous entry — that interleaves courses and changes per-course error
+accounting, which is not what you want as the first change in the part of this
+codebase with a documented history of silent file loss.
+
+The level structure is the safety argument, not an implementation detail:
+every shared structure (`fileSeen`'s dedupe, the visit log, the queue
+`appendSectionFolderTargets` appends to) is touched only in the serial merge,
+so `files`, `queue` and every dedupe outcome are identical to a serial crawl
+regardless of the order pages finish rendering in. Only rendering is
+concurrent.
+
+**A real bug in the branch, found before any measurement was trusted.** The
+stability polls buy extra consecutive stable reads only while more than one
+tab may be rendering, and that gate asked about *course* concurrency alone.
+Correct until this branch existed; after it, `--course-concurrency 1
+--section-concurrency 4` renders on four tabs while the gate calls the crawl
+serial, taking the *impatient* budget under exactly the load the patient one
+was written for. Fixed (`crawlingConcurrently`, both poll sites) and
+mutation-tested.
+
+#### The baseline runs, which are the real news
+
+| run | course | section | files | Analysis | wall clock |
+|---|---|---|---|---|---|
+| ground truth | 1 | 1 | **345** | 30 | 227.9s |
+| A | 2 | 1 | **336** | 21 | 228.2s |
+
+Two things follow.
+
+1. **The refactor is clean.** 345 at course=1/section=1 is exactly the known
+   ground truth, on the new code.
+2. **`course_concurrency: 2` still loses files, and buys nothing.** 336 vs 345,
+   nine of them from Analysis — the same course, and very nearly the same
+   count, as this file's 2026-07-17 entry ("Analysis: -8 files in 3 of 4
+   runs"). And it is not even faster: 228.2s against 227.9s, inside noise on a
+   6-course account.
+
+That second point contradicts `docs/BACKLOG.md`'s "Concurrency SOLVED"
+entry and the `DefaultCourseConcurrency = 2` decision it justified, and it
+matters beyond this campaign: the maintainer's live `config.yaml` is set to 2,
+so real syncs have been quietly missing files. One run is not enough to change
+a default on, but it reproduces a previously documented result rather than
+standing alone.
+
+**Why course concurrency being useless here is not surprising in hindsight:**
+this account has 6 content-bearing courses and one of them (Softwaretechnologie,
+207 files, 160 sections) is most of the work. Two workers means the big course
+runs alongside a queue of small ones that finish early, and then it is alone —
+the same "5 of 6 courses are small and one dominates" problem the previous
+entry described. It is the argument for the section axis, stated in
+measurements instead of prose.

@@ -77,13 +77,34 @@ path), a real sync (2 downloaded, 342 skipped), and the scheduled-run path
 end to end. That's real signal the underlying mechanics work, but it's not
 the same as clicking through the GUI as a stranger would.
 
-Still to walk *in the browser*: course selection, status, and changing a
-setting afterwards — same WebView2 sandbox limitation noted elsewhere in
-this file (e.g. the sync-page-buttons entry below) applies here too. Also
+**The journey is now a permanent test (2026-07-26), not a one-off probe:**
+`internal/gui/first_run_journey_test.go` walks no-config → landing → settings
+form → course selection → save → landing/sync moving on → changing a setting
+afterwards, against the real handlers and a real `config.yaml` in a temp dir.
+Every other test in the package hits one handler with a prebuilt config; what
+was missing was each step's on-disk result being the next step's input.
+
+**Finding from writing it — a real structural fragility, now pinned.**
+`parseSettingsForm` rebuilds `course_folders`, `subfolder_destinations` and
+`section_folder_names` from the submitted rows *alone*; nothing in the handler
+preserves them. The only thing standing between a returning user and silent
+data loss is that `GET /settings` renders those rows as real server-rendered
+form controls, which a browser then resubmits natively. That invariant was
+load-bearing and completely untested — a template change dropping a `value=`
+attribute would have made every save quietly wipe the user's mappings. It is
+the same shape as the incident below, which is what made it worth looking for.
+*Mutation-tested: removing one `value="{{$row.Key}}"` fails the test.*
+
+Still to walk *in a real browser*: the visual pass over course selection,
+status, and a settings edit — same WebView2 sandbox limitation noted elsewhere
+in this file (e.g. the sync-page-buttons entry below) applies here too. Also
 deliberately not run via `gui`/`main.exe gui` in this sandbox: `Run` always
 calls `openNativeWindow` unconditionally on Windows, which would pop a real,
 visible window on the maintainer's actual desktop with no warning - not
-something to trigger from an unattended session.
+something to trigger from an unattended session. **This slice stays open and
+genuinely unverified**; handler-level coverage is not a stranger clicking
+through it, and saying otherwise would be the "verified" lie this file exists
+to prevent.
 
 **Handler-level pass done (2026-07-23)** against the real account instead:
 stood up the real mux/handlers over `httptest`, hit them with plain HTTP.

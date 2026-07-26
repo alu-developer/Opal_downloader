@@ -466,6 +466,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		if !clicked {
 			// Could not click or navigate to the control; keep whatever candidates
 			// the caller already extracted rather than failing the whole section.
+			warnShowAllTruncated(currentURL, len(candidates), "the control could not be activated")
 			return page, nil, "", "", false
 		}
 
@@ -538,10 +539,26 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		if isPageCrashError(err) {
 			return s.recoverAndReturnToSection(page, currentURL)
 		}
+		warnShowAllTruncated(currentURL, len(candidates), fmt.Sprintf("reading the expanded list failed: %v", err))
 		return page, nil, "", "", false
 	}
 	if len(expanded) == 0 {
+		warnShowAllTruncated(currentURL, len(candidates), "the expanded list came back empty")
 		return page, nil, "", "", false
+	}
+	// The expansion "succeeded" and produced no more rows than the collapsed
+	// page had. That is the silent shape of this failure: nothing errored, the
+	// section is simply capped at OPAL's default page size and the tail is
+	// gone.
+	//
+	// This is not hypothetical. On 2026-07-26 a course_concurrency=2 run lost
+	// exactly 9 files against a serial baseline, and the visit log placed all
+	// nine in one section - "Übungsblätter", 29 files collapsing to 20, which
+	// is precisely one OPAL page. Nothing in the run said so; it reported
+	// success. See docs/sync-speed-campaign.md.
+	if len(expanded) <= len(candidates) {
+		warnShowAllTruncated(currentURL, len(candidates),
+			fmt.Sprintf("expansion completed but added nothing (%d rows before, %d after)", len(candidates), len(expanded)))
 	}
 
 	// Record the show-all URL (when distinct from currentURL) so the caller can point
@@ -559,6 +576,31 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	}
 
 	return page, expanded, showAllURL, expandedPageURL, true
+}
+
+// warnShowAllTruncated reports a section that advertised a "show all" control
+// which then did not deliver more rows.
+//
+// WHY THIS IS WORTH A LINE OF OUTPUT. A failed expansion is invisible
+// everywhere else: the section keeps the rows it already had, the crawl
+// reports success, and the only trace is a file count that nobody has a
+// baseline for. That is how course_concurrency=2 lost nine files on
+// 2026-07-26 while reporting a clean run - the loss was found by diffing a
+// visit log against a serial baseline hours later, which is not a
+// detection mechanism anyone can rely on.
+//
+// The presence of the control is the useful part: it means OPAL itself said
+// there is more than one page here. When expansion then adds nothing, the
+// section is truncated at the default page size, and that is an incident to
+// investigate rather than a normal outcome (see this repo's "reliability over
+// features" principle).
+//
+// Deliberately only a warning. It changes no crawl behaviour, adds no retry
+// and no timing, so it cannot itself cause the loss it reports.
+func warnShowAllTruncated(sectionURL string, rowsBefore int, reason string) {
+	fmt.Printf("  Warning: section %s offered a \"show all\" control but the expansion did not add any files (%s); "+
+		"this section is capped at its first page (%d rows) and later files are missing\n",
+		sectionURL, reason, rowsBefore)
 }
 
 // expandedPageURLAfterClick returns page's *current* location now that a

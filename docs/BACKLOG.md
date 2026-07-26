@@ -365,9 +365,11 @@ record.
   including the part that has to be said out loud: this pulls directly against
   `docs/sync-speed-campaign.md`, and the distinction that matters is asking for
   *more things* versus asking for the *same things faster*.
-  *The limiter counts how often it actually held something back, and a scrape
-  logs it, so "it does not bind today" is checkable against a real run rather
-  than taken on trust.*
+  *Measured live, not assumed: `284 navigation(s), 0 delayed, 0s held in
+  total`, on a run that took 226.9s against 211.9s and 223.4s unthrottled. An
+  intermediate run measured 244.6s and briefly looked like the ceiling binding
+  — the instrumented run settled it. The limiter counts its own interference
+  and a scrape logs it, so this stays checkable rather than becoming folklore.*
 
 - **The stalled-login reload watches the page instead of a clock.** Reported as
   "der refresh bei tu-fast braucht viel zu lange" — and that was a description

@@ -332,6 +332,24 @@ enough to justify keeping a known-hazardous test around.
 
 ---
 
+## Noticed
+
+Things seen while working on something else and passed over. Not commitments —
+a list of rough edges that would otherwise only ever exist in one session's
+context window. Delete an entry when it is done, or when it turns out not to
+matter.
+
+- **The diagnostic log has no way to open it from the GUI.** `internal/logging`
+  writes to `~/.opal-downloader/logs/opal-downloader.log` and the CLI's
+  `--help` names the path, but the GUI — which is how most people use this, and
+  the case where the log matters *most*, since a windowed app's stdout is
+  invisible — offers no link, no viewer, and no mention that the file exists. A
+  diagnostic nobody can find is close to no diagnostic. Noticed while building
+  it (2026-07-27), named out loud as an example of not raising things, and then
+  still not acted on, which is its own small illustration.
+
+---
+
 ## Done recently
 
 Newest first. Trimmed periodically — git history and PR bodies are the real

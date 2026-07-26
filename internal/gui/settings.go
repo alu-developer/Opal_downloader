@@ -58,7 +58,7 @@ type settingsViewData struct {
 
 	// FirstRun means there is no config.yaml yet, so this page is being seen
 	// by someone who has never used the tool. It is a long form - browser,
-	// folders, subfolder rules, notifications, scheduling - and almost none of
+	// folders, subfolder rules - and almost none of
 	// it needs a decision on day one. Without a word saying so, a stranger
 	// arriving from "Set up opal-downloader" has to read all of it to find out
 	// that one field matters.

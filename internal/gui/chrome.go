@@ -83,7 +83,7 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 			// news about this morning no matter how long it has been stuck.
 			var staleness = '';
 			if (ageDays >= 2) {
-				staleness = ' Nothing has run in the ' + ageDays + ' days since, so the daily sync is not working at all - check Settings.';
+				staleness = ' Nothing has run in the ' + ageDays + ' days since, so the daily sync is not working at all - check Automatic sync.';
 			}
 
 			var text = document.createElement('span');

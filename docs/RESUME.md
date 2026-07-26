@@ -25,11 +25,11 @@ top of `docs/BACKLOG.md` in the order they are being worked).
 Done so far: mojibake + guard; unsaved-settings warning; the GUI sync log
 rewritten for a user; `internal/logging` (two audiences, console + scrubbed
 rotating file) with the scraper migrated onto it; automatic sync moved to its
-own `/schedule` page.
+own `/schedule` page; the course picker rebuilt as one list.
 
-Next, in order: course-picker rework (the last GUI item) → TU-Fast
-indicator-based wait → server-load policy → hang watchdog. Code size is a
-standing rule, not a step.
+Next, in order: TU-Fast indicator-based wait → server-load policy (the
+maintainer asked for this to be set up "langfristig", not spot-checked) → hang
+watchdog. Code size is a standing rule, not a step.
 
 Useful finding while working: the GUI never showed "skipping section" at all -
 the scraper's `fmt.Printf` goes to a stdout nobody sees when the GUI runs as a

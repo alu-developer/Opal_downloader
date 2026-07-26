@@ -116,12 +116,19 @@ func TestSettingsPageOffersCoursePickerAndManualEntry(t *testing.T) {
 
 	for _, want := range []string{
 		`id="find-courses-btn"`,
-		`id="discovered-courses"`,
 		`/settings/discover-courses`,
 		`id="add-course-row"`, // manual entry must survive
+		// Every course lives on one list now, ticked or not, instead of a
+		// "discovered" box beside a table of configured rows. The tickbox is
+		// what makes that one list work, so its absence means the two-list
+		// arrangement has come back.
+		`class="course-on"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("settings page is missing %q", want)
 		}
+	}
+	if strings.Contains(body, `id="discovered-courses"`) {
+		t.Error("the separate 'discovered courses' box is back; courses belong on one list")
 	}
 }

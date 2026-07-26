@@ -549,6 +549,11 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	/* A proposed folder is marked until the form is saved or the field is
 	   edited, so a filled-in path is never mistaken for one the user chose. */
 	input.suggested { background: #eef7ee; border-color: #4c9a4c; }
+	.course-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+	/* An unticked course stays on the list rather than vanishing, so it can be
+	   ticked again - but it has to be obvious that it will not be synced. */
+	tr.off input[type=text] { color: #999; background: #fafafa; }
+	#find-courses-status { font-style: italic; }
 	.save-btn { background: #1a73e8; color: #fff; border-color: #1a73e8; margin-top: 1.5rem; font-weight: 600; }
 </style>
 </head>
@@ -628,19 +633,18 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	hidden until you untick it.</p>
 
 	<div class="field" id="courses-field">
-		<label>Courses</label>
-		<p class="hint">One row per course to sync, with an optional folder override for that course. Exact name match, case-insensitive.</p>
+		<label>Your courses</label>
+		<p class="hint" id="courses-intro">Tick the ones you want synced. The list is
+		read from your OPAL dashboard, so you should not have to type anything
+		&ndash; but you can add a course by hand if one is missing.
+		<span id="find-courses-status"></span></p>
 
-		<div id="course-picker">
-			<button type="button" id="find-courses-btn">Find my courses</button>
-			<span id="find-courses-status" class="hint"></span>
-			<div id="discovered-courses"></div>
-		</div>
 		<table class="folders" id="courses-table">
-			<thead><tr><th>Course name</th><th>Folder (optional)</th><th></th></tr></thead>
+			<thead><tr><th style="width: 1.5rem;"></th><th>Course</th><th>Folder (optional)</th><th></th></tr></thead>
 			<tbody>
 			{{range $i, $row := .CourseRows}}
 				<tr>
+					<td><input type="checkbox" class="course-on" checked title="Sync this course"></td>
 					<td><input type="text" name="course_row_name[]" value="{{$row.Name}}" placeholder="Analysis I"></td>
 					<td>
 						<div class="path-field">
@@ -653,10 +657,19 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			{{end}}
 			</tbody>
 		</table>
-		<button type="button" class="add-row-btn" id="add-course-row">+ Add course</button>
-		<button type="button" class="add-row-btn" id="suggest-folders-btn">Suggest folders</button>
-		<span id="suggest-folders-status" class="hint"></span>
-		<p class="hint">Suggest folders looks through your download path for folders that already match these course names (including abbreviations like <code>AlgData</code>) and fills in the empty ones. Only obvious matches are filled; anything left blank is a guess it wasn't confident enough to make.</p>
+
+		<div class="course-actions">
+			<button type="button" class="add-row-btn" id="find-courses-btn">Refresh this list from OPAL</button>
+			<button type="button" class="add-row-btn" id="add-course-row">Add one by hand</button>
+			<button type="button" class="add-row-btn" id="suggest-folders-btn">Fill in folders for me</button>
+			<span id="suggest-folders-status" class="hint"></span>
+		</div>
+		<p class="hint">Leave a folder blank and the course name is used. "Fill in
+		folders for me" looks through your download path for folders that already
+		match these course names (including abbreviations like <code>AlgData</code>)
+		and fills in the blank ones &ndash; only where the match is obvious, so
+		anything still blank afterwards is a guess it was not confident enough to
+		make.</p>
 	</div>
 
 	<h2>Subfolder organization</h2>
@@ -744,104 +757,134 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		syncAllCheckbox.addEventListener('change', updateCoursesVisibility);
 		updateCoursesVisibility();
 
-		document.getElementById('add-course-row').addEventListener('click', function () {
-			var tbody = document.querySelector('#courses-table tbody');
-			var tr = document.createElement('tr');
-			tr.innerHTML = '<td><input type="text" name="course_row_name[]" placeholder="Analysis I"></td>' +
-				'<td><div class="path-field"><input type="text" name="course_row_folder[]" placeholder="Mathematik/Analysis">' +
-				'<button type="button" class="browse-btn">Browse...</button></div></td>' +
-				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
-			tbody.appendChild(tr);
-		});
+		// --- the course list -----------------------------------------------
+		// One list, not two. It used to be a set of "discovered" checkboxes in
+		// one box and a table of configured rows in another, with the user
+		// expected to join them up mentally - which is what the maintainer
+		// meant by "es gibt so mehrere stellen und so weiter.. fuehlt sich
+		// weird an" (2026-07-26). Every course now appears exactly once, with
+		// its tickbox and its folder on the same line.
+		//
+		// Unticking no longer deletes the row. The old version did, which meant
+		// it had to refuse and pop an alert() when the row carried a folder
+		// override, to avoid throwing that work away on a stray click. Keeping
+		// the row and greying it out removes both the deletion and the alert:
+		// unticked rows are simply dropped at submit time, and until then the
+		// decision is reversible.
+		var coursesTable = document.getElementById('courses-table');
+		var coursesBody = coursesTable.querySelector('tbody');
+		var findStatus = document.getElementById('find-courses-status');
 
-		// --- course picker -------------------------------------------------
-		// Ticking a discovered course adds/removes a row in the same courses
-		// table that already existed, rather than replacing it: the table also
-		// carries per-course folder overrides, so anything that discarded and
-		// rebuilt it would silently throw those away. Manual rows stay fully
-		// usable for a course discovery misses.
-		function courseNameInputs() {
-			return Array.prototype.slice.call(
-				document.querySelectorAll('#courses-table input[name="course_row_name[]"]'));
+		function courseRowElements() {
+			return Array.prototype.slice.call(coursesBody.querySelectorAll('tr'));
 		}
+
+		function rowName(tr) {
+			var input = tr.querySelector('input[name="course_row_name[]"]');
+			return input ? input.value.trim() : '';
+		}
+
 		function findCourseRow(name) {
 			var target = name.trim().toLowerCase();
 			var match = null;
-			courseNameInputs().forEach(function (input) {
-				if (input.value.trim().toLowerCase() === target) { match = input.closest('tr'); }
+			courseRowElements().forEach(function (tr) {
+				if (rowName(tr).toLowerCase() === target) { match = tr; }
 			});
 			return match;
 		}
-		function addCourseRow(name) {
-			var tbody = document.querySelector('#courses-table tbody');
+
+		function markRowState(tr) {
+			var cb = tr.querySelector('.course-on');
+			tr.classList.toggle('off', !(cb && cb.checked));
+		}
+
+		function addCourseRow(name, selected) {
 			var tr = document.createElement('tr');
-			tr.innerHTML = '<td><input type="text" name="course_row_name[]" placeholder="Analysis I"></td>' +
+			tr.innerHTML = '<td><input type="checkbox" class="course-on" title="Sync this course"></td>' +
+				'<td><input type="text" name="course_row_name[]" placeholder="Analysis I"></td>' +
 				'<td><div class="path-field"><input type="text" name="course_row_folder[]" placeholder="Mathematik/Analysis">' +
 				'<button type="button" class="browse-btn">Browse...</button></div></td>' +
 				'<td><button type="button" class="remove-row-btn" onclick="this.closest(\'tr\').remove()">Remove</button></td>';
-			tbody.appendChild(tr);
-			tr.querySelector('input[name="course_row_name[]"]').value = name;
+			coursesBody.appendChild(tr);
+			tr.querySelector('input[name="course_row_name[]"]').value = name || '';
+			tr.querySelector('.course-on').checked = !!selected;
+			markRowState(tr);
 			return tr;
 		}
-		function renderDiscovered(names) {
-			var box = document.getElementById('discovered-courses');
-			box.innerHTML = '';
-			if (!names.length) {
-				box.textContent = 'No courses found on your OPAL dashboard.';
-				return;
+
+		coursesTable.addEventListener('change', function (e) {
+			if (e.target && e.target.classList && e.target.classList.contains('course-on')) {
+				markRowState(e.target.closest('tr'));
 			}
-			names.forEach(function (name) {
-				var id = 'disc-' + Math.random().toString(36).slice(2);
-				var row = document.createElement('div');
-				row.className = 'checkbox-row';
-				var cb = document.createElement('input');
-				cb.type = 'checkbox';
-				cb.id = id;
-				// Pre-tick whatever is already configured, so revisiting the
-				// page shows the current selection rather than a blank slate.
-				cb.checked = !!findCourseRow(name);
-				cb.addEventListener('change', function () {
-					var existing = findCourseRow(name);
-					if (cb.checked && !existing) { addCourseRow(name); }
-					// Only remove a row the user has not customised: dropping a
-					// row that carries a folder override would discard their work
-					// on a single stray click.
-					else if (!cb.checked && existing) {
-						var folder = existing.querySelector('input[name="course_row_folder[]"]');
-						if (folder && folder.value.trim()) {
-							cb.checked = true;
-							alert('This course has a folder override. Clear the folder first, or remove the row directly.');
-							return;
-						}
-						existing.remove();
-					}
-				});
-				var label = document.createElement('label');
-				label.htmlFor = id;
-				label.textContent = name;
-				row.appendChild(cb);
-				row.appendChild(label);
-				box.appendChild(row);
+		});
+		courseRowElements().forEach(markRowState);
+
+		// Only ticked courses are saved. Done by removing the others just
+		// before the browser serializes the form, so the wire format stays
+		// exactly what the server already parses - the alternative, a third
+		// "selected" field per row, would mean teaching parseSettingsForm a new
+		// shape for no gain.
+		document.getElementById('settings-form').addEventListener('submit', function () {
+			courseRowElements().forEach(function (tr) {
+				var cb = tr.querySelector('.course-on');
+				if (!cb || !cb.checked) { tr.remove(); }
 			});
+		});
+
+		document.getElementById('add-course-row').addEventListener('click', function () {
+			var tr = addCourseRow('', true);
+			tr.querySelector('input[name="course_row_name[]"]').focus();
+		});
+
+		// mergeDiscovered adds what OPAL reports without disturbing what is
+		// already there. A configured course that the dashboard did not return
+		// keeps its row and its tick: it may be an enrolment that has ended, or
+		// a name that no longer matches, and quietly dropping it from the list
+		// would look like the tool had forgotten a choice the user made.
+		function mergeDiscovered(names) {
+			var added = 0;
+			names.forEach(function (name) {
+				if (findCourseRow(name)) { return; }
+				addCourseRow(name, false);
+				added++;
+			});
+			return added;
 		}
+
 		var findBtn = document.getElementById('find-courses-btn');
-		var findStatus = document.getElementById('find-courses-status');
-		findBtn.addEventListener('click', function () {
+		var lookupDone = false;
+
+		function lookupCourses(auto) {
+			if (findBtn.disabled) { return; }
 			findBtn.disabled = true;
+			lookupDone = true;
 			findStatus.textContent = ' Reading your OPAL dashboard...';
 			fetch('/settings/discover-courses', { method: 'POST' })
 				.then(function (r) { return r.json(); })
 				.then(function (j) {
 					if (j.error) {
-						findStatus.textContent = ' ' + j.error;
+						// On an automatic lookup this is routine rather than a
+						// fault - a first run has usually not logged in yet -
+						// so it says what to do instead of reading as a failure.
+						findStatus.textContent = auto
+							? ' Could not read your courses yet (log in first, then use "Refresh this list from OPAL"). You can also add them by hand.'
+							: ' ' + j.error;
 						return;
 					}
-					findStatus.textContent = ' Found ' + j.courses.length + ' course(s). Tick the ones you want.';
-					renderDiscovered(j.courses);
+					var added = mergeDiscovered(j.courses || []);
+					if (!j.courses || !j.courses.length) {
+						findStatus.textContent = ' No courses found on your OPAL dashboard.';
+					} else if (added === 0) {
+						findStatus.textContent = ' Your list is up to date with OPAL (' + j.courses.length + ' course(s)).';
+					} else {
+						findStatus.textContent = ' Added ' + added + ' course(s) from OPAL. Tick the ones you want.';
+					}
 				})
 				.catch(function (err) { findStatus.textContent = ' Lookup failed: ' + err; })
 				.finally(function () { findBtn.disabled = false; });
-		});
+		}
+
+		findBtn.addEventListener('click', function () { lookupCourses(false); });
 
 		// --- folder suggestions --------------------------------------------
 		// Only ever fills fields that are still empty. A folder the user
@@ -849,8 +892,14 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		// two courses end up pointed at the same folder.
 		var suggestBtn = document.getElementById('suggest-folders-btn');
 		var suggestStatus = document.getElementById('suggest-folders-status');
+		// Only ticked courses: suggesting a folder for a course that will not
+		// be synced spends the user's attention on a row that is about to be
+		// dropped at save time.
 		function courseRows() {
-			var trs = Array.prototype.slice.call(document.querySelectorAll('#courses-table tbody tr'));
+			var trs = courseRowElements().filter(function (tr) {
+				var cb = tr.querySelector('.course-on');
+				return cb && cb.checked;
+			});
 			return trs.map(function (tr) {
 				var nameInput = tr.querySelector('input[name="course_row_name[]"]');
 				var folderInput = tr.querySelector('input[name="course_row_folder[]"]');
@@ -940,6 +989,17 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 				})
 				.catch(function (err) { alert('Browse failed: ' + err); });
 		}
+
+		// Registered here, after lookupCourses and its state exist. Choosing to
+		// pick specific courses is the moment someone wants to see their
+		// courses, so they are fetched then rather than after hunting for a
+		// button. Only when there is nothing to show: a list that is already
+		// populated must not move under them.
+		syncAllCheckbox.addEventListener('change', function () {
+			if (!syncAllCheckbox.checked && !lookupDone && courseRowElements().length === 0) {
+				lookupCourses(true);
+			}
+		});
 
 		document.getElementById('browse-download-path').addEventListener('click', function () {
 			browseInto(document.getElementById('download_path'));

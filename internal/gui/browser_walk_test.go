@@ -753,3 +753,151 @@ func TestBrowserSyncLogIsWrittenForAUser(t *testing.T) {
 		t.Fatalf("uncaught JavaScript errors: %v", pageErrors)
 	}
 }
+
+// Picking courses, in a real browser.
+//
+// The maintainer's complaint (2026-07-26) was that adding a course involved
+// "mehrere Stellen" - several places. It did: a box of discovered checkboxes,
+// a separate table of configured rows, a "+ Add course" button producing a
+// third kind of thing, and the user expected to join them up mentally.
+//
+// Everything asserted here is client-side, so it cannot be reached from a
+// handler test: the rows, the tickboxes and the drop-on-submit all live in
+// JavaScript.
+func TestBrowserCoursePickerIsOneList(t *testing.T) {
+	if os.Getenv("OPAL_GUI_BROWSER_WALK") == "" {
+		t.Skip("set OPAL_GUI_BROWSER_WALK=1 to run the browser walk (needs Playwright browsers)")
+	}
+
+	stubScheduler(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	yaml := "download_path: " + filepath.ToSlash(filepath.Join(dir, "downloads")) + "\n" +
+		"courses:\n  - Analysis I\n  - Algorithmen\n" +
+		"course_folders:\n  Analysis I: Mathe/Analysis\n" +
+		"sync: true\n" +
+		"opal_url: https://bildungsportal.sachsen.de/opal/\n" +
+		"session_state_file: " + filepath.ToSlash(filepath.Join(dir, "state.json")) + "\n"
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	srv := &server{configPath: configPath, buildVersion: "test", feedback: &feedbackState{}}
+	ts := httptest.NewServer(newMux(srv, configPath))
+	defer ts.Close()
+
+	scraper.EnsurePlaywrightBrowsersPath()
+	pw, err := playwright.Run()
+	if err != nil {
+		t.Fatalf("playwright: %v", err)
+	}
+	defer pw.Stop()
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
+	if err != nil {
+		t.Fatalf("launch chromium: %v", err)
+	}
+	defer browser.Close()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+	var pageErrors []string
+	page.On("pageerror", func(err error) { pageErrors = append(pageErrors, err.Error()) })
+
+	if _, err := page.Goto(ts.URL+"/settings", playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateNetworkidle,
+	}); err != nil {
+		t.Fatalf("goto settings: %v", err)
+	}
+
+	// --- every configured course is on the list, ticked ----------------------
+	ticks := page.Locator("#courses-table tbody .course-on")
+	n, err := ticks.Count()
+	if err != nil || n != 2 {
+		t.Fatalf("expected both configured courses on one list, got %d (err=%v)", n, err)
+	}
+	for i := 0; i < n; i++ {
+		if checked, err := ticks.Nth(i).IsChecked(); err != nil || !checked {
+			t.Fatalf("a configured course is on the list but not ticked (row %d)", i)
+		}
+	}
+
+	// --- unticking keeps the row, so the choice stays reversible -------------
+	// The old picker deleted the row, which is why it had to refuse with an
+	// alert() when the row carried a folder override.
+	if err := ticks.Nth(0).Uncheck(); err != nil {
+		t.Fatalf("untick a course: %v", err)
+	}
+	if n2, err := page.Locator("#courses-table tbody tr").Count(); err != nil || n2 != 2 {
+		t.Fatalf("unticking removed the row instead of keeping it (rows=%d err=%v)", n2, err)
+	}
+	folder, err := page.Locator(`#courses-table input[name="course_row_folder[]"]`).Nth(0).InputValue()
+	if err != nil {
+		t.Fatalf("read folder: %v", err)
+	}
+	if folder != "Mathe/Analysis" {
+		t.Fatalf("unticking discarded the folder override, got %q", folder)
+	}
+
+	// --- ticking it again restores it, with no dialog in the way -------------
+	var dialogs []string
+	page.On("dialog", func(d playwright.Dialog) {
+		dialogs = append(dialogs, d.Message())
+		_ = d.Dismiss()
+	})
+	if err := ticks.Nth(0).Check(); err != nil {
+		t.Fatalf("re-tick a course: %v", err)
+	}
+	if len(dialogs) > 0 {
+		t.Fatalf("ticking a course popped a dialog at the user: %v", dialogs)
+	}
+
+	// --- only ticked courses are saved ---------------------------------------
+	if err := ticks.Nth(1).Uncheck(); err != nil {
+		t.Fatalf("untick the second course: %v", err)
+	}
+	if err := page.Click(`#settings-form button[type="submit"]`); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State: playwright.LoadStateNetworkidle,
+	}); err != nil {
+		t.Fatalf("wait after save: %v", err)
+	}
+
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if len(loaded.App.Courses) != 1 || loaded.App.Courses[0] != "Analysis I" {
+		t.Fatalf("unticking a course did not remove it from the saved list, got %#v", loaded.App.Courses)
+	}
+	if loaded.App.CourseFolders["Analysis I"] != "Mathe/Analysis" {
+		t.Fatalf("the surviving course lost its folder override, got %#v", loaded.App.CourseFolders)
+	}
+
+	// --- adding one by hand still works --------------------------------------
+	before, err := page.Locator("#courses-table tbody tr").Count()
+	if err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if err := page.Click("#add-course-row"); err != nil {
+		t.Fatalf("add by hand: %v", err)
+	}
+	after, err := page.Locator("#courses-table tbody tr").Count()
+	if err != nil || after != before+1 {
+		t.Fatalf("'Add one by hand' did not add a row: %d -> %d (err=%v)", before, after, err)
+	}
+	// A row added on purpose starts ticked; making someone add it and then
+	// tick it would be two steps for one decision.
+	if checked, err := page.Locator("#courses-table tbody .course-on").Nth(after - 1).IsChecked(); err != nil || !checked {
+		t.Fatalf("a hand-added course did not start ticked (checked=%v err=%v)", checked, err)
+	}
+
+	if len(pageErrors) > 0 {
+		t.Fatalf("uncaught JavaScript errors: %v", pageErrors)
+	}
+}

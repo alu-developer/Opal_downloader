@@ -19,13 +19,8 @@ machine belong in local memory, not here.
 ### Maintainer feedback batch, 2026-07-26
 
 Ten things, described in one go, listed in the order they are being worked.
-Five are done (see "Done recently"); the rest are below.
+Six are done (see "Done recently"); the rest are below.
 
-- **Course selection feels scattered.** "Sync all courses" hides the picker,
-  "Find my courses" fetches a list, "+ Add course" makes a manual row,
-  "Suggest folders" fills the other column — four controls in three places
-  for one job. Should be one obvious path with the manual route as the
-  escape hatch.
 - **TU-Fast's refresh waits on a clock, not on evidence.** Sometimes TU-Fast
   does not act; the reload that fixes it then takes far too long, because
   the wait is a fixed duration rather than a check for something observable.
@@ -344,6 +339,29 @@ enough to justify keeping a known-hazardous test around.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Course selection is one list now.** The maintainer's words were "es gibt so
+  mehrere stellen und so weiter.. fühlt sich weird an", and they were right
+  about the cause: a box of discovered checkboxes, a separate table of
+  configured rows, a "+ Add course" button producing a third kind of thing, and
+  the user left to join them up mentally. Every course now appears exactly once,
+  with its tickbox and its folder on the same line, under three plainly-named
+  actions ("Refresh this list from OPAL", "Add one by hand", "Fill in folders
+  for me").
+  **Unticking no longer deletes the row.** The old version did, which is why it
+  had to refuse with an `alert()` when the row carried a folder override — it
+  was protecting the user from a deletion it had chosen to do. Keeping the row
+  greyed out removes the deletion, the alert and the special case: unticked rows
+  are dropped when the form is submitted, and until then the decision is free to
+  change. The wire format is untouched, so `parseSettingsForm` did not have to
+  learn anything new.
+  Also: choosing "pick specific courses" now fetches the list straight away
+  instead of leaving a button to be found, and a failed automatic lookup reads
+  as "log in first, then refresh" rather than as an error, because on a first
+  run that is exactly what it is.
+  *Verified in a real browser (`TestBrowserCoursePickerIsOneList`) and
+  screenshotted. Mutation-tested: making submit keep the unticked rows fails
+  it.*
 
 - **Automatic sync got its own page.** The maintainer's read was that Settings
   is really folder configuration and a daily schedule is a different kind of

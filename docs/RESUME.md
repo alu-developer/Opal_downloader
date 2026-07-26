@@ -31,9 +31,9 @@ that runs and fails, not a preference.
    one-line diff. The first version of this idea was "report the number and
    justify it" and the maintainer rejected it correctly - a number I defend is
    a paragraph, not a change.
-3. **Investigation** - a rule: before citing a doc as "blocked"/"dead", quote
-   the measurement it rests on; no number means it is an opinion. NOT WRITTEN
-   INTO CLAUDE.md YET.
+3. **Investigation** - DONE: CLAUDE.md now requires quoting the measurement
+   behind any "blocked"/"dead"/"already tried" claim, and separates "do not
+   re-litigate" from "do not investigate".
 
 Still outstanding from before: the sync-speed measurement (see the entry above
 this one - instrument where each section's ~1s actually goes; the constants

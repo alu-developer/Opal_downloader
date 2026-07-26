@@ -179,6 +179,32 @@ or timed out. Verified `sync`/`list` runs are especially cheap: they reuse
 `session_state_file` in a fresh headless browser with no TU-Fast
 involved at all when the saved session is still valid.
 
+## Before you call something blocked, dead, or already-tried
+
+Quote the measurement it rests on. A number, from a real run, with the
+conditions it was taken under. If you cannot find one, it is an opinion
+someone wrote down, not a result - and it does not block anything.
+
+This exists because of a specific failure (2026-07-27). `docs/sync-speed-
+campaign.md` records that every approach was tried and the target "is not
+reachable by any approach identified so far". That was read twice, accepted
+twice, and used to justify not looking - while the file itself named an
+unexplored lead nobody had pulled on. Ten minutes of reading the actual
+constants then turned up that ~170s of a ~227s run may be this tool's own
+polling rather than OPAL being slow. Nobody had ever measured it.
+
+Two things follow, and they are different:
+
+- **Do not re-litigate a rejected approach without new evidence.** Still true.
+  That rule is in this file for a reason and several approaches really were
+  killed by real measurements.
+- **"Do not re-litigate" is not "do not investigate".** A conclusion with no
+  number behind it has not been tested, whatever its tone. Read the code, not
+  the summary of the code.
+
+The same applies to this project's own docs, including the ones written
+confidently. A long, well-argued document is not evidence.
+
 ## How to organise yourself (autopilot, model/effort, budget)
 
 `docs/agent-operating-model.md` is the standing answer to "when do you keep

@@ -22,11 +22,22 @@ All ten are done — see "Done recently" for what each turned out to involve.
 
 The tenth was **code size**, offered as a suggestion rather than a task, and it
 stays a standing rule rather than a backlog item: keep the big files from
-growing while touching them. One concrete move was made — `internal/gui/gui.go`
-had reached 1154 lines by being the home for anything without an obvious home,
-so the shared page chrome moved to `chrome.go` and it is back to 835. Still
-large and worth watching: `internal/scraper/crawl.go` (1249),
-`internal/gui/settings.go` (1028).
+growing while touching them. Two concrete moves were made, both verified as
+byte-identical relocations rather than rewrites:
+
+- `internal/gui/gui.go` had reached 1154 lines by being the home for anything
+  without an obvious one. The shared page chrome moved to `chrome.go`; gui.go
+  is back to **835**.
+- `internal/gui/settings.go` was a thousand lines of two unrelated jobs —
+  reading and writing `config.yaml`, and rendering a long HTML form. The
+  markup and its client-side behaviour moved to `settings_page.go`; settings.go
+  is now **512**.
+
+**`internal/scraper/crawl.go` (1250) is deliberately left alone.** It is the
+most correctness-sensitive file in the project, with a documented history of
+*silent* file loss from changes made to it, and a tidy-up there buys nothing
+that would justify the risk. If it is ever split, that should be a change
+someone makes for a reason other than its line count.
 
 **What is left for the maintainer is looking at it.** Six pages changed shape
 this session — the sync log, the settings page, the new `/schedule` page, the

@@ -33,6 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
@@ -895,6 +896,110 @@ func TestBrowserCoursePickerIsOneList(t *testing.T) {
 	// tick it would be two steps for one decision.
 	if checked, err := page.Locator("#courses-table tbody .course-on").Nth(after - 1).IsChecked(); err != nil || !checked {
 		t.Fatalf("a hand-added course did not start ticked (checked=%v err=%v)", checked, err)
+	}
+
+	if len(pageErrors) > 0 {
+		t.Fatalf("uncaught JavaScript errors: %v", pageErrors)
+	}
+}
+
+// A run that has stopped producing events should say so.
+//
+// A sync was reported stuck once (2026-07-26) and the only evidence was a
+// status line that had not changed. Nothing noticed, and nothing could have:
+// the page rendered the last event it received and had no opinion about how
+// long ago that was.
+//
+// The threshold is three minutes in production, which no test should sit
+// through, so the page's own constant is overridden in the browser first.
+func TestBrowserSyncPageNoticesAStalledRun(t *testing.T) {
+	if os.Getenv("OPAL_GUI_BROWSER_WALK") == "" {
+		t.Skip("set OPAL_GUI_BROWSER_WALK=1 to run the browser walk (needs Playwright browsers)")
+	}
+
+	stubScheduler(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	yaml := "download_path: " + filepath.ToSlash(filepath.Join(dir, "downloads")) + "\n" +
+		"courses:\n  - Analysis I\nsync: true\n" +
+		"opal_url: https://bildungsportal.sachsen.de/opal/\n" +
+		"session_state_file: " + filepath.ToSlash(filepath.Join(dir, "state.json")) + "\n"
+	if err := os.WriteFile(configPath, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	srv := &server{configPath: configPath, buildVersion: "test", feedback: &feedbackState{}}
+	ts := httptest.NewServer(newMux(srv, configPath))
+	defer ts.Close()
+
+	scraper.EnsurePlaywrightBrowsersPath()
+	pw, err := playwright.Run()
+	if err != nil {
+		t.Fatalf("playwright: %v", err)
+	}
+	defer pw.Stop()
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
+	if err != nil {
+		t.Fatalf("launch chromium: %v", err)
+	}
+	defer browser.Close()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+	var pageErrors []string
+	page.On("pageerror", func(err error) { pageErrors = append(pageErrors, err.Error()) })
+
+	// Set before the page script runs, or it would read the real three
+	// minutes and this test would have to wait them out.
+	if err := page.AddInitScript(playwright.Script{Content: playwright.String("window.OPAL_STALE_AFTER_MS = 300;")}); err != nil {
+		t.Fatalf("shorten the stale threshold: %v", err)
+	}
+	if _, err := page.Goto(ts.URL+"/sync", playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+	}); err != nil {
+		t.Fatalf("goto sync: %v", err)
+	}
+	if _, err := page.WaitForFunction(`document.getElementById('status').textContent === 'Idle.'`, nil); err != nil {
+		t.Fatalf("sync page never settled to idle: %v", err)
+	}
+
+	// Nothing is running, so silence means nothing and must not be reported.
+	time.Sleep(1200 * time.Millisecond)
+	if visible, err := page.Locator("#stale").IsVisible(); err != nil || visible {
+		t.Fatalf("an idle page reported itself as stalled (visible=%v err=%v)", visible, err)
+	}
+
+	// Now a run starts and immediately goes quiet.
+	srv.syncJob.start(jobKindSync, func() {})
+	defer srv.syncJob.finish()
+	srv.syncJob.publish(jobEvent{Kind: "course_started", Course: "Analysis I", CourseIndex: 1, TotalCourses: 1})
+
+	if _, err := page.WaitForFunction(`document.getElementById('stale').style.display === 'block'`,
+		nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(15000)}); err != nil {
+		text, _ := page.Locator("#stale").TextContent()
+		t.Fatalf("a silent run was never reported as stalled (notice was %q): %v", text, err)
+	}
+
+	notice, err := page.Locator("#stale").TextContent()
+	if err != nil {
+		t.Fatalf("read the stall notice: %v", err)
+	}
+	// It has to stay honest: a long section legitimately goes quiet, so this
+	// reports elapsed time and points at Cancel rather than declaring a fault.
+	if !strings.Contains(notice, "Cancel") {
+		t.Errorf("the stall notice does not say what the user can do about it: %q", notice)
+	}
+
+	// And activity clears it, or it would latch on and cry wolf for the rest
+	// of the run.
+	srv.syncJob.publish(jobEvent{Kind: "file_downloaded", Course: "Analysis I", File: "woche01.pdf"})
+	if _, err := page.WaitForFunction(`document.getElementById('stale').style.display === 'none'`,
+		nil, playwright.PageWaitForFunctionOptions{Timeout: playwright.Float(5000)}); err != nil {
+		t.Fatalf("the stall notice did not clear when the run produced an event again: %v", err)
 	}
 
 	if len(pageErrors) > 0 {

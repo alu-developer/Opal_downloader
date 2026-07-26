@@ -74,6 +74,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []s
 	timing.PrintProfileLine("file collection (aggregate): %s", fileCollectionElapsed)
 
 	logging.User("Discovered %d remote files", len(remoteFiles))
+	s.LogRateLimitStats()
 	if err := ctx.Err(); err != nil {
 		// Cancelled mid-crawl: report whatever files were actually collected
 		// as the (partial) result, but surface ctx.Err() so the caller

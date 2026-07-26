@@ -34,7 +34,7 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 	}
 
 	for _, sourceURL := range sourcePages {
-		if _, err := page.Goto(sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+		if _, err := s.gotoPolitely(page, sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 			// Retry once after a short wait, mirroring the transient-nav-failure
 			// retry pattern already used throughout crawl.go (queue task
 			// fix-course-level-crawl-flakiness, 2026-07-13). Before this, a single
@@ -49,7 +49,7 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 			// back-to-back live runs), but the acceptance criteria calls for
 			// hardening this regardless since it's a real, if rarer, gap.
 			page.WaitForTimeout(contentFallbackWaitMs)
-			if _, retryErr := page.Goto(sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); retryErr != nil {
+			if _, retryErr := s.gotoPolitely(page, sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); retryErr != nil {
 				logging.Warn("course discovery source %s failed to load after retry: %v (courses only listed on this page may be missing from the result)", sourceURL, retryErr)
 				continue
 			}

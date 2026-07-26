@@ -346,6 +346,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	<label class="opt"><input type="checkbox" id="opt-dev"> dev mode (visible browser)</label>
 
 	<div id="status">Idle.</div>
+	<div id="stale" class="warning" style="display:none;"></div>
 	<div id="summary"></div>
 	<div id="log"></div>
 
@@ -456,6 +457,14 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			// run's actual result under scan chatter - but the status line
 			// ticking every couple of seconds is exactly what makes a long
 			// crawl distinguishable from a hang.
+			markActivity();
+			// Events arriving is itself proof a run is in flight. Relying only
+			// on the "state" frame would miss a run that started after this
+			// page connected, and that run is exactly the one worth watching.
+			if (e.kind !== 'done' && e.kind !== 'cancelled' && e.kind !== 'failed') {
+				running = true;
+			}
+
 			if (e.kind === 'discovery') {
 				statusEl.textContent = 'Scanning: ' + e.message;
 				return;
@@ -475,6 +484,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			if (e.kind === 'done' || e.kind === 'cancelled' || e.kind === 'failed') {
 				statusEl.textContent = e.kind === 'done' ? 'Done.' : (e.kind === 'cancelled' ? 'Cancelled.' : 'Failed.');
 				setRunning(false);
+				running = false;
 			} else {
 				var st = statusText(e);
 				if (st) { statusEl.textContent = st; }
@@ -484,6 +494,41 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			}
 		}
 
+		// --- has this stopped moving? ---------------------------------------
+		// A sync was reported stuck once (2026-07-26), and the only evidence
+		// was a status line that had not changed. Nothing noticed, and nothing
+		// could have: the page showed the last event it received and had no
+		// opinion about how long ago that was.
+		//
+		// A crawl legitimately goes quiet for a while - a large section can
+		// take a good few seconds - so this is deliberately not an alarm. It
+		// says how long it has been, and points at Cancel, which is the only
+		// thing the user can actually do about it.
+		// Three minutes. Read off window so the browser walk can shorten it
+		// rather than sitting through the real thing; there is nothing
+		// sensitive about the number and nothing else reads it.
+		var STALE_AFTER_MS = window.OPAL_STALE_AFTER_MS || 180000;
+		var lastEventAt = Date.now();
+		var running = false;
+		var staleEl = document.getElementById('stale');
+
+		function markActivity() {
+			lastEventAt = Date.now();
+			staleEl.textContent = '';
+			staleEl.style.display = 'none';
+		}
+
+		function checkStale() {
+			if (!running) { staleEl.style.display = 'none'; return; }
+			var quietMs = Date.now() - lastEventAt;
+			if (quietMs < STALE_AFTER_MS) { staleEl.style.display = 'none'; return; }
+			var mins = Math.floor(quietMs / 60000);
+			staleEl.textContent = 'No progress for ' + mins + ' minute' + (mins === 1 ? '' : 's') +
+				'. A big section can take a while, so this is not necessarily wrong – but if it stays here, use Cancel and try again.';
+			staleEl.style.display = 'block';
+		}
+		setInterval(checkStale, 5000);
+
 		var es = null;
 		function connect() {
 			if (es) { es.close(); }
@@ -491,6 +536,8 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			es.addEventListener('state', function (ev) {
 				var data = JSON.parse(ev.data);
 				setRunning(data.running);
+			running = data.running;
+			markActivity();
 				// The wire keeps calling it "list" - that is the job kind and
 				// the CLI subcommand, both of which stay as they are. Only the
 				// word the user reads changes, because listing courses is not

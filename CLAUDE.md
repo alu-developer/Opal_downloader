@@ -45,6 +45,13 @@ and `docs/browser-profile-strategy.md` for the current state of this effort.
 Beyond ease of use, these constrain every future decision regardless of
 which specific initiative is being worked on:
 
+- **Server load is a standing constraint, not a one-off check.**
+  `docs/server-load.md` is the policy: a rate ceiling every OPAL navigation
+  passes through (`internal/polite`, wired in via `gotoPolitely`), backoff when
+  OPAL reports overload, and scheduled runs scattered across the hour instead
+  of every install firing at 06:00. Read it before any change that makes the
+  tool ask OPAL for more, or ask faster - it pulls directly against
+  `docs/sync-speed-campaign.md`, and that trade-off is written down there.
 - **Local-only tool.** Everything runs on the user's own machine. No
   opal-downloader-operated backend/cloud service exists today, and none is
   planned — not ruled out forever on principle, but no current need has been

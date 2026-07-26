@@ -274,7 +274,7 @@ type sectionVisit struct {
 func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitle string) (playwright.Page, sectionVisit) {
 	visit := sectionVisit{url: currentURL, title: sectionTitle}
 
-	if _, err := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
+	if _, err := s.gotoPolitely(page, currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 		if isPageCrashError(err) {
 			// A crashed page is permanently unusable - retrying on it (like
 			// the transient-error branch below does) would just crash again
@@ -296,7 +296,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 			// succeeds on a second attempt.
 			page.WaitForTimeout(contentFallbackWaitMs)
 		}
-		if _, retryErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
+		if _, retryErr := s.gotoPolitely(page, currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
 			logging.Warn("skipping section %q (%s): navigation failed after retry: %v", sectionTitle, currentURL, retryErr)
 			visit.failed = true
 			return page, visit
@@ -325,7 +325,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 			page = newPage
 			// The replacement tab starts blank; it has to be navigated back
 			// to currentURL before there is anything for extraction to read.
-			if _, gotoErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); gotoErr != nil {
+			if _, gotoErr := s.gotoPolitely(page, currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); gotoErr != nil {
 				logging.Warn("skipping section %q (%s): content extraction crashed; re-navigating the replacement tab failed: %v", sectionTitle, currentURL, gotoErr)
 				visit.failed = true
 				return page, visit
@@ -437,7 +437,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		// Prefer navigating directly to the "show all" URL over clicking: it's a
 		// plain link with a resolvable href, and direct navigation is more robust
 		// in headless mode than dispatching a click event.
-		_, err := page.Goto(absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
+		_, err := s.gotoPolitely(page, absURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)})
 		switch {
 		case err == nil:
 			navigated = true
@@ -1066,7 +1066,7 @@ func (s *OpalScraper) recoverAndReturnToSection(page playwright.Page, currentURL
 		// go through its own recovery attempt there.
 		return page, nil, "", "", false
 	}
-	if _, err := newPage.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
+	if _, err := s.gotoPolitely(newPage, currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 		// Recovered a fresh page but couldn't get back to currentURL; still hand it
 		// back so the crawl loop continues on a healthy page rather than the
 		// crashed one, even though this section's show-all expansion is lost.

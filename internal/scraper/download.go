@@ -215,7 +215,7 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string, plainURL
 		// about it is no longer true.
 		s.fallbackPage.invalidate()
 		download, err := page.ExpectDownload(func() error {
-			_, navErr := page.Goto(fileURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)})
+			_, navErr := s.gotoPolitely(page, fileURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)})
 			return navErr
 		}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(15000)})
 		if err == nil {
@@ -322,7 +322,7 @@ func (s *OpalScraper) clickCandidateLinkOnPage(pageURL string, candidate downloa
 	reusing := s.fallbackPage.canReuse(pageURL, page.URL())
 	if !reusing {
 		s.fallbackPage.invalidate()
-		if _, err := page.Goto(pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
+		if _, err := s.gotoPolitely(page, pageURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 			return err
 		}
 	}

@@ -60,7 +60,7 @@ func (s *OpalScraper) DumpPageLinks(targetURL, outputPath string) error {
 		return errors.New("no page available")
 	}
 
-	if _, err := page.Goto(targetURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
+	if _, err := s.gotoPolitely(page, targetURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
 		return err
 	}
 	s.waitForInteractiveLinks(page, contentFallbackWaitMs)

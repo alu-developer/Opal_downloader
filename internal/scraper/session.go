@@ -259,7 +259,7 @@ func (s *OpalScraper) isAuthenticated() (bool, error) {
 	if page == nil {
 		return false, nil
 	}
-	_, err := page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
+	_, err := s.gotoPolitely(page, s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
 		return false, fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}
@@ -375,7 +375,7 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 
 	logging.User("Opening OPAL at %s", s.opalURL)
 	logging.User("Please complete login in the opened browser window (TU-Fast/2FA supported).")
-	_, err = page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
+	_, err = s.gotoPolitely(page, s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
 		return fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
 	}

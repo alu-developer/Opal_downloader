@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/logging"
+	"github.com/alu-developer/opal-downloader/internal/polite"
 	"github.com/alu-developer/opal-downloader/internal/visitlog"
 	"github.com/mxschmitt/playwright-go"
 )
@@ -89,6 +91,13 @@ type OpalScraper struct {
 	opalURL       string
 	stateFile     string
 	developerMode bool
+
+	// limiter is the ceiling on how fast this process is allowed to ask OPAL
+	// for pages - see internal/polite and docs/server-load.md. Shared across
+	// every tab, because the thing being bounded is load on someone else's
+	// server, and OPAL cannot tell which of this program's browser tabs a
+	// request came from.
+	limiter *polite.Limiter
 
 	// debugClicks enables the click/wait audit log (see audit.go). Same
 	// set-once-before-scrape/read-only-afterward lifecycle as
@@ -407,6 +416,7 @@ func New(opalURL, stateFile string) *OpalScraper {
 		opalURL:            opalURL,
 		stateFile:          stateFile,
 		downloadCandidates: map[string]downloadCandidate{},
+		limiter:            polite.New(polite.DefaultMinInterval),
 	}
 }
 
@@ -434,7 +444,7 @@ func (s *OpalScraper) OpenInteractiveBrowserAt(url string) error {
 	if page == nil {
 		return errors.New("failed to initialize browser page")
 	}
-	_, err := page.Goto(url, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
+	_, err := s.gotoPolitely(page, url, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	return err
 }
 
@@ -521,4 +531,52 @@ func (s *OpalScraper) Close() error {
 	}
 	s.setPw(nil)
 	return pw.Stop()
+}
+
+// LogRateLimitStats records how much the politeness ceiling actually got in
+// the way of a run. Called at the end of a scrape so the claim in
+// docs/server-load.md - that the ceiling does not bind on today's crawl - is
+// something anyone can check against a real run instead of taking on trust.
+func (s *OpalScraper) LogRateLimitStats() {
+	if s == nil || s.limiter == nil {
+		return
+	}
+	waits, delayed, held := s.limiter.Stats()
+	logging.Detail("rate ceiling: %d navigation(s), %d delayed, %s held in total", waits, delayed, held)
+}
+
+// gotoPolitely is the single door every navigation to OPAL goes through.
+//
+// It exists so that "how hard does this tool hit somebody else's server" has
+// one answer in one place, rather than being an emergent property of fifteen
+// call sites and whatever the concurrency settings happen to be. See
+// internal/polite and docs/server-load.md.
+//
+// It also watches what comes back: a 429 or a 503 is OPAL saying it is
+// struggling, and the limiter widens its spacing in response.
+//
+// A scraper built without a limiter (a zero-value struct in a test) simply
+// navigates, so this is safe to call unconditionally.
+func (s *OpalScraper) gotoPolitely(page playwright.Page, url string, opts playwright.PageGotoOptions) (playwright.Response, error) {
+	if s != nil && s.limiter != nil {
+		if err := s.limiter.Wait(context.Background()); err != nil {
+			return nil, err
+		}
+	}
+
+	resp, err := page.Goto(url, opts)
+
+	if s != nil && s.limiter != nil {
+		status := 0
+		if resp != nil {
+			status = resp.Status()
+		}
+		s.limiter.Observe(status)
+		// Being throttled makes a sync look slow for a reason nobody can see
+		// from the outside, so it goes on the record.
+		if level := s.limiter.BackoffLevel(); level > 0 && (status == 429 || status == 503) {
+			logging.Warn("OPAL reported it is overloaded (HTTP %d) - slowing down (backoff level %d of %d)", status, level, polite.MaxBackoffLevel)
+		}
+	}
+	return resp, err
 }

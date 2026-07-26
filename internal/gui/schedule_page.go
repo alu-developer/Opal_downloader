@@ -88,7 +88,9 @@ func loadSchedulePageData(configPath string) schedulePageData {
 		Notice:    view.ScheduleNotice,
 	}
 	if data.Time == "" {
-		data.Time = scheduler.DefaultTime
+		// Not DefaultTime: every install proposing the same 06:00 means every
+		// install hits OPAL at the same instant. See scheduler.SuggestedTime.
+		data.Time = scheduler.SuggestedTime()
 	}
 
 	loaded, err := config.Load(configPath)

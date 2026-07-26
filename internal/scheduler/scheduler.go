@@ -21,7 +21,10 @@ package scheduler
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"regexp"
+	"strings"
 )
 
 // TaskName is the single Task Scheduler task name this package ever
@@ -37,6 +40,37 @@ const TaskName = "OpalDownloaderScheduledSync"
 // STARTWHENAVAILABLE still catches up shortly after they wake/log in if the
 // machine was asleep at that time.
 const DefaultTime = "06:00"
+
+// SuggestedTime is DefaultTime with the minute scattered across the hour, per
+// installation.
+//
+// Every copy of this tool proposing 06:00 means every copy asks OPAL for
+// several hundred pages at the same instant. One student is nothing; a few
+// hundred all starting on the same tick is a load spike with no purpose behind
+// it, since nobody cares whether their sync runs at 06:00 or 06:37. This is
+// the cheapest thing that stops it, and it costs the user nothing - see
+// docs/server-load.md.
+//
+// Derived from the machine's hostname rather than drawn at random, so the
+// suggestion is stable: a user who opens the schedule page twice sees the same
+// time both times, and re-saving does not silently move a working schedule.
+// The hour is left alone - the reasoning behind early morning (see DefaultTime)
+// still holds, and only the minute needs to differ between installations.
+func SuggestedTime() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return DefaultTime
+	}
+	var sum uint32
+	for _, b := range []byte(host) {
+		sum = sum*31 + uint32(b)
+	}
+	hour, _, ok := strings.Cut(DefaultTime, ":")
+	if !ok {
+		return DefaultTime
+	}
+	return fmt.Sprintf("%s:%02d", hour, sum%60)
+}
 
 // ErrUnsupported is returned by Enable/Disable/Status on any platform other
 // than Windows.

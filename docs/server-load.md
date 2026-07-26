@@ -49,16 +49,43 @@ single question, and OPAL cannot tell a page load from a file fetch.
 > breaks is not a bug in the limiter — it is a new download path that quietly
 > does not use it.
 
-**Measured, not assumed** (live `list` run against the real account,
-2026-07-26): `rate ceiling: 284 navigation(s), 0 delayed, 0s held in total`.
-The ceiling did not hold a single request back, and that run finished in 226.9s
-against 211.9s and 223.4s for earlier unthrottled runs — inside the normal
-spread. An intermediate run measured 244.6s and briefly looked like the limiter
-binding; the instrumented run is what settled it. Worth remembering next time a
-9% difference invites a confident explanation.
+**Measured on a routine sync, and it costs nothing there.** A full
+`sync` against the real account (2026-07-26): `rate ceiling: 282
+navigation(s), 0 delayed, 0s held in total`, 226.6s wall clock, `downloaded=0
+skipped=345`. Not one request was held back, and the time sits inside the
+211.9s–226.9s spread of earlier unthrottled runs. An intermediate run measured
+244.6s and briefly looked like the limiter binding; the instrumented run
+settled it. Worth remembering next time a 9% difference invites a confident
+explanation.
 
-The limiter counts its own interference and a scrape logs it
-(`LogRateLimitStats`), so this stays checkable rather than becoming folklore.
+**A first sync is a different story, and this part is arithmetic, not a
+measurement.** A routine sync downloads nothing, so the download path is never
+exercised by the run above. A *first* sync fetches every file — 345 on this
+account — and each one now waits for its slot. At 250ms that is a floor of
+**~86 seconds** of pure spacing, and `download_concurrency` does not help:
+three workers all queue behind the same ceiling, which is the entire point of
+having one.
+
+That cost is accepted rather than hidden:
+
+- It happens once. Every subsequent sync downloads only what changed, which is
+  normally nothing.
+- The download phase is the one that moves real bytes, so it is where politeness
+  matters most. Exempting it would leave the ceiling bounding only the cheap
+  half — which is the mistake this section already records.
+- A first sync already takes several minutes, most of it discovery.
+
+**Deliberately not measured.** Measuring it means a `sync --force` that
+re-downloads 345 files, which is precisely the load this document exists to
+limit; spending it to time a rate limiter would be an odd trade. If a first-run
+user ever reports the download phase feeling slow, that is the moment to
+measure and to reconsider the interval — not before.
+
+The limiter counts its own interference and `Close` logs it
+(`LogRateLimitStats`), so any real run can be checked rather than argued about.
+It is logged from `Close` rather than at the end of discovery for exactly the
+reason above: discovery finishes before a single file is fetched, so a line
+written there reports the half that never waits.
 
 That looseness is deliberate, and it is the part most likely to be
 misunderstood as an oversight:

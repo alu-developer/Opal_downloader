@@ -65,15 +65,33 @@ that. One free fix already applied: the live config still had
 `course_concurrency: 1`, a stale value from before the campaign raised the
 default to `2` - bumped to match.
 
-One real, unexplored axis identified and written up in the campaign log:
-section-level concurrency (parallelizing *within* a course's BFS crawl, not
-just across courses) - every rejected/shipped attempt so far only ever
-touched course-level concurrency or a change-detection signal. Not attempted
-yet: it's a rewrite of the crawl's concurrency model in the most correctness-
-sensitive part of this codebase (repeated history of *silent* file loss from
-concurrency changes), so it needs the maintainer's sign-off before being
-built, and the campaign's own rule (byte-for-byte against the known 344-file
-ground truth, multiple runs) before being trusted at any level.
+**The last unexplored axis is now explored, and it is dead (2026-07-26).**
+Section-level concurrency — parallelising *within* a course's BFS crawl — was
+built with the maintainer's sign-off and rejected on measurement:
+
+| section concurrency | files | wall clock |
+|---|---|---|
+| **1 (ground truth)** | **345** | 227.9s |
+| 2 | 257 | 147.2s |
+| 4 | 214 | 110.7s |
+
+Every tab added makes it faster and loses more. Off by default; the machinery
+and `--section-concurrency` stay so a future attempt can re-measure in one
+command. Full evidence in `docs/sync-speed-campaign.md`, including why this is
+structural (several tabs inside the *same* Wicket-stateful course tree) rather
+than a wait being too short — the lossy runs produced **zero** warnings and
+perfect structure, losing only file rows.
+
+So every item on the campaign's leverage list has now been tried. **The ~30s
+target is not reachable by any approach identified so far**, and the honest
+position is that this needs a genuinely new idea rather than another attempt at
+the existing ones. The one lead nobody has pulled on: the file table arriving
+via Wicket AJAX *after* the document is what makes every section cost ~1s and
+what makes concurrency unsafe — anything that gets the file list without
+waiting for that render (a server-side listing endpoint, a different OPAL view)
+would attack the cause instead of the symptom. Item 1 (HTTP-first discovery)
+tried the closest thing and was rejected for concrete measured reasons; read
+that entry before reaching for it again.
 
 ### Dogfood the whole first-run journey
 **Blocked:** all four decisions below shipped on 2026-07-26 (first-run

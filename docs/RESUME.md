@@ -19,32 +19,22 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Sync speed: a lead nobody has pulled, with numbers.** The maintainer pushed
-back (2026-07-27) on the campaign being treated as dead. They are right that
-nobody ever asked what the ~1s per section is actually *made of*. Reading the
-constants rather than the conclusions:
+**Three mechanisms agreed with the maintainer (2026-07-27)** to make three
+habits stick, after they pointed out that CLAUDE.md asks me to *want* things
+and that does not survive a long session. The pattern that does work is a check
+that runs and fails, not a preference.
 
-- `contentFallbackWaitMs = 1100ms` (navigation.go) - the settle wait before
-  extraction even starts.
-- `sectionContentPollIntervalMs = 150ms` x `sectionContentRequiredStableReads
-  = 4` = **600ms minimum** of our own polling per section, after that.
-- Sections with a "show all": `showAllExpansionPollIntervalMs = 400ms` x
-  `showAllExpansionRequiredStableReads = 3` = **1200ms more**.
+1. **Noticing** - a Stop-hook prompt requiring one thing noticed-but-not-done,
+   appended to the backlog. NOT BUILT YET.
+2. **Removing** - DONE: `codebudget_test.go`, a hard ratchet on non-test code
+   lines (11181). Growth fails the build; raising the number is a visible
+   one-line diff. The first version of this idea was "report the number and
+   justify it" and the maintainer rejected it correctly - a number I defend is
+   a paragraph, not a change.
+3. **Investigation** - a rule: before citing a doc as "blocked"/"dead", quote
+   the measurement it rests on; no number means it is an opinion. NOT WRITTEN
+   INTO CLAUDE.md YET.
 
-284 sections x ~600ms is ~170s of *self-inflicted* wait against a ~227s total
-run. That is not OPAL being slow. That is our own poll loop, and it has never
-been measured - only reasoned about.
-
-**Do not just lower these.** The 4-stable-reads value is load-bearing: a
-1-read version was live A/B tested and lost files byte-for-byte identically to
-the unfixed code (see the long comment at crawl.go:894). The question is not
-"is 4 too many" but "why is a *time-based* poll the mechanism at all" - the
-files are arriving via a Wicket AJAX response the browser already receives.
-
-Next step, and it is measurement, not a change: instrument per-section where
-the wall time actually goes (settle wait vs poll loop vs extraction), run it
-once against the real account, and find out whether the poll loop is really
-three quarters of the runtime. Only then decide anything.
-
-`docs/sync-speed-campaign.md` should get this either way - a negative result
-is still the first real measurement of where the second goes.
+Still outstanding from before: the sync-speed measurement (see the entry above
+this one - instrument where each section's ~1s actually goes; the constants
+suggest ~170s of the ~227s run may be our own poll loop).

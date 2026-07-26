@@ -392,7 +392,7 @@ const (
 // courses found "node-en" on 10 distinct nodes across 7 of the 8 courses,
 // and every single one of their visible labels was an
 // enrollment/sign-up-flavored phrase ("Einschreibung", "Einschreibung in
-// den Kurs", "Ãœbungseinschreibung", "Einschreibung in die Ãœbungsgruppen",
+// den Kurs", "Übungseinschreibung", "Einschreibung in die Übungsgruppen",
 // ...) - zero cross-contamination with any real content-bearing node type.
 // "en" is OLAT's course-element type code for a student
 // self-registration/tutorial-group-signup widget, which structurally can
@@ -446,7 +446,7 @@ type App struct {
 
 	// SkipEnrollmentSections controls whether the crawler skips queueing
 	// OPAL "Einschreibung" (enrollment/sign-up, e.g. "Einschreibung in die
-	// Ãœbungsgruppen") course-node sections for a page visit, based on the
+	// Übungsgruppen") course-node sections for a page visit, based on the
 	// structural "node-en" CSS class OPAL's course-tree sidebar renders for
 	// that node type (see scraper.isNonFileSectionType) - not on title text
 	// or crawl history. Defaults to true (skip) when unset in config.yaml;

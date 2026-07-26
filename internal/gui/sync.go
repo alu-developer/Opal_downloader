@@ -337,8 +337,8 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 
 	<p class="hint">Preview checks every course exactly the way a sync does and
 	reports what it found, without downloading anything. It therefore takes
-	about as long as a sync â€” several minutes â€” so it is a way to see what is
-	there, not a quick lookup.</p>
+	about as long as a sync &mdash; several minutes &mdash; so it is a way to see
+	what is there, not a quick lookup.</p>
 
 	<label class="opt"><input type="checkbox" id="opt-force"> Force re-download (ignore previous sync history)</label>
 	<p class="hint">Normally, files already downloaded are skipped. Check this to re-download everything regardless.</p>

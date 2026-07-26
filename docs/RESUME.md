@@ -19,4 +19,12 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-_Nothing in flight._
+**Working the 2026-07-26 maintainer feedback batch** (ten items, listed at the
+top of `docs/BACKLOG.md` in the order they are being worked).
+
+Order: mojibake + guard → unsaved-settings warning → logging layers (which is
+the mechanism the "hide diagnostic chatter" item needs) → course-picker rework
+→ move scheduling off the settings page → TU-Fast indicator-based wait →
+server-load policy → hang watchdog. Code size is a standing rule, not a step.
+
+Each lands as its own commit. Cross off items in the backlog list as they go.

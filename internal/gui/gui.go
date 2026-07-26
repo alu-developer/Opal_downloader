@@ -138,6 +138,34 @@ type server struct {
 
 // Run starts the local web UI server and blocks until it is stopped via
 // SIGINT (Ctrl-C) or the server fails to serve.
+// newMux builds the GUI's complete route table.
+//
+// Split out of Run so a test can serve the real thing. Wiring handlers up
+// individually in a test is not the same check: it silently passes when a
+// route is registered at a different path, or not at all, which is precisely
+// the kind of breakage an end-to-end walk exists to catch.
+func newMux(srv *server, configPath string) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", srv.withRecover(srv.handleLanding))
+	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
+	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
+	mux.HandleFunc("/settings/discover-courses", srv.withRecover(handleDiscoverCourses(configPath)))
+	mux.HandleFunc("/settings/suggest-folders", srv.withRecover(handleSuggestFolders(configPath)))
+	mux.HandleFunc("/settings/schedule", srv.withRecover(handleScheduleAction(configPath)))
+	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
+	mux.HandleFunc("/tufast-setup/consent", srv.withRecover(srv.handleTUFastSetupConsent))
+	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))
+	mux.HandleFunc("/tufast-setup/copy", srv.withRecover(srv.handleTUFastSetupCopy))
+	mux.HandleFunc("/update", srv.withRecover(srv.handleUpdatePage))
+	mux.HandleFunc("/update/start", srv.withRecover(srv.handleUpdateStart))
+	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
+	mux.HandleFunc("/feedback/open", srv.withRecover(srv.handleFeedbackOpen))
+	mux.HandleFunc("/scheduled-status", srv.withRecover(srv.handleScheduledStatus))
+	mux.HandleFunc("/logo.svg", srv.withRecover(handleLogo))
+	registerSyncRoutes(mux, srv, configPath)
+	return mux
+}
+
 func Run(opts Options) error {
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", opts.Port))
 	if err != nil {
@@ -170,26 +198,7 @@ func Run(opts Options) error {
 	// that races the check simply sees "not checked yet" until it finishes.
 	go srv.checkForUpdateOnce(context.Background())
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", srv.withRecover(srv.handleLanding))
-	mux.HandleFunc("/settings", srv.withRecover(handleSettings(configPath)))
-	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
-	mux.HandleFunc("/settings/discover-courses", srv.withRecover(handleDiscoverCourses(configPath)))
-	mux.HandleFunc("/settings/suggest-folders", srv.withRecover(handleSuggestFolders(configPath)))
-	mux.HandleFunc("/settings/schedule", srv.withRecover(handleScheduleAction(configPath)))
-	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
-	mux.HandleFunc("/tufast-setup/consent", srv.withRecover(srv.handleTUFastSetupConsent))
-	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))
-	mux.HandleFunc("/tufast-setup/copy", srv.withRecover(srv.handleTUFastSetupCopy))
-	mux.HandleFunc("/update", srv.withRecover(srv.handleUpdatePage))
-	mux.HandleFunc("/update/start", srv.withRecover(srv.handleUpdateStart))
-	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
-	mux.HandleFunc("/feedback/open", srv.withRecover(srv.handleFeedbackOpen))
-	mux.HandleFunc("/scheduled-status", srv.withRecover(srv.handleScheduledStatus))
-	mux.HandleFunc("/logo.svg", srv.withRecover(handleLogo))
-	registerSyncRoutes(mux, srv, configPath)
-
-	httpServer := &http.Server{Handler: mux}
+	httpServer := &http.Server{Handler: newMux(srv, configPath)}
 
 	url := fmt.Sprintf("http://%s", listener.Addr().String())
 

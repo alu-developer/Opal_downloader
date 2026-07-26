@@ -95,16 +95,39 @@ attribute would have made every save quietly wipe the user's mappings. It is
 the same shape as the incident below, which is what made it worth looking for.
 *Mutation-tested: removing one `value="{{$row.Key}}"` fails the test.*
 
-Still to walk *in a real browser*: the visual pass over course selection,
-status, and a settings edit — same WebView2 sandbox limitation noted elsewhere
-in this file (e.g. the sync-page-buttons entry below) applies here too. Also
-deliberately not run via `gui`/`main.exe gui` in this sandbox: `Run` always
-calls `openNativeWindow` unconditionally on Windows, which would pop a real,
-visible window on the maintainer's actual desktop with no warning - not
-something to trigger from an unattended session. **This slice stays open and
-genuinely unverified**; handler-level coverage is not a stranger clicking
-through it, and saying otherwise would be the "verified" lie this file exists
-to prevent.
+**The browser walk is no longer blocked (2026-07-26).** The obstacle was
+recorded as "the WebView2 window can't be driven here", but the window is only
+a viewer for a plain local HTTP server, and the repo already ships Playwright's
+Chromium. `internal/gui/browser_walk_test.go` serves the real mux over
+`httptest` and drives it with headless Chromium: same pages, same JavaScript,
+no window on anyone's desktop. Opt-in (`OPAL_GUI_BROWSER_WALK=1`), following
+`internal/scraper`'s probe precedent, since a fresh clone has no browsers
+installed; ~4s when it does run.
+`Run`'s route table moved into `newMux` so the walk exercises the real routes -
+wiring handlers up by hand in a test passes happily when a route is registered
+at the wrong path or not at all.
+
+**This is what the handler-level pass could not see.** Course selection is
+largely JavaScript: "+ Add course" and "Find my courses" build their
+`course_row_name[]` inputs client-side, so those rows exist in no
+server-rendered HTML. *Mutation-tested, and the result is the argument for
+keeping it: renaming the JS-created input to `course_row_name` (a row that
+silently never submits) fails the browser walk and leaves the handler-level
+journey test green.*
+
+**First-run finding, not a bug:** with no config, `config.Load` defaults to the
+wildcard course list, so "Sync all courses" renders checked and the whole
+course picker is hidden behind it. Syncing everything is a reasonable
+low-friction default, but a stranger who wants specific courses has to guess
+that unticking a checkbox reveals the picker. Pinned in the walk as intended
+behaviour rather than changed unilaterally - worth a maintainer's opinion.
+
+Still genuinely unverified: nothing here is a human *looking* at the pages.
+The walk asserts structure and behaviour, not that the result reads well, and
+it runs headless so it would not catch a purely visual break. Also still not
+run via `gui`/`main.exe gui`: `Run` calls `openNativeWindow` unconditionally
+on Windows, which would pop a real window on the maintainer's desktop with no
+warning - not something to trigger from an unattended session.
 
 **Handler-level pass done (2026-07-23)** against the real account instead:
 stood up the real mux/handlers over `httptest`, hit them with plain HTTP.

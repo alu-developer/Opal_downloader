@@ -19,4 +19,23 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-_Nothing in flight._
+## In flight: the maintainer's three dogfood decisions (2026-07-26)
+
+Answers came in on the four blocked questions; see the backlog item for the
+quotes. Three pieces of work, in this order:
+
+1. **First-run introduction** (biggest). The start / no-courses-configured
+   state must explain what to do, not just expose the picker. Currently: no
+   config → wildcard course list → "Sync all courses" checked → picker hidden
+   behind it, no explanation anywhere.
+2. **Rename "List courses"** (`internal/gui/sync.go`, `#btn-list`). Wrong
+   twice: costs a full crawl (210s/482s measured), and listing courses is not
+   what it does — it reports per-course file counts, i.e. a preview of what a
+   sync would fetch. Needs a name that says that, plus something about the
+   cost.
+3. **Walk scheduling in the browser.** Approved explicitly, including that it
+   registers a real Windows scheduled task. Must clean up after itself —
+   unregister whatever it creates, and never touch an existing real task.
+
+NOT in scope: making discovery faster. The maintainer believes it is possible
+but that is the sync-speed item, still needing their sign-off.

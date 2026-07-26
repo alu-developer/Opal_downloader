@@ -330,9 +330,14 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 
 	<div class="actions">
 		<button class="primary" id="btn-sync"{{if not .SyncReady}} disabled{{end}}>Sync</button>
-		<button id="btn-list"{{if not .SyncReady}} disabled{{end}}>List courses</button>
+		<button id="btn-list"{{if not .SyncReady}} disabled{{end}}>Preview sync (no download)</button>
 		<button class="stop" id="btn-cancel" disabled>Cancel</button>
 	</div>
+
+	<p class="hint">Preview checks every course exactly the way a sync does and
+	reports what it found, without downloading anything. It therefore takes
+	about as long as a sync — several minutes — so it is a way to see what is
+	there, not a quick lookup.</p>
 
 	<label class="opt"><input type="checkbox" id="opt-force"> Force re-download (ignore previous sync history)</label>
 	<p class="hint">Normally, files already downloaded are skipped. Check this to re-download everything regardless.</p>
@@ -439,7 +444,12 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			es.addEventListener('state', function (ev) {
 				var data = JSON.parse(ev.data);
 				setRunning(data.running);
-				statusEl.textContent = data.running ? ('Running: ' + data.kind) : 'Idle.';
+				// The wire keeps calling it "list" - that is the job kind and
+				// the CLI subcommand, both of which stay as they are. Only the
+				// word the user reads changes, because listing courses is not
+				// what the button does.
+				var kindLabel = data.kind === 'list' ? 'preview' : data.kind;
+				statusEl.textContent = data.running ? ('Running: ' + kindLabel) : 'Idle.';
 			});
 			['course_started','file_downloaded','file_skipped','error','log','discovery','done','cancelled','failed'].forEach(function (kind) {
 				es.addEventListener(kind, function (ev) { handleEvent(JSON.parse(ev.data)); });

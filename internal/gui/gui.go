@@ -450,6 +450,12 @@ const pageStyle = `
 	nav ul { list-style: none; padding: 0; }
 	nav li { padding: 0.5rem 0; border-bottom: 1px solid #eee; }
 	.soon { color: #888; font-size: 0.85rem; }
+	.intro { background: #f7f9fc; border: 1px solid #d7e2ef; border-radius: 6px; padding: 0.25rem 1.25rem 1rem; margin: 1.5rem 0; }
+	.intro h2 { margin-top: 1.25rem; font-size: 1rem; border-bottom: none; padding-bottom: 0; }
+	.intro ol { margin: 0.25rem 0 0; padding-left: 1.2rem; }
+	.intro li { margin: 0.35rem 0; }
+	.intro p { margin: 0.35rem 0; font-size: 0.95rem; }
+	.intro .hint { margin-top: 1rem; }
 	.status { border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
 	.status.ok { background: #e6f4ea; border: 1px solid #8cc98f; }
 	.status.warn { background: #fdecea; border: 1px solid #e0a6a6; }
@@ -486,6 +492,30 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 <body>
 	` + bannerChrome + `
 	<h1>` + logoMark + `Opal Downloader</h1>
+
+	{{if .SetupNeeded}}
+	<div class="intro">
+		<h2>What this does</h2>
+		<p>It signs in to OPAL for you, finds the files in your courses, and
+		copies them into a folder on this computer. Run it again later and it
+		only fetches what changed &ndash; nothing is uploaded, and nothing is
+		deleted from OPAL.</p>
+
+		<h2>What you'll do once</h2>
+		<ol>
+			<li><strong>Choose a folder</strong> for your course files, on the
+			next page.</li>
+			<li><strong>Pick your courses</strong> &ndash; or leave "Sync all
+			courses" ticked and get everything you're enrolled in. You can
+			change this at any time.</li>
+			<li><strong>Log in to OPAL once.</strong> Your login stays on this
+			computer. If you install the TU-Fast browser extension, later logins
+			happen without you.</li>
+		</ol>
+		<p class="hint">Everything runs on your own machine. There is no server
+		belonging to this tool, and your password never goes anywhere else.</p>
+	</div>
+	{{end}}
 
 	` + disclaimerHTML + `
 

@@ -202,6 +202,46 @@ func TestLandingPageHidesLoginStatusWhenSetupNeeded(t *testing.T) {
 	}
 }
 
+// A first run has to explain itself. The maintainer's call, 2026-07-26: the
+// start page and the not-yet-configured state should give "eine gute
+// Einführung", not just a button. Before this, a stranger's first screen was a
+// disclaimer, an update box, and a "Set up opal-downloader" link with one
+// sentence - nothing saying what the tool does with their files or their
+// password.
+func TestLandingPageIntroducesItselfOnAFirstRun(t *testing.T) {
+	s := &server{configPath: filepath.Join(t.TempDir(), "does-not-exist.yaml")}
+	rec := httptest.NewRecorder()
+	s.handleLanding(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="intro"`) {
+		t.Fatalf("a first run should introduce the tool, body was:\n%s", body)
+	}
+	// The three things a stranger needs before trusting it with a login: what
+	// it does, what they have to do, and where their credentials end up.
+	for _, want := range []string{
+		"What this does",
+		"What you'll do once",
+		"Log in to OPAL once",
+		"runs on your own machine",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("first-run intro is missing %q, body was:\n%s", want, body)
+		}
+	}
+}
+
+// ...and it has to get out of the way once there is nothing to introduce.
+func TestLandingPageDropsTheIntroOnceConfigured(t *testing.T) {
+	s := &server{configPath: writeLandingConfig(t, "\n  - Analysis")}
+	rec := httptest.NewRecorder()
+	s.handleLanding(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if body := rec.Body.String(); strings.Contains(body, `class="intro"`) {
+		t.Fatalf("the first-run intro is still shown after setup, body was:\n%s", body)
+	}
+}
+
 // Once a config exists, the login state is meaningful again and must come
 // back.
 func TestLandingPageShowsLoginStatusOnceConfigured(t *testing.T) {

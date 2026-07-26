@@ -58,6 +58,14 @@ type settingsViewData struct {
 	Saved      bool
 	Warnings   []string
 
+	// FirstRun means there is no config.yaml yet, so this page is being seen
+	// by someone who has never used the tool. It is a long form - browser,
+	// folders, subfolder rules, notifications, scheduling - and almost none of
+	// it needs a decision on day one. Without a word saying so, a stranger
+	// arriving from "Set up opal-downloader" has to read all of it to find out
+	// that one field matters.
+	FirstRun bool
+
 	DownloadPath        string
 	SyncAllCourses      bool
 	CourseRows          []courseRow
@@ -351,7 +359,7 @@ func loadSettingsViewData(configPath string) settingsViewData {
 			// No config.yaml yet: show the form pre-filled with defaults so
 			// the settings page still works as the primary first-run
 			// configuration path.
-			return loadedToViewData(configPath, config.Loaded{
+			view := loadedToViewData(configPath, config.Loaded{
 				App: config.App{
 					DownloadPath: "./downloads",
 					Courses:      []string{"*"},
@@ -362,6 +370,8 @@ func loadSettingsViewData(configPath string) settingsViewData {
 					StateFile: config.DefaultStateFile,
 				},
 			})
+			view.FirstRun = true
+			return view
 		}
 		return settingsViewData{
 			ConfigPath: configPath,
@@ -548,6 +558,17 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	</div>
 	{{end}}
 
+	{{if .FirstRun}}
+	<div class="intro">
+		<h2>First time? Only one field needs you</h2>
+		<p>Set <strong>Download path</strong> below to where you want your
+		course files, press <strong>Save settings</strong>, and you're done
+		here. Everything else on this page already has a sensible default and
+		can stay untouched &ndash; you can come back and change any of it later,
+		once you know whether you care.</p>
+	</div>
+	{{end}}
+
 	<form method="post" action="/settings" id="settings-form">
 
 	<h2>Browser</h2>
@@ -590,6 +611,12 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<input type="checkbox" id="sync_all_courses" name="sync_all_courses" {{if .SyncAllCourses}}checked{{end}}>
 		<label for="sync_all_courses">Sync all courses</label>
 	</div>
+	<p class="hint">While this is ticked, every course you are enrolled in gets
+	synced and there is nothing to choose. <strong>Untick it to pick specific
+	courses</strong> &ndash; "Find my courses" then fetches the courses you are
+	actually enrolled in, so you tick the ones you want instead of typing names.
+	This is the default on a first run, which is why the course list below is
+	hidden until you untick it.</p>
 
 	<div class="field" id="courses-field">
 		<label>Courses</label>

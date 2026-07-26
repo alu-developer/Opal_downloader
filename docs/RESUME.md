@@ -50,7 +50,41 @@ task points at it, and the new default (`DefaultSectionConcurrency = 4`) is
 exactly what is unverified. A/B runs use `tmp/opal-abtest.exe`. Rebuild
 `main.exe` only once parity holds — or after setting the default back to 1.
 
-### Where I am — first result is a RED FLAG, not a green light
+### RESOLVED: the refactor is clean, and a separate live bug surfaced
+
+Ground truth run (`--course-concurrency 1 --section-concurrency 1`, new
+binary): **345 files, Analysis 30, 227.9s.** Exactly the expected ground truth,
+so **explanation 2 is dead — the refactor did not lose anything.**
+
+That makes run A's 336 the *pre-existing course-concurrency race*, and it is a
+finding worth more than this task:
+
+| run | course | section | files | Analysis | time |
+|---|---|---|---|---|---|
+| ground truth | 1 | 1 | **345** | 30 | 227.9s |
+| A | 2 | 1 | **336** | 21 | 228.2s |
+
+**`course_concurrency: 2` loses 9 files and buys nothing** — 228.2s against
+227.9s, inside noise. The maintainer's live `config.yaml` is set to 2, so
+their real daily sync has been silently missing Analysis files. This
+contradicts the backlog's "Concurrency SOLVED (PR #105)" entry and the
+`DefaultCourseConcurrency = 2` decision. **File this loudly whatever happens to
+section concurrency.** One run, so it needs a repeat before the default is
+changed on that evidence — but it reproduces the campaign's own 2026-07-17
+finding ("Analysis: -8 files in 3 of 4 runs") exactly, which is corroboration,
+not coincidence.
+
+A real bug in this branch was found and fixed on the way (commit after
+`6f80537`): the stability polls' extra-patience gate asked only about course
+concurrency, so section concurrency 4 at course concurrency 1 would have taken
+the *impatient* budget while four tabs rendered at once. Mutation-tested.
+
+### Next
+Run C (`--course-concurrency 1 --section-concurrency 4`) is running. Compare
+against 345. Then repeat, because one clean run cannot distinguish "safe" from
+"lucky" — that is exactly the mistake the 2026-07-16 entry records.
+
+### Superseded first-pass reasoning (kept for the record)
 
 **Run A** (`--section-concurrency 1`, course concurrency 2 from config):
 **336 files in 228.2s**, against an expected 345. Per course:

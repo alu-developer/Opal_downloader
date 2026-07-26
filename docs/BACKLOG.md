@@ -122,6 +122,18 @@ low-friction default, but a stranger who wants specific courses has to guess
 that unticking a checkbox reveals the picker. Pinned in the walk as intended
 behaviour rather than changed unilaterally - worth a maintainer's opinion.
 
+**Every page in the nav now loads in a real browser too** (`/`, `/settings`,
+`/sync`, `/tufast-setup`, `/update`, `/feedback`): HTTP 200, no uncaught
+JavaScript on load, a heading, and a link home. That last one matters more than
+it looks - the real window is WebView2 with no address bar and no back button,
+so a page without a link home is a dead end the user cannot leave.
+*No findings: all six were already clean. Mutation-tested by removing
+`/feedback`'s back link, which fails the check.*
+One thing worth knowing rather than fixing: `/sync` opens its SSE progress
+stream on load and holds it, so the page never reaches network-idle even when
+nothing is syncing. That is the page working; a walk that waits for idle there
+times out on a healthy page.
+
 Still genuinely unverified: nothing here is a human *looking* at the pages.
 The walk asserts structure and behaviour, not that the result reads well, and
 it runs headless so it would not catch a purely visual break. Also still not

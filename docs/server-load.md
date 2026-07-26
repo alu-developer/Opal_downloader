@@ -19,7 +19,7 @@ Measured on the maintainer's real account (6 courses, 284 sections, 345 files):
 |---|---|
 | Page loads per sync | ~284 (one per section) + a handful for discovery |
 | Wall clock | ~210–230s serial |
-| Effective request rate | **~1.2 requests/second** |
+| Effective request rate | **~1.2 requests/second** (284 navigations over ~227s) |
 | Bytes | Only changed files are downloaded; a routine sync transfers almost nothing |
 
 A single user syncing once a day is negligible. The question this file exists
@@ -32,6 +32,17 @@ for is what happens at 100 or 1000 users.
 Every navigation to OPAL passes through `OpalScraper.gotoPolitely`, which waits
 on a shared `polite.Limiter`. The default is one request per 250ms — about 4/s,
 roughly **three times looser than what the crawl does on its own**.
+
+**Measured, not assumed** (live `list` run against the real account,
+2026-07-26): `rate ceiling: 284 navigation(s), 0 delayed, 0s held in total`.
+The ceiling did not hold a single request back, and that run finished in 226.9s
+against 211.9s and 223.4s for earlier unthrottled runs — inside the normal
+spread. An intermediate run measured 244.6s and briefly looked like the limiter
+binding; the instrumented run is what settled it. Worth remembering next time a
+9% difference invites a confident explanation.
+
+The limiter counts its own interference and a scrape logs it
+(`LogRateLimitStats`), so this stays checkable rather than becoming folklore.
 
 That looseness is deliberate, and it is the part most likely to be
 misunderstood as an oversight:

@@ -16,6 +16,7 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/gui"
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/alu-developer/opal-downloader/internal/notify"
 	"github.com/alu-developer/opal-downloader/internal/procguard"
 	"github.com/alu-developer/opal-downloader/internal/report"
@@ -93,6 +94,22 @@ func Execute() {
 	// any subcommand has a chance to launch a browser.
 	procguard.EnsureChildProcessesDieWithParent()
 
+	// Install the diagnostic log before anything can produce a diagnostic.
+	// Every run writes to it, including a GUI run - especially a GUI run,
+	// where the console this used to print to belongs to a window nobody
+	// looks at. See internal/logging for what goes where and why.
+	//
+	// A log that cannot be opened is mentioned once and then dropped: not
+	// being able to write a log is never a reason to refuse to do the work.
+	closeLog, logErr := logging.Setup(logging.Options{
+		FilePath: logging.DefaultLogPath(),
+		Verbose:  hasVerboseFlag(os.Args[1:]),
+	})
+	defer closeLog()
+	if logErr != nil {
+		fmt.Fprintln(os.Stderr, "Note:", logErr)
+	}
+
 	// Running the binary with no subcommand at all launches the GUI - the
 	// web UI is the primary/default way most users interact with
 	// opal-downloader (see docs/gui-concept.md Section 5). All CLI
@@ -107,7 +124,9 @@ func Execute() {
 	}
 
 	command := os.Args[1]
-	args := os.Args[2:]
+	// logging.Setup above already consumed --verbose, so it is taken out
+	// before any subcommand sees it - see stripVerboseFlag.
+	args := stripVerboseFlag(os.Args[2:])
 
 	var err error
 	switch command {
@@ -151,6 +170,45 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(exitCodeForError(err))
 	}
+}
+
+// verboseFlag turns on diagnostics at the console. It is global rather than
+// per-subcommand, because "show me more about what just happened" is never
+// specific to one command.
+//
+// Spelled out in full with no short alias on purpose: "-v" is already taken
+// by --version below, and a flag that means "be chatty" under one command and
+// "print the version and exit" under another is worse than no short form.
+const verboseFlag = "--verbose"
+
+// debugClicksFlag turns on the scraper's click/selector audit trace. It is
+// listed here because asking for a trace and not being shown it would be
+// absurd: the flag produces diagnostics, and --verbose decides where
+// diagnostics go, so this one implies the other. Unlike --verbose it is a real
+// subcommand flag with its own behaviour, so it is not stripped.
+const debugClicksFlag = "--debug-clicks"
+
+func hasVerboseFlag(args []string) bool {
+	for _, a := range args {
+		if a == verboseFlag || a == debugClicksFlag {
+			return true
+		}
+	}
+	return false
+}
+
+// stripVerboseFlag removes the global flag before a subcommand parses what is
+// left. Every subcommand hand-rolls its argument loop and rejects anything it
+// does not recognise, so a global flag either gets removed here or has to be
+// added to all of them.
+func stripVerboseFlag(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if a != verboseFlag {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // exitCodeForError maps a returned command error to a process exit code.
@@ -1173,6 +1231,16 @@ func projectDir() string {
 	return wd
 }
 
+// logHelpPath names the diagnostic log in help output. Falls back to a
+// description rather than an empty string when the home directory is
+// unknown, since that is also exactly when there is no file to point at.
+func logHelpPath() string {
+	if p := logging.DefaultLogPath(); p != "" {
+		return p
+	}
+	return "the diagnostic log (unavailable: no home directory)"
+}
+
 func printHelp() {
 	fmt.Println("opal-downloader (Go)")
 	fmt.Println()
@@ -1207,6 +1275,9 @@ func printHelp() {
 	fmt.Println("  schedule enable [--time HH:MM] | disable | status")
 	fmt.Println("  smoke-check --config <path> [--threshold <percent>] [--reset-baseline] [--full-sync]")
 	fmt.Println()
+	fmt.Println("  --verbose               Show diagnostics on screen as well. Works with any command. Everything it shows")
+	fmt.Println("                          is written to " + logHelpPath() + " on every run anyway,")
+	fmt.Println("                          so this is only about whether you want to watch it happen.")
 	fmt.Println("  --profile               Print granular per-course/per-file timings in addition to the summary")
 	fmt.Println("  --debug-clicks          Log every click and navigation/interactive-link wait with timestamp, page URL, selector, and reason (diagnostic tool)")
 	fmt.Println("  --concurrency n         Max concurrent file downloads for sync (default 3, overrides config.yaml)")

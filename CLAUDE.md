@@ -132,6 +132,19 @@ maintainer's own repeat use.
   (`MinScore`/`MinMargin` in `match.go`).
 - `internal/timing/` — instrumentation for the perf-benchmark work
   (see `docs/OPERATIONS.md`/queue history for context).
+- `internal/logging/` — the output path. Two axes, not one: a *level*
+  (Debug/Info/Warn/Error, how bad) and an *audience* (user or diagnostic, who
+  it is for), because "skipping section" is a genuine warning and also of no
+  interest to a student who wants their slides. Two sinks read those
+  independently — the console takes user-facing records plus every error
+  (`--verbose` adds the rest), and a rotating file under
+  `~/.opal-downloader/logs/` takes everything. Everything written to the file
+  is scrubbed via `statuslog.SanitizeMessage` first, so the log is always safe
+  to attach to a bug report without anyone remembering to check it. Call it
+  with `logging.User/Detail/Warn/Error`; the printf shape is deliberate, since
+  that is what every existing call site already looks like. The CLI's own
+  `fmt.Println` output in `cmd/` is **not** migrated and should not be: a CLI
+  printing its results to stdout is already exactly the user channel.
 
 ## Login/session automation
 

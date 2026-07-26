@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -209,7 +210,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				// would misrepresent the persistent cross-run visit-effectiveness
 				// log (internal/visitlog) as having visited a page it never
 				// loaded.
-				fmt.Printf("  Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)\n", sk.Title, sk.URL)
+				logging.Detail("Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)", sk.Title, sk.URL)
 			}
 		}
 	}
@@ -218,7 +219,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 	page = pool.primary()
 
 	if len(queue) > 0 && len(visited) >= maxPages {
-		fmt.Printf("  Warning: course %q hit the %d-section crawl cap with %d section(s) still queued; some content may be missing\n", course.Title, maxPages, len(queue))
+		logging.Warn("course %q hit the %d-section crawl cap with %d section(s) still queued; some content may be missing", course.Title, maxPages, len(queue))
 	}
 
 	if sectionsVisited == 0 && sectionsFailed > 0 {
@@ -283,7 +284,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 			// before retrying.
 			newPage, recErr := s.recoverFromPageCrash(page)
 			if recErr != nil {
-				fmt.Printf("  Warning: skipping section %q (%s): browser tab crashed and could not be recovered: %v (original error: %v)\n", sectionTitle, currentURL, recErr, err)
+				logging.Warn("skipping section %q (%s): browser tab crashed and could not be recovered: %v (original error: %v)", sectionTitle, currentURL, recErr, err)
 				visit.failed = true
 				return page, visit
 			}
@@ -296,7 +297,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 			page.WaitForTimeout(contentFallbackWaitMs)
 		}
 		if _, retryErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
-			fmt.Printf("  Warning: skipping section %q (%s): navigation failed after retry: %v\n", sectionTitle, currentURL, retryErr)
+			logging.Warn("skipping section %q (%s): navigation failed after retry: %v", sectionTitle, currentURL, retryErr)
 			visit.failed = true
 			return page, visit
 		}
@@ -317,7 +318,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 		if isPageCrashError(err) {
 			newPage, recErr := s.recoverFromPageCrash(page)
 			if recErr != nil {
-				fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed and the tab could not be recovered: %v (original error: %v)\n", sectionTitle, currentURL, recErr, err)
+				logging.Warn("skipping section %q (%s): content extraction crashed and the tab could not be recovered: %v (original error: %v)", sectionTitle, currentURL, recErr, err)
 				visit.failed = true
 				return page, visit
 			}
@@ -325,7 +326,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 			// The replacement tab starts blank; it has to be navigated back
 			// to currentURL before there is anything for extraction to read.
 			if _, gotoErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); gotoErr != nil {
-				fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed; re-navigating the replacement tab failed: %v\n", sectionTitle, currentURL, gotoErr)
+				logging.Warn("skipping section %q (%s): content extraction crashed; re-navigating the replacement tab failed: %v", sectionTitle, currentURL, gotoErr)
 				visit.failed = true
 				return page, visit
 			}
@@ -333,7 +334,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 			candidates, err = s.waitForStableSectionContent(page, sectionCalm)
 		}
 		if err != nil {
-			fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitle, currentURL, err)
+			logging.Warn("skipping section %q (%s): content extraction failed after retry: %v", sectionTitle, currentURL, err)
 			visit.failed = true
 			return page, visit
 		}
@@ -357,7 +358,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 		if page != nil {
 			actualPageURL = page.URL()
 		}
-		fmt.Printf("  Warning: section %q (%s) returned no content after polling for stable render; it may be genuinely empty, or files may have been dropped (page.URL()=%s)\n", sectionTitle, currentURL, actualPageURL)
+		logging.Warn("section %q (%s) returned no content after polling for stable render; it may be genuinely empty, or files may have been dropped (page.URL()=%s)", sectionTitle, currentURL, actualPageURL)
 	}
 
 	var showAllCandidates []map[string]string
@@ -619,8 +620,8 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 // been observed firing, because that mechanism appears roughly one run in five
 // and has not recurred since.
 func warnShowAllTruncated(sectionURL string, rowsBefore int, reason string) {
-	fmt.Printf("  Warning: section %s offered a \"show all\" control but the expansion did not add any files (%s); "+
-		"this section is capped at its first page (%d rows) and later files are missing\n",
+	logging.Warn("section %s offered a \"show all\" control but the expansion did not add any files (%s); "+
+		"this section is capped at its first page (%d rows) and later files are missing",
 		sectionURL, reason, rowsBefore)
 }
 

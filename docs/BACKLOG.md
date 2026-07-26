@@ -19,24 +19,8 @@ machine belong in local memory, not here.
 ### Maintainer feedback batch, 2026-07-26
 
 Ten things, described in one go, listed in the order they are being worked.
-Two are done (see "Done recently"); the rest are below.
+Four are done (see "Done recently"); the rest are below.
 
-- **Diagnostic chatter, the CLI half.** The GUI half shipped (see "Done
-  recently"). What is left is the scraper's own `fmt.Printf` output -
-  the "Warning: skipping section" family, `[audit]` lines, browser-profile
-  paths - which goes to stdout with no way to turn it down and no file to
-  find it in later. Needs the logging item below to exist first: "hide it
-  from the user" is only half an answer without somewhere for it to go.
-  Worth knowing: the maintainer asked whether dev tooling already covers
-  this. Honest answer is *nearly* - there is a dev mode and `dump-links`,
-  but dev mode means "visible browser", not "more logging", so there is no
-  verbosity switch to route this to today.
-- **Logging layers and encapsulation** (maintainer relaying their dad's
-  point about long-lived projects). Today the tool has exactly one output
-  channel: `fmt.Printf` to stdout, some of it forwarded into the GUI log.
-  No levels, no file, no separation between "what the user needs to know"
-  and "what I need when this breaks in six months". Worth designing rather
-  than bolting on — and it is the mechanism the item above needs.
 - **Course selection feels scattered.** "Sync all courses" hides the picker,
   "Find my courses" fetches a list, "+ Add course" makes a manual row,
   "Suggest folders" fills the other column — four controls in three places
@@ -365,6 +349,40 @@ enough to justify keeping a known-hazardous test around.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Gave the tool real logging, and moved the developer chatter into it.**
+  Raised by the maintainer relaying their father's point that a long-lived
+  project needs logging with more than one layer. Until now there was exactly
+  one channel — `fmt.Printf` to stdout — doing two unrelated jobs: talking to
+  the person running the tool, and recording what a crawl did. It served
+  neither. The user read text written for a developer, and the developer's text
+  scrolled away, or was never visible at all, because the GUI runs as a window
+  and nobody sees its stdout.
+  `internal/logging` splits it on two axes rather than one: a **level** (how
+  bad) and an **audience** (who it is for), because "skipping section" is a
+  genuine warning *and* of no interest to a student who wants their slides. Two
+  sinks read those independently — the console takes user-facing records plus
+  every error, and a rotating file under `~/.opal-downloader/logs/` takes
+  everything. `--verbose` (any command) adds diagnostics to the console;
+  `--debug-clicks` implies it, since asking for a trace and not being shown it
+  would be absurd. Built on stdlib `log/slog`, so no fourth dependency, with a
+  printf-shaped facade because that is what every existing call site looks like.
+  The scraper's 25 prints are routed by audience. The CLI's own `fmt.Println`
+  results are deliberately **not** migrated: a CLI printing its results to
+  stdout is already the user channel.
+  **Two bugs the first real log caught, which no test would have.** The shared
+  credential scrub redacts any 32+ character run of the base64 alphabet — and
+  `/` is in that alphabet, so every OPAL URL collapsed to
+  `https://bildungsportal.sachsen.[redacted]`. The section URL is precisely
+  what `scripts/compare-visit-runs.ps1` needs to answer "which section lost the
+  files", so the log was being stripped of the one field that makes it worth
+  keeping. URLs are now held out of the scrub and put back with their query
+  string dropped — path identifies a course node, query is where a jsessionid
+  would live. Second: migrated messages kept their literal `Warning: ` prefix,
+  which now doubled up against `level=WARN`.
+  *Verified live against the real account: a `list` run wrote user lines to the
+  console and diagnostics only to the file. Rotation is mutation-tested
+  (reversing the backup shift fails it), as is the audience split.*
 
 - **Rewrote the sync log for a user instead of a developer.** The maintainer's
   account is ~345 files of which almost none change, so a routine sync printed

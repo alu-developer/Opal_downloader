@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/alu-developer/opal-downloader/internal/timing"
 )
 
@@ -53,7 +54,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []s
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Found %d course links\n", len(courses))
+	logging.User("Found %d course links", len(courses))
 	timing.PrintDiscoverySummary(discoveryElapsed, len(courses))
 	s.publishProgress(DiscoveryProgress{Phase: PhaseCoursesFound, TotalCourses: len(courses)})
 
@@ -72,7 +73,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []s
 	s.resumePageTracking()
 	timing.PrintProfileLine("file collection (aggregate): %s", fileCollectionElapsed)
 
-	fmt.Printf("Discovered %d remote files\n", len(remoteFiles))
+	logging.User("Discovered %d remote files", len(remoteFiles))
 	if err := ctx.Err(); err != nil {
 		// Cancelled mid-crawl: report whatever files were actually collected
 		// as the (partial) result, but surface ctx.Err() so the caller
@@ -169,7 +170,7 @@ func (s *OpalScraper) newCourseFileCollector(totalCourses int) func(CourseRef) (
 			// no other diagnostic at all. Surfacing it here is what let the
 			// fix-list-flaky-missing-files investigation notice a course silently
 			// dropping to 0 files on some runs.
-			fmt.Printf("  Warning: course %q crawled successfully but found 0 files - verify this course actually has no content\n", course.Title)
+			logging.Warn("course %q crawled successfully but found 0 files - verify this course actually has no content", course.Title)
 		}
 		s.publishProgress(DiscoveryProgress{
 			Phase:     PhaseCourseDone,
@@ -292,7 +293,7 @@ func collectCourseFilesConcurrently(ctx context.Context, courses []CourseRef, co
 				// right after handing a result to resultCh can otherwise race
 				// with the result-draining loop's print for the previous
 				// course.
-				fmt.Printf("  Processing: %s\n", course.Title)
+				logging.Detail("Processing: %s", course.Title)
 			case <-ctx.Done():
 				return
 			}
@@ -310,7 +311,7 @@ func collectCourseFilesConcurrently(ctx context.Context, courses []CourseRef, co
 	for wr := range resultCh {
 		timing.PrintProfileLine("course %q: %s (%d files)", wr.course.Title, wr.elapsed.Elapsed(), len(wr.result.files))
 		if wr.err != nil {
-			fmt.Printf("  Course crawl error: %v\n", wr.err)
+			logging.Warn("Course crawl error: %v", wr.err)
 			continue
 		}
 		if onResult != nil {

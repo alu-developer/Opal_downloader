@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -95,7 +96,7 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		if err != nil {
 			return fmt.Errorf("launching browser with profile %s: %w", profileDir, err)
 		}
-		fmt.Printf("Launching persistent browser profile: userDataDir=%s\n", profileDir)
+		logging.Detail("Launching persistent browser profile: userDataDir=%s", profileDir)
 		s.setContext(ctx)
 		s.trackActivePage(ctx)
 		pages := ctx.Pages()
@@ -249,7 +250,7 @@ func (s *OpalScraper) saveState() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Saved session state to: %s\n", s.stateFile)
+	logging.Detail("Saved session state to: %s", s.stateFile)
 	return nil
 }
 
@@ -320,7 +321,7 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 		if stateFileExists {
 			headless := !s.developerMode
 			if s.developerMode {
-				fmt.Println("Developer mode enabled: launching visible browser for session reuse and crawl tracing.")
+				logging.User("Developer mode enabled: launching visible browser for session reuse and crawl tracing.")
 			}
 			launchErr := s.launchBrowser(headless, true)
 			var authenticated bool
@@ -349,10 +350,10 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 			// session headlessly here without ever opening its own
 			// interactive-login window.
 			if shouldReuseSavedSession(stateFileExists, launchErr, authenticated, authErr) {
-				fmt.Println("Using saved OPAL session state")
+				logging.User("Using saved OPAL session state")
 				return nil
 			}
-			fmt.Println("Saved session state expired. Interactive login required.")
+			logging.User("Saved session state expired. Interactive login required.")
 			_ = s.closeBrowser()
 		}
 	}
@@ -372,8 +373,8 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 		return errors.New("failed to initialize browser page")
 	}
 
-	fmt.Printf("Opening OPAL at %s\n", s.opalURL)
-	fmt.Println("Please complete login in the opened browser window (TU-Fast/2FA supported).")
+	logging.User("Opening OPAL at %s", s.opalURL)
+	logging.User("Please complete login in the opened browser window (TU-Fast/2FA supported).")
 	_, err = page.Goto(s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
 		return fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
@@ -534,7 +535,7 @@ func (s *OpalScraper) reloadStalledLoginPage(page playwright.Page, attempt int) 
 		return false
 	}
 
-	fmt.Printf("Login page has not progressed yet (TU-Fast may not have fired) - reloading it (attempt %d of %d)...\n", attempt, loginStallReloadAttempts)
+	logging.User("Login page has not progressed yet (TU-Fast may not have fired) - reloading it (attempt %d of %d)...", attempt, loginStallReloadAttempts)
 	s.auditLog("login-stall-reload", page, currentURL, fmt.Sprintf("reloading stalled login page, attempt %d of %d", attempt, loginStallReloadAttempts))
 	if _, err := page.Reload(playwright.PageReloadOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded}); err != nil {
 		s.auditLog("login-stall-reload-failed", page, currentURL, fmt.Sprintf("reload failed: %v", err))

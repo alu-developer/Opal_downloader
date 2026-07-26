@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -49,7 +50,7 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 			// hardening this regardless since it's a real, if rarer, gap.
 			page.WaitForTimeout(contentFallbackWaitMs)
 			if _, retryErr := page.Goto(sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); retryErr != nil {
-				fmt.Printf("  Warning: course discovery source %s failed to load after retry: %v (courses only listed on this page may be missing from the result)\n", sourceURL, retryErr)
+				logging.Warn("course discovery source %s failed to load after retry: %v (courses only listed on this page may be missing from the result)", sourceURL, retryErr)
 				continue
 			}
 		}
@@ -57,7 +58,7 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 
 		candidates, err := s.extractCourseCardsFromCurrentPage()
 		if err != nil {
-			fmt.Printf("  Warning: course discovery source %s failed to extract course cards: %v (courses only listed on this page may be missing from the result)\n", sourceURL, err)
+			logging.Warn("course discovery source %s failed to extract course cards: %v (courses only listed on this page may be missing from the result)", sourceURL, err)
 			continue
 		}
 		appendDiscoveredCourses(discovered, candidates, s.opalURL, courseFilter)

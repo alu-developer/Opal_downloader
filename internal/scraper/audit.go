@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -206,6 +207,6 @@ func (s *OpalScraper) auditLog(kind string, page playwright.Page, selector, reas
 		pageURL = page.URL()
 	}
 	now := time.Now()
-	fmt.Printf("[audit] t=%s kind=%s page=%s selector=%q reason=%q\n", now.Format(time.RFC3339Nano), kind, pageURL, selector, reason)
+	logging.Detail("[audit] t=%s kind=%s page=%s selector=%q reason=%q", now.Format(time.RFC3339Nano), kind, pageURL, selector, reason)
 	s.writeDebugLogLine(now, kind, pageURL, selector, reason)
 }

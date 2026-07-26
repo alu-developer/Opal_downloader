@@ -3,42 +3,50 @@ package scraper
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/alu-developer/opal-downloader/internal/logging"
 )
 
-// captureStdout redirects os.Stdout for the duration of fn and returns
-// whatever was written to it. auditLog (see audit.go) writes via fmt.Printf,
-// so this is the simplest way to assert on its output without threading a
-// io.Writer through OpalScraper just for this diagnostic flag.
-func captureStdout(t *testing.T, fn func()) string {
+// captureConsole installs a logging sink for the duration of fn and returns
+// whatever reached the console.
+//
+// It replaced an os.Stdout swap when auditLog moved onto internal/logging.
+// The swap had stopped working and could not have kept working: the logging
+// package resolves its console writer when the logger is built, so reassigning
+// the os.Stdout variable afterwards changes nothing. The test failed loudly,
+// which is the good version of that discovery.
+//
+// verbose is passed because an audit line is a diagnostic - it only reaches a
+// console at all when someone asked for diagnostics, which is exactly what
+// --debug-clicks does on the command line (see cmd/opal-downloader's
+// hasVerboseFlag).
+func captureConsole(t *testing.T, verbose bool, fn func()) string {
 	t.Helper()
-	r, w, err := os.Pipe()
+
+	var buf bytes.Buffer
+	closeFn, err := logging.Setup(logging.Options{Console: &buf, Verbose: verbose})
 	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
+		t.Fatalf("logging.Setup: %v", err)
 	}
-	original := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = original }()
+	t.Cleanup(func() {
+		closeFn()
+		// Put the package back to its default so a later test in this package
+		// is not left writing into this test's dead buffer.
+		restore, _ := logging.Setup(logging.Options{Console: os.Stdout})
+		t.Cleanup(restore)
+	})
 
 	fn()
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("closing pipe writer: %v", err)
-	}
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("reading pipe: %v", err)
-	}
 	return buf.String()
 }
 
 func TestAuditLogSilentByDefault(t *testing.T) {
 	s := &OpalScraper{}
-	out := captureStdout(t, func() {
+	out := captureConsole(t, true, func() {
 		s.auditLog("click", nil, "a[href*='x']", "test reason")
 	})
 	if strings.TrimSpace(out) != "" {
@@ -49,7 +57,7 @@ func TestAuditLogSilentByDefault(t *testing.T) {
 func TestAuditLogEmitsWhenDebugClicksEnabled(t *testing.T) {
 	s := &OpalScraper{}
 	s.SetDebugClicks(true)
-	out := captureStdout(t, func() {
+	out := captureConsole(t, true, func() {
 		s.auditLog("click", nil, "a[href*='x']", "test reason")
 	})
 	if !strings.Contains(out, "[audit]") {
@@ -80,7 +88,7 @@ func TestSetDebugClicksDoesNotChangeDeveloperMode(t *testing.T) {
 func TestAuditLogNoFileWrittenWithoutEnableDebugLogFile(t *testing.T) {
 	s := &OpalScraper{}
 	s.SetDebugClicks(true)
-	captureStdout(t, func() {
+	captureConsole(t, true, func() {
 		s.auditLog("click", nil, "a[href*='x']", "test reason")
 	})
 	if s.debugLogFile != nil {
@@ -101,7 +109,7 @@ func TestEnableDebugLogFileWritesJSONLLines(t *testing.T) {
 		t.Fatalf("expected log file under %s, got %s", dir, path)
 	}
 
-	captureStdout(t, func() {
+	captureConsole(t, true, func() {
 		s.auditLog("click", nil, "a[href*='x']", "first reason")
 		s.auditLog("section-content-poll", nil, "", "poll #1: 3 candidates, err=nil")
 	})

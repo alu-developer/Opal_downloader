@@ -597,6 +597,27 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 //
 // Deliberately only a warning. It changes no crawl behaviour, adds no retry
 // and no timing, so it cannot itself cause the loss it reports.
+//
+// UNVERIFIED IN THE WILD, and here is exactly what was tried. A deliberately
+// lossy run (`--section-concurrency 4`, which reliably drops files) produced
+// **zero** of these warnings while losing 160 of 345 files. That is not a bug
+// in the warning - it is a different failure mode, and the distinction is
+// worth keeping straight:
+//
+//   - Course-concurrency loss (what this catches): the section renders its
+//     file table, the "show all" control is found, and expanding it adds
+//     nothing. 29 rows stay 20.
+//   - Section-concurrency loss (what that run had): the file table never
+//     renders at all, so there is no "show all" control to find and this
+//     function returns at `!found` long before any of these checks.
+//
+// Catching the second case needs a different signal - a section that used to
+// have files coming back with none - which is cross-run knowledge this process
+// does not have. `scripts/compare-visit-runs.ps1` is that check, offline.
+//
+// So this fires on the mechanism that was actually diagnosed, and has not yet
+// been observed firing, because that mechanism appears roughly one run in five
+// and has not recurred since.
 func warnShowAllTruncated(sectionURL string, rowsBefore int, reason string) {
 	fmt.Printf("  Warning: section %s offered a \"show all\" control but the expansion did not add any files (%s); "+
 		"this section is capped at its first page (%d rows) and later files are missing\n",

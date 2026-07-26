@@ -16,30 +16,47 @@ machine belong in local memory, not here.
 
 ## Now
 
-### Your daily sync is probably losing files right now (`course_concurrency: 2`)
-Found while baselining the section-concurrency work (2026-07-26), against the
-real account:
+### One thing needs your hand: `course_concurrency: 2` in your `config.yaml`
+**Blocked:** the code default is fixed; your live config still overrides it.
 
-| run | files | Analysis | wall clock |
-|---|---|---|---|
-| `course_concurrency: 1` | **345** | 30 | 227.9s |
-| `course_concurrency: 2` | **336** | 21 | 228.2s |
+`DefaultCourseConcurrency` went back to **1** on 2026-07-26 after re-measuring
+the real account five times:
 
-Two is **nine files short and not faster** — 0.3s apart, inside noise. The live
-`config.yaml` is set to 2, so real syncs have been quietly missing Analysis
-files. Nothing warns: the run reports success.
+| course concurrency | wall clock | files |
+|---|---|---|
+| 1 (serial) | 227.9s | **345** |
+| 2 | 228.2s | **336** ← `Übungsblätter` 29 → 20 |
+| 2 | 230.4s | 345 |
+| 2 | 219.6s | 345 |
+| 2 | 229.4s | 345 |
 
-This contradicts the "Concurrency SOLVED" entry below and the
-`DefaultCourseConcurrency = 2` decision it justified. It is *not* a new
-discovery so much as a re-appearance: `docs/sync-speed-campaign.md`'s
-2026-07-17 entry recorded the same course losing the same sort of count
-("Analysis: -8 files in 3 of 4 runs").
+Both halves of the case for 2 failed. It is **no longer faster** (mean 226.9s
+against a serial 227.9s — inside noise, where 2026-07-21 measured a 12% gain),
+and it still **loses files, silently, about one run in five**. The likely
+reason the speed advantage evaporated: PR #105's patience fix sped the serial
+path up much more (5m00s → 3m48s), leaving concurrency nothing to win on a
+6-course account.
 
-**Not acted on yet, deliberately.** One run each. Changing a default on a
-single pair of runs is exactly the mistake the campaign log keeps recording, so
-this needs a repeat — but it should be repeated *soon*, and if it holds, the
-default and the maintainer's config should both go back to 1, since 2 is
-currently paying files for no speed at all.
+**Your `config.yaml` sets `course_concurrency: 2` explicitly, so the new
+default does not reach you.** Changing it is a one-line edit to your own
+config, which is why it is being asked rather than done. Recommendation: set it
+to `1`, or delete the line and inherit the default. There is no measured cost
+to doing so.
+
+The mechanism is no longer a mystery: diffing the visit log put all nine lost
+files in one section, 29 rows collapsing to exactly 20 — one OPAL page, i.e. a
+"show all" expansion that silently did not happen. `expandShowAllInSection` now
+warns instead of returning a truncated section quietly, and
+`scripts/compare-visit-runs.ps1` turns that diagnosis into one command.
+
+*The warning is **unverified in the wild**, and the attempt to verify it is
+worth recording: a deliberately lossy `--section-concurrency 4` run produced
+zero warnings while losing 160 files. That is a different failure mode — there
+the file table never renders, so there is no "show all" control to find and the
+code returns before any of the new checks. Catching that needs cross-run
+knowledge the process does not have, which is what the visit-log diff is for.
+The mechanism this warning does cover appears about one run in five and has not
+recurred since it was added.*
 
 ### Sync speed: still ~5 minutes, maintainer says unacceptable
 **Blocked:** the one unexplored axis (section-level concurrency) is a rewrite

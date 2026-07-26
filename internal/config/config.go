@@ -312,7 +312,35 @@ const (
 	// triggered at 2-3. The 2026-07-21 sweep reproduced real file loss at
 	// concurrency 4 on current code. Treat "correctness-safe" as meaning
 	// "verified at these levels", never as a general property.
-	DefaultCourseConcurrency = 2
+	//
+	// BACK TO 1 (2026-07-26). Re-measured against the real account, and both
+	// halves of the case for 2 failed:
+	//
+	//   course=1 (serial)  227.9s   345 files
+	//   course=2           228.2s   336 files  <- Ubungsblatter 29 -> 20
+	//   course=2           230.4s   345 files
+	//   course=2           219.6s   345 files
+	//   course=2           229.4s   345 files
+	//
+	//  1. It is no longer faster. Mean 226.9s against a serial 227.9s - inside
+	//     noise, where 2026-07-21 measured a 12% gain. The likely reason is
+	//     that PR #105's patience fix sped the *serial* path up much more
+	//     (5m00s -> 3m48s), leaving concurrency nothing left to win on a
+	//     6-course account.
+	//  2. It still loses files: one run in five, silently, reporting success.
+	//
+	// The mechanism is no longer a mystery either. Diffing the visit log put
+	// all nine lost files in a single section - "Ubungsblatter", 29 rows
+	// collapsing to exactly 20, one OPAL page - i.e. a "show all" expansion
+	// that did not happen under concurrent load. expandShowAllInSection now
+	// warns when that occurs (see warnShowAllTruncated) instead of returning
+	// a truncated section in silence.
+	//
+	// So 2 costs an intermittent 9 files and buys nothing measurable. Raising
+	// it again needs a fresh byte-for-byte parity sweep, not this history:
+	// these numbers are a property of one account's course mix and of whatever
+	// the serial path currently costs, and both have moved before.
+	DefaultCourseConcurrency = 1
 
 	// DefaultSectionConcurrency is how many of a single course's sections are
 	// visited at once, *within* that course's BFS crawl.

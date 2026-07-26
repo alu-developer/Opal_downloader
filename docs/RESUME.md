@@ -24,8 +24,10 @@ habits stick, after they pointed out that CLAUDE.md asks me to *want* things
 and that does not survive a long session. The pattern that does work is a check
 that runs and fails, not a preference.
 
-1. **Noticing** - a Stop-hook prompt requiring one thing noticed-but-not-done,
-   appended to the backlog. NOT BUILT YET.
+1. **Noticing** - DONE: `.claude/hooks/noticed-gate.ps1`, a Stop hook that asks
+   once per session for one thing noticed and not done, to be appended to a
+   "## Noticed" section in docs/BACKLOG.md. Fails open, fires once, silenced by
+   AUTOPILOT.OFF. 9 assertions in scripts/test-hooks.ps1 (116 total).
 2. **Removing** - DONE: `codebudget_test.go`, a hard ratchet on non-test code
    lines (11181). Growth fails the build; raising the number is a visible
    one-line diff. The first version of this idea was "report the number and

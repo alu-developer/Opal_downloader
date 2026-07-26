@@ -69,6 +69,14 @@
             "statusMessage": "Checking autopilot gate..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/noticed-gate.ps1"
+          }
+        ]
       }
     ]
   }

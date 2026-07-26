@@ -706,6 +706,47 @@ try {
     Assert-That "budget-guard has no matcher, so it sees every tool call" ($null -eq $guardEntry.matcher) "matcher=$($guardEntry.matcher)"
     Assert-That "StopFailure is registered" ($null -ne $settings.hooks.StopFailure) "no StopFailure hook"
 
+    # =========================================================================
+    Write-Host "`nnoticed-gate (Stop)" -ForegroundColor Cyan
+    # =========================================================================
+    # Asks once per session for one thing noticed and not done. Every assertion
+    # here is really about the same risk: a Stop hook that misfires traps the
+    # user in a loop, which is far worse than a missed note.
+    $noticedDir = Join-Path $sandbox "noticed"
+    New-Item -ItemType Directory -Path $noticedDir -Force | Out-Null
+    $env:OPAL_NOTICED_QUEUE_DIR = $noticedDir
+    $noticedHook = Join-Path $hooksDir "noticed-gate.ps1"
+
+    Assert-That "noticed-gate.ps1 exists" (Test-Path $noticedHook)
+    Assert-That "noticed-gate is registered as a Stop hook" `
+        ((Get-Content (Join-Path $repoRoot ".claude\settings.json") -Raw) -match "noticed-gate")
+
+    $first = '{"session_id":"probe-a"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    Assert-That "it asks on the first stop of a session" ($first -match '"decision":"block"') "got: $first"
+    Assert-That "the ask is for something noticed, not a summary of the work" ($first -match 'noticed but did not do')
+
+    $second = '{"session_id":"probe-a"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    Assert-That "it does not ask twice in one session" ([string]::IsNullOrWhiteSpace($second)) "repeated: $second"
+
+    $other = '{"session_id":"probe-b"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    Assert-That "a new session is asked again" ($other -match '"decision":"block"') "got: $other"
+
+    # Another hook is already blocking, so the turn is not ending anyway.
+    $active = '{"session_id":"probe-c","stop_hook_active":true}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    Assert-That "it stays quiet when another hook already blocked the stop" ([string]::IsNullOrWhiteSpace($active)) "got: $active"
+
+    $garbage = 'not json at all' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    Assert-That "unreadable input fails open" ([string]::IsNullOrWhiteSpace($garbage)) "blocked on garbage: $garbage"
+
+    # The maintainer's off switch has to silence this too, or turning autopilot
+    # off would still leave a hook holding the turn open.
+    New-Item -ItemType File -Path (Join-Path $noticedDir "AUTOPILOT.OFF") -Force | Out-Null
+    $offed = '{"session_id":"probe-d"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    Assert-That "AUTOPILOT.OFF silences it" ([string]::IsNullOrWhiteSpace($offed)) "got: $offed"
+    Remove-Item (Join-Path $noticedDir "AUTOPILOT.OFF") -Force -ErrorAction SilentlyContinue
+
+    Remove-Item Env:\OPAL_NOTICED_QUEUE_DIR -ErrorAction SilentlyContinue
+
     # The retired hook must be gone, not merely unreferenced.
     Assert-That "the superseded rate-limit-gate.ps1 is deleted" (-not (Test-Path (Join-Path $hooksDir "rate-limit-gate.ps1"))) "still present"
     Assert-That "nothing still references rate-limit-gate.ps1" ((Get-Content (Join-Path $repoRoot ".claude\settings.json") -Raw) -notmatch "rate-limit-gate")
@@ -714,6 +755,7 @@ finally {
     Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item Env:\OPAL_AUTOPILOT_QUEUE_DIR -ErrorAction SilentlyContinue
     Remove-Item Env:\OPAL_RATE_LIMIT_STATUS -ErrorAction SilentlyContinue
+    Remove-Item Env:\OPAL_NOTICED_QUEUE_DIR -ErrorAction SilentlyContinue
 }
 
 Write-Host ""

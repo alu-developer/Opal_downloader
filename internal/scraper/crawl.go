@@ -93,159 +93,118 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 	// landed in the first 16 varied with section-discovery order.
 	maxPages := 500
 
+	// The crawl proceeds one BFS *level* at a time: everything currently in
+	// the queue is popped together, its members are visited concurrently on
+	// their own tabs, and the results are then merged strictly in the order
+	// they were popped.
+	//
+	// WHY LEVELS RATHER THAN A FREE-RUNNING WORKER QUEUE. The merge phase is
+	// where every shared structure is touched - fileSeen's dedupe, the visit
+	// log, and appendSectionFolderTargets appending the next level's URLs.
+	// Doing it serially in pop order means `files`, `queue` and the dedupe
+	// outcomes come out identical to a serial crawl, whatever order the pages
+	// happened to finish rendering in. The only thing that becomes concurrent
+	// is page rendering.
+	//
+	// That matters here more than it usually would: every previous concurrency
+	// change in this crawl that went wrong went wrong *silently*, losing files
+	// while looking faster (see config.DefaultCourseConcurrency's note). A
+	// design whose output cannot depend on completion order removes an entire
+	// class of that.
+	sectionWorkers := s.effectiveSectionConcurrency()
+	pool := newSectionTabPool(s, page, sectionWorkers)
+	defer pool.closeExtras()
+
 	for len(queue) > 0 && len(visited) < maxPages {
-		currentURL := queue[0]
-		queue = queue[1:]
-		currentKey := sectionKey(currentURL, course.RepoID)
-		delete(queued, currentKey)
-		if _, ok := visited[currentKey]; ok {
+		// Pop a whole level. Taking everything currently queued is exactly
+		// what a serial FIFO would have drained before reaching any child
+		// discovered from within this level, so level boundaries here are the
+		// BFS's own.
+		level := make([]string, 0, len(queue))
+		levelKeys := make([]string, 0, len(queue))
+		for len(queue) > 0 && len(visited) < maxPages {
+			currentURL := queue[0]
+			queue = queue[1:]
+			currentKey := sectionKey(currentURL, course.RepoID)
+			delete(queued, currentKey)
+			if _, ok := visited[currentKey]; ok {
+				continue
+			}
+			visited[currentKey] = struct{}{}
+			level = append(level, currentURL)
+			levelKeys = append(levelKeys, currentKey)
+		}
+		if len(level) == 0 {
 			continue
 		}
-		visited[currentKey] = struct{}{}
 
-		if _, err := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
-			if isPageCrashError(err) {
-				// A crashed page is permanently unusable - retrying on it (like
-				// the transient-error branch below does) would just crash again
-				// and, worse, keep using the same dead page for every remaining
-				// section in this course. See isPageCrashError's doc comment for
-				// the live-confirmed cascade this caused. Recover onto a fresh
-				// tab before retrying.
-				newPage, recErr := s.recoverFromPageCrash(page)
-				if recErr != nil {
-					fmt.Printf("  Warning: skipping section %q (%s): browser tab crashed and could not be recovered: %v (original error: %v)\n", sectionTitles[currentKey], currentURL, recErr, err)
-					sectionsFailed++
-					continue
-				}
-				page = newPage
-			} else {
-				// Retry once after a short wait: net::ERR_ABORTED and similar are
-				// commonly transient (a competing in-page navigation/redirect
-				// racing our Goto), confirmed live - the same section often
-				// succeeds on a second attempt.
-				page.WaitForTimeout(contentFallbackWaitMs)
-			}
-			if _, retryErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
-				fmt.Printf("  Warning: skipping section %q (%s): navigation failed after retry: %v\n", sectionTitles[currentKey], currentURL, retryErr)
+		visits := pool.visitAll(level, func(i int) string { return sectionTitles[levelKeys[i]] })
+
+		for i, visit := range visits {
+			currentURL := level[i]
+			currentKey := levelKeys[i]
+			if visit.failed {
+				// The visit already printed the specific warning; this is the
+				// serial loop's `continue` branch, just accounted for here.
 				sectionsFailed++
 				continue
 			}
-		}
-		_, sectionCalm := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+			// Reaching here means this section's Goto and extraction both
+			// succeeded (candidates may still legitimately be empty - the
+			// empty-content warning lives in visitSection and does not mark
+			// the visit failed). See sectionsVisited's doc comment above for
+			// what this distinction is for.
+			sectionsVisited++
+			s.publishProgress(DiscoveryProgress{
+				Phase:        PhaseSection,
+				Course:       course.Title,
+				Section:      sectionTitles[currentKey],
+				SectionsDone: sectionsVisited,
+			})
 
-		// waitForStableSectionContent polls extraction until the candidate
-		// count stabilizes (see its doc comment and candidateStabilityPoll's
-		// in navigation.go) rather than trusting the fixed wait above plus a
-		// single fixed-wait retry to always be enough - the latter was
-		// live-confirmed (queue task increase-parallel-tab-concurrency,
-		// 2026-07-12) to sometimes not be, once several courses' pages are
-		// rendering under concurrent load at once, up to and including an
-		// entire course silently coming back with 0 files.
-		candidates, err := s.waitForStableSectionContent(page, sectionCalm)
-		if err != nil {
-			if isPageCrashError(err) {
-				newPage, recErr := s.recoverFromPageCrash(page)
-				if recErr != nil {
-					fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed and the tab could not be recovered: %v (original error: %v)\n", sectionTitles[currentKey], currentURL, recErr, err)
-					sectionsFailed++
-					continue
-				}
-				page = newPage
-				// The replacement tab starts blank; it has to be navigated back
-				// to currentURL before there is anything for extraction to read.
-				if _, gotoErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); gotoErr != nil {
-					fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed; re-navigating the replacement tab failed: %v\n", sectionTitles[currentKey], currentURL, gotoErr)
-					sectionsFailed++
-					continue
-				}
-				_, sectionCalm = s.waitForInteractiveLinks(page, contentFallbackWaitMs)
-				candidates, err = s.waitForStableSectionContent(page, sectionCalm)
+			candidates := visit.candidates
+			sectionTitle := sectionTitles[currentKey]
+			if strings.TrimSpace(sectionTitle) == "" {
+				sectionTitle = deriveSectionTitleFromURL(course.Title, currentURL)
 			}
-			if err != nil {
-				fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitles[currentKey], currentURL, err)
-				sectionsFailed++
-				continue
+			section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
+			filesBeforeSection := len(files)
+			// showAllViaClick marks every candidate from this section when expansion
+			// happened via an in-place click rather than navigating to a distinct
+			// showAllURL (see downloadCandidate.ShowAllViaClick's doc comment) - these
+			// files have no separate URL for the download-fallback to retry, so it
+			// needs to know to re-click the same control on SourceURL instead.
+			showAllViaClick := visit.expandedShowAll && strings.TrimSpace(visit.showAllURL) == ""
+			expandedPageURL := visit.expandedPageURL
+			if !visit.expandedShowAll {
+				expandedPageURL = ""
 			}
-		}
-		// Reaching here means this section's Goto and extraction both
-		// succeeded (candidates may still legitimately be empty - see the
-		// len(candidates) == 0 warning below, which does not `continue` and
-		// so is not counted as a failure). See sectionsVisited's doc comment
-		// above for what this distinction is for.
-		sectionsVisited++
-		s.publishProgress(DiscoveryProgress{
-			Phase:        PhaseSection,
-			Course:       course.Title,
-			Section:      sectionTitles[currentKey],
-			SectionsDone: sectionsVisited,
-		})
-		if len(candidates) == 0 {
-			// waitForStableSectionContent already polled for up to
-			// sectionContentMaxPolls*sectionContentPollIntervalMs beyond the
-			// initial fixed wait looking for growing content before returning
-			// here, so reaching a still-empty result is a much stronger signal
-			// than it used to be under the old single-fixed-wait-retry scheme -
-			// but it can still legitimately mean either a genuinely empty
-			// section or an unusually slow render that outlasted even this
-			// budget.
-			// Logs page.URL() to distinguish "genuinely rendered the right
-			// page with 0 items" from "landed on an unexpected page" (e.g. a
-			// session-state mixup under concurrent load serving the wrong
-			// content for this tab) - cheap, and directly useful for any
-			// future incident matching this warning (see docs/OPERATIONS.md).
-			actualPageURL := ""
-			if page != nil {
-				actualPageURL = page.URL()
+			files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, visit.showAllURL, expandedPageURL, showAllViaClick, s.opalURL, downloadCandidates)
+			// Record this visit for the persistent cross-run visit-effectiveness
+			// log (internal/visitlog) - one entry per section actually reached
+			// (Goto+extraction succeeded, past the `continue`s above), noting how
+			// many *new* files this visit contributed. This is purely
+			// observational (see visitlog's package doc): it does not change
+			// what gets crawled, just records it for later human review.
+			s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection)
+			var skipped []skippedSection
+			queue, skipped = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles, s.skipEnrollmentSections)
+			for _, sk := range skipped {
+				// Auditable, not silent - see appendSectionFolderTargets's doc
+				// comment. Deliberately a distinct log line rather than
+				// s.recordSectionVisit: that call is reserved for sections whose
+				// page was actually navigated to and extracted (see its own doc
+				// comment), which this section never was - recording it there
+				// would misrepresent the persistent cross-run visit-effectiveness
+				// log (internal/visitlog) as having visited a page it never
+				// loaded.
+				fmt.Printf("  Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)\n", sk.Title, sk.URL)
 			}
-			fmt.Printf("  Warning: section %q (%s) returned no content after polling for stable render; it may be genuinely empty, or files may have been dropped (page.URL()=%s)\n", sectionTitles[currentKey], currentURL, actualPageURL)
-		}
-
-		var showAllURL string
-		var expandedPageURL string
-		var showAllCandidates []map[string]string
-		var expandedShowAll bool
-		page, showAllCandidates, showAllURL, expandedPageURL, expandedShowAll = s.expandShowAllInSection(page, currentURL, candidates)
-		if expandedShowAll {
-			candidates = showAllCandidates
-		}
-
-		sectionTitle := sectionTitles[currentKey]
-		if strings.TrimSpace(sectionTitle) == "" {
-			sectionTitle = deriveSectionTitleFromURL(course.Title, currentURL)
-		}
-		section := SectionRef{CourseRepoID: course.RepoID, Title: sectionTitle, URL: currentURL}
-		filesBeforeSection := len(files)
-		// showAllViaClick marks every candidate from this section when expansion
-		// happened via an in-place click rather than navigating to a distinct
-		// showAllURL (see downloadCandidate.ShowAllViaClick's doc comment) - these
-		// files have no separate URL for the download-fallback to retry, so it
-		// needs to know to re-click the same control on SourceURL instead.
-		showAllViaClick := expandedShowAll && strings.TrimSpace(showAllURL) == ""
-		if !expandedShowAll {
-			expandedPageURL = ""
-		}
-		files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, showAllURL, expandedPageURL, showAllViaClick, s.opalURL, downloadCandidates)
-		// Record this visit for the persistent cross-run visit-effectiveness
-		// log (internal/visitlog) - one entry per section actually reached
-		// (Goto+extraction succeeded, past the `continue`s above), noting how
-		// many *new* files this visit contributed. This is purely
-		// observational (see visitlog's package doc): it does not change
-		// what gets crawled, just records it for later human review.
-		s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection)
-		var skipped []skippedSection
-		queue, skipped = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles, s.skipEnrollmentSections)
-		for _, sk := range skipped {
-			// Auditable, not silent - see appendSectionFolderTargets's doc
-			// comment. Deliberately a distinct log line rather than
-			// s.recordSectionVisit: that call is reserved for sections whose
-			// page was actually navigated to and extracted (see its own doc
-			// comment), which this section never was - recording it there
-			// would misrepresent the persistent cross-run visit-effectiveness
-			// log (internal/visitlog) as having visited a page it never
-			// loaded.
-			fmt.Printf("  Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)\n", sk.Title, sk.URL)
 		}
 	}
+	// The caller's tab may have been swapped out by crash recovery inside the
+	// pool; hand back whichever page is now theirs.
+	page = pool.primary()
 
 	if len(queue) > 0 && len(visited) >= maxPages {
 		fmt.Printf("  Warning: course %q hit the %d-section crawl cap with %d section(s) still queued; some content may be missing\n", course.Title, maxPages, len(queue))
@@ -265,6 +224,138 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 	}
 
 	return page, files, downloadCandidates, nil
+}
+
+// sectionVisit is the result of the navigate-and-extract half of one BFS step.
+//
+// It exists so that half can run on its own tab, concurrently with its
+// siblings, while everything that mutates the crawl's shared state
+// (appendSectionFiles and its fileSeen dedupe, recordSectionVisit,
+// appendSectionFolderTargets and the queue it feeds) stays serial and in the
+// level's original order. That split is the whole safety argument for section
+// concurrency: the only thing that becomes concurrent is page rendering, and
+// the merge produces byte-identical output to a serial crawl.
+type sectionVisit struct {
+	url   string
+	key   string
+	title string
+
+	candidates      []map[string]string
+	showAllURL      string
+	expandedPageURL string
+	expandedShowAll bool
+
+	// failed marks a section whose Goto or extraction never succeeded, i.e.
+	// one the serial loop would have `continue`d past after counting it in
+	// sectionsFailed. Its warning has already been printed by the visit.
+	failed bool
+}
+
+// visitSection performs one BFS step's navigation, settle wait, stability
+// poll and show-all expansion on the given page, and reports what it found.
+//
+// This is lifted verbatim out of the serial crawl loop - including both crash
+// recovery branches and the retry-once-on-transient-Goto-error behaviour - so
+// that running it on several tabs at once changes where it runs, not what it
+// does. It returns the page the caller should keep using, which differs from
+// the one passed in when a crash was recovered from.
+func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitle string) (playwright.Page, sectionVisit) {
+	visit := sectionVisit{url: currentURL, title: sectionTitle}
+
+	if _, err := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); err != nil {
+		if isPageCrashError(err) {
+			// A crashed page is permanently unusable - retrying on it (like
+			// the transient-error branch below does) would just crash again
+			// and, worse, keep using the same dead page for every remaining
+			// section. See isPageCrashError's doc comment for the
+			// live-confirmed cascade this caused. Recover onto a fresh tab
+			// before retrying.
+			newPage, recErr := s.recoverFromPageCrash(page)
+			if recErr != nil {
+				fmt.Printf("  Warning: skipping section %q (%s): browser tab crashed and could not be recovered: %v (original error: %v)\n", sectionTitle, currentURL, recErr, err)
+				visit.failed = true
+				return page, visit
+			}
+			page = newPage
+		} else {
+			// Retry once after a short wait: net::ERR_ABORTED and similar are
+			// commonly transient (a competing in-page navigation/redirect
+			// racing our Goto), confirmed live - the same section often
+			// succeeds on a second attempt.
+			page.WaitForTimeout(contentFallbackWaitMs)
+		}
+		if _, retryErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); retryErr != nil {
+			fmt.Printf("  Warning: skipping section %q (%s): navigation failed after retry: %v\n", sectionTitle, currentURL, retryErr)
+			visit.failed = true
+			return page, visit
+		}
+	}
+	_, sectionCalm := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+
+	// waitForStableSectionContent polls extraction until the candidate
+	// count stabilizes (see its doc comment and candidateStabilityPoll's
+	// in navigation.go) rather than trusting the fixed wait above plus a
+	// single fixed-wait retry to always be enough - the latter was
+	// live-confirmed (queue task increase-parallel-tab-concurrency,
+	// 2026-07-12) to sometimes not be, once several pages are rendering
+	// under concurrent load at once, up to and including an entire course
+	// silently coming back with 0 files. Section concurrency makes that
+	// budget matter more, not less.
+	candidates, err := s.waitForStableSectionContent(page, sectionCalm)
+	if err != nil {
+		if isPageCrashError(err) {
+			newPage, recErr := s.recoverFromPageCrash(page)
+			if recErr != nil {
+				fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed and the tab could not be recovered: %v (original error: %v)\n", sectionTitle, currentURL, recErr, err)
+				visit.failed = true
+				return page, visit
+			}
+			page = newPage
+			// The replacement tab starts blank; it has to be navigated back
+			// to currentURL before there is anything for extraction to read.
+			if _, gotoErr := page.Goto(currentURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(contentGotoTimeoutMs)}); gotoErr != nil {
+				fmt.Printf("  Warning: skipping section %q (%s): content extraction crashed; re-navigating the replacement tab failed: %v\n", sectionTitle, currentURL, gotoErr)
+				visit.failed = true
+				return page, visit
+			}
+			_, sectionCalm = s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+			candidates, err = s.waitForStableSectionContent(page, sectionCalm)
+		}
+		if err != nil {
+			fmt.Printf("  Warning: skipping section %q (%s): content extraction failed after retry: %v\n", sectionTitle, currentURL, err)
+			visit.failed = true
+			return page, visit
+		}
+	}
+
+	if len(candidates) == 0 {
+		// waitForStableSectionContent already polled for up to
+		// sectionContentMaxPolls*sectionContentPollIntervalMs beyond the
+		// initial fixed wait looking for growing content before returning
+		// here, so reaching a still-empty result is a much stronger signal
+		// than it used to be under the old single-fixed-wait-retry scheme -
+		// but it can still legitimately mean either a genuinely empty
+		// section or an unusually slow render that outlasted even this
+		// budget.
+		// Logs page.URL() to distinguish "genuinely rendered the right
+		// page with 0 items" from "landed on an unexpected page" (e.g. a
+		// session-state mixup under concurrent load serving the wrong
+		// content for this tab) - cheap, and directly useful for any
+		// future incident matching this warning (see docs/OPERATIONS.md).
+		actualPageURL := ""
+		if page != nil {
+			actualPageURL = page.URL()
+		}
+		fmt.Printf("  Warning: section %q (%s) returned no content after polling for stable render; it may be genuinely empty, or files may have been dropped (page.URL()=%s)\n", sectionTitle, currentURL, actualPageURL)
+	}
+
+	var showAllCandidates []map[string]string
+	page, showAllCandidates, visit.showAllURL, visit.expandedPageURL, visit.expandedShowAll = s.expandShowAllInSection(page, currentURL, candidates)
+	if visit.expandedShowAll {
+		candidates = showAllCandidates
+	}
+	visit.candidates = candidates
+	return page, visit
 }
 
 // expandShowAllInSection looks for OPAL's "Alle anzeigen" ("show all") pagination

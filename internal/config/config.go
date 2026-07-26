@@ -313,6 +313,29 @@ const (
 	// concurrency 4 on current code. Treat "correctness-safe" as meaning
 	// "verified at these levels", never as a general property.
 	DefaultCourseConcurrency = 2
+
+	// DefaultSectionConcurrency is how many of a single course's sections are
+	// visited at once, *within* that course's BFS crawl.
+	//
+	// Course-level concurrency cannot help the case that dominates this
+	// account: one course (Softwaretechnologie) holds 160 of 284 sections and
+	// is 2m48s of a 5m22s discovery phase, and it is a single course, so no
+	// amount of course parallelism touches it. Sections within a BFS level are
+	// independent and already all queued before any of them is visited, which
+	// makes them the one axis the sync-speed campaign never tried.
+	//
+	// 1 means "off": the crawl behaves exactly as it did before section
+	// concurrency existed, on the caller's single tab. Anything above 1 opens
+	// additional tabs.
+	//
+	// The value here is deliberately conservative. Read
+	// DefaultCourseConcurrency's note above before raising it: at course level,
+	// 4 was the classic faster-but-lossy failure (9 files silently missing),
+	// and nothing about this axis makes that class of bug less likely - it is
+	// the same renderer under the same concurrent load. "Correctness-safe"
+	// means "verified at this level against a known file count", never a
+	// general property.
+	DefaultSectionConcurrency = 4
 )
 
 // DefaultSkipEnrollmentSections is the default for App.SkipEnrollmentSections
@@ -328,7 +351,7 @@ const (
 // courses found "node-en" on 10 distinct nodes across 7 of the 8 courses,
 // and every single one of their visible labels was an
 // enrollment/sign-up-flavored phrase ("Einschreibung", "Einschreibung in
-// den Kurs", "Übungseinschreibung", "Einschreibung in die Übungsgruppen",
+// den Kurs", "Ãœbungseinschreibung", "Einschreibung in die Ãœbungsgruppen",
 // ...) - zero cross-contamination with any real content-bearing node type.
 // "en" is OLAT's course-element type code for a student
 // self-registration/tutorial-group-signup widget, which structurally can
@@ -375,9 +398,14 @@ type App struct {
 	// DefaultCourseConcurrency when unset/non-positive.
 	CourseConcurrency int
 
+	// SectionConcurrency is how many sections of a single course are visited
+	// at once within that course's crawl. Falls back to
+	// DefaultSectionConcurrency when unset/non-positive; 1 disables it.
+	SectionConcurrency int
+
 	// SkipEnrollmentSections controls whether the crawler skips queueing
 	// OPAL "Einschreibung" (enrollment/sign-up, e.g. "Einschreibung in die
-	// Übungsgruppen") course-node sections for a page visit, based on the
+	// Ãœbungsgruppen") course-node sections for a page visit, based on the
 	// structural "node-en" CSS class OPAL's course-tree sidebar renders for
 	// that node type (see scraper.isNonFileSectionType) - not on title text
 	// or crawl history. Defaults to true (skip) when unset in config.yaml;
@@ -416,6 +444,7 @@ type rawConfig struct {
 	SessionStateFile         string            `yaml:"session_state_file"`
 	DownloadConcurrency      int               `yaml:"download_concurrency"`
 	CourseConcurrency        int               `yaml:"course_concurrency"`
+	SectionConcurrency       int               `yaml:"section_concurrency"`
 	SkipEnrollmentSections   *bool             `yaml:"skip_enrollment_sections"`
 	NotifyOnScheduledFailure bool              `yaml:"notify_on_scheduled_failure"`
 }
@@ -479,6 +508,11 @@ func Load(configPath string) (Loaded, error) {
 		courseConcurrency = DefaultCourseConcurrency
 	}
 
+	sectionConcurrency := cfg.SectionConcurrency
+	if sectionConcurrency <= 0 {
+		sectionConcurrency = DefaultSectionConcurrency
+	}
+
 	skipEnrollmentSections := DefaultSkipEnrollmentSections
 	if cfg.SkipEnrollmentSections != nil {
 		skipEnrollmentSections = *cfg.SkipEnrollmentSections
@@ -526,6 +560,7 @@ func Load(configPath string) (Loaded, error) {
 			SubfolderDestinations:    subfolderDestinations,
 			DownloadConcurrency:      downloadConcurrency,
 			CourseConcurrency:        courseConcurrency,
+			SectionConcurrency:       sectionConcurrency,
 			SkipEnrollmentSections:   skipEnrollmentSections,
 			NotifyOnScheduledFailure: cfg.NotifyOnScheduledFailure,
 		},
@@ -741,6 +776,7 @@ func toRawConfig(cfg Loaded) rawConfig {
 		SessionStateFile:         cfg.Credentials.StateFile,
 		DownloadConcurrency:      cfg.App.DownloadConcurrency,
 		CourseConcurrency:        cfg.App.CourseConcurrency,
+		SectionConcurrency:       cfg.App.SectionConcurrency,
 		SkipEnrollmentSections:   &skipEnrollmentSections,
 		NotifyOnScheduledFailure: cfg.App.NotifyOnScheduledFailure,
 	}

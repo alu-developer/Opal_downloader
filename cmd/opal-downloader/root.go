@@ -461,6 +461,7 @@ func runList(args []string) error {
 		}
 	}
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
+	sc.SetSectionConcurrency(loaded.App.SectionConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()
@@ -640,6 +641,7 @@ func runSync(args []string) (err error) {
 		}
 	}
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
+	sc.SetSectionConcurrency(loaded.App.SectionConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()
 	defer closeBrowserOnInterrupt(sc)()

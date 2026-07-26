@@ -74,6 +74,7 @@ func (sp *syncPage) handleStart(w http.ResponseWriter, r *http.Request) {
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
+	sc.SetSectionConcurrency(loaded.App.SectionConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 
 	// cancelFn closes the scraper's browser/Playwright process out from
@@ -336,7 +337,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 
 	<p class="hint">Preview checks every course exactly the way a sync does and
 	reports what it found, without downloading anything. It therefore takes
-	about as long as a sync — several minutes — so it is a way to see what is
+	about as long as a sync â€” several minutes â€” so it is a way to see what is
 	there, not a quick lookup.</p>
 
 	<label class="opt"><input type="checkbox" id="opt-force"> Force re-download (ignore previous sync history)</label>

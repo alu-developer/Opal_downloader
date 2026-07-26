@@ -128,6 +128,13 @@ type OpalScraper struct {
 	// <= 0 means "use config.DefaultCourseConcurrency".
 	courseConcurrency int
 
+	// sectionConcurrency is how many sections of a *single* course are visited
+	// at once inside that course's BFS crawl, each on its own tab (see
+	// sectionTabPool in section_pool.go). Set once via SetSectionConcurrency
+	// before a scrape begins and only read afterward, like courseConcurrency.
+	// <= 0 means "use config.DefaultSectionConcurrency"; 1 disables it.
+	sectionConcurrency int
+
 	// skipEnrollmentSections gates the structural (not title-text, not
 	// visit-history) "Einschreibung" course-node skip in
 	// appendSectionFolderTargets (crawl.go) - see isNonFileSectionType and
@@ -358,6 +365,14 @@ func (s *OpalScraper) VisitRecords() []visitlog.Record {
 // config.DefaultCourseConcurrency at scrape time.
 func (s *OpalScraper) SetCourseConcurrency(concurrency int) {
 	s.courseConcurrency = concurrency
+}
+
+// SetSectionConcurrency sets how many sections of a single course are visited
+// at once within that course's crawl. A value <= 0 falls back to
+// config.DefaultSectionConcurrency; 1 disables section concurrency entirely
+// and restores the original one-tab serial crawl.
+func (s *OpalScraper) SetSectionConcurrency(concurrency int) {
+	s.sectionConcurrency = concurrency
 }
 
 // SetSkipEnrollmentSections enables or disables the structural

@@ -3,6 +3,7 @@ package polite
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -204,5 +205,47 @@ func TestConcurrentWaitersAreSpacedApart(t *testing.T) {
 	}
 	if total < 500*time.Millisecond {
 		t.Fatalf("three requests were spaced by only %s in total; the ceiling is not holding", total)
+	}
+}
+
+// The limiter is shared by the concurrent download workers
+// (download_concurrency, default 3), which is new: before the downloads were
+// routed through it, only the serial crawl used it. Racing on the clock seams
+// would be a test artefact, so this one uses the real ones with a tiny
+// interval - it is checking for lost updates under contention, not timing.
+//
+// NOT run under the race detector on the maintainer's machine: -race needs cgo
+// and there is no C compiler installed there, so `go test -race` fails to
+// build. The counter assertion below is what stands in for it - a lost update
+// under contention shows up as a wait that was never counted - but that is a
+// weaker check than the real thing, and this is unverified against the race
+// detector.
+func TestConcurrentCallersDoNotRace(t *testing.T) {
+	l := New(time.Millisecond)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				if err := l.Wait(ctx); err != nil {
+					t.Errorf("Wait: %v", err)
+					return
+				}
+				// Downloads observe a status on the way back, from the same
+				// goroutines that waited.
+				l.Observe(200 + n%2)
+				_ = l.BackoffLevel()
+				_, _, _ = l.Stats()
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	waits, _, _ := l.Stats()
+	if waits != 160 {
+		t.Fatalf("the limiter lost track of concurrent callers: counted %d of 160 waits", waits)
 	}
 }

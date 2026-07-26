@@ -387,6 +387,7 @@ func runList(args []string) error {
 	profile := false
 	debugClicks := false
 	courseConcurrency := 0
+	sectionConcurrency := 0
 	visitReport := false
 	noSkipEnrollmentSections := false
 	for i := 0; i < len(args); i++ {
@@ -413,6 +414,16 @@ func runList(args []string) error {
 				return fmt.Errorf("--course-concurrency requires a positive integer, got %q", args[i])
 			}
 			courseConcurrency = parsed
+		case "--section-concurrency":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--section-concurrency requires a value")
+			}
+			parsedSection, parseSectionErr := strconv.Atoi(args[i])
+			if parseSectionErr != nil || parsedSection <= 0 {
+				return fmt.Errorf("--section-concurrency requires a positive integer, got %q", args[i])
+			}
+			sectionConcurrency = parsedSection
 		case "--visit-report":
 			visitReport = true
 		case "--no-skip-enrollment-sections":
@@ -430,6 +441,9 @@ func runList(args []string) error {
 	printConfigWarnings(loaded.App)
 	if courseConcurrency > 0 {
 		loaded.App.CourseConcurrency = courseConcurrency
+	}
+	if sectionConcurrency > 0 {
+		loaded.App.SectionConcurrency = sectionConcurrency
 	}
 	if noSkipEnrollmentSections {
 		loaded.App.SkipEnrollmentSections = false
@@ -502,6 +516,7 @@ func runSync(args []string) (err error) {
 	debugClicks := false
 	concurrency := 0
 	courseConcurrency := 0
+	sectionConcurrency := 0
 	noSkipEnrollmentSections := false
 	scheduled := false
 
@@ -543,6 +558,16 @@ func runSync(args []string) (err error) {
 				return fmt.Errorf("--course-concurrency requires a positive integer, got %q", args[i])
 			}
 			courseConcurrency = parsed
+		case "--section-concurrency":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--section-concurrency requires a value")
+			}
+			parsedSection, parseSectionErr := strconv.Atoi(args[i])
+			if parseSectionErr != nil || parsedSection <= 0 {
+				return fmt.Errorf("--section-concurrency requires a positive integer, got %q", args[i])
+			}
+			sectionConcurrency = parsedSection
 		case "--no-skip-enrollment-sections":
 			noSkipEnrollmentSections = true
 		default:
@@ -625,6 +650,9 @@ func runSync(args []string) (err error) {
 	}
 	if courseConcurrency > 0 {
 		loaded.App.CourseConcurrency = courseConcurrency
+	}
+	if sectionConcurrency > 0 {
+		loaded.App.SectionConcurrency = sectionConcurrency
 	}
 	if noSkipEnrollmentSections {
 		loaded.App.SkipEnrollmentSections = false

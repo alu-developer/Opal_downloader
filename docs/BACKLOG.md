@@ -51,6 +51,24 @@ built, and the campaign's own rule (byte-for-byte against the known 344-file
 ground truth, multiple runs) before being trusted at any level.
 
 ### Dogfood the whole first-run journey
+**Blocked:** everything testable without a human has been done and verified
+(2026-07-26, details below). What is left needs the maintainer, in four
+specific places:
+
+1. **Does the first run read well?** The walks assert structure and behaviour
+   and run headless, so nothing here is a human *looking* at the pages. Only
+   the maintainer can say whether it feels right.
+2. **Should the course picker be hidden on a first run?** With no config the
+   default course list is the wildcard, so "Sync all courses" starts checked
+   and hides the whole picker behind it. Sensible default, invisible feature —
+   which matters more?
+3. **What should happen about "List courses" taking minutes?** It crawls every
+   section (210s / 482s measured) while reading like a cheap lookup. Rename,
+   warn up front, or serve it from the dashboard listing instead?
+4. **Scheduling is deliberately not walked.** Exercising it registers a real
+   Windows scheduled task on the maintainer's machine; not something to trigger
+   unattended. Say the word and it gets walked like the rest.
+
 Drive the GUI as a real first-time user — no config, through setup, login,
 course selection, a sync, status, scheduling, then changing a setting — and
 write down everything broken, confusing, or annoying. Findings get fixed if

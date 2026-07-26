@@ -51,8 +51,14 @@ built, and the campaign's own rule (byte-for-byte against the known 344-file
 ground truth, multiple runs) before being trusted at any level.
 
 ### Dogfood the whole first-run journey
+**Blocked:** all four decisions below shipped on 2026-07-26 (first-run
+introduction, "List courses" renamed, scheduling walked, picker explained),
+plus one bug that only looking could find. What is left is the maintainer
+opening the GUI and saying whether it now reads well — their eyes, not a test.
+Everything an agent can check here is checked.
+
 The four questions this was blocked on were answered by the maintainer on
-2026-07-26. Their decisions, now the work:
+2026-07-26. Their decisions, now delivered:
 
 1. **A first run needs a real introduction.** Not just an unhidden picker — the
    start / no-courses-configured state should actually explain what to do.

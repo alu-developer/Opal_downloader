@@ -138,7 +138,18 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 			continue
 		}
 
-		visits := pool.visitAll(level, func(i int) string { return sectionTitles[levelKeys[i]] })
+		// Titles are snapshotted into a slice rather than read from
+		// sectionTitles inside the workers. Concurrent map *reads* would be
+		// safe today, because the only writer (appendSectionFolderTargets)
+		// runs in the serial merge below - but that is a property of where the
+		// call sites happen to sit, not something the compiler will keep true.
+		// Moving one write into the concurrent phase later would turn this into
+		// a data race, in the part of the codebase least able to afford one.
+		levelTitles := make([]string, len(level))
+		for i, key := range levelKeys {
+			levelTitles[i] = sectionTitles[key]
+		}
+		visits := pool.visitAll(level, func(i int) string { return levelTitles[i] })
 
 		for i, visit := range visits {
 			currentURL := level[i]

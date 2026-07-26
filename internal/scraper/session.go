@@ -487,11 +487,22 @@ const courseLinkSelector = "a[href*='crs_'], a[href*='course'], a[href*='Reposit
 // TU-Fast/the Shibboleth IdP opens a new tab for the auth flow and closes the
 // original one - trackActivePage will already have retargeted s.page at the
 // new tab, so this retries the wait there instead of failing outright.
-// loginStallProbeMs is how long to wait for the post-login course list
-// before considering a reload. It is not a timeout: the full budget below
-// is still spent before giving up, this is only the point at which a stalled
-// TU-Fast becomes worth nudging.
-const loginStallProbeMs = 45000
+// loginPollMs is how long each probe for the post-login course list runs
+// before the login page is looked at again. Short, because its only job is to
+// set how often the stall check gets to run.
+const loginPollMs = 1000
+
+// loginQuietMs is how long the login page must show no sign of life at all
+// before it is treated as stalled. TU-Fast fills the credential fields within
+// a second or two of a login page settling, so several seconds of a completely
+// unchanged page is strong evidence it is not going to.
+//
+// This replaced a flat 45-second wait. The maintainer's report was that the
+// reload "braucht viel zu lange" (2026-07-26) - and they were describing a
+// design, not a tuning mistake: the old code waited out a fixed timer whether
+// or not anything was happening, so a stalled login always cost 45 seconds of
+// staring at a page that was never going to move.
+const loginQuietMs = 8000
 
 // loginTotalBudgetMs is the overall time allowed for a login to complete,
 // unchanged from when this was a single flat wait. Human attention span is
@@ -502,6 +513,96 @@ const loginTotalBudgetMs = 300000
 // reloaded. Deliberately small: the reload is a workaround for someone
 // else's bug, not a retry loop.
 const loginStallReloadAttempts = 2
+
+// loginSignals is what the login page looks like at one moment: enough to
+// tell "nothing is happening" from "something is happening", and nothing more.
+//
+// CredentialsEntered is a count of non-empty fields, never their contents.
+// That distinction is the whole reason this reads the DOM at all rather than
+// being waved off as too close to the user's password: knowing that a box has
+// something in it is what decides whether to reload, and the something itself
+// is never read, logged, or compared.
+type loginSignals struct {
+	URL string
+
+	// FieldCount is how many text/password/email inputs the page offers, which
+	// changes when the flow moves from a password screen to a 2FA prompt even
+	// if the URL does not.
+	FieldCount int
+
+	// FilledFields is how many of them are non-empty.
+	FilledFields int
+
+	// Unknown means the page could not be read - it was closed, navigating, or
+	// the evaluation failed. Treated as "do not reload": acting on a reading
+	// that could not be taken is how a working login gets interrupted.
+	Unknown bool
+}
+
+// changedFrom reports whether anything observable moved between two readings.
+// An unreadable page counts as movement, because a page mid-navigation is
+// exactly what a working login looks like.
+func (a loginSignals) changedFrom(b loginSignals) bool {
+	if a.Unknown || b.Unknown {
+		return true
+	}
+	return a.URL != b.URL || a.FieldCount != b.FieldCount || a.FilledFields != b.FilledFields
+}
+
+// stalled reports whether this reading is the specific shape that a TU-Fast
+// that never fired leaves behind: still sitting in the login flow, showing
+// fields to fill, with nothing filled in.
+//
+// The "nothing filled in" part is what makes this safe in a way the old timer
+// was not. A human typing their password by hand keeps the page on a login
+// URL, so the previous code would reload and wipe what they had typed once its
+// 45 seconds were up. A filled field now means somebody or something is
+// working, and the page is left alone.
+func (a loginSignals) stalled() bool {
+	if a.Unknown {
+		return false
+	}
+	return looksLikeLoginPageURL(a.URL) && a.FieldCount > 0 && a.FilledFields == 0
+}
+
+// readLoginSignals takes one reading of the login page. Any failure is
+// reported as Unknown rather than guessed at.
+func (s *OpalScraper) readLoginSignals(page playwright.Page) loginSignals {
+	if page == nil {
+		return loginSignals{Unknown: true}
+	}
+	raw, err := page.Evaluate(`() => {
+		const kinds = ['text', 'password', 'email', 'tel', 'number'];
+		const fields = Array.from(document.querySelectorAll('input'))
+			.filter(el => kinds.includes((el.type || 'text').toLowerCase()));
+		return {
+			fields: fields.length,
+			// Length only - the value itself never leaves the page.
+			filled: fields.filter(el => (el.value || '').length > 0).length,
+		};
+	}`)
+	if err != nil {
+		return loginSignals{Unknown: true}
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return loginSignals{Unknown: true}
+	}
+	toInt := func(v any) int {
+		if f, ok := v.(float64); ok {
+			return int(f)
+		}
+		if i, ok := v.(int); ok {
+			return i
+		}
+		return 0
+	}
+	return loginSignals{
+		URL:          page.URL(),
+		FieldCount:   toInt(m["fields"]),
+		FilledFields: toInt(m["filled"]),
+	}
+}
 
 // looksLikeLoginPageURL reports whether pageURL is still somewhere in the
 // login/identity-provider flow rather than on OPAL proper. Same heuristic
@@ -545,60 +646,67 @@ func (s *OpalScraper) reloadStalledLoginPage(page playwright.Page, attempt int) 
 }
 
 func (s *OpalScraper) waitForLoggedInCourseLink() error {
-	// Spend the budget as a few short probes followed by the remainder,
-	// rather than one flat wait: a stalled TU-Fast used to burn the entire
-	// 300s and then fail, when a reload after 45s would have fixed it. The
-	// total time to a genuine failure is unchanged, so a human doing 2FA by
-	// hand still gets the same room they always had.
-	remaining := float64(loginTotalBudgetMs)
-	for reloads := 0; reloads < loginStallReloadAttempts; reloads++ {
-		waitingOn := s.getPage()
-		if waitingOn == nil {
-			break
-		}
-		probe := math.Min(float64(loginStallProbeMs), remaining)
-		start := time.Now()
-		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(probe)})
-		remaining -= float64(time.Since(start).Milliseconds())
-		if err == nil {
-			s.auditLog("wait-selector-resolved", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link resolved after %s", time.Since(start)))
-			return nil
-		}
-		if remaining <= 0 {
-			s.auditLog("wait-selector-timeout", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link did not resolve within the %dms budget: %v", loginTotalBudgetMs, err))
-			return err
-		}
-		if !s.reloadStalledLoginPage(s.getPage(), reloads+1) {
-			// Either the page moved past login (so someone is mid-2FA and
-			// just needs more time) or the reload failed. Either way, stop
-			// nudging and spend what is left of the budget waiting.
-			break
-		}
-	}
+	// Watch the page rather than a clock. The budget is spent as short probes
+	// for the post-login course list, and between probes the login page is
+	// read for any sign that something is happening at all. A page that has
+	// not moved in loginQuietMs, still shows empty credential fields, and is
+	// still on a login URL is one TU-Fast never acted on - and is worth
+	// reloading immediately instead of after a fixed wait.
+	//
+	// The retargeting the old code did by hand falls out of this for free:
+	// s.getPage() is re-read every pass, so a flow that opens a new tab and
+	// closes the old one is simply followed.
+	deadline := time.Now().Add(loginTotalBudgetMs * time.Millisecond)
+	reloads := 0
 
-	for attempt := 0; attempt < 2; attempt++ {
-		waitingOn := s.getPage()
+	previous := s.readLoginSignals(s.getPage())
+	lastChange := time.Now()
+
+	for {
+		page := s.getPage()
+		if page == nil {
+			return fmt.Errorf("login page closed before the course list appeared")
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			s.auditLog("wait-selector-timeout", page, courseLinkSelector,
+				fmt.Sprintf("post-login course link did not resolve within the %dms budget", loginTotalBudgetMs))
+			return fmt.Errorf("timed out after %dms waiting for the OPAL course list after login", loginTotalBudgetMs)
+		}
+
+		probe := math.Min(float64(loginPollMs), float64(remaining.Milliseconds()))
 		start := time.Now()
-		_, err := waitingOn.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(math.Max(remaining, 1000))})
-		if err == nil {
-			// Logged for --debug-clicks completeness (queue task
-			// click-audit-analysis-and-cleanup closed this gap - this wait was
-			// previously not audited at all). This is a one-time,
-			// once-per-login wait for interactive TU-Fast/2FA completion, not
-			// a per-section crawl-loop cost, so unlike
-			// navigation.go's/discovery.go's waits it was never a slowness
-			// suspect and its long 300s timeout is intentional (human
-			// attention span), not dead weight to trim.
-			s.auditLog("wait-selector-resolved", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link resolved after %s", time.Since(start)))
+		if _, err := page.WaitForSelector(courseLinkSelector, playwright.PageWaitForSelectorOptions{
+			Timeout: playwright.Float(probe),
+		}); err == nil {
+			s.auditLog("wait-selector-resolved", page, courseLinkSelector,
+				fmt.Sprintf("post-login course link resolved after %s", time.Since(start)))
 			return nil
 		}
-		if attempt == 0 && s.getPage() != nil && s.getPage() != waitingOn {
-			// The active page changed while we were waiting; retry on it.
-			s.auditLog("wait-selector-retargeted", waitingOn, courseLinkSelector, fmt.Sprintf("active page changed after %s; retrying wait on new page", time.Since(start)))
+
+		current := s.readLoginSignals(s.getPage())
+		if current.changedFrom(previous) {
+			previous = current
+			lastChange = time.Now()
 			continue
 		}
-		s.auditLog("wait-selector-timeout", waitingOn, courseLinkSelector, fmt.Sprintf("post-login course link did not resolve within 300000ms (waited %s): %v", time.Since(start), err))
-		return err
+
+		quiet := time.Since(lastChange)
+		if reloads >= loginStallReloadAttempts || quiet < loginQuietMs*time.Millisecond || !current.stalled() {
+			continue
+		}
+
+		s.auditLog("login-stall-detected", page, current.URL,
+			fmt.Sprintf("no change for %s with %d empty credential field(s) - treating as a TU-Fast that did not fire", quiet, current.FieldCount))
+		if !s.reloadStalledLoginPage(page, reloads+1) {
+			// The page moved past login, or the reload itself failed. Either
+			// way stop nudging and spend what is left of the budget waiting.
+			reloads = loginStallReloadAttempts
+			continue
+		}
+		reloads++
+		previous = s.readLoginSignals(s.getPage())
+		lastChange = time.Now()
 	}
-	return nil
 }

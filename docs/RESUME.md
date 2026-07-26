@@ -27,9 +27,11 @@ rewritten for a user; `internal/logging` (two audiences, console + scrubbed
 rotating file) with the scraper migrated onto it; automatic sync moved to its
 own `/schedule` page; the course picker rebuilt as one list.
 
-Next, in order: TU-Fast indicator-based wait → server-load policy (the
-maintainer asked for this to be set up "langfristig", not spot-checked) → hang
-watchdog. Code size is a standing rule, not a step.
+Also done: the stalled-login reload now watches the page instead of a clock.
+
+Next, in order: server-load policy (the maintainer asked for this to be set up
+"langfristig", not spot-checked) → hang watchdog. Code size is a standing rule,
+not a step.
 
 Useful finding while working: the GUI never showed "skipping section" at all -
 the scraper's `fmt.Printf` goes to a stdout nobody sees when the GUI runs as a

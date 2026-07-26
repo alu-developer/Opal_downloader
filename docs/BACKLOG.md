@@ -19,12 +19,8 @@ machine belong in local memory, not here.
 ### Maintainer feedback batch, 2026-07-26
 
 Ten things, described in one go, listed in the order they are being worked.
-Six are done (see "Done recently"); the rest are below.
+Seven are done (see "Done recently"); the rest are below.
 
-- **TU-Fast's refresh waits on a clock, not on evidence.** Sometimes TU-Fast
-  does not act; the reload that fixes it then takes far too long, because
-  the wait is a fixed duration rather than a check for something observable.
-  Should key off indicators.
 - **Server load, as a standing constraint.** If this ever gets more than a
   handful of users, a tool that crawls every section of every course on a
   schedule is a load source on someone else's infrastructure. The
@@ -339,6 +335,37 @@ enough to justify keeping a known-hazardous test around.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **The stalled-login reload watches the page instead of a clock.** Reported as
+  "der refresh bei tu-fast braucht viel zu lange" — and that was a description
+  of the design, not a tuning complaint. The old code waited a flat 45 seconds
+  before reloading, whether or not anything was happening, so a TU-Fast that
+  never fired always cost 45 seconds of staring at a page that was never going
+  to move. It now reads the login page between short probes and reloads after
+  **8 seconds of no change at all** — no navigation, no field being filled, no
+  change in how many fields there are.
+  **This also fixes a real bug in the old behaviour, not just its speed.** A
+  human typing their password by hand stays on a login URL, which was the only
+  thing the timer checked — so after 45 seconds it would reload the page and
+  wipe what they had typed. A non-empty field now means somebody or something
+  is working, and the page is left alone.
+  The reading counts fields and how many are non-empty. It never reads their
+  contents, and an unreadable page (closed, mid-navigation, evaluation failed)
+  counts as activity rather than as a stall — acting on a reading that could
+  not be taken is how a working login gets interrupted. The retargeting the old
+  code did by hand for flows that open a new tab now falls out for free, since
+  the active page is re-read every pass.
+  *Mutation-tested: dropping the "nothing typed in it" condition fails the
+  test that pins the wiped-password case. The DOM reading is verified against a
+  real headless browser and a real Shibboleth-shaped form
+  (`OPAL_SCRAPER_BROWSER_PROBE=1`), because a wrong type assertion there fails
+  silently as "unknown", which reads as "busy" and would disable stall
+  detection entirely.*
+  **Not yet seen in the wild:** the stall itself has never been reproduced on
+  demand, so the 8-second threshold is reasoned, not measured. If TU-Fast is
+  ever observed taking longer than that to fire on a page it *does* eventually
+  act on, the reload is harmless (it acts on the reloaded page) but the
+  threshold is worth revisiting.
 
 - **Course selection is one list now.** The maintainer's words were "es gibt so
   mehrere stellen und so weiter.. fühlt sich weird an", and they were right

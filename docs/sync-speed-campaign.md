@@ -522,3 +522,49 @@ runs alongside a queue of small ones that finish early, and then it is alone —
 the same "5 of 6 courses are small and one dominates" problem the previous
 entry described. It is the argument for the section axis, stated in
 measurements instead of prose.
+
+#### The section-concurrency measurements — REJECTED
+
+Same binary, same account, same session, only `--section-concurrency` varied,
+`--course-concurrency 1` throughout so the new axis is the only variable:
+
+| section concurrency | files | wall clock | vs ground truth |
+|---|---|---|---|
+| **1 (ground truth)** | **345** | 227.9s | — |
+| 2 | 257 | 147.2s | **−88 files (−26%)** |
+| 4 | 214 | 110.7s | **−131 files (−38%)** |
+
+Monotonic in both directions: every tab added makes it faster and loses more.
+This is the campaign's own rejection criterion, met twice —
+*a faster run that finds fewer files is a failure, not a tradeoff.*
+`DefaultSectionConcurrency` is 1 (off).
+
+**It is not a wait being too short.** Three things say so:
+
+- The patience fix was already in the binary for both runs — the polls used
+  their *full* concurrent budget and still lost this much.
+- **Zero** section-level warnings across the whole 4-tab run: no "returned no
+  content", no "skipping section". The pages did not come back empty.
+- The *structure* came back perfect. The 4-tab run skipped exactly the same 16
+  enrollment nodes and processed exactly the same 8 courses as the serial run.
+  Section links were discovered identically; only file rows were missing.
+
+That combination points at partially-rendered sections passing the stability
+poll: the course-tree navigation is in the initial document, the file table
+arrives later via Wicket AJAX, so a section that has rendered its nav but not
+its table looks like legitimate non-empty content to every check we have. It
+then contributes its folder links (structure intact) and no files (loss),
+silently. `Analysis` came back as 0 files in one run and 1 in the other while
+reporting "crawled successfully".
+
+**Why this axis is worse than course concurrency at the same tab count.**
+Course-level concurrency puts each tab on a *different* course tree. Section
+concurrency puts several tabs inside the *same* one, which is a case OPAL has
+never been asked to serve here — and OLAT/Wicket keeps per-session, per-page
+server state. That is the structural difference worth investigating if anyone
+returns to this; it is not something more patience can fix.
+
+**Status of the leverage list at the top of this file:** item 2 is now
+explored and rejected on measurement, joining items 1 and 4. The machinery and
+`--section-concurrency` stay in the tree so a future attempt can re-measure in
+one command, but the feature is off.

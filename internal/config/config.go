@@ -328,14 +328,27 @@ const (
 	// concurrency existed, on the caller's single tab. Anything above 1 opens
 	// additional tabs.
 	//
-	// The value here is deliberately conservative. Read
-	// DefaultCourseConcurrency's note above before raising it: at course level,
-	// 4 was the classic faster-but-lossy failure (9 files silently missing),
-	// and nothing about this axis makes that class of bug less likely - it is
-	// the same renderer under the same concurrent load. "Correctness-safe"
-	// means "verified at this level against a known file count", never a
-	// general property.
-	DefaultSectionConcurrency = 4
+	// STAYS AT 1 — OFF. Measured against the real account on 2026-07-26, and
+	// the result was not close:
+	//
+	//   course=1 section=1 (ground truth):  345 files, 227.9s
+	//   course=1 section=4:                 214 files, 110.7s
+	//
+	// Twice as fast and **131 files gone (38%)**, including one entire course
+	// (Analysis, 30 files) that vanished from the results altogether. That is
+	// the textbook faster-but-lossy failure this file's course-concurrency note
+	// describes, an order of magnitude worse.
+	//
+	// The machinery is kept, and `--section-concurrency` can still be set
+	// explicitly, because the axis is worth re-testing if the underlying cause
+	// is ever addressed - losing a whole course points at something structural
+	// (OPAL/Wicket is stateful per session, and several tabs walking the *same*
+	// course tree at once is a case course-level concurrency never created),
+	// not at a wait being slightly too short. But it is off by default and
+	// should stay off until someone has a byte-for-byte clean result to show.
+	//
+	// See docs/sync-speed-campaign.md for the full run log.
+	DefaultSectionConcurrency = 1
 )
 
 // DefaultSkipEnrollmentSections is the default for App.SkipEnrollmentSections

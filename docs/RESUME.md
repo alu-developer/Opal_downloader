@@ -50,8 +50,38 @@ task points at it, and the new default (`DefaultSectionConcurrency = 4`) is
 exactly what is unverified. A/B runs use `tmp/opal-abtest.exe`. Rebuild
 `main.exe` only once parity holds — or after setting the default back to 1.
 
-### Where I am
-Run A launched in the background. Next: read its per-course counts, then run B
-twice and compare. If any run loses files, the honest outcome is to set
-`DefaultSectionConcurrency = 1` and report the axis as tried-and-rejected with
-numbers, which the campaign log explicitly treats as a valid result.
+### Where I am — first result is a RED FLAG, not a green light
+
+**Run A** (`--section-concurrency 1`, course concurrency 2 from config):
+**336 files in 228.2s**, against an expected 345. Per course:
+`2026 LA20 39 | AlgoDat 38 | Analysis 21 | So26 Prog 14 | SWT 207 | NuMa 17`.
+**Analysis came back 21, not 30 — nine files short**, and this was the run that
+was supposed to be the *unchanged* serial path.
+
+Two candidate explanations, and they need separating before any number from
+this campaign means anything:
+
+1. **The known course-concurrency race.** `config.yaml` has
+   `course_concurrency: 2`, and the campaign's 2026-07-17 entry recorded
+   exactly this shape: "Analysis: -8 files in 3 of 4 runs" at course
+   concurrency 2. If so, run A is contaminated by a pre-existing bug and says
+   nothing about section concurrency — but it also means
+   `DefaultCourseConcurrency = 2` is still losing the maintainer's files on
+   every real sync, which would be a serious finding in its own right and
+   contradicts the "Concurrency SOLVED" note in the backlog.
+2. **My refactor broke show-all expansion.** Analysis is the course whose
+   "Übungsblätter" section holds 28 files against OPAL's ~20-item page size,
+   i.e. an 8-file overflow that only appears if the "Alle anzeigen" control is
+   clicked. Losing ~9 files from exactly that course is uncomfortably close to
+   losing exactly that overflow. `visitSection` now owns the
+   `expandShowAllInSection` call and its multi-return assignment; that is the
+   first place to look.
+
+**Deciding experiment, running now:** `--course-concurrency 1
+--section-concurrency 1` with the new binary. That is the campaign's true
+serial ground truth with every concurrency off.
+- Comes back **345** → my serial path is intact, and explanation 1 holds.
+- Comes back **336** → my refactor is losing files; fix that before anything
+  else, and do not trust any earlier number.
+
+Do not proceed to measuring section concurrency until this is resolved.

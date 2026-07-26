@@ -198,6 +198,35 @@ func TestSectionConcurrencyOfOneOpensNoExtraTabs(t *testing.T) {
 	}
 }
 
+// The stability polls buy extra patience only while more than one tab may be
+// rendering. That gate asked about course concurrency alone, which was right
+// until section concurrency existed and then became a silent trap: four
+// section tabs at course concurrency 1 render concurrently while the gate
+// calls the crawl serial, so it would take the impatient budget under exactly
+// the load the patient one exists for. Losing the tail of a paginated section
+// is what that looks like from the outside - no error, just fewer files.
+func TestConcurrentCrawlDetectionConsidersBothAxes(t *testing.T) {
+	cases := []struct {
+		name           string
+		course, sectio int
+		want           bool
+	}{
+		{"both serial", 1, 1, false},
+		{"courses concurrent", 2, 1, true},
+		{"sections concurrent", 1, 4, true},
+		{"both concurrent", 2, 4, true},
+	}
+	for _, tc := range cases {
+		s := &OpalScraper{}
+		s.SetCourseConcurrency(tc.course)
+		s.SetSectionConcurrency(tc.sectio)
+		if got := s.crawlingConcurrently(); got != tc.want {
+			t.Fatalf("%s (course=%d section=%d): crawlingConcurrently()=%v, want %v",
+				tc.name, tc.course, tc.sectio, got, tc.want)
+		}
+	}
+}
+
 func TestEffectiveSectionConcurrencyDefaultsAndFloor(t *testing.T) {
 	s := &OpalScraper{}
 	if got := s.effectiveSectionConcurrency(); got < 1 {

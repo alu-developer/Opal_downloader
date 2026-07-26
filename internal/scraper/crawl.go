@@ -812,7 +812,7 @@ func (s *OpalScraper) waitForStableExpandedCandidates(page playwright.Page) ([]m
 	//     it - Wicket's AJAX_CALL_DONE marks the call finished, not the DOM
 	//     complete (see wicket.go).
 	patient := showAllExpansionRequiredStableReads
-	if s.effectiveCourseConcurrency() <= 1 {
+	if !s.crawlingConcurrently() {
 		patient = 1
 	}
 	return candidateStabilityPoll(
@@ -959,7 +959,7 @@ func (s *OpalScraper) waitForStableSectionContent(page playwright.Page, calm boo
 	// observer ran out of budget opens on the full streak, exactly as the old
 	// gate did. Either way, growth escalates.
 	patient := sectionContentRequiredStableReads
-	if s.effectiveCourseConcurrency() <= 1 {
+	if !s.crawlingConcurrently() {
 		patient = 1
 	}
 	initial := patient

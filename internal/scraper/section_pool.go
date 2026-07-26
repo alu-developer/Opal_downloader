@@ -30,6 +30,26 @@ func (s *OpalScraper) effectiveSectionConcurrency() int {
 	return concurrency
 }
 
+// crawlingConcurrently reports whether more than one browser tab may be
+// rendering OPAL content at the same time.
+//
+// The stability polls buy extra patience only when this is true (see
+// waitForStableSectionContent and waitForStableExpandedCandidates): the extra
+// consecutive stable reads exist because competing renders delay each other,
+// and paying for them in a genuinely serial crawl roughly doubled wall-clock
+// time for nothing.
+//
+// It has to consider BOTH axes. Asking only about course concurrency was
+// correct while that was the only way to get two tabs rendering at once - and
+// became a silent trap the moment section concurrency existed: a run at
+// course concurrency 1 and section concurrency 4 has four tabs rendering
+// simultaneously while claiming to be serial, so it would take the *impatient*
+// budget under exactly the load the patient one was written for. That is the
+// shape of every file-loss bug in this file's history.
+func (s *OpalScraper) crawlingConcurrently() bool {
+	return s.effectiveCourseConcurrency() > 1 || s.effectiveSectionConcurrency() > 1
+}
+
 // sectionTabPool visits a BFS level's sections concurrently, each on its own
 // Playwright tab.
 //

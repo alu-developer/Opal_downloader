@@ -134,6 +134,24 @@ stream on load and holds it, so the page never reaches network-idle even when
 nothing is syncing. That is the page working; a walk that waits for idle there
 times out on a healthy page.
 
+**The live half is now covered too** (`internal/gui/live_list_walk_test.go`,
+opt-in via `OPAL_GUI_LIVE_LIST=1`): "List courses" clicked in a real browser
+against the real account, driving the parts the other walks stop short of —
+reusing the saved session, the background job, the SSE progress stream, and the
+result rendering. *Verified live: 6 courses reported, 345 remote files
+discovered, and the run asserts the real session file is byte-identical
+afterwards.* It reads the real `config.yaml` but writes its own in a temp dir
+and works on a **copy** of the session state, so the 2026-07-23 config-wipe is
+not repeatable here — there is no real path for it to write to.
+
+**Finding: "List courses" is not a quick list.** It crawls every section of
+every course, costing the same as a sync's discovery phase — measured at 210s
+and 482s in two runs on the maintainer's account. The button sits next to
+"Sync" and reads like a cheap lookup, so a user clicking it to see what is
+there waits minutes with no warning. Worth either renaming, warning up front,
+or serving from the dashboard listing rather than a full crawl; which of those
+is a product call, so it is filed rather than decided.
+
 Still genuinely unverified: nothing here is a human *looking* at the pages.
 The walk asserts structure and behaviour, not that the result reads well, and
 it runs headless so it would not catch a purely visual break. Also still not

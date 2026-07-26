@@ -24,6 +24,39 @@ import (
 // of what this test covers - it now exercises the fields that still have no
 // form input (download_concurrency, course_concurrency), submitting a form
 // that leaves them untouched and asserting they survive the save.
+// The secondary buttons ("Browse...", "+ Add course", "Suggest folders",
+// "+ Add rule") were unreadable: white text on a near-white fill. pageStyle's
+// base `button` rule sets color:#fff for the blue primary buttons, and these
+// class rules overrode only the background, so the inherited white text
+// stayed. Found by screenshotting the page and looking at it (2026-07-26) -
+// every assertion in this package passed the whole time, because the markup
+// was never wrong.
+//
+// Any light-background button rule has to state its text colour explicitly.
+func TestSettingsSecondaryButtonsSetTheirOwnTextColour(t *testing.T) {
+	dir := t.TempDir()
+	rec := httptest.NewRecorder()
+	handleSettings(filepath.Join(dir, "config.yaml"))(
+		rec, httptest.NewRequest(http.MethodGet, "/settings", nil))
+
+	body := rec.Body.String()
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, ".") || !strings.Contains(trimmed, "{") {
+			continue
+		}
+		// Only rules that repaint the background away from the primary blue;
+		// those are the ones that strand the inherited white text.
+		if !strings.Contains(trimmed, "background: #f5f5f5") {
+			continue
+		}
+		if !strings.Contains(trimmed, "color:") {
+			t.Fatalf("this button rule sets a light background but no text colour, "+
+				"so it inherits color:#fff from pageStyle and renders white-on-white:\n  %s", trimmed)
+		}
+	}
+}
+
 func TestHandleSettingsPostPreservesFieldsWithoutFormInputs(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")

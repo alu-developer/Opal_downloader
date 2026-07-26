@@ -196,6 +196,15 @@ executable.* Deliberately **not** mutation-tested: the mutation is "register
 anyway", which would overwrite the maintainer's real scheduled sync. The
 stubbed walk is mutation-tested instead (dropping the disable call fails it).
 
+**Fixed a bug that only looking could find:** the secondary buttons on the
+settings page — "Browse...", "+ Add course", "Suggest folders", "+ Add rule" —
+rendered white text on a near-white fill, i.e. invisible. `pageStyle`'s base
+`button` rule sets `color:#fff` for the blue primary buttons, and those class
+rules overrode only `background`, leaving the inherited white. Every assertion
+in the package passed throughout, because the markup was never wrong. Found by
+screenshotting the page and reading the image. *Mutation-tested: dropping the
+colour again fails the new test.*
+
 Still genuinely unverified: nothing here is a human *looking* at the pages.
 The walk asserts structure and behaviour, not that the result reads well, and
 it runs headless so it would not catch a purely visual break. Also still not

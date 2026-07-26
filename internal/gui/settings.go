@@ -530,13 +530,16 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	.checkbox-row label { margin: 0; font-weight: 600; }
 	.path-field { display: flex; gap: 0.4rem; }
 	.path-field input[type=text] { flex: 1; }
-	.browse-btn { padding: 0.4rem 0.7rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; font: inherit; white-space: nowrap; }
+	/* color is not decoration here: pageStyle's base button rule sets
+	   color:#fff for the blue primary buttons, and a class selector overriding
+	   only the background leaves white text on a near-white fill. */
+	.browse-btn { padding: 0.4rem 0.7rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; color: #1a1a1a; cursor: pointer; font: inherit; white-space: nowrap; }
 	table.folders { width: 100%; border-collapse: collapse; margin-bottom: 0.5rem; }
 	table.folders th { text-align: left; font-size: 0.8rem; color: #666; font-weight: 600; padding-bottom: 0.25rem; }
 	table.folders td { padding: 0.2rem 0.4rem 0.2rem 0; }
 	table.folders td:first-child { padding-left: 0; }
 	.remove-row-btn { background: none; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; color: #a00; padding: 0.3rem 0.6rem; }
-	.add-row-btn, .save-btn { padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; font: inherit; }
+	.add-row-btn, .save-btn { padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; color: #1a1a1a; cursor: pointer; font: inherit; }
 	/* A proposed folder is marked until the form is saved or the field is
 	   edited, so a filled-in path is never mistaken for one the user chose. */
 	input.suggested { background: #eef7ee; border-color: #4c9a4c; }

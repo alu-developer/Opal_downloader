@@ -36,6 +36,12 @@ type DiscoveryProgress struct {
 	CourseIndex  int
 	TotalCourses int
 	Section      string
+
+	// SectionURL is the page the Section field names. Carried so a stall
+	// warning can point at something openable rather than a title that may
+	// appear in several courses - see stallwatch.go.
+	SectionURL string
+
 	SectionsDone int
 	FileCount    int
 }
@@ -56,6 +62,13 @@ func (s *OpalScraper) SetDiscoveryProgress(fn func(DiscoveryProgress)) {
 // is a no-op when no callback is registered, so every call site can fire
 // unconditionally.
 func (s *OpalScraper) publishProgress(event DiscoveryProgress) {
+	// Recorded before the nil check, and outside it: the stall watchdog has to
+	// see progress whether or not anyone registered a callback, or a CLI run
+	// (which registers none) would look permanently stalled.
+	if s.stall != nil {
+		s.stall.note(event.Course, event.Section, event.SectionURL)
+	}
+
 	s.progressMu.Lock()
 	defer s.progressMu.Unlock()
 	if s.progressFn == nil {

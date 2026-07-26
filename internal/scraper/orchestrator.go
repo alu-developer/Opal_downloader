@@ -41,6 +41,19 @@ func (s *OpalScraper) effectiveCourseConcurrency() int {
 // were collected alongside ctx.Err(), so callers can tell a cancelled run
 // apart from a genuinely completed or failed one.
 func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []string) ([]RemoteFile, error) {
+	// First thing, before the guards below: a watcher that is immediately
+	// stopped by an early return costs a goroutine that lives for microseconds,
+	// and starting here means nothing can be added above it later that hangs
+	// without being watched. It also makes the wiring testable without a
+	// browser, which matters - a mutation deleting this line passed every
+	// other test in stallwatch_test.go, because they all call watchForStall
+	// directly and so check the machinery rather than whether anyone uses it.
+	//
+	// Runs for the whole scrape, not per course: with course concurrency the
+	// courses share one browser, so a wedged browser stops all of them and the
+	// question worth asking is whether anything at all is still moving.
+	defer s.watchForStall(ctx)()
+
 	if s.getPage() == nil {
 		return nil, errors.New("no page available")
 	}

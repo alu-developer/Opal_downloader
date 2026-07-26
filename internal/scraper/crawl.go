@@ -171,6 +171,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				Phase:        PhaseSection,
 				Course:       course.Title,
 				Section:      sectionTitles[currentKey],
+				SectionURL:   currentURL,
 				SectionsDone: sectionsVisited,
 			})
 

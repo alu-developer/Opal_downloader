@@ -347,10 +347,22 @@ record.
   watching. Events arriving now count as proof of a run in flight.
   *Verified in a real browser (`TestBrowserSyncPageNoticesAStalledRun`), which
   also checks the idle page stays quiet and the notice clears on activity.*
-  **Still open, and worth saying plainly:** this notices a stall from the
-  browser. A CLI or scheduled run has no equivalent watchdog, and nothing
-  anywhere diagnoses *where* it stalled. The original hang has never been
-  reproduced.
+  **The other half is now closed too** (`internal/scraper/stallwatch.go`): a
+  watchdog inside the crawl logs, every 30s of silence past 3 minutes, *which
+  section it was on* — course, title and URL. That covers CLI and scheduled
+  runs, which had nothing at all, and it records the thing that was actually
+  missing the one time this happened: somewhere to go and look. It only logs;
+  cancelling a crawl on suspicion would risk killing a slow-but-healthy run,
+  and losing work to a false positive is worse than the stall.
+  *Mutation-tested in three directions, and the third is the interesting one:
+  deleting the call from `scrapeCoursesBrowser` passed every other test,
+  because they all invoke `watchForStall` directly and so check the machinery
+  rather than whether anything uses it. The watchdog now records that it was
+  started, and the scrape is asserted to start it. Its position moved to the
+  top of the function as a result — a watcher stopped by an early return costs
+  microseconds, and starting there means nothing can later be added above it
+  that hangs unwatched.*
+  The original hang has still never been reproduced.
 - **Server load is bounded, and the bound is written down.** The maintainer
   asked for this to be set up long-term rather than checked once. Three parts,
   in rough order of how much they matter:

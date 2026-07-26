@@ -129,6 +129,11 @@ type OpalScraper struct {
 	progressFn      func(DiscoveryProgress)
 	progressStarted int
 
+	// stall records when the crawl last made progress and what it was doing,
+	// so a run that wedges leaves behind the one thing that was missing the
+	// time this actually happened: which section it was on. See stallwatch.go.
+	stall *stallWatch
+
 	// courseConcurrency is the number of courses crawled concurrently during
 	// discovery, each on its own browser tab/page (see
 	// collectCourseFilesConcurrently in orchestrator.go). Like
@@ -417,6 +422,7 @@ func New(opalURL, stateFile string) *OpalScraper {
 		stateFile:          stateFile,
 		downloadCandidates: map[string]downloadCandidate{},
 		limiter:            polite.New(polite.DefaultMinInterval),
+		stall:              &stallWatch{},
 	}
 }
 

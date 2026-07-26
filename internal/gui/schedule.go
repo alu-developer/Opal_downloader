@@ -120,12 +120,21 @@ func repairDoomedSchedule(view settingsViewData, info scheduler.Info) settingsVi
 // Extracted from what used to be the Settings page's POST handler when
 // automatic sync moved onto its own page (see schedule_page.go) - the
 // registration logic itself is unchanged.
-func applyScheduleRegistration(enable bool, at string) error {
+func applyScheduleRegistration(enable bool, at string, configPath string) error {
 	if !enable {
 		return scheduleDisableFunc()
 	}
 	if err := scheduler.ValidateTime(at); err != nil {
 		return err
+	}
+	// Refuse before writing anything if there is nothing to sync. A task
+	// registered against a missing config.yaml does not fail once - it fails
+	// every single morning, silently unless the failure notification happens
+	// to be on, in which case it is a daily toast about a job the user cannot
+	// tell they set up wrong. The page already says to set up first; this is
+	// what makes that more than a suggestion.
+	if _, err := config.Load(configPath); err != nil {
+		return fmt.Errorf("there is nothing to sync yet - finish Settings first, then turn this on (%w)", err)
 	}
 	exePath, err := exeForScheduleFunc()
 	if err != nil {

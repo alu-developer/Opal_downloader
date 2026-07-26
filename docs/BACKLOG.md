@@ -344,6 +344,22 @@ enough to justify keeping a known-hazardous test around.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Refused to schedule a daily sync when there is nothing to sync.** Found
+  while building the `/schedule` page and left open at the time. Enabling the
+  daily run with no `config.yaml` registered a Windows task that does not fail
+  once — it fails *every morning*, silently, unless the failure notification
+  happens to be on, in which case it becomes a daily toast about a job the user
+  cannot tell they set up wrong. Pre-existing (the old settings-page handler did
+  the same), but the new page shows the form right next to a "set up first"
+  warning and then let you ignore it.
+  Now the enable path refuses before writing anything and says what to do
+  instead. **Disabling is deliberately never blocked**: somebody whose config
+  has gone missing still has a task running every morning, and refusing to let
+  them remove it would strand them with it.
+  *Mutation-tested: dropping the guard re-registers the doomed task. All three
+  directions covered — refused without a config, still works with one, and
+  disable unaffected.*
+
 - **The sync page notices when a run stops moving.** A sync was reported stuck
   once (2026-07-26) and the only evidence was a status line that had not
   changed — nothing noticed, and nothing could have, because the page rendered

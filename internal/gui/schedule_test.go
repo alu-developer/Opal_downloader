@@ -358,3 +358,90 @@ func TestSchedulePageRejectsOtherMethods(t *testing.T) {
 		t.Fatalf("expected 405 for DELETE, got %d", rec.Code)
 	}
 }
+
+// A daily task registered against a missing config.yaml does not fail once, it
+// fails every single morning - silently, unless the failure notification is on,
+// in which case it becomes a daily toast about a job the user cannot tell they
+// set up wrong. The page already says "set up first"; this is what makes that
+// more than a suggestion.
+func TestEnablingAScheduleWithNothingToSyncIsRefused(t *testing.T) {
+	var enableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) { return scheduler.Info{}, nil },
+		func(string, string) error { enableCalled = true; return nil },
+		nil,
+		func() (string, error) { return `C:\fake\opal-downloader.exe`, nil },
+	)
+
+	// A path with no config.yaml at it - a first run that reached this page
+	// before finishing Settings.
+	missing := filepath.Join(t.TempDir(), "config.yaml")
+
+	form := url.Values{}
+	form.Set("schedule_enabled", "on")
+	form.Set("schedule_time", "07:15")
+	req := httptest.NewRequest(http.MethodPost, "/schedule", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSchedulePage(missing)(rec, req)
+
+	if enableCalled {
+		t.Fatal("a daily sync was registered against a config that does not exist; it would fail every morning")
+	}
+	if !strings.Contains(rec.Body.String(), "nothing to sync yet") {
+		t.Errorf("the refusal does not explain what to do about it: %s", rec.Body.String())
+	}
+}
+
+// And the refusal must not block the normal case.
+func TestEnablingAScheduleWithAConfigStillWorks(t *testing.T) {
+	var enableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) { return scheduler.Info{}, nil },
+		func(string, string) error { enableCalled = true; return nil },
+		nil,
+		func() (string, error) { return `C:\fake\opal-downloader.exe`, nil },
+	)
+
+	configPath := newScheduleTestConfig(t)
+	form := url.Values{}
+	form.Set("schedule_enabled", "on")
+	form.Set("schedule_time", "07:15")
+	req := httptest.NewRequest(http.MethodPost, "/schedule", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSchedulePage(configPath)(rec, req)
+
+	if !enableCalled {
+		t.Fatal("the guard blocked a perfectly normal enable")
+	}
+}
+
+// Turning it OFF must never be blocked by a missing config. Someone whose
+// config went away still has a registered task running every morning, and
+// refusing to let them remove it would strand them with it.
+func TestDisablingIsNeverBlockedByAMissingConfig(t *testing.T) {
+	var disableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) { return scheduler.Info{Registered: true}, nil },
+		nil,
+		func() error { disableCalled = true; return nil },
+		nil,
+	)
+
+	missing := filepath.Join(t.TempDir(), "config.yaml")
+	req := httptest.NewRequest(http.MethodPost, "/schedule", nil)
+	req.PostForm = url.Values{}
+	req.Form = url.Values{}
+	rec := httptest.NewRecorder()
+
+	handleSchedulePage(missing)(rec, req)
+
+	if !disableCalled {
+		t.Fatal("a missing config stopped the user removing a schedule they already have")
+	}
+}

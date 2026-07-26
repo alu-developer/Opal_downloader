@@ -119,7 +119,7 @@ func applyScheduleForm(configPath string, r *http.Request) schedulePageData {
 		at = scheduler.DefaultTime
 	}
 
-	scheduleErr := applyScheduleRegistration(enable, at)
+	scheduleErr := applyScheduleRegistration(enable, at, configPath)
 	notifyErr := saveNotifyPreference(configPath, notify)
 
 	data := loadSchedulePageData(configPath)

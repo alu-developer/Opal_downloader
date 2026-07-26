@@ -362,6 +362,36 @@ floor would be pure waste.
 Set it up with `scripts/register-resume-task.ps1` (`-Status` to inspect,
 `-Remove` to unregister). It runs hourly while logged on.
 
+### Two things it had to learn the hard way (2026-07-26)
+
+**Its gates were right and it could not launch anything.** For two days every
+fire either skipped correctly or logged `launch-failed  %1 is not a valid Win32
+application`. `Start-Process -FilePath "claude"` does not walk PATHEXT the way
+the shell prompt does — the Windows loader takes the first PATH match by name,
+which is npm's extensionless POSIX shim. It now resolves explicitly to a
+`.cmd`/`.exe` (`-WhichClaude` prints what it would run), and the prompt goes
+over **stdin**, because a `.cmd` runs under cmd.exe and a multi-line prompt
+passed as an argument ends at its first newline.
+
+Nobody noticed because the runner's only output is a log line and nothing reads
+it. `SessionStart` now surfaces unacknowledged `launch-failed` entries to the
+next session, once each. **A watchdog whose failures are silent is worse than
+none — it looks like a working safety net.**
+
+**Stopping a run means stopping the tree.** The recorded pid is the `cmd.exe`
+wrapper, not the agent. Killing it alone leaves `claude.exe` orphaned and still
+editing the worktree; on 2026-07-26 an orphan ran on for five minutes and its
+changes landed in an unrelated commit. Use
+`.claude/hooks/resume-runner.ps1 -Stop`, which kills the recorded pid *and its
+descendants*.
+
+And because an unattended run must not join a session already working in the
+tree, `budget-guard.ps1` stamps `.claude/queue/.session-heartbeat.json` on every
+tool call; the runner skips while that stamp is under 20 minutes old. It is
+deliberately not "is any `claude` process alive" — the keep-warm process is
+permanently alive and idle, so that test would have vetoed every launch forever,
+the same deadlock shape as the one above.
+
 **Unattended runs are bounded by construction**, since nobody is watching:
 
 - `OPAL_UNATTENDED_RESUME=1` makes `SessionStart` arm **5** iterations / 2h

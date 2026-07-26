@@ -17,6 +17,14 @@ machine belong in local memory, not here.
 ## Now
 
 ### Sync speed: still ~5 minutes, maintainer says unacceptable
+**Blocked:** the one unexplored axis (section-level concurrency) is a rewrite
+of the crawl's concurrency model in the most correctness-sensitive part of
+this codebase, with a documented history of *silent* file loss from past
+concurrency changes - it needs the maintainer's explicit sign-off before being
+built (see the last entry in `docs/sync-speed-campaign.md`). Nothing else
+here is unblocked without new evidence; re-measuring or re-arguing already-
+rejected approaches wastes a round trip.
+
 Standing goal (2026-07-21, `docs/sync-speed-campaign.md`): a routine no-op
 sync should feel instant, target ~30s. That file is the full decision log -
 read it before touching this, several plausible-looking approaches (HTTP-fast-
@@ -167,6 +175,25 @@ record.
   and making the heartbeat immortal fails the ages-out test — plus a third
   proving the stamp really comes from `budget-guard` on a healthy budget, where
   it returns early.*
+- **Made stopping an unattended run actually stop it.** Same night, same
+  incident, third bug: the recorded pid is the `cmd.exe` wrapper, not the agent.
+  Killing it left `claude.exe` orphaned and still editing the worktree for five
+  more minutes, and its changes landed in an unrelated commit before anyone
+  noticed. `resume-runner.ps1 -Stop` now kills the recorded pid *and its
+  descendants*, and says which.
+  That orphan's own half-finished work was kept rather than reverted — it was
+  sound (stop counting `**Blocked:**` backlog items as work an unattended run
+  can do, so an all-blocked backlog no longer forces hourly relaunches with
+  nowhere to go) — but it had been killed before writing a single test for a
+  change to the gate that decides whether autopilot keeps running. That gap is
+  now closed: `Get-BacklogItems` has its own tests, including that the real
+  `docs/BACKLOG.md` still parses into items, since a formatting change that made
+  it parse as zero would stop autopilot dead in silence.
+  *Verified: the orphan-kill is mutation-tested by reverting it to a plain
+  `Stop-Process`, which reproduces the incident exactly (`orphaned: 38980`).
+  `Get-BacklogItems` is mutation-tested in both directions — never flagging
+  blocked, and flagging on any mention anywhere in the body. 107 hook
+  assertions.*
 - **Made work resume by itself once the budget recovers.** Closes the
   "should a killed run restart itself?" question — the maintainer asked for it
   directly (2026-07-23) after being told the cost. An hourly Windows scheduled

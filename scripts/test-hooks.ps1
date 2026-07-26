@@ -130,6 +130,49 @@ try {
     Assert-That "missing status file => unknown, no throw" (-not $b.Known) "got Known=$($b.Known)"
 
     # =========================================================================
+    Write-Host "`nbudget-lib: Get-BacklogItems" -ForegroundColor Cyan
+    # =========================================================================
+    # Decides whether autopilot keeps going and whether an unattended session
+    # gets launched at all. If it silently returns nothing, autopilot dies quiet
+    # - the exact failure the backlog migration already caused once.
+    $bl = Join-Path $sandbox "backlog-fixture.md"
+    @(
+        "# Backlog", "", "## Now", "",
+        "### First item", "Some prose about it.", "",
+        "### Second item", "", "**Blocked:** waiting on a maintainer decision.", "",
+        "### Third item", "Prose first.", "", "**Blocked:** this one is too late to count.", "",
+        "## Done recently", "", "### An old finished thing", ""
+    ) -join "`n" | Set-Content $bl -Encoding utf8
+
+    $items = @(Get-BacklogItems -BacklogPath $bl)
+    Assert-That "counts only headings above 'Done recently'" ($items.Count -eq 3) "got $($items.Count): $($items.Title -join '; ')"
+    Assert-That "history is not work" ($items.Title -notcontains "An old finished thing") "got: $($items.Title -join '; ')"
+    Assert-That "an unmarked item is actionable" (-not ($items | Where-Object { $_.Title -eq "First item" }).Blocked) "First item came back blocked"
+    Assert-That "a **Blocked:** item is not" (($items | Where-Object { $_.Title -eq "Second item" }).Blocked) "Second item came back actionable"
+
+    # The marker means "this item is blocked", not "the word appears somewhere
+    # in it" - long entries routinely discuss blockers they have since cleared.
+    Assert-That "**Blocked:** counts only as the item's opening line" `
+        (-not ($items | Where-Object { $_.Title -eq "Third item" }).Blocked) "a mid-body mention blocked the item"
+
+    # An all-blocked backlog SHOULD come back with nothing actionable - that is
+    # the point - but it must be because every item was flagged, not because
+    # the parser fell over.
+    @("# Backlog", "", "## Now", "", "### Only item", "**Blocked:** nothing to do here.", "", "## Done recently") -join "`n" |
+        Set-Content $bl -Encoding utf8
+    $items = @(Get-BacklogItems -BacklogPath $bl)
+    Assert-That "an all-blocked backlog still parses its items" ($items.Count -eq 1) "got $($items.Count)"
+    Assert-That "...and reports none of them actionable" (@($items | Where-Object { -not $_.Blocked }).Count -eq 0) "something came back actionable"
+
+    $items = @(Get-BacklogItems -BacklogPath (Join-Path $sandbox "no-such-backlog.md"))
+    Assert-That "a missing backlog returns empty, no throw" ($items.Count -eq 0) "got $($items.Count)"
+
+    # The real file is what ships. If a formatting change ever made it parse as
+    # zero items, autopilot would stop dead and nothing would say why.
+    $realItems = @(Get-BacklogItems -BacklogPath (Join-Path $repoRoot "docs\BACKLOG.md"))
+    Assert-That "the repo's own BACKLOG.md parses into items" ($realItems.Count -gt 0) "parsed zero items from the real backlog"
+
+    # =========================================================================
     Write-Host "`nbudget-lib: Get-BudgetRung" -ForegroundColor Cyan
     # =========================================================================
     function Rung-For { param($f, $s) Get-BudgetRung ([pscustomobject]@{ Known = $true; FiveHour = $f; SevenDay = $s }) }
@@ -436,6 +479,22 @@ try {
     $out = Invoke-Runner
     Assert-That "does not launch when there is no work" ($out -match "nothing in RESUME.md or BACKLOG") "got: $out"
 
+    # A backlog of nothing but blocked items is not a reason to spend a session:
+    # an unattended run cannot make a maintainer decision, so it would wake,
+    # read, find nothing it is allowed to do, and cost money hourly.
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    "# Resume note`n`n_Nothing in flight._" | Set-Content (Join-Path $fakeRepo "RESUME.md") -Encoding utf8
+    "# Backlog`n`n## Now`n`n### needs the maintainer`n**Blocked:** waiting on a decision.`n`n## Done recently" |
+        Set-Content (Join-Path $fakeRepo "BACKLOG.md") -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "a fully blocked backlog is not work" ($out -match "nothing in RESUME.md or BACKLOG") "got: $out"
+
+    # ...but one actionable item among blocked ones still is.
+    "# Backlog`n`n## Now`n`n### needs the maintainer`n**Blocked:** waiting on a decision.`n`n### something doable`nprose`n`n## Done recently" |
+        Set-Content (Join-Path $fakeRepo "BACKLOG.md") -Encoding utf8
+    $out = Invoke-Runner
+    Assert-That "one unblocked item among blocked ones is enough" ($out -match "would-launch") "got: $out"
+
     # RESUME.md alone is enough, even with an empty backlog - that is the
     # killed-mid-task case.
     "# Resume note`n`n## In flight: something half-done" | Set-Content (Join-Path $fakeRepo "RESUME.md") -Encoding utf8
@@ -556,6 +615,48 @@ try {
     Assert-That "a real launch records its pid, so the next hour can see it" ([int]$st.last_pid -gt 0) "state: $st"
     Assert-That "and stamps the cooldown clock" ([int64]$st.last_launch -gt 0) "state: $st"
     Remove-Item Env:\OPAL_RESUME_CLAUDE_CMD -ErrorAction SilentlyContinue
+
+    # STOPPING a run has to kill the agent, not just the wrapper. The recorded
+    # pid is cmd.exe (claude.cmd); on 2026-07-26 killing that alone left the
+    # claude.exe underneath orphaned and still editing the worktree for five
+    # more minutes, and its changes landed in an unrelated commit. So the stub
+    # here deliberately has a CHILD, and both must die.
+    # The wrapper is started here rather than by the runner on purpose: a
+    # wrapper launched from the runner's own short-lived powershell dies with
+    # it, which would make this assert nothing. What is under test is -Stop's
+    # behaviour given a recorded pid, so a stand-in with a real child is the
+    # honest fixture.
+    $sleeperCmd = Join-Path $sandbox "stub-sleeper.cmd"
+    @('@echo off', 'powershell -NoProfile -Command "Start-Sleep -Seconds 120"') -join "`r`n" |
+        Set-Content $sleeperCmd -Encoding ascii
+    $sleeper = Start-Process -FilePath $sleeperCmd -WindowStyle Hidden -PassThru
+    $wrapperPid = $sleeper.Id
+    $kids = @()
+    $deadline = (Get-Date).AddSeconds(20)
+    while ($kids.Count -eq 0 -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 300
+        $kids = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$wrapperPid" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -eq 'powershell.exe' })
+    }
+    Assert-That "the fixture really has a child process to orphan" ($kids.Count -gt 0) "no powershell child of pid $wrapperPid - this test proves nothing without one"
+
+    @{ last_launch = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()); last_pid = $wrapperPid } |
+        ConvertTo-Json | Set-Content $runnerState -Encoding utf8
+    $out = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Stop) -join "`n"
+    Assert-That "-Stop reports what it killed" ($out -match "killed pid $wrapperPid") "got: $out"
+    Start-Sleep -Milliseconds 800
+    Assert-That "-Stop kills the recorded wrapper" (-not (Get-Process -Id $wrapperPid -ErrorAction SilentlyContinue)) "pid $wrapperPid survived"
+
+    # THE ORPHAN. Killing the recorded pid alone left claude.exe running and
+    # editing the worktree for five more minutes on 2026-07-26.
+    $orphans = @($kids | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+    Assert-That "-Stop kills the agent underneath, leaving no orphan" ($orphans.Count -eq 0) "orphaned: $($orphans.ProcessId -join ', ')"
+
+    $out = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Stop) -join "`n"
+    Assert-That "-Stop on an already-finished run says so instead of erroring" ($out -match "is not running") "got: $out"
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    $out = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Stop) -join "`n"
+    Assert-That "-Stop with nothing recorded is not an error either" ($out -match "no run recorded") "got: $out"
 
     # THE ACTUAL BUG, asked of the runner itself rather than of a stub: what
     # will it hand to Start-Process on this machine? Reimplementing the

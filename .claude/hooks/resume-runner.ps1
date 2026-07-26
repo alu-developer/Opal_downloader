@@ -42,7 +42,9 @@ param(
     # Print the resolved `claude` launcher and exit. Exists so the test suite
     # can assert against THIS resolution rather than reimplementing it - see
     # the comment on Resolve-ClaudeLauncher for why that distinction matters.
-    [switch]$WhichClaude
+    [switch]$WhichClaude,
+    # Stop the unattended run this script started, agent included.
+    [switch]$Stop
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -108,6 +110,23 @@ if (Test-Path $statePath) {
     try { $state = Get-Content $statePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $state = $null }
 }
 if ($null -eq $state) { $state = [pscustomobject]@{ last_launch = 0; last_pid = 0 } }
+
+# --- stopping a run, correctly ------------------------------------------------
+# The recorded pid is the cmd.exe wrapper (claude.cmd), NOT the agent. On
+# 2026-07-26 a run was stopped by killing that pid alone, and the claude.exe
+# underneath survived as an orphan and went on editing the worktree for another
+# five minutes - its changes landed in someone else's commit. Kill the tree.
+if ($Stop) {
+    if (-not ($state.last_pid -and [int]$state.last_pid -gt 0)) { Say "stop" "no run recorded"; exit 0 }
+    $target = [int]$state.last_pid
+    if (-not (Get-Process -Id $target -ErrorAction SilentlyContinue)) { Say "stop" "recorded run (pid $target) is not running"; exit 0 }
+    & taskkill.exe /PID $target /T /F 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+    $still = [bool](Get-Process -Id $target -ErrorAction SilentlyContinue)
+    if ($still) { Say "stop-failed" "pid $target survived taskkill /T /F" }
+    else { Say "stop" "killed pid $target and its descendants" }
+    exit 0
+}
 
 # --- gate 2: is a previous unattended run still going? ------------------------
 # Launching a second one would have two agents editing the same worktree.
@@ -224,9 +243,20 @@ if (Test-Path $resumePath) {
 if (-not $hasWork) {
     $backlog = Join-Path $repoRoot "docs\BACKLOG.md"
     if (Test-Path $backlog) {
-        foreach ($line in @(Get-Content $backlog -ErrorAction SilentlyContinue)) {
-            if ($line -match '^##\s+Done recently') { break }
-            if ($line -match '^###\s+') { $hasWork = $true; break }
+        # Get-BacklogItems (budget-lib.ps1) excludes items flagged
+        # "**Blocked:**" - a heading waiting on a maintainer decision or a
+        # live/attended session is not something an unattended relaunch can
+        # make progress on, so it must not count as a reason to spend one.
+        # Dot-sourced here rather than relying on gate 4's copy: -Force skips
+        # gate 4 entirely, which would leave the function undefined.
+        $lib = Join-Path $PSScriptRoot "budget-lib.ps1"
+        if (Test-Path $lib) {
+            . $lib
+            try {
+                if (@(Get-BacklogItems -BacklogPath $backlog | Where-Object { -not $_.Blocked }).Count -gt 0) {
+                    $hasWork = $true
+                }
+            } catch { }
         }
     }
 }

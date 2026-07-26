@@ -179,6 +179,43 @@ or timed out. Verified `sync`/`list` runs are especially cheap: they reuse
 `session_state_file` in a fresh headless browser with no TU-Fast
 involved at all when the saved session is still valid.
 
+## How to write to the maintainer
+
+Raised 2026-07-27: "es ist oft nicht klar, was fuer mich wichtig ist, welche
+Fragen von mir beantwortet werden muessen, und es ist oft zu viel technisches
+Detail."
+
+The diagnosis: turn summaries were written as *reports* - organised by what got
+done - when they should be *messages*, organised by what the reader has to do
+about it. The clearest symptom was a turn that asked "which of these do you
+want?" at the bottom, after roughly 500 words, when that question was the only
+thing the turn actually needed.
+
+Three rules:
+
+1. **Anything you need from the maintainer goes first**, in the opening line,
+   with a recommendation rather than a menu. If nothing is needed, say so
+   plainly so they can stop reading. This is the one rule with a binary
+   answer - the ask is either first or it is not.
+2. **Then what changed, in plain language, short.** What is different for them
+   now, not which files moved.
+3. **Unverified work stays explicit, but briefly.** "UNVERIFIED: X because Y"
+   is one line. The honesty requirement is satisfied by saying it, not by
+   explaining it at length.
+
+The detail does not disappear - it moves. Measurements, mutation tests, why an
+approach was chosen over another: all of that belongs in the commit message,
+`docs/`, or the backlog, where it is re-readable and where it already was.
+Repeating it in chat means the maintainer reads it twice and finds the
+important part neither time.
+
+Technical depth is right when they asked a technical question, or when a number
+is the answer. It is wrong as a default setting.
+
+Known failure mode to watch for: the pull toward a long summary is strongest
+after a lot of work has been done, because the work feels like it needs
+showing. That instinct is exactly what produces the wall of text.
+
 ## Before you call something blocked, dead, or already-tried
 
 Quote the measurement it rests on. A number, from a real run, with the

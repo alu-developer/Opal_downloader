@@ -551,6 +551,41 @@ func (s *OpalScraper) LogRateLimitStats() {
 	logging.Detail("rate ceiling: %d navigation(s), %d delayed, %s held in total", waits, delayed, held)
 }
 
+// getPolitely is the door every HTTP request that is not a page navigation
+// goes through: the file downloads themselves, and the Wicket counter-refresh
+// dance behind them.
+//
+// These were missed when the ceiling was first added, which had it bounding the
+// wrong half of the load. Page navigations are cheap and serial; the downloads
+// are the requests that run concurrently (download_concurrency, default 3) and
+// the only ones that move real bytes. A ceiling that let those through was
+// bounding the part nobody was worried about.
+//
+// One shared limiter with the navigations, not a second one of its own:
+// "how hard does this tool hit OPAL" is one question, and OPAL cannot tell a
+// page load from a file fetch.
+func (s *OpalScraper) getPolitely(reqCtx playwright.APIRequestContext, url string, opts ...playwright.APIRequestContextGetOptions) (playwright.APIResponse, error) {
+	if s != nil && s.limiter != nil {
+		if err := s.limiter.Wait(context.Background()); err != nil {
+			return nil, err
+		}
+	}
+
+	resp, err := reqCtx.Get(url, opts...)
+
+	if s != nil && s.limiter != nil {
+		status := 0
+		if resp != nil {
+			status = resp.Status()
+		}
+		s.limiter.Observe(status)
+		if level := s.limiter.BackoffLevel(); level > 0 && (status == 429 || status == 503) {
+			logging.Warn("OPAL reported it is overloaded (HTTP %d) on a download - slowing down (backoff level %d of %d)", status, level, polite.MaxBackoffLevel)
+		}
+	}
+	return resp, err
+}
+
 // gotoPolitely is the single door every navigation to OPAL goes through.
 //
 // It exists so that "how hard does this tool hit somebody else's server" has

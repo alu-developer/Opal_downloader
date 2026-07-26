@@ -117,7 +117,7 @@ func (s *OpalScraper) refreshCounterURL(reqCtx playwright.APIRequestContext, can
 		if len(headers) > 0 {
 			opts.Headers = headers
 		}
-		resp, err := reqCtx.Get(url, opts)
+		resp, err := s.getPolitely(reqCtx, url, opts)
 		if err != nil {
 			return 0, "", err
 		}

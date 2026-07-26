@@ -64,7 +64,7 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 
 	reqCtx := ctx.Request()
 
-	response, err := reqCtx.Get(fileURL)
+	response, err := s.getPolitely(reqCtx, fileURL)
 	if err == nil && response != nil && response.Status() == 200 {
 		headers := response.Headers()
 		contentType := strings.ToLower(headers["content-type"])
@@ -88,7 +88,7 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 	// run from every download worker just like the first attempt above.
 	if candidate, ok := s.downloadCandidates[fileURL]; ok {
 		if refreshedURL, refreshErr := s.refreshCounterURL(reqCtx, candidate); refreshErr == nil {
-			if handled, dlErr := attemptDirectDownload(reqCtx, refreshedURL, localPath); handled {
+			if handled, dlErr := s.attemptDirectDownload(reqCtx, refreshedURL, localPath); handled {
 				if s.debugClicks {
 					s.auditLog("fast-path-refresh-hit", nil, fileURL, fmt.Sprintf("counter-refresh retry succeeded via %s", refreshedURL))
 				}
@@ -143,8 +143,8 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 // -validity logic in DownloadFile above, factored out so the counter-refresh
 // retry (which GETs a different, refreshed URL) can share it exactly rather
 // than duplicating slightly-different logic.
-func attemptDirectDownload(reqCtx playwright.APIRequestContext, requestURL, localPath string) (handled bool, err error) {
-	response, reqErr := reqCtx.Get(requestURL)
+func (s *OpalScraper) attemptDirectDownload(reqCtx playwright.APIRequestContext, requestURL, localPath string) (handled bool, err error) {
+	response, reqErr := s.getPolitely(reqCtx, requestURL)
 	if reqErr != nil || response == nil || response.Status() != 200 {
 		return false, nil
 	}

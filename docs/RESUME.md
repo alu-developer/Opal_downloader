@@ -19,4 +19,13 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-_Nothing in flight._
+**Closing a gap in my own server-load work.** internal/polite covers page
+navigations via gotoPolitely, and docs/server-load.md is framed as bounding how
+hard the tool hits OPAL - but the actual file downloads go through
+reqCtx.Get on Playwright APIRequestContext, three call sites, none of them
+limited. Those are the concurrent, byte-heavy requests. The ceiling missed the
+load that matters most.
+
+Plan: route those three through the limiter too, then measure. A routine no-op
+sync downloads nothing so should be unaffected; a first sync of 345 files has a
+250ms-per-file floor, which needs measuring rather than assuming.

@@ -29,9 +29,25 @@ for is what happens at 100 or 1000 users.
 
 ### 1. A rate ceiling that is not binding today (`internal/polite`)
 
-Every navigation to OPAL passes through `OpalScraper.gotoPolitely`, which waits
-on a shared `polite.Limiter`. The default is one request per 250ms — about 4/s,
-roughly **three times looser than what the crawl does on its own**.
+Every request to OPAL passes through one of two doors — `gotoPolitely` for page
+navigations, `getPolitely` for file downloads and the Wicket counter-refresh
+behind them — both waiting on the same shared `polite.Limiter`. The default is
+one request per 250ms, about 4/s, roughly **three times looser than what the
+crawl does on its own**.
+
+One limiter for both, not one each: "how hard does this tool hit OPAL" is a
+single question, and OPAL cannot tell a page load from a file fetch.
+
+> **This was got wrong on the first attempt, and it is worth recording.** The
+> ceiling originally covered navigations only, while this document already
+> described it as bounding how hard the tool hits OPAL. The file downloads went
+> straight out through `reqCtx.Get` — and those are the requests that run
+> concurrently (`download_concurrency`, default 3) and the only ones that move
+> real bytes. The ceiling was bounding the half nobody was worried about.
+> `TestEveryHTTPRequestGoesThroughTheLimiter` now reads the package's own source
+> and fails if a raw call appears outside those two doors, because the way this
+> breaks is not a bug in the limiter — it is a new download path that quietly
+> does not use it.
 
 **Measured, not assumed** (live `list` run against the real account,
 2026-07-26): `rate ceiling: 284 navigation(s), 0 delayed, 0s held in total`.

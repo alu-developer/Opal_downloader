@@ -18,13 +18,20 @@ machine belong in local memory, not here.
 
 ### Maintainer feedback batch, 2026-07-26
 
-Ten things, described in one go, listed in the order they are being worked.
-Nine are done (see "Done recently"). One is left:
+All ten are done — see "Done recently" for what each turned out to involve.
 
-- **Code size.** Offered as a suggestion, not a task: keep it from bloating.
-  `internal/scraper/crawl.go` is 1248 lines, `internal/gui/gui.go` 1009,
-  `internal/gui/settings.go` 1003. Best handled as a standing rule while
-  touching those files, not a rewrite.
+The tenth was **code size**, offered as a suggestion rather than a task, and it
+stays a standing rule rather than a backlog item: keep the big files from
+growing while touching them. One concrete move was made — `internal/gui/gui.go`
+had reached 1154 lines by being the home for anything without an obvious home,
+so the shared page chrome moved to `chrome.go` and it is back to 835. Still
+large and worth watching: `internal/scraper/crawl.go` (1249),
+`internal/gui/settings.go` (1028).
+
+**What is left for the maintainer is looking at it.** Six pages changed shape
+this session — the sync log, the settings page, the new `/schedule` page, the
+course picker — and every claim about them is a test assertion or a screenshot,
+not a person's judgement about whether it reads well.
 
 ### One thing needs your hand: `course_concurrency: 2` in your `config.yaml`
 **Blocked:** the code default is fixed; your live config still overrides it.

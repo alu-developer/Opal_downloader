@@ -19,17 +19,4 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**2026-07-26 maintainer feedback batch: nine of ten done**, all committed. See
-the top of `docs/BACKLOG.md` for the list and "Done recently" for what each
-one turned out to involve.
-
-Left: **code size**, which is a standing rule rather than a task - keep
-`crawl.go` (1248 lines), `gui.go` and `settings.go` (~1000 each) from growing
-while touching them.
-
-One measurement still outstanding: a live `list` run is checking how often the
-new rate ceiling actually held a navigation back. The claim in
-`docs/server-load.md` is that it does not bind on today's crawl, and the last
-timed run came in at 244.6s against 223.4s and 211.9s earlier - top of the
-observed spread, so it is being measured rather than assumed. If it turns out
-to bind, raise `polite.DefaultMinInterval` and say so in that doc.
+_Nothing in flight._

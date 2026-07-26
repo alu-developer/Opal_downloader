@@ -274,7 +274,13 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 
 	syncEnabled := r.FormValue("sync") == "on"
 	useSectionSubfolders := r.FormValue("use_section_subfolders") == "on"
-	notifyOnScheduledFailure := r.FormValue("notify_on_scheduled_failure") == "on"
+
+	// Carried over from what is already saved, never read from this form.
+	// The checkbox moved to /schedule when automatic sync got its own page,
+	// and an unchecked box is indistinguishable from an absent one in a form
+	// post - so reading it here would silently turn the preference off every
+	// single time anyone saved their folder settings.
+	notifyOnScheduledFailure := base.App.NotifyOnScheduledFailure
 
 	view := settingsViewData{
 		ConfigPath: configPath,
@@ -702,55 +708,13 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<button type="button" class="add-row-btn" id="add-subfolder-dest-row">+ Add rule</button>
 	</div>
 
-	<h2>Notifications</h2>
-
-	<div class="field checkbox-row">
-		<input type="checkbox" id="notify_on_scheduled_failure" name="notify_on_scheduled_failure" {{if .NotifyOnScheduledFailure}}checked{{end}}>
-		<label for="notify_on_scheduled_failure">Notify me if a scheduled sync fails</label>
-	</div>
-	<p class="hint">
-		Shows a native Windows toast notification when a scheduled
-		<code>sync --scheduled</code> run's outcome is a failure (not for a
-		partial sync with some file errors, and not on success). Separate
-		from the "Enable daily automatic sync" toggle below - you can want
-		one without the other. Windows only.
-	</p>
-
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>
 
-	<h2>Automatic sync</h2>
-	{{if not .ScheduleSupported}}
-	<p class="hint">Scheduled automatic sync is only available on Windows (via Task Scheduler).</p>
-	{{else}}
-	{{if .ScheduleError}}<div class="error"><strong>Could not update schedule:</strong> {{.ScheduleError}}</div>{{end}}
-	{{if .ScheduleSaved}}<div class="success">Schedule updated.</div>{{end}}
-	{{if .ScheduleNotice}}<div class="warning"><strong>Daily sync repaired:</strong> {{.ScheduleNotice}}</div>{{end}}
-	<form method="post" action="/settings/schedule" id="schedule-form">
-		<div class="field checkbox-row">
-			<input type="checkbox" id="schedule_enabled" name="schedule_enabled" {{if .ScheduleEnabled}}checked{{end}}>
-			<label for="schedule_enabled">Enable daily automatic sync</label>
-		</div>
-		<p class="hint">
-			Off by default. When enabled, opal-downloader registers a Windows
-			Task Scheduler task that runs <code>sync --scheduled</code> once a
-			day at the time below (catching up automatically if the machine
-			was off/asleep at that time), using the dedicated login profile's
-			saved session/TU-Fast - no password is stored for the task itself,
-			and it only runs while you're logged on to Windows. Requires
-			TU-Fast to already be set up in the dedicated profile (see
-			<a href="/tufast-setup">TU-Fast setup</a>) - otherwise a scheduled
-			run will fail fast instead of waiting for a 2FA click that will
-			never come.
-		</p>
-		<div class="field">
-			<label for="schedule_time">Time of day</label>
-			<input type="text" id="schedule_time" name="schedule_time" value="{{.ScheduleTime}}" placeholder="06:00" style="width: 6rem;">
-			<p class="hint">24-hour HH:MM, e.g. 06:00.</p>
-		</div>
-		<button type="submit" class="save-btn">Save schedule</button>
-	</form>
-	{{end}}
+	<h2>Running it automatically</h2>
+	<p class="hint">Whether opal-downloader syncs on its own once a day, and
+	what happens if one of those runs fails, is on its own page:
+	<a href="/schedule">Automatic sync</a>.</p>
 
 	<p class="back"><a href="/">&larr; Back</a></p>
 

@@ -151,7 +151,7 @@ func newMux(srv *server, configPath string) *http.ServeMux {
 	mux.HandleFunc("/settings/browse-folder", srv.withRecover(handleBrowseFolder))
 	mux.HandleFunc("/settings/discover-courses", srv.withRecover(handleDiscoverCourses(configPath)))
 	mux.HandleFunc("/settings/suggest-folders", srv.withRecover(handleSuggestFolders(configPath)))
-	mux.HandleFunc("/settings/schedule", srv.withRecover(handleScheduleAction(configPath)))
+	mux.HandleFunc("/schedule", srv.withRecover(handleSchedulePage(configPath)))
 	mux.HandleFunc("/tufast-setup", srv.withRecover(srv.handleTUFastSetupPage))
 	mux.HandleFunc("/tufast-setup/consent", srv.withRecover(srv.handleTUFastSetupConsent))
 	mux.HandleFunc("/tufast-setup/open", srv.withRecover(srv.handleTUFastSetupOpen))
@@ -707,7 +707,8 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 
 	<nav>
 		<ul>
-			<li><a href="/settings">Settings</a></li>
+			<li><a href="/settings">Settings &ndash; courses and folders</a></li>
+			<li><a href="/schedule">Automatic sync &ndash; run it daily on its own</a></li>
 			<li><a href="/tufast-setup">TU-Fast setup</a></li>
 			<li><a href="/sync">Sync options &amp; developer tools</a></li>
 			<li><a href="/update">Check for updates</a></li>

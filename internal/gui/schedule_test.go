@@ -251,12 +251,12 @@ func TestHandleScheduleActionEnableCallsEnableWithFormTime(t *testing.T) {
 	form.Set("schedule_enabled", "on")
 	form.Set("schedule_time", "07:15")
 
-	req := httptest.NewRequest(http.MethodPost, "/settings/schedule", nil)
+	req := httptest.NewRequest(http.MethodPost, "/schedule", nil)
 	req.PostForm = form
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleScheduleAction(configPath)(rec, req)
+	handleSchedulePage(configPath)(rec, req)
 
 	if !enableCalled {
 		t.Fatal("expected scheduleEnableFunc to be called when schedule_enabled=on is submitted")
@@ -267,8 +267,8 @@ func TestHandleScheduleActionEnableCallsEnableWithFormTime(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Schedule updated") {
-		t.Fatalf("expected success message in response, got: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "Saved.") {
+		t.Fatalf("expected a success message in the response, got: %s", rec.Body.String())
 	}
 }
 
@@ -283,12 +283,12 @@ func TestHandleScheduleActionDisableCallsDisable(t *testing.T) {
 
 	configPath := newScheduleTestConfig(t)
 	form := url.Values{} // schedule_enabled omitted = unchecked
-	req := httptest.NewRequest(http.MethodPost, "/settings/schedule", nil)
+	req := httptest.NewRequest(http.MethodPost, "/schedule", nil)
 	req.PostForm = form
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleScheduleAction(configPath)(rec, req)
+	handleSchedulePage(configPath)(rec, req)
 
 	if !disableCalled {
 		t.Fatal("expected scheduleDisableFunc to be called when schedule_enabled is not submitted")
@@ -311,29 +311,50 @@ func TestHandleScheduleActionInvalidTimeDoesNotCallEnable(t *testing.T) {
 	form := url.Values{}
 	form.Set("schedule_enabled", "on")
 	form.Set("schedule_time", "not-a-time")
-	req := httptest.NewRequest(http.MethodPost, "/settings/schedule", nil)
+	req := httptest.NewRequest(http.MethodPost, "/schedule", nil)
 	req.PostForm = form
 	req.Form = form
 	rec := httptest.NewRecorder()
 
-	handleScheduleAction(configPath)(rec, req)
+	handleSchedulePage(configPath)(rec, req)
 
 	if enableCalled {
 		t.Fatal("expected scheduleEnableFunc NOT to be called for an invalid time")
 	}
-	if !strings.Contains(rec.Body.String(), "Could not update schedule") {
+	if !strings.Contains(rec.Body.String(), "Could not update") {
 		t.Fatalf("expected an error message in the response, got: %s", rec.Body.String())
 	}
 }
 
-func TestHandleScheduleActionRejectsNonPost(t *testing.T) {
+func TestSchedulePageRendersOnGet(t *testing.T) {
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) { return scheduler.Info{Registered: true, Time: "06:00"}, nil },
+		nil, nil,
+		func() (string, error) { return `C:\fake\opal-downloader.exe`, nil },
+	)
+
 	configPath := newScheduleTestConfig(t)
-	req := httptest.NewRequest(http.MethodGet, "/settings/schedule", nil)
+	req := httptest.NewRequest(http.MethodGet, "/schedule", nil)
 	rec := httptest.NewRecorder()
 
-	handleScheduleAction(configPath)(rec, req)
+	handleSchedulePage(configPath)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for a GET of the schedule page, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Automatic sync") {
+		t.Fatalf("the schedule page did not render its own heading: %s", rec.Body.String())
+	}
+}
+
+func TestSchedulePageRejectsOtherMethods(t *testing.T) {
+	configPath := newScheduleTestConfig(t)
+	req := httptest.NewRequest(http.MethodDelete, "/schedule", nil)
+	rec := httptest.NewRecorder()
+
+	handleSchedulePage(configPath)(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405 for GET, got %d", rec.Code)
+		t.Fatalf("expected 405 for DELETE, got %d", rec.Code)
 	}
 }

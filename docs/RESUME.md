@@ -23,14 +23,13 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 top of `docs/BACKLOG.md` in the order they are being worked).
 
 Done so far: mojibake + guard; unsaved-settings warning; the GUI sync log
-rewritten for a user (skip rows collapsed into a running count).
+rewritten for a user; `internal/logging` (two audiences, console + scrubbed
+rotating file) with the scraper migrated onto it; automatic sync moved to its
+own `/schedule` page.
 
-Next, in order: the `internal/logging` package (two audiences - user vs
-diagnostic - fanned out to a console sink and a scrubbed rotating file sink;
-this is what the scraper's "Warning: skipping section" family should go to,
-and it is the CLI half of the chatter complaint) → course-picker rework →
-move scheduling off the settings page onto its own → TU-Fast indicator-based
-wait → server-load policy → hang watchdog. Code size is a standing rule.
+Next, in order: course-picker rework (the last GUI item) → TU-Fast
+indicator-based wait → server-load policy → hang watchdog. Code size is a
+standing rule, not a step.
 
 Useful finding while working: the GUI never showed "skipping section" at all -
 the scraper's `fmt.Printf` goes to a stdout nobody sees when the GUI runs as a

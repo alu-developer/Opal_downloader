@@ -19,18 +19,13 @@ machine belong in local memory, not here.
 ### Maintainer feedback batch, 2026-07-26
 
 Ten things, described in one go, listed in the order they are being worked.
-Four are done (see "Done recently"); the rest are below.
+Five are done (see "Done recently"); the rest are below.
 
 - **Course selection feels scattered.** "Sync all courses" hides the picker,
   "Find my courses" fetches a list, "+ Add course" makes a manual row,
   "Suggest folders" fills the other column — four controls in three places
   for one job. Should be one obvious path with the manual route as the
   escape hatch.
-- **Scheduled runs do not belong under Settings.** Maintainer's observation:
-  Settings is really folder configuration, and a daily-run schedule is a
-  different kind of thing. Their suggestion: its own page, or folded into
-  sync options. Product call delegated ("mach dir gedanken, was am besten
-  für den nutzer ist").
 - **TU-Fast's refresh waits on a clock, not on evidence.** Sometimes TU-Fast
   does not act; the reload that fixes it then takes far too long, because
   the wait is a fixed duration rather than a check for something observable.
@@ -349,6 +344,30 @@ enough to justify keeping a known-hazardous test around.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Automatic sync got its own page.** The maintainer's read was that Settings
+  is really folder configuration and a daily schedule is a different kind of
+  thing; they offered "own page or fold it into sync options" and left the
+  call. Own page — `/schedule` — because `/sync` is where you make something
+  happen *now*, and putting "run every day at 06:00" beside a button that runs
+  immediately invites exactly the mis-click it sounds like.
+  The move also fixed something that was never a layout problem: Settings had
+  **two independent forms with two save buttons**, one of which did not save
+  the schedule and the other of which did not save the settings. And "Notify me
+  if a scheduled sync fails" sat under a *Notifications* heading in the
+  settings form, about a feature configured further down the page in the other
+  form. It now saves with the thing it is about, under one save button.
+  **A data-loss hazard came with it, and is pinned by a test.**
+  `parseSettingsForm` rebuilds the config from submitted form fields, and an
+  unchecked checkbox is indistinguishable from an absent one — so once the
+  notification input left the settings page, reading it there would have
+  silently switched the preference off *every time anyone saved their folder
+  settings*. It is now carried over from disk, and
+  `TestSavingSettingsDoesNotClearTheScheduledFailureNotification` fails if that
+  regresses. This is the same shape as the invariant already flagged in the
+  first-run journey notes below.
+  *All five browser walks pass against the new route, and the page was
+  screenshotted rather than only asserted on.*
 
 - **Gave the tool real logging, and moved the developer chatter into it.**
   Raised by the maintainer relaying their father's point that a long-lived

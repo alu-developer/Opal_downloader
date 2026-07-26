@@ -273,16 +273,18 @@ func TestBrowserSchedulingWalk(t *testing.T) {
 		t.Fatalf("new page: %v", err)
 	}
 
-	goSettings := func() {
+	// Automatic sync has its own page now; it used to be a second form at the
+	// bottom of Settings.
+	goSchedule := func() {
 		t.Helper()
-		if _, err := page.Goto(ts.URL+"/settings", playwright.PageGotoOptions{
+		if _, err := page.Goto(ts.URL+"/schedule", playwright.PageGotoOptions{
 			WaitUntil: playwright.WaitUntilStateLoad,
 		}); err != nil {
-			t.Fatalf("goto /settings: %v", err)
+			t.Fatalf("goto /schedule: %v", err)
 		}
 	}
 
-	goSettings()
+	goSchedule()
 
 	// Off by default, and it must stay that way: nothing should register a
 	// scheduled job on somebody's machine without them asking.
@@ -324,7 +326,7 @@ func TestBrowserSchedulingWalk(t *testing.T) {
 
 	// A reload must still show it on - the state lives in Task Scheduler, not
 	// in the response to the POST.
-	goSettings()
+	goSchedule()
 	if checked, err := page.Locator("#schedule_enabled").IsChecked(); err != nil || !checked {
 		t.Fatalf("the schedule looks off again after a reload (checked=%v err=%v)", checked, err)
 	}
@@ -403,6 +405,7 @@ func TestBrowserEveryPageLoads(t *testing.T) {
 	}{
 		{"/", false},
 		{"/settings", true},
+		{"/schedule", true},
 		{"/sync", true},
 		{"/tufast-setup", true},
 		{"/update", true},

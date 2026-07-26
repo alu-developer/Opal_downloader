@@ -3,10 +3,10 @@ package gui
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
+	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scheduler"
 )
 
@@ -113,53 +113,50 @@ func repairDoomedSchedule(view settingsViewData, info scheduler.Info) settingsVi
 	return view
 }
 
-// handleScheduleAction implements the Settings page's "Enable daily
-// automatic sync" toggle: POST-only, opt-in (see this task's spec - the
-// toggle starts unchecked/off, never flipped on by init/setup or any other
-// code path). Checking the box and submitting calls scheduler.Enable
-// (registering/updating the Windows Task Scheduler task); unchecking it and
-// submitting calls scheduler.Disable (removing it). Either way, the whole
-// Settings page is re-rendered afterward so the toggle's new (real,
-// re-queried) state is immediately visible - same pattern as the main
-// settings form's own POST handler.
-func handleScheduleAction(configPath string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		_ = r.ParseForm()
-
-		enable := r.FormValue("schedule_enabled") == "on"
-		timeArg := strings.TrimSpace(r.FormValue("schedule_time"))
-		if timeArg == "" {
-			timeArg = scheduler.DefaultTime
-		}
-
-		var actionErr error
-		if enable {
-			if err := scheduler.ValidateTime(timeArg); err != nil {
-				actionErr = err
-			} else if exePath, err := exeForScheduleFunc(); err != nil {
-				actionErr = fmt.Errorf("resolving this program's own executable path: %w", err)
-			} else if err := scheduler.CheckExecutableStable(exePath); err != nil {
-				// Refuse rather than register a task that will silently stop
-				// working - see ErrEphemeralExecutable's doc comment.
-				actionErr = err
-			} else {
-				actionErr = scheduleEnableFunc(exePath, timeArg)
-			}
-		} else {
-			actionErr = scheduleDisableFunc()
-		}
-
-		view := applyScheduleStatus(loadSettingsViewData(configPath))
-		if actionErr != nil {
-			view.ScheduleError = actionErr.Error()
-		} else {
-			view.ScheduleSaved = true
-		}
-		renderSettings(w, view)
+// applyScheduleRegistration registers or removes the Windows Task Scheduler
+// task. Opt-in throughout: nothing here is ever reached except by someone
+// submitting the form, and no other code path turns scheduling on.
+//
+// Extracted from what used to be the Settings page's POST handler when
+// automatic sync moved onto its own page (see schedule_page.go) - the
+// registration logic itself is unchanged.
+func applyScheduleRegistration(enable bool, at string) error {
+	if !enable {
+		return scheduleDisableFunc()
 	}
+	if err := scheduler.ValidateTime(at); err != nil {
+		return err
+	}
+	exePath, err := exeForScheduleFunc()
+	if err != nil {
+		return fmt.Errorf("resolving this program's own executable path: %w", err)
+	}
+	// Refuse rather than register a task that will silently stop working -
+	// see ErrEphemeralExecutable's doc comment.
+	if err := scheduler.CheckExecutableStable(exePath); err != nil {
+		return err
+	}
+	return scheduleEnableFunc(exePath, at)
+}
+
+// saveNotifyPreference persists just the "tell me if it failed" checkbox.
+//
+// It reads the config, changes one field and writes it back, rather than
+// going through the settings form's parser: that parser rebuilds the course
+// list and every folder mapping from submitted form rows, so handing it a
+// form that contains none of them would wipe all of it. This page has no
+// business touching any of those settings.
+func saveNotifyPreference(configPath string, notify bool) error {
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		// No config yet means nothing to attach the preference to. The page
+		// already tells the user to set up first; silently creating a config
+		// from a notification checkbox would be worse than doing nothing.
+		return nil
+	}
+	if loaded.App.NotifyOnScheduledFailure == notify {
+		return nil
+	}
+	loaded.App.NotifyOnScheduledFailure = notify
+	return config.Save(configPath, loaded)
 }

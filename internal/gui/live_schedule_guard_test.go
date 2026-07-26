@@ -11,7 +11,7 @@ package gui
 // with whatever binary is running (a test binary, deleted moments later) and a
 // real disable deletes it outright. There is no guard on the disable path.
 //
-// What is safe, and worth checking, is the refusal. handleScheduleAction calls
+// What is safe, and worth checking, is the refusal. the schedule page calls
 // scheduler.CheckExecutableStable BEFORE scheduler.Enable, precisely so a
 // binary that will not still be there tomorrow never becomes a scheduled job
 // (see the #122 entry in docs/BACKLOG.md). A `go test` binary lives in the
@@ -73,9 +73,9 @@ func TestSchedulingRefusesToRegisterADisposableBinaryForReal(t *testing.T) {
 	form.Set("schedule_enabled", "on")
 	form.Set("schedule_time", "23:59")
 
-	resp, err := ts.Client().PostForm(ts.URL+"/settings/schedule", form)
+	resp, err := ts.Client().PostForm(ts.URL+"/schedule", form)
 	if err != nil {
-		t.Fatalf("POST /settings/schedule: %v", err)
+		t.Fatalf("POST /schedule: %v", err)
 	}
 	defer resp.Body.Close()
 

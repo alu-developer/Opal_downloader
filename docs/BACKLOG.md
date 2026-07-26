@@ -19,18 +19,8 @@ machine belong in local memory, not here.
 ### Maintainer feedback batch, 2026-07-26
 
 Ten things, described in one go, listed in the order they are being worked.
-Seven are done (see "Done recently"); the rest are below.
+Nine are done (see "Done recently"). One is left:
 
-- **Server load, as a standing constraint.** If this ever gets more than a
-  handful of users, a tool that crawls every section of every course on a
-  schedule is a load source on someone else's infrastructure. The
-  maintainer wants this designed in for the long term, not spot-checked
-  once. Note the interaction with the sync-speed campaign below: the two
-  goals pull in opposite directions and that trade-off should be explicit.
-- **A sync hung once.** Status line stuck on `Running: skipping - …
-  /Woche 07/hybrid_quicksort.ipynb`. Seen once, not reproduced. The status
-  line only shows the last event, so this says the run stopped producing
-  events — it does not say where. There is no watchdog that would notice.
 - **Code size.** Offered as a suggestion, not a task: keep it from bloating.
   `internal/scraper/crawl.go` is 1248 lines, `internal/gui/gui.go` 1009,
   `internal/gui/settings.go` 1003. Best handled as a standing rule while
@@ -335,6 +325,49 @@ enough to justify keeping a known-hazardous test around.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **The sync page notices when a run stops moving.** A sync was reported stuck
+  once (2026-07-26) and the only evidence was a status line that had not
+  changed — nothing noticed, and nothing could have, because the page rendered
+  the last event it received and had no opinion about how long ago that was.
+  After three minutes of silence during a run it now says how long it has been
+  and points at Cancel. Deliberately not an alarm: a large section legitimately
+  goes quiet for a while, so it reports elapsed time rather than declaring a
+  fault, and any event clears it so it cannot latch on and cry wolf.
+  A second bug fell out of writing the test: the page learned "a run is in
+  flight" only from the SSE frame sent when it connects, so a run that started
+  *after* the page was open was never watched — which is exactly the run worth
+  watching. Events arriving now count as proof of a run in flight.
+  *Verified in a real browser (`TestBrowserSyncPageNoticesAStalledRun`), which
+  also checks the idle page stays quiet and the notice clears on activity.*
+  **Still open, and worth saying plainly:** this notices a stall from the
+  browser. A CLI or scheduled run has no equivalent watchdog, and nothing
+  anywhere diagnoses *where* it stalled. The original hang has never been
+  reproduced.
+- **Server load is bounded, and the bound is written down.** The maintainer
+  asked for this to be set up long-term rather than checked once. Three parts,
+  in rough order of how much they matter:
+  **Scattering the scheduled runs** is the cheapest and largest. Every install
+  proposed `06:00`, so a few hundred of them would start several hundred page
+  loads on the same tick — a spike created entirely by a default, for no
+  benefit. The minute is now derived from the hostname: scattered but stable,
+  so opening the page twice shows the same time.
+  **A rate ceiling** every navigation passes through (`internal/polite`, via
+  `gotoPolitely`, all fifteen call sites), defaulting to ~4 requests/second —
+  about three times looser than what the crawl does on its own. The looseness
+  is the design: a limiter that binds during normal operation makes every
+  future performance measurement a measurement of the limiter. Its job is to
+  stop a *future* change speeding past a defensible rate by accident.
+  **Backoff** when OPAL reports overload (429/503), easing off again on a clean
+  response. A transport error is deliberately not treated as overload — backing
+  off on flaky wifi would turn a bad network into an ever-slower sync.
+  `docs/server-load.md` is the policy and is referenced from `CLAUDE.md`,
+  including the part that has to be said out loud: this pulls directly against
+  `docs/sync-speed-campaign.md`, and the distinction that matters is asking for
+  *more things* versus asking for the *same things faster*.
+  *The limiter counts how often it actually held something back, and a scrape
+  logs it, so "it does not bind today" is checkable against a real run rather
+  than taken on trust.*
 
 - **The stalled-login reload watches the page instead of a clock.** Reported as
   "der refresh bei tu-fast braucht viel zu lange" — and that was a description

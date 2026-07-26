@@ -528,6 +528,14 @@ func (s *OpalScraper) DiscoverCourseNames(ctx context.Context) ([]string, error)
 // next time it touches the (now-closed) page/context rather than racing on
 // the struct fields themselves. See the fieldMu doc comment above.
 func (s *OpalScraper) Close() error {
+	// Logged here rather than at the end of discovery, where it was first put.
+	// The downloads run *after* discovery returns, so a line emitted there
+	// reported the crawl's waits and none of the download workers' - which is
+	// precisely backwards, since the downloads are the concurrent, byte-moving
+	// requests the ceiling exists for. Close is the one point that sees a
+	// whole run.
+	s.LogRateLimitStats()
+
 	_ = s.closeBrowser()
 	_ = s.CloseDebugLogFile()
 
@@ -540,9 +548,11 @@ func (s *OpalScraper) Close() error {
 }
 
 // LogRateLimitStats records how much the politeness ceiling actually got in
-// the way of a run. Called at the end of a scrape so the claim in
-// docs/server-load.md - that the ceiling does not bind on today's crawl - is
-// something anyone can check against a real run instead of taking on trust.
+// the way of a run, so the claim in docs/server-load.md - that it does not bind
+// on today's work - is checkable against a real run rather than taken on trust.
+//
+// Called from Close, which is the only point that sees a whole run: discovery
+// and then the downloads that follow it.
 func (s *OpalScraper) LogRateLimitStats() {
 	if s == nil || s.limiter == nil {
 		return

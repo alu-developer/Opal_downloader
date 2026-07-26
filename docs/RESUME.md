@@ -36,6 +36,36 @@ campaign's 2026-07-17 entry ("3 of 4 runs") and is the reason a single clean
 run proves nothing either way. That cuts both directions: my run A was not
 necessarily a fluke, and my GUI run was not necessarily proof of health.
 
+### Results so far (course=2 unless stated)
+| run | files | Analysis | time |
+|---|---|---|---|
+| GUI list ~09:37 | 345 | 30 | — |
+| run A 15:30 | **336** | **21** | 228.2s |
+| ground truth (course=1) | 345 | 30 | 227.9s |
+| repeat 1 | 345 | 30 | 230.4s |
+| repeat 2 | 345 | 30 | 219.6s |
+| repeat 3 | *running* | | |
+
+**One lossy in four**, matching the documented intermittency. And the timing
+kills the case for it independently: 228.2 / 230.4 / 219.6 against a serial
+227.9 — course concurrency 2 is **not faster at all** on this account today.
+That is a change from the 2026-07-21 measurement (4m25s vs 5m00s), and the
+likely reason is that PR #105's patience fix sped the *serial* path up far
+more, leaving concurrency with nothing to win and its residual race intact.
+
+By the pre-registered rule below, run A already decides this: any run below
+345 means unsafe, and it costs files for no measured speed.
+
+### Also done while waiting
+- **The mechanism is now pinned.** Diffing the visit log put all nine lost
+  files in one section: `Übungsblätter`, 29 → 20 rows. Twenty is exactly one
+  OPAL page, i.e. the "show all" expansion silently did not happen.
+- `expandShowAllInSection` had **four** silent return paths plus a
+  succeeded-but-added-nothing case; all now warn. Behaviour unchanged — no
+  retries, no timing — so the warning cannot cause what it reports.
+- `scripts/compare-visit-runs.ps1` makes that diff a command instead of an
+  afternoon.
+
 ### Method
 Three consecutive `list --course-concurrency 2 --section-concurrency 1` runs,
 same binary, counting files and Analysis specifically. Serial ground truth is

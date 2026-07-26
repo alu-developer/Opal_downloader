@@ -16,33 +16,26 @@ machine belong in local memory, not here.
 
 ## Now
 
-### Maintainer feedback batch, 2026-07-26
+### The 2026-07-26 feedback batch needs your eyes
+**Blocked:** on you looking at it. Everything an agent can check is checked.
 
-All ten are done — see "Done recently" for what each turned out to involve.
+All ten items are done — "Done recently" says what each turned out to involve,
+and several turned out to be a different problem than the one reported.
 
-The tenth was **code size**, offered as a suggestion rather than a task, and it
-stays a standing rule rather than a backlog item: keep the big files from
-growing while touching them. Two concrete moves were made, both verified as
-byte-identical relocations rather than rewrites:
+What is left is judgement, not verification. Six pages changed shape: the sync
+log, the settings page, the new `/schedule` page, and the course picker. Every
+claim about how they read is a test assertion or a screenshot, and neither of
+those can tell you whether a page makes sense to the person in front of it.
 
-- `internal/gui/gui.go` had reached 1154 lines by being the home for anything
-  without an obvious one. The shared page chrome moved to `chrome.go`; gui.go
-  is back to **835**.
-- `internal/gui/settings.go` was a thousand lines of two unrelated jobs —
-  reading and writing `config.yaml`, and rendering a long HTML form. The
-  markup and its client-side behaviour moved to `settings_page.go`; settings.go
-  is now **512**.
+The one part still worth deciding: **`internal/scraper/crawl.go` (1250 lines) is
+deliberately not split.** It is the most correctness-sensitive file here, with a
+documented history of *silent* file loss from changes made to it, and tidying it
+buys nothing that justifies going near it. Said out loud because "the big file
+stayed big" should be a decision on the record rather than an oversight.
 
-**`internal/scraper/crawl.go` (1250) is deliberately left alone.** It is the
-most correctness-sensitive file in the project, with a documented history of
-*silent* file loss from changes made to it, and a tidy-up there buys nothing
-that would justify the risk. If it is ever split, that should be a change
-someone makes for a reason other than its line count.
-
-**What is left for the maintainer is looking at it.** Six pages changed shape
-this session — the sync log, the settings page, the new `/schedule` page, the
-course picker — and every claim about them is a test assertion or a screenshot,
-not a person's judgement about whether it reads well.
+Code size otherwise stays a standing rule rather than a backlog item: keep the
+big files from growing while touching them. Two byte-identical splits landed
+this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
 
 ### One thing needs your hand: `course_concurrency: 2` in your `config.yaml`
 **Blocked:** the code default is fixed; your live config still overrides it.

@@ -37,53 +37,18 @@ Code size otherwise stays a standing rule rather than a backlog item: keep the
 big files from growing while touching them. Two byte-identical splits landed
 this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
 
-### ~~One thing needs your hand: `course_concurrency: 2`~~ — done, nothing needed
-**Resolved 2026-07-27:** the live `config.yaml` now reads `course_concurrency:
-1`, so the setting matches the measured-correct default and no longer overrides
-it. Nothing for the maintainer to do. The measurements below are kept because
-they are the reason the default is 1.
-
-`DefaultCourseConcurrency` went back to **1** on 2026-07-26 after re-measuring
-the real account five times:
-
-| course concurrency | wall clock | files |
-|---|---|---|
-| 1 (serial) | 227.9s | **345** |
-| 2 | 228.2s | **336** ← `Übungsblätter` 29 → 20 |
-| 2 | 230.4s | 345 |
-| 2 | 219.6s | 345 |
-| 2 | 229.4s | 345 |
-
-Both halves of the case for 2 failed. It is **no longer faster** (mean 226.9s
-against a serial 227.9s — inside noise, where 2026-07-21 measured a 12% gain),
-and it still **loses files, silently, about one run in five**. The likely
-reason the speed advantage evaporated: PR #105's patience fix sped the serial
-path up much more (5m00s → 3m48s), leaving concurrency nothing to win on a
-6-course account.
-
-**Your `config.yaml` sets `course_concurrency: 2` explicitly, so the new
-default does not reach you.** Changing it is a one-line edit to your own
-config, which is why it is being asked rather than done. Recommendation: set it
-to `1`, or delete the line and inherit the default. There is no measured cost
-to doing so.
-
-The mechanism is no longer a mystery: diffing the visit log put all nine lost
-files in one section, 29 rows collapsing to exactly 20 — one OPAL page, i.e. a
-"show all" expansion that silently did not happen. `expandShowAllInSection` now
-warns instead of returning a truncated section quietly, and
-`scripts/compare-visit-runs.ps1` turns that diagnosis into one command.
-
-*The warning is **unverified in the wild**, and the attempt to verify it is
-worth recording: a deliberately lossy `--section-concurrency 4` run produced
-zero warnings while losing 160 files. That is a different failure mode — there
-the file table never renders, so there is no "show all" control to find and the
-code returns before any of the new checks. Catching that needs cross-run
-knowledge the process does not have, which is what the visit-log diff is for.
-The mechanism this warning does cover appears about one run in five and has not
-recurred since it was added.*
-
 ### Sync speed: measured for the first time, and the lead is real
-**Not blocked.** Two thirds of a run is this tool waiting on its own timers.
+**Blocked:** every concrete next step needs either the maintainer (the
+preview-blocker repeat needs a hand-run `login`) or a genuinely new idea this
+file hasn't found yet (a DOM-level completion signal or an alternate OPAL
+view — searched for once, 2026-07-27, nothing concrete found; still worth
+another look if anyone has a lead). The parser only reads this heading's
+first line, and it previously said "Not blocked" from the debounce
+measurement below — correct when written, stale once that measurement
+finished, and it was letting the resume-runner/autopilot gates count this as
+actionable unattended work with nothing they could actually do. Two thirds
+of a run is this tool waiting on its own timers, for context on what was
+measured.
 
 **2026-07-27, live run, 280 sections, 216.6s:** settle wait 94.2s (63% of
 in-section time), stability poll 49.5s (33%), actual extraction 4.3s (**2%**).
@@ -449,11 +414,25 @@ matter.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **`course_concurrency` default confirmed at 1, live config now matches.**
+  Re-measured the real account five times: serial 227.9s/345 files; `2` came
+  back 228.2s/**336 files** (`Übungsblätter` 29 → 20, one "show all" expansion
+  silently not happening) and otherwise 345 across three more runs at
+  230.4s/219.6s/229.4s — no longer faster (mean 226.9s vs. serial 227.9s,
+  inside noise) and still loses files about one run in five. Root cause fixed:
+  `expandShowAllInSection` now warns instead of silently returning a truncated
+  section (`scripts/compare-visit-runs.ps1` turns that into a one-command
+  diagnosis), though the warning itself is unverified in the wild — a
+  deliberately lossy `--section-concurrency 4` run produced zero warnings
+  while losing 160 files, a different failure mode (the file table never
+  renders at all, so there's no "show all" control to find). The maintainer's
+  own `config.yaml` explicitly set `course_concurrency: 2`; confirmed
+  2026-07-27 it now reads `1`, so the measured-correct default reaches them.
 - **Fixed the hook-output mojibake noticed in the previous session.** Root
   cause: `docs/RESUME.md` and `docs/BACKLOG.md` have no BOM, and
   `Get-Content` without an explicit `-Encoding` reads a BOM-less file as the
   system ANSI codepage in Windows PowerShell 5.1 — so a UTF-8 em dash
-  (`E2 80 94`) was read as three CP1252 characters (`â€"`) and then
+  (`E2 80 94`) was read as three separate CP1252 characters and then
   re-encoded as UTF-8 on the way out, doubling the corruption. Fixed in the
   three call sites where this prose actually reaches the model:
   `session-start-autopilot.ps1` (embeds `RESUME.md` in its `additionalContext`),

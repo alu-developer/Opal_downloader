@@ -757,6 +757,79 @@ try {
     Assert-That "an expired autopilot records why it ended" ($endedRaw -match "expired") "got: $endedRaw"
     $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
 
+    # The Noticed section had no consumer at all until 2026-07-27: entries only
+    # accumulated. On the evening the maintainer asked "was passiert eigentlich
+    # mit den notizen?", an all-blocked "Now" section had this gate concluding
+    # there was no work while five real entries sat in the same file.
+    $noticedRepo = Join-Path $sandbox "noticed-backlog"
+    New-Item -ItemType Directory -Path $noticedRepo -Force | Out-Null
+    $nbQueue = Join-Path $noticedRepo "queue"
+    New-Item -ItemType Directory -Path $nbQueue -Force | Out-Null
+    $armed = @{ expires_at = ([DateTimeOffset]::UtcNow.AddHours(4).ToUnixTimeSeconds()); max_iterations = 20 } | ConvertTo-Json -Compress
+    Set-Content (Join-Path $nbQueue "AUTOPILOT") $armed -Encoding utf8
+
+    $blockedBacklog = Join-Path $noticedRepo "all-blocked.md"
+    Set-Content $blockedBacklog @"
+# Backlog
+## Now
+### Something waiting on the maintainer
+**Blocked:** needs a human decision.
+## Noticed
+- **A rough edge nobody has fixed.** Worth a look.
+- Another thing seen in passing.
+## Done recently
+- old
+"@ -Encoding utf8
+
+    $noticedParsed = Get-NoticedItems -BacklogPath $blockedBacklog
+    Assert-That "Get-NoticedItems reads the Noticed bullets" ($noticedParsed.Count -eq 2) "got $($noticedParsed.Count)"
+    Assert-That "it stops at the next section" (($noticedParsed -join " ") -notmatch "old") "leaked into Done recently"
+
+    # The wiring, not just the parser - the gap that shipped the stall watchdog
+    # connected to nothing.
+    $env:OPAL_AUTOPILOT_QUEUE_DIR = $nbQueue
+    $env:OPAL_AUTOPILOT_BACKLOG = $blockedBacklog
+    $fellBack = '{"session_id":"noticed-fallback"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    Assert-That "an all-blocked Now falls back to Noticed instead of stopping" ($fellBack -match '"decision":"block"') "got: $fellBack"
+    Assert-That "the fallback says the work came from Noticed" ($fellBack -match "Noticed") "got: $fellBack"
+
+    # Second-class, not promoted: with real work under "Now" the gate must cite
+    # BACKLOG, never the rough-edge list.
+    $liveBacklog = Join-Path $noticedRepo "live.md"
+    Set-Content $liveBacklog @"
+# Backlog
+## Now
+### Real actionable work
+Not blocked at all.
+## Noticed
+- A rough edge nobody has fixed.
+## Done recently
+- old
+"@ -Encoding utf8
+    $env:OPAL_AUTOPILOT_BACKLOG = $liveBacklog
+    $normal = '{"session_id":"noticed-normal"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    Assert-That "real Now work still outranks Noticed" ($normal -match "Real actionable work") "got: $normal"
+    Assert-That "and is not labelled as coming from Noticed" ($normal -notmatch "rough edges rather than commitments") "got: $normal"
+
+    # Genuinely nothing left must still end the run - a gate that never lets go
+    # is worse than one that stops early.
+    $emptyBacklog = Join-Path $noticedRepo "empty.md"
+    Set-Content $emptyBacklog @"
+# Backlog
+## Now
+### Waiting
+**Blocked:** needs a human.
+## Noticed
+## Done recently
+- old
+"@ -Encoding utf8
+    $env:OPAL_AUTOPILOT_BACKLOG = $emptyBacklog
+    $nothing = '{"session_id":"noticed-empty"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    Assert-That "an all-blocked backlog with no notes still ends the run" ([string]::IsNullOrWhiteSpace($nothing)) "got: $nothing"
+
+    Remove-Item Env:\OPAL_AUTOPILOT_BACKLOG -ErrorAction SilentlyContinue
+    $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
+
     # =========================================================================
     Write-Host "`nnoticed-gate (Stop)" -ForegroundColor Cyan
     # =========================================================================

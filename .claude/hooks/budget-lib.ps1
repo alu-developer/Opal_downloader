@@ -160,6 +160,54 @@ function Get-BacklogItems {
     return $items
 }
 
+function Get-NoticedItems {
+    <#
+    .SYNOPSIS
+      Parses docs/BACKLOG.md's "## Noticed" bullets into one-line titles.
+
+    .DESCRIPTION
+      The Noticed section is where a Stop hook files one thing seen and not
+      done, once per session. Nothing ever consumed it: entries only
+      accumulated, and were acted on when somebody happened to read them.
+
+      The maintainer asked about it directly on 2026-07-27 ("was passiert
+      eigentlich mit den notizen?"), on the same evening that an all-blocked
+      "Now" section made the autopilot gate conclude there was no work at all -
+      while five Noticed entries sat in the same file. Those two facts are the
+      same gap: real work the machinery could not see.
+
+      Deliberately a SEPARATE function rather than folding these into
+      Get-BacklogItems. Noticed entries are explicitly "not commitments", so
+      they must never outrank a real "Now" item or make a finished backlog look
+      busy - the gate falls back to them only when nothing else is actionable.
+
+    .OUTPUTS
+      Array of strings, one per bullet.
+    #>
+    param([Parameter(Mandatory)][string]$BacklogPath)
+
+    $items = @()
+    if (-not (Test-Path $BacklogPath)) { return $items }
+
+    $inSection = $false
+    # -Encoding UTF8 for the same reason Get-BacklogItems needs it: BACKLOG.md
+    # has no BOM, and Windows PowerShell 5.1 would otherwise read it as the
+    # system ANSI codepage and mangle non-ASCII titles on their way into the
+    # Stop-hook reason text.
+    foreach ($line in @(Get-Content $BacklogPath -Encoding UTF8 -ErrorAction SilentlyContinue)) {
+        if ($line -match '^##\s+Noticed') { $inSection = $true; continue }
+        if ($inSection -and $line -match '^##\s') { break }
+        if (-not $inSection) { continue }
+        if ($line -match '^-\s+(.+)$') {
+            $title = $Matches[1].Trim()
+            $title = $title -replace '\*\*', ''
+            if ($title.Length -gt 90) { $title = $title.Substring(0, 90).TrimEnd() + '...' }
+            $items += $title
+        }
+    }
+    return $items
+}
+
 function Get-BudgetRung {
     <#
     .SYNOPSIS

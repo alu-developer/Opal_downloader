@@ -204,11 +204,33 @@ try {
 # something continuing the turn can make progress on, and counting it as work
 # forced endless nagging with nowhere to go. Everything from "Done recently"
 # onward is history, not work.
-$backlog = Join-Path $repoRoot "docs\BACKLOG.md"
+# Overridable for the same reason OPAL_AUTOPILOT_QUEUE_DIR is: the Noticed
+# fallback below cannot be exercised end to end against the real file, since
+# whether it fires depends on the repo's own backlog happening to be
+# all-blocked. Testing only the parser would leave the wiring unchecked, which
+# is how the stall watchdog shipped connected to nothing.
+$backlog = $env:OPAL_AUTOPILOT_BACKLOG
+if (-not $backlog) { $backlog = Join-Path $repoRoot "docs\BACKLOG.md" }
 if (-not (Test-Path $backlog)) { Allow-Stop }
 try {
     $todo = @(Get-BacklogItems -BacklogPath $backlog | Where-Object { -not $_.Blocked } | ForEach-Object { $_.Title })
 } catch { Allow-Stop }
+# Nothing actionable under "Now"? Fall back to the Noticed section before
+# giving up. It is the list a Stop hook fills with one thing seen and not done
+# per session, and until 2026-07-27 nothing ever consumed it - so an
+# all-blocked "Now" made this gate conclude there was no work while five real
+# entries sat in the same file. That is exactly the state the maintainer hit
+# when they had to prompt for every continuation.
+#
+# Second-class on purpose: the Noticed section says in its own words that its
+# entries are "not commitments". They are only reached when nothing under "Now"
+# is actionable, and the reason text below says which list the work came from,
+# so a Noticed item can never be mistaken for a committed one.
+$fromNoticed = $false
+if ($todo.Count -eq 0) {
+    try { $todo = @(Get-NoticedItems -BacklogPath $backlog) } catch { $todo = @() }
+    $fromNoticed = $todo.Count -gt 0
+}
 if ($todo.Count -eq 0) { Allow-Stop }
 
 # --- continue ----------------------------------------------------------------
@@ -223,11 +245,15 @@ $state | Add-Member -NotePropertyName $sessionId -NotePropertyValue ($count + 1)
 try { $state | ConvertTo-Json -Depth 5 | Set-Content $statePath -Encoding utf8 -ErrorAction Stop } catch { Allow-Stop }
 
 $names = ($todo | Select-Object -First 5) -join "; "
+$listLabel = "item(s) remain in docs/BACKLOG.md"
+if ($fromNoticed) {
+    $listLabel = "item(s) remain, and every `"Now`" item is blocked - so these come from BACKLOG's `"Noticed`" section, which is a list of rough edges rather than commitments. Pick one worth doing, do it, and delete its entry; if none is worth doing, delete the ones that no longer matter and say so"
+}
 $budgetNote = "budget unknown (no usable rate-limit reading)"
 if ($rateKnown) { $budgetNote = "budget ok (5h $five%, 7d $seven%)" }
 
 $reason = @"
-AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) item(s) remain in docs/BACKLOG.md: $names
+AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) $($listLabel): $names
 
 Do not stop to ask whether to continue. Pick the highest-value remaining task yourself and work it end to end: implement, run scripts/dev.ps1 all, verify against the task's own acceptance criteria, open a PR, and merge it once checks pass and every criterion is genuinely met.
 

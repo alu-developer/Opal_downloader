@@ -556,6 +556,11 @@ enough to justify keeping a known-hazardous test around.
 ## Next
 
 ### The 2026-07-27 evening batch
+**Blocked:** the one remaining item needs an `.ico` file from the maintainer;
+there is no code change left to make. Marked blocked so the autopilot gate
+stops counting it as work an agent can do - the mechanical failure that cost
+2026-07-27 was a backlog whose blocked/unblocked flags did not match reality.
+
 Reported by the maintainer after running the GUI. **Four of five are done**
 (see "Done recently"); one is left, and it is the one that needs a real
 artefact rather than a code change.
@@ -584,12 +589,7 @@ cheap path is checking in an `.ico` exported from `logoSVG` by any tool that
 can do it once; the wiring after that is small and either path above works.
 
 ### Nothing ever works off the "Noticed" section
-The Stop hook appends one entry per session and no process consumes them, so
-the list only grows. The maintainer asked directly: "was passiert eigentlich
-mit den notizen?" — and the honest answer today is "nothing, unless someone
-happens to read them". Either the backlog's own top-item rule should pull from
-Noticed when Now is blocked, or entries should get promoted/dropped on a
-cadence. Right now capturing them is real and acting on them is accidental.
+**Done 2026-07-27** — kept here only until the next trim; see "Done recently".
 
 ---
 
@@ -620,6 +620,24 @@ matter.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **The "Noticed" section has a consumer now.** The maintainer asked what
+  happens to the notes ("was passiert eigentlich mit den notizen?") and the
+  honest answer was: nothing, unless somebody happened to read them. That is
+  the same gap that made autopilot look dead the same evening — an all-blocked
+  "Now" had the gate concluding there was no work while real entries sat lower
+  in the file.
+  The gate now falls back to Noticed when nothing under "Now" is actionable,
+  and says which list the work came from. **Second-class on purpose:** the
+  section describes its own entries as "not commitments", so they never outrank
+  a real item and never make a finished backlog look busy. An all-blocked
+  backlog with no notes still ends the run — a gate that never lets go is worse
+  than one that stops early.
+  *Seven new assertions (129 total), and the wiring is tested end to end rather
+  than just the parser: `OPAL_AUTOPILOT_BACKLOG` was added for exactly that,
+  since whether the fallback fires otherwise depends on the repo's own backlog
+  happening to be all-blocked. Testing the parser alone is how the stall
+  watchdog shipped connected to nothing.*
 
 - **Autopilot had been dead all session, and nothing said so.** The maintainer
   asked "wo hook? warum muss ich dich schon wieder anschreiben?" — and they

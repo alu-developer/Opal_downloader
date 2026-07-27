@@ -138,12 +138,20 @@ things faster — the one direction `docs/server-load.md` encourages — and it 
 attack the 94.2s settle wait at its cause, since a multi-megabyte PDF loading
 into an iframe keeps generating the very mutations that debounce waits to stop.
 
-**Needs your sign-off before it is built**, for the same reason the concurrency
-work did: aborting a request changes what the page renders, and silent file
-loss is this codebase's known failure mode. The fix itself is small (abort
-non-main-frame `document` requests under `/opal/FolderResource/`); the cost is
-the verification — a byte-for-byte file-list comparison against the 345-file
-ground truth, repeated, not a file count and not one run.
+**Approved and built (2026-07-27), verification in progress.**
+`internal/scraper/previews.go` aborts `document` requests that are under
+`/opal/FolderResource/` **and** in a subframe; `OPAL_KEEP_FILE_PREVIEWS=1`
+restores the old behaviour so an A/B is one command away. The filter's safety
+argument is unit-tested exhaustively, including the two cases that would break
+downloading (a main-frame navigation to a file, and a section page).
+
+**Not yet proven safe.** The evidence that decides it is a byte-for-byte
+file-list diff against the ground truth, not a file count —
+`internal/scraper/filelist_probe_test.go` writes every file's course, section,
+name and URL, sorted, for exactly this. A count would have passed both of the
+losses this project already knows about. If the diff is not empty, revert
+rather than narrowing the filter: a condition that still loses one file is not
+an improvement.
 
 Also unexplored, and now second in line: a DOM-level completion marker Wicket
 sets itself, or an OPAL view that serves the file listing without the staged

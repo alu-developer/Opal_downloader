@@ -99,9 +99,15 @@ func TestNetworkTraceDuringSectionCrawl(t *testing.T) {
 		// "was there an AJAX call" but "what is this navigation actually
 		// fetching". A document response in a *sub*frame is an inline preview
 		// the crawl never reads; content-length says what that costs.
+		// r.Headers() reads the headers already delivered with the event.
+		// HeaderValue()/AllHeaders() must NOT be used here: they are round
+		// trips back into the browser, and issuing one from inside an event
+		// handler deadlocks the dispatch loop that would carry the reply. That
+		// is not theoretical - it wedged a live run of this probe for 55
+		// minutes at zero CPU on 2026-07-27 before it was killed.
 		var size int64
-		if cl, err := r.HeaderValue("content-length"); err == nil {
-			if n, convErr := strconv.ParseInt(strings.TrimSpace(cl), 10, 64); convErr == nil {
+		if cl, ok := r.Headers()["content-length"]; ok {
+			if n, err := strconv.ParseInt(strings.TrimSpace(cl), 10, 64); err == nil {
 				size = n
 			}
 		}

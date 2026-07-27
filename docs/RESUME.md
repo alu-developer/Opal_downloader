@@ -68,6 +68,11 @@ Why this matters more than the debounce work: it attacks bytes and time
 together, and it asks OPAL for **less** rather than for the same things faster,
 which is the one direction `docs/server-load.md` positively encourages.
 
+*One trap already paid for: calling `Response.HeaderValue()` from inside the
+`OnResponse` handler deadlocks Playwright's dispatch loop — a run sat at zero
+CPU for 55 minutes before being killed. Use `Response.Headers()`, which reads
+what the event already carried.*
+
 **In flight:** a third trace run recording, per document response, whether it
 is a subframe load and its `content-length`. That distinguishes "inline preview
 in an iframe" (blockable via Playwright request interception) from a main-frame

@@ -414,6 +414,13 @@ matter.
   "Done recently" under different wording), so a reader following the
   cross-reference today would search and not find it.
 
+- **Nothing ever prunes `refs/wip-checkpoints/`.**
+  `turn-failure-checkpoint.ps1` writes two or three refs every time it fires
+  and there is no expiry, so the repo now carries ~200 of them going back to
+  2026-07-23 — each pinning a whole tree, none ever looked at again.
+  `.claude/queue/` likewise accumulates a `resume-run-*.log`/`.err` pair per
+  launch, mostly empty. Neither hurts anything today; both grow forever.
+
 ---
 
 ## Done recently

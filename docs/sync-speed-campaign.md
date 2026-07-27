@@ -453,6 +453,31 @@ rejection lacked. It does **not** establish that a cache is fast: that
 build measured 317.6s warm because essentially nothing ever hit, and the
 reason it never hit is now fixed rather than the speed being re-measured.
 
+**And the ceiling this design can reach is now measured, before building it.**
+Ten sections fetched over plain HTTP with the saved session:
+
+| | |
+|---|---|
+| median fetch | **315 ms** |
+| mean fetch | **331 ms** |
+| payload | **91 KiB/section** |
+| projected, 280 sections, serial | **~93 s** |
+| floor at the 4 req/s server-load ceiling | **~70 s** |
+| today's browser crawl | 750 ms/section, **210.3 s** |
+
+**So a perfect cache lands around 93s, not 30s.** Every section still has to be
+fetched to find out whether it changed; the saving is the browser render, not
+the request. That is a **2.3x** improvement on the campaign's central
+complaint, and it is the largest single win any approach here has produced -
+but the ~30s target is out of reach for this design too, and should stop being
+quoted as though some combination will get there.
+
+Worth putting beside `docs/server-load.md` rather than hiding: this asks OPAL
+for the same *number* of things while dropping the payload enormously - 91 KiB
+of HTML per section against a full page render that also pulls ~30 MB of file
+previews per course. Whether the effective request *rate* may rise toward the
+4/s ceiling to realise the 70s figure is a policy call, not a technical one.
+
 **Next, in order:** the remaining 1 of 12; then rebuild the cache against the
 content subtree — with rootText interning, or the file is **52 MB** for 276
 sections — and measure a warm no-op sync against the 210.3s baseline.

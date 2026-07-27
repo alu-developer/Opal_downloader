@@ -19,21 +19,16 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Sync-speed measurement: instrumented, live run in progress.**
-`internal/scraper/sectiontiming.go` records per-section settle-wait vs
-stability-poll vs everything-else, and logs one summary line at Close (audience
-= diagnostic, so it lands in ~/.opal-downloader/logs/, not on screen).
+**Sync speed: measured, written up, not yet attacked.** The numbers are in
+docs/sync-speed-campaign.md (top entry) and summarised in docs/BACKLOG.md.
 
-To read the result: `grep "section timing" ~/.opal-downloader/logs/opal-downloader.log | tail -1`
+Short version: 63% of in-section time is the 300ms mutation-observer debounce,
+33% the stability poll, 2% the actual extraction. ~84s of a 216.6s run is a
+fixed per-section toll paid for silence.
 
-What the numbers would mean:
-- If **settle + poll is most of the total**, the runtime is this tool waiting on
-  itself and the lead is real. Do NOT then just lower the constants - 1 stable
-  read instead of 4 was live A/B tested and lost files byte-for-byte like the
-  unfixed code. The question becomes whether a time-based poll is the right
-  mechanism at all, given the files arrive in a Wicket response the browser
-  already has.
-- If **"everything else" dominates**, the wait constants are a red herring and
-  the cost is navigation/render, i.e. genuinely OPAL. That is a negative result
-  and worth writing into docs/sync-speed-campaign.md as the first real
-  measurement of where the second goes.
+Next, and NOT started: test whether a positive completion signal exists -
+"AJAX_CALL_DONE fired AND the response body carried the file-table markup" -
+instead of inferring completion from absence of change. AJAX_CALL_DONE alone is
+already known insufficient (lost 52 files, see internal/scraper/wicket.go); the
+stronger condition is untried. Any attempt must be validated by a byte-for-byte
+file-list diff against a serial ground-truth run, not by wall clock.

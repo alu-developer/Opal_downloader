@@ -79,8 +79,29 @@ knowledge the process does not have, which is what the visit-log diff is for.
 The mechanism this warning does cover appears about one run in five and has not
 recurred since it was added.*
 
-### Sync speed: still ~5 minutes, maintainer says unacceptable
-**Blocked:** the one unexplored axis (section-level concurrency) is a rewrite
+### Sync speed: measured for the first time, and the lead is real
+**Not blocked.** Two thirds of a run is this tool waiting on its own timers.
+
+**2026-07-27, live run, 280 sections, 216.6s:** settle wait 94.2s (63% of
+in-section time), stability poll 49.5s (33%), actual extraction 4.3s (**2%**).
+
+The dominant cost is a debounce, and a debounce always costs its own duration.
+`mutationObserverDebounceMs` is 300ms; the measured average settle wait is
+336ms. The page finishes rendering in ~36ms and then we spend 300ms proving
+nothing more is coming — ~84s per run, ~39% of the total, as a fixed toll for
+silence.
+
+**Do not just lower it.** Same class of mistake as lowering
+`sectionContentRequiredStableReads` from 4 to 1, which was live A/B tested and
+lost files byte-for-byte like the unfixed code. The debounce exists because
+Wicket renders in stages.
+
+The real question, in `docs/sync-speed-campaign.md`: both mechanisms *infer*
+completion from absence of change, which costs the same 300ms whether the page
+took 20ms or 2s. Is there a positive signal instead? `AJAX_CALL_DONE` alone is
+known insufficient (lost 52 files), but "DONE fired *and* the response carried
+the file-table markup" is a stronger condition nobody has tried.
+
 of the crawl's concurrency model in the most correctness-sensitive part of
 this codebase, with a documented history of *silent* file loss from past
 concurrency changes - it needs the maintainer's explicit sign-off before being

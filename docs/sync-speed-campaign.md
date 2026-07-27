@@ -1,5 +1,71 @@
 # Sync speed campaign
 
+## 2026-07-27: where the second actually goes — measured, and it is our own debounce
+
+**This is the first time anyone measured it.** Every earlier entry reasons about
+approaches; none of them recorded where a section's wall time is spent. The
+answer changes what the problem is.
+
+Live `list` run, real account, 280 sections, 216.6s total:
+
+| | | |
+|---|---|---|
+| **settle wait** (`waitForInteractiveLinks`) | **94.2s** | **63%** of in-section time, avg 336ms |
+| stability poll (`waitForStableSectionContent`) | 49.5s | 33%, avg 177ms |
+| everything else (extraction, the actual work) | 4.3s | **2%** |
+| *total inside sections* | *148.0s* | *of a 216.6s run* |
+
+Two things fall out immediately.
+
+**1. The extraction is free.** 4.3 seconds across 280 sections. Nothing about
+reading the page is slow. Roughly two thirds of the entire run is this tool
+waiting on its own timers.
+
+**2. The dominant cost is a debounce, and a debounce always costs its own
+duration.** `mutationObserverDebounceMs` is **300ms**, and the measured average
+settle wait is **336ms**. The page is finished rendering after about 36ms; the
+remaining 300ms is spent proving that nothing *more* is coming. 280 sections ×
+300ms ≈ 84s — around 39% of the whole run — is time spent waiting to be sure.
+
+That reframes the target. ~30s was previously called unreachable. It is not
+obviously unreachable if 84s of the run is a fixed toll paid per section for
+silence.
+
+### What NOT to do with this
+
+Lower the debounce. That is the same class of mistake as lowering
+`sectionContentRequiredStableReads` from 4 to 1 — which was live A/B tested and
+lost files byte-for-byte identically to the unfixed code. The debounce exists
+because Wicket renders a section in stages, and shortening it just moves the
+loss back in.
+
+Note also that the poll — the constant that reads as the obvious suspect, and
+the one this project has argued about most — is only 33%. Lowering it caps out
+at a third of the available win and carries the known correctness risk.
+
+### The actual question this exposes
+
+Both mechanisms *infer* completion from the absence of change. Neither ever
+learns that the content arrived; they wait until it has been quiet long enough
+to assume so. That inference is what costs 300ms every time, and it costs the
+same 300ms whether the page took 20ms or 2s to render.
+
+So: **is there a positive signal?** The file table arrives in a Wicket AJAX
+response the browser already receives and parses. Something that keyed off *that
+response* would know the content was there instead of inferring it from silence
+— and would pay nothing for the certainty.
+
+`internal/scraper/wicket.go` already documents that `AJAX_CALL_DONE` alone is
+not sufficient (reading at that signal lost 52 files, 2026-07-21). That is a
+real result and it rules out the naive version. It does not rule out the family:
+"DONE fired *and* the response body contained the file-table markup" is a
+different and stronger condition than "DONE fired", and nobody has tried it.
+
+**Not attempted here.** This entry is the measurement only. Flagged as the
+first lead in this campaign that attacks the cause rather than a symptom, and
+the first one with a number behind it.
+
+
 Standing goal set by the maintainer on 2026-07-21:
 
 > "Ich lad mir mal kurz die neuesten Dokumente herunter" must feel like a

@@ -65,7 +65,7 @@ func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []s
 	courses, err := s.discoverCourseLinks(courseFilter)
 	discoveryElapsed := discoveryTimer.Elapsed()
 	if err != nil {
-		return nil, err
+		return nil, preferCancellation(ctx.Err(), err)
 	}
 	logging.User("Found %d course links", len(courses))
 	timing.PrintDiscoverySummary(discoveryElapsed, len(courses))
@@ -363,4 +363,24 @@ func appendUniqueRemoteFiles(existing []RemoteFile, seen map[string]struct{}, ca
 		files = append(files, candidate)
 	}
 	return files
+}
+
+// preferCancellation reports a cancelled run as cancelled, even when the thing
+// that surfaced first was the wreckage cancelling caused.
+//
+// Cancelling tears the browser down, so a cancel during discovery makes every
+// course-listing page fail, and discoverCourseLinks then reports - accurately,
+// on its own terms - that it could not read the course list. Handed to a user
+// that reads as a broken tool, when in fact the tool did exactly what it was
+// told. It also produces actively wrong advice: the closed-browser hint says
+// "leave it open until the run finishes", which is nonsense addressed to
+// someone who deliberately stopped the run.
+//
+// Reported by the maintainer (2026-07-27): "das eine problem, dass du gefixt
+// hast: ich hatte einfach das ding gecanceled... also da war alles normal."
+func preferCancellation(ctxErr, err error) error {
+	if ctxErr != nil {
+		return ctxErr
+	}
+	return err
 }

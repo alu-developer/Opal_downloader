@@ -1,10 +1,13 @@
 package scraper
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mxschmitt/playwright-go"
@@ -108,4 +111,78 @@ func TestDiscoveryAgainstARealBrowser(t *testing.T) {
 			t.Fatalf("the error must tell the user their browser window closed, got: %v", err)
 		}
 	})
+}
+
+// TestCancellingDuringDiscoveryReportsCancellation covers the wiring, not the
+// predicate. preferCancellation has its own unit test, and removing its call
+// site in scrapeCoursesBrowser passes that test, the build and go vet - the
+// same unwired-code gap the stall watchdog fell into.
+//
+// It reproduces the maintainer's 2026-07-27 report ("ich hatte einfach das
+// ding gecanceled... also da war alles normal"): cancelling kills the browser,
+// which makes every course-listing page fail, which used to surface as
+// "could not read the course list" plus advice to leave the window open - a
+// broken-tool story told to someone who deliberately stopped the run.
+//
+//	OPAL_SCRAPER_BROWSER_PROBE=1 go test ./internal/scraper/ -run TestCancellingDuringDiscovery -v
+func TestCancellingDuringDiscoveryReportsCancellation(t *testing.T) {
+	if os.Getenv("OPAL_SCRAPER_BROWSER_PROBE") == "" {
+		t.Skip("set OPAL_SCRAPER_BROWSER_PROBE=1 to run the real-browser cancellation probe")
+	}
+
+	// The ctx must still be live when scrapeCoursesBrowser's early guard runs,
+	// and cancelled by the time discovery reports its failure - otherwise the
+	// early guard catches it and this proves nothing. So the server blocks the
+	// first request until the test has cancelled.
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(reached) })
+		<-release
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<!doctype html><html><body></body></html>"))
+	}))
+	defer ts.Close()
+
+	EnsurePlaywrightBrowsersPath()
+	pw, err := playwright.Run()
+	if err != nil {
+		t.Fatalf("playwright: %v", err)
+	}
+	defer pw.Stop()
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(true)})
+	if err != nil {
+		t.Fatalf("launch chromium: %v", err)
+	}
+	defer browser.Close()
+
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatalf("new page: %v", err)
+	}
+
+	s := New(ts.URL+"/opal/", "")
+	s.setPage(page)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		<-reached
+		// Exactly what the GUI's /sync/cancel does: cancel, then tear the
+		// browser down out from under the in-flight call.
+		cancel()
+		_ = page.Close()
+		close(release)
+	}()
+
+	_, err = s.scrapeCoursesBrowser(ctx, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("a run cancelled during discovery must report as cancelled, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "leave it open") {
+		t.Fatalf("a cancelled run must not be told to leave its browser window open, got: %v", err)
+	}
 }

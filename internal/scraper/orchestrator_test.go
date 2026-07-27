@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -325,4 +326,25 @@ func mustAtoi(s string) int {
 		n = n*10 + int(r-'0')
 	}
 	return n
+}
+
+func TestPreferCancellationReportsTheCancelNotItsWreckage(t *testing.T) {
+	// The exact shape of the real case: the user cancelled, which killed the
+	// browser, which made discovery fail. Both errors are true; only one of
+	// them is what happened.
+	discoveryFailure := errors.New("could not read the course list: all 3 OPAL course-listing pages failed - the browser window appears to have been closed; leave it open until the run finishes")
+
+	got := preferCancellation(context.Canceled, discoveryFailure)
+	if !errors.Is(got, context.Canceled) {
+		t.Fatalf("a cancelled run must report as cancelled, got: %v", got)
+	}
+
+	// A genuine failure with nobody cancelling must survive untouched -
+	// otherwise this would swallow real breakage.
+	if got := preferCancellation(nil, discoveryFailure); got != discoveryFailure {
+		t.Fatalf("an uncancelled failure must be reported as itself, got: %v", got)
+	}
+	if got := preferCancellation(nil, nil); got != nil {
+		t.Fatalf("no error either way must stay nil, got: %v", got)
+	}
 }

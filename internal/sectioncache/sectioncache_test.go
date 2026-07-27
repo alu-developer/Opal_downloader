@@ -25,7 +25,7 @@ func writeFile(t *testing.T, root string, f file) {
 func TestRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	c := Load(root)
-	c.Record(url, "abc")
+	c.Record(url, "abc", []string{"Skript.pdf"})
 	if err := c.Save(root); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestEveryUntrustworthyStateDegradesToCrawl(t *testing.T) {
 			}
 		}},
 		{"a newer schema", func(t *testing.T, root string) {
-			writeFile(t, root, file{SchemaVersion: SchemaVersion + 1, PatternsVersion: sectionhash.PatternsVersion, Sections: map[string]string{url: "abc"}})
+			writeFile(t, root, file{SchemaVersion: SchemaVersion + 1, PatternsVersion: sectionhash.PatternsVersion, Sections: map[string]entry{url: {Hash: "abc", Files: json.RawMessage(`[]`)}}})
 		}},
 		{
 			// The dangerous one. Patterns changing means old hashes describe
@@ -63,11 +63,11 @@ func TestEveryUntrustworthyStateDegradesToCrawl(t *testing.T) {
 			// should not.
 			"hashes written by a different pattern set",
 			func(t *testing.T, root string) {
-				writeFile(t, root, file{SchemaVersion: SchemaVersion, PatternsVersion: sectionhash.PatternsVersion + 1, Sections: map[string]string{url: "abc"}})
+				writeFile(t, root, file{SchemaVersion: SchemaVersion, PatternsVersion: sectionhash.PatternsVersion + 1, Sections: map[string]entry{url: {Hash: "abc", Files: json.RawMessage(`[]`)}}})
 			},
 		},
 		{"an empty stored hash", func(t *testing.T, root string) {
-			writeFile(t, root, file{SchemaVersion: SchemaVersion, PatternsVersion: sectionhash.PatternsVersion, Sections: map[string]string{url: ""}})
+			writeFile(t, root, file{SchemaVersion: SchemaVersion, PatternsVersion: sectionhash.PatternsVersion, Sections: map[string]entry{url: {Hash: "", Files: json.RawMessage(`[]`)}}})
 		}},
 	}
 
@@ -88,7 +88,7 @@ func TestEveryUntrustworthyStateDegradesToCrawl(t *testing.T) {
 func TestAFailedFetchIsNeverAMatch(t *testing.T) {
 	root := t.TempDir()
 	c := Load(root)
-	c.Record(url, "")
+	c.Record(url, "", []string{"x"})
 	if err := c.Save(root); err != nil {
 		t.Fatal(err)
 	}
@@ -102,14 +102,14 @@ func TestAFailedFetchIsNeverAMatch(t *testing.T) {
 func TestUnrecordedSectionsAreDropped(t *testing.T) {
 	root := t.TempDir()
 	first := Load(root)
-	first.Record(url, "abc")
-	first.Record(url+"/gone", "def")
+	first.Record(url, "abc", []string{"a"})
+	first.Record(url+"/gone", "def", []string{"b"})
 	if err := first.Save(root); err != nil {
 		t.Fatal(err)
 	}
 
 	second := Load(root)
-	second.Record(url, "abc") // only this one is seen this run
+	second.Record(url, "abc", []string{"a"}) // only this one is seen this run
 	if err := second.Save(root); err != nil {
 		t.Fatal(err)
 	}
@@ -123,12 +123,66 @@ func TestUnrecordedSectionsAreDropped(t *testing.T) {
 	}
 }
 
+// A v1 entry has a hash and no rows. Trusting it would report the section
+// unchanged and return nothing, dropping every file in it - the exact silent
+// loss this cache exists to avoid causing.
+func TestAHashWithNoRowsIsNeverAHit(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, file{
+		SchemaVersion:   SchemaVersion,
+		PatternsVersion: sectionhash.PatternsVersion,
+		Sections:        map[string]entry{url: {Hash: "abc"}},
+	})
+	if Load(root).Unchanged(url, "abc") {
+		t.Fatal("an entry carrying no file rows was reported as a hit")
+	}
+}
+
+// A section that genuinely holds no files must still be a hit, or every empty
+// section is re-crawled forever.
+func TestASectionWithZeroFilesIsStillAHit(t *testing.T) {
+	root := t.TempDir()
+	c := Load(root)
+	c.Record(url, "abc", []string{})
+	if err := c.Save(root); err != nil {
+		t.Fatal(err)
+	}
+	next := Load(root)
+	if !next.Unchanged(url, "abc") {
+		t.Fatal("a section with zero files was not a hit")
+	}
+	if string(next.Files(url)) != "[]" {
+		t.Fatalf("expected an empty list back, got %q", next.Files(url))
+	}
+}
+
+func TestFilesRoundTrip(t *testing.T) {
+	type row struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	}
+	root := t.TempDir()
+	c := Load(root)
+	c.Record(url, "abc", []row{{Name: "Skript.pdf", URL: "https://example/Skript.pdf"}})
+	if err := c.Save(root); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []row
+	if err := json.Unmarshal(Load(root).Files(url), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "Skript.pdf" || got[0].URL != "https://example/Skript.pdf" {
+		t.Fatalf("rows did not survive the round trip: %+v", got)
+	}
+}
+
 func TestNilCacheIsSafe(t *testing.T) {
 	var c *Cache
 	if c.Unchanged(url, "abc") {
 		t.Fatal("a nil cache reported unchanged")
 	}
-	c.Record(url, "abc")
+	c.Record(url, "abc", []string{"Skript.pdf"})
 	if err := c.Save(t.TempDir()); err != nil {
 		t.Fatalf("saving a nil cache should be a no-op, got %v", err)
 	}

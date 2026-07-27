@@ -152,7 +152,17 @@ import (
 // assignment. A file has to know which section produced it before anything can
 // be cached per section, and the title cannot stand in - it is sanitised for
 // the filesystem and two sections can share one.
-const codeLineBudget = 11630
+// Raised 2026-07-27 (was 11630): sectioncache entries now carry the file rows
+// a hit has to return, not just a hash. Rows are opaque JSON rather than a
+// parallel copy of scraper.FileRef, because a copy has to be kept in step by
+// hand and a field silently missing from it is exactly the quiet loss this
+// cache must not introduce.
+//
+// One of the added lines is a bug the tests caught: a nil RawMessage marshals
+// to `null` and returns as four non-nil bytes, so "has rows" needed a length
+// check. Without it an entry carrying no rows was a hit that returned nothing,
+// dropping that section's files.
+const codeLineBudget = 11645
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

@@ -134,7 +134,21 @@ import (
 // Most of the file is the pattern list and the argument for each pattern being
 // narrow. That is proportionate: a pattern one character too wide turns a
 // changed section into an unchanged one, which stops downloads silently.
-const codeLineBudget = 11563
+// Raised 2026-07-27 (was 11563) for internal/sectioncache, piece 2 of the
+// change-detection cache. Bought: the file that lets an unchanged section be
+// skipped instead of crawled - the mechanism behind the measured 210.3s ->
+// ~93s projection, which is the largest win this campaign has produced.
+//
+// It stores only sectionURL -> hash. The 2026-07-21 attempt stored extractor
+// output and produced a 52 MB file for 276 sections; on a hit the files are
+// already known from the previous run, so none of that is needed.
+//
+// A third of the cost is the degrade-to-crawl paths - missing file, bad JSON,
+// bumped schema, different pattern version, empty hash. They look like
+// defensive padding and are the opposite: each is a route by which a cache
+// could answer "unchanged" for something it cannot vouch for, and that answer
+// stops downloads silently.
+const codeLineBudget = 11628
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

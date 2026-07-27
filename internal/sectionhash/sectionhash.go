@@ -49,6 +49,17 @@ var volatile = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)csrf[^"']*["'][^"']+["']`),
 }
 
+// PatternsVersion identifies the pattern set above. Any change to `volatile` -
+// adding, removing or widening a pattern - MUST bump this.
+//
+// It is not bookkeeping. A stored hash is only meaningful against the patterns
+// that produced it: widen a pattern and an old hash can match HTML it should
+// not, which is a false "unchanged" and a silently skipped download. A cache
+// carrying this refuses entries that were not written by the same version, so
+// the failure mode of editing the patterns is a full re-crawl rather than
+// silent staleness.
+const PatternsVersion = 1
+
 // Normalize strips the volatile fragments, replacing each with a fixed marker.
 // Exported mainly so a probe can diff normalised forms and show what is left;
 // callers wanting a cache key should use Of.

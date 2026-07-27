@@ -19,7 +19,7 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Building the change-detection cache (2026-07-27, ~23:30). Piece 1 of 3 done.**
+**Building the change-detection cache (2026-07-27, ~23:50). Pieces 1 and 2 done.**
 
 The sync-speed question moved a long way tonight and this is where it stands.
 Everything below is committed.
@@ -54,15 +54,19 @@ out of reach for this design too - stop quoting it (`b471609`).
 integration, fully tested including the case a file count cannot see (same row
 count, different rows).
 
-**Piece 2, next:** the cache file. **Design decision made tonight and not yet
-written anywhere else:** store only `sectionURL -> hash`, NOT the extractor
-output. The previous build stored extractor output and produced a **52 MB**
-file for 276 sections. It does not need to: on a hit, that section's files can
-be taken from the previous run's own results, and the manifest already records
-course + section per file. So the cache is tiny and the interning problem
-disappears entirely.
+**Piece 2 done:** `internal/sectioncache` - `.opal-sync.sections.json` beside
+the manifest, storing only `sectionURL -> hash`, NOT the extractor output. The
+previous build stored the output and produced a **52 MB** file for 276
+sections; on a hit that section's files are already known from the previous
+run, so none of it is needed and the interning problem disappears.
 
-**Piece 3:** wire it into `collectCourseFiles` - fetch + hash before crawling a
+Two safety mechanisms in it worth not undoing: `sectionhash.PatternsVersion` is
+stored in the file and entries from a different version are refused (widening a
+pattern would otherwise make old hashes match HTML they should not), and a
+section not recorded this run is dropped rather than carried over, so a section
+removed from OPAL cannot answer "unchanged" forever.
+
+**Piece 3, next and the only risky one:** wire it into `collectCourseFiles` - fetch + hash before crawling a
 section, crawl on any miss or any doubt. Then measure a warm no-op sync against
 the 210.3s baseline, with a byte-for-byte file-list diff as the acceptance test,
 never a count.

@@ -33,14 +33,20 @@ import (
 // file lists**, 345 files each, matching the known ground truth. Nothing is
 // lost by blocking previews.
 //
-// The speed question came back the wrong way. The blocking run took **324.3s
-// against 248.3s** - 31% slower, and well outside the 212-245s band this
-// account has previously measured. One pair is not proof of a slowdown any
-// more than it would have been proof of a speedup, but shipping a default that
-// measured 31% slower on the only comparison that exists would be exactly the
-// mistake this campaign keeps writing down.
+// The speed question came back the wrong way, and a second pair confirmed it
+// rather than clearing it:
 //
-// So it stays available and unproven rather than on. Set
+//	pair                 previews kept   previews blocked   delta
+//	1 (2026-07-27 am)          248.3s             324.3s   +30.6%
+//	2 (2026-07-27 pm)          210.3s             265.0s   +26.0%
+//
+// Both pairs produced byte-for-byte identical file lists (345 files, diff of
+// the sorted lists empty), so the safety result is now doubly confirmed and
+// the slowdown is reproduced rather than noise. Pair 2's baseline is the
+// fastest run this account has recorded, which rules out the first pair having
+// simply caught a slow day.
+//
+// So it stays available and *measured slower* rather than on. Set
 // OPAL_BLOCK_FILE_PREVIEWS=1 to enable it. What it definitely still buys is
 // ~30 MB per course per pass that OPAL does not have to serve (see
 // docs/server-load.md) - which may yet justify enabling it even if it is

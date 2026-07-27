@@ -103,36 +103,42 @@ things faster — the one direction `docs/server-load.md` encourages — and it 
 attack the 94.2s settle wait at its cause, since a multi-megabyte PDF loading
 into an iframe keeps generating the very mutations that debounce waits to stop.
 
-**Approved, built, verified — and it is not a speed fix.** Off by default;
-`OPAL_BLOCK_FILE_PREVIEWS=1` enables it. Paired full-account A/B, 2026-07-27:
+**Approved, built, verified — and it is not a speed fix. Confirmed twice.**
+Off by default; `OPAL_BLOCK_FILE_PREVIEWS=1` enables it. Two paired
+full-account A/Bs, both 2026-07-27:
 
-| run | files | wall clock |
-|---|---|---|
-| previews kept (ground truth) | **345** | **248.3s** |
-| previews blocked | **345** | **324.3s** |
+| pair | previews kept | previews blocked | files | delta |
+|---|---|---|---|---|
+| 1 (morning) | 248.3s | 324.3s | 345 / 345 | +30.6% |
+| 2 (evening) | **210.3s** | **265.0s** | **345 / 345** | **+26.0%** |
 
-**Safety: settled.** The `diff` of the two sorted file lists — course, section,
-name and URL for every file — was **empty**. Nothing is lost. A file count
-would not have been acceptable evidence here and both of this project's known
-losses would have passed one.
+Pair 2 settles what pair 1 could not. Its baseline (210.3s) is the fastest run
+this account has ever recorded, so the first pair was not a slow day — and the
+slowdown reproduced at a similar magnitude. This is a real cost, not noise.
 
-**Speed: came back the wrong way.** 31% slower, outside the 212–245s band this
-account has measured before. One pair is not proof of a slowdown any more than
-it would have been proof of a speedup — but shipping a default that measured
-31% slower on the only comparison that exists is exactly the mistake this
-campaign keeps recording, so it is opt-in.
+**Safety: settled, twice.** The `diff` of the two sorted file lists — course,
+section, name and URL for every file — was **empty in both pairs**. Nothing is
+lost. A file count would not have been acceptable evidence here and both of
+this project's known losses would have passed one.
+
+**Speed: came back the wrong way, and stayed there.** ~26–31% slower across
+two independent pairs. Opt-in, and now on measured grounds rather than on one
+unreplicated comparison.
 
 **What it still buys regardless: ~30 MB per course per pass that OPAL does not
 have to serve.** That is a `docs/server-load.md` win on its own terms, and may
 justify enabling it even if it is slower — a judgement call, not an assumption
 to bake into a default.
 
-**Next, and cheap in principle:** repeat the pair twice to find out whether
-324.3s is real. If it is, the guess worth testing first is that an aborted
-subframe leaves the parent churning over an error state — precisely what the
-300ms settle-wait debounce watches for — in which case `route.Fulfill` with an
-empty body may behave differently from `route.Abort`. That was reasoned about
-when this was built, and guessed the other way round.
+**Next:** the repeat is done and the slowdown is real, so the guess it was
+meant to gate is now the live experiment — that an aborted subframe leaves the
+parent churning over an error state, precisely what the 300ms settle-wait
+debounce watches for, in which case `route.Fulfill` with an empty body may
+behave differently from `route.Abort`. `previews.go` currently argues the
+opposite in a comment ("an empty 200 would make the frame render an error
+state, which is more DOM churn than a failed load"), reasoned and never
+measured — exactly the kind of confident sentence `CLAUDE.md` says does not
+block anything.
 
 **No longer blocked: the session is fresh again (2026-07-27 18:31).** The
 maintainer ran the GUI by hand and TU-Fast completed Shibboleth on its own in

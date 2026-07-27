@@ -464,7 +464,54 @@ enough to justify keeping a known-hazardous test around.
 
 ## Next
 
-(nothing queued right now)
+### The 2026-07-27 evening batch
+Reported by the maintainer after running the GUI. Roughly in the order they
+are worth doing.
+
+1. **A cancelled run must read as cancelled, not as a failure.** The maintainer
+   cancelled the 18:31 run themselves — "da war alles normal". Discovery now
+   correctly refuses to call that success, but it reports it as
+   `could not read the course list: all 3 OPAL course-listing pages failed`,
+   which describes a broken tool rather than an obeyed instruction. The fix in
+   `62d0515` stands; what is missing is that cancellation is a *third* outcome
+   next to success and failure, and the closed-browser hint ("leave it open
+   until the run finishes") is actively wrong advice when the user closed it on
+   purpose. **The original report was overstated in that turn's summary** —
+   worth recording, since the framing came from an agent guessing at a cause
+   rather than from the maintainer's account of what happened.
+2. **`/feedback` tells you to attach the diagnostic log and gives you no way to
+   do it.** It links to `/logs`, which shows the file and can reveal it in the
+   file manager — so the user is told to attach something, then sent to a page
+   that shows it to them, and is left to find and attach the file themselves.
+   Either offer the file directly (a download link is one handler) or stop
+   asking for it.
+3. **The update check calls a `go run` build "a temporary location".** Running
+   `go run .` puts the binary under `AppData\Local\go-build\...`, and the
+   update path then reports `Could not update: this program is running from a
+   temporary location ... so a scheduled task pointing at it would silently
+   stop w[orking]`. Technically true and useless: it reads as a fault when it
+   is just how `go run` works, and the sentence is cut off. Detect the
+   go-build cache specifically and say "this is a `go run` build, updates and
+   scheduling apply to an installed binary".
+4. **Two headings on `/settings` are not settings.** "Browser" and "Running it
+   automatically" are `<h2>` sections styled exactly like the real ones, and
+   each contains nothing but a paragraph pointing at another page. The
+   maintainer's words: "weird: verweis in foldersettings auf automatic sync
+   genauso wie der zum browser". Settings is folder configuration; the
+   pointers should be one clearly-secondary block, not two fake sections.
+5. **The Windows binary has no icon.** There is no `.ico` and no `.syso` in the
+   repo, so the WebView2 window and the taskbar both show the generic default,
+   even though the app has a perfectly good mark (`logoSVG`, served at
+   `/logo.svg` and used as the favicon). Needs a real multi-size `.ico`
+   embedded as a resource — the SVG cannot do this job.
+
+### Nothing ever works off the "Noticed" section
+The Stop hook appends one entry per session and no process consumes them, so
+the list only grows. The maintainer asked directly: "was passiert eigentlich
+mit den notizen?" — and the honest answer today is "nothing, unless someone
+happens to read them". Either the backlog's own top-item rule should pull from
+Noticed when Now is blocked, or entries should get promoted/dropped on a
+cadence. Right now capturing them is real and acting on them is accidental.
 
 ---
 

@@ -377,15 +377,6 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
-- **The diagnostic log has no way to open it from the GUI.** `internal/logging`
-  writes to `~/.opal-downloader/logs/opal-downloader.log` and the CLI's
-  `--help` names the path, but the GUI — which is how most people use this, and
-  the case where the log matters *most*, since a windowed app's stdout is
-  invisible — offers no link, no viewer, and no mention that the file exists. A
-  diagnostic nobody can find is close to no diagnostic. Noticed while building
-  it (2026-07-27), named out loud as an example of not raising things, and then
-  still not acted on, which is its own small illustration.
-
 - **A live `config.yaml` has a mojibake character in a folder path.**
   `subfolder_destinations` carries `...\Analysis\<U+FFFD>bung` (should be
   `Übung`) on the maintainer's own machine. The mojibake guard added
@@ -400,6 +391,24 @@ matter.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **The diagnostic log can be reached from the GUI now.** It was written to
+  `~/.opal-downloader/logs/`, named in the CLI's `--help`, and mentioned
+  nowhere in the GUI — which is how most people use this, and the case where
+  the log matters *most*, since a windowed app's stdout goes nowhere. A
+  diagnostic nobody can find is close to no diagnostic.
+  `/logs` shows the path, the end of the file, and a button that reveals it in
+  the file manager, linked from `/feedback` because a bug report is exactly
+  when someone needs it. Showing the contents in a page is safe by
+  construction, not by judgement: everything in that file has already been
+  through `statuslog.SanitizeMessage`.
+  Both the log path and the file-manager call are **seams stubbed in every
+  test** — the same hazard as the scheduler one: a test must not open Explorer
+  on the maintainer's desktop or depend on their real log.
+  *Verified in a real browser (it is in `TestBrowserEveryPageLoads` now) and
+  screenshotted, since the last GUI bug here was invisible white-on-white text
+  that every assertion passed. Mutation-tested in two directions: dropping the
+  tail cap and removing the feedback link both fail.*
 
 - **Refused to schedule a daily sync when there is nothing to sync.** Found
   while building the `/schedule` page and left open at the time. Enabling the

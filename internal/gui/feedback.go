@@ -55,6 +55,11 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 		before submitting, and you'll need a GitHub account to submit it.
 	</p>
 
+	<p class="hint">
+		Reporting something that went wrong? The <a href="/logs">diagnostic
+		log</a> usually says what happened, and it is safe to attach.
+	</p>
+
 	{{if .CrashDetected}}
 	<div class="status warn">A crash was detected. Its details are included below.</div>
 	{{end}}

@@ -411,6 +411,7 @@ func TestBrowserEveryPageLoads(t *testing.T) {
 		{"/tufast-setup", true},
 		{"/update", true},
 		{"/feedback", true},
+		{"/logs", true},
 	}
 
 	for _, p := range pages {

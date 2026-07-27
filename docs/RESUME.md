@@ -19,50 +19,42 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Isolating the preview blocker's cost (2026-07-27, ~19:20).**
+**Is ctx.Route's tax fixed, or per matched request? (2026-07-27, ~19:40)**
 
-Everything below is committed except the one deliberate patch named at the end.
+All findings below are committed. Only the named patch is pending.
 
-Settled today, in order:
+Today, settled and committed:
 
-- `62d0515` — discovery reporting "0 courses" instead of an error when every
-  source fails. Done, tested, green.
-- `3316eb3` — the A/B repeat. Slowdown is **real**: 248.3→324.3s (+30.6%) and
-  210.3→265.0s (+26.0%), byte-identical 345-file lists both times.
-- `4696ed9` — the abort-error-state guess is **dead**. `route.Fulfill` (empty
-  200 `text/html`) came back 272.0s against `Abort`'s 265.0s. How the request
-  is refused does not matter.
+- `62d0515` — discovery reports an error instead of "0 courses" when every
+  source fails.
+- `3316eb3` — the preview-blocker slowdown is real (two pairs, ~26-31%).
+- `4696ed9` — Abort vs Fulfill makes no difference. Guess dead.
+- `07804e2` — **the blocking was never the cost. `ctx.Route` is.** Route
+  installed and always calling `Continue()`: 274.6s against a 210.3s no-route
+  ground truth. ~64s, ~30% of a run, for interception alone.
 
-**In flight:** `internal/scraper/previews.go` is patched *uncommitted* with an
-`OPAL_PREVIEW_ROUTE_NOOP` escape hatch — the route is installed and matches,
-but always calls `route.Continue()`. Nothing is blocked; only the interception
-happens.
+**In flight:** `internal/scraper/previews.go` patched *uncommitted* with an
+`OPAL_PREVIEW_ROUTE_NULLPATTERN` switch that registers the route under
+`**/no-such-path-xyz/**` — a pattern matching nothing — while everything else
+stays identical.
 
-Running: `OPAL_FILELIST=repeat1_routenoop OPAL_BLOCK_FILE_PREVIEWS=1
-OPAL_PREVIEW_ROUTE_NOOP=1 go test ./internal/scraper/ -run TestFileListSnapshot
--v -timeout 30m`
+Running: `OPAL_FILELIST=repeat1_nullpattern OPAL_BLOCK_FILE_PREVIEWS=1
+OPAL_PREVIEW_ROUTE_NULLPATTERN=1 go test ./internal/scraper/ -run
+TestFileListSnapshot -v -timeout 30m`
 
-**How to read the result** — three reference points, all same session, same
-evening, all 345 files:
+**Reading it:**
 
-| condition | wall clock |
-|---|---|
-| no route at all (ground truth) | 210.3s |
-| route + Abort | 265.0s |
-| route + Fulfill | 272.0s |
-| route + always Continue | *this run* |
+- **Near 210s** → the tax is per *matched* request. A narrower pattern (only
+  subframe document requests) rescues the ~30 MB saving for free, and the
+  blocker becomes shippable-by-default after one confirming pair.
+- **Near 274s** → merely *having* a route on the context costs ~30%,
+  regardless of pattern. Then `ctx.Route` is unusable on this crawl, the
+  preview saving needs a browser-level setting instead (stop the fetch without
+  interception), and — more importantly — every measurement this project has
+  ever taken with a route installed is suspect, starting with the network
+  trace that found the 30 MB in the first place.
 
-- Comes back near **265s** → interception itself is the tax. The blocker is
-  innocent, and the ~30 MB saving could be had for free if the route were
-  installed more narrowly (it currently matches `**/FolderResource/**`, which
-  is every file request including real downloads, and Playwright routing
-  disables the browser cache for everything it matches).
-- Comes back near **210s** → interception is free and the missing file really
-  is what costs the time, most likely a subframe that never reaches a loaded
-  state something is waiting on. That would make the blocker genuinely a
-  speed/traffic trade-off and the campaign entry can say so and stop.
-
-Either way: `git checkout internal/scraper/previews.go` afterwards — the
-escape hatch is a measurement tool, not something to ship. Record the number in
-`docs/sync-speed-campaign.md`, `previews.go`'s comment, and the backlog entry.
-The file list must diff empty against `tmp/filelist-repeat1_before.txt`.
+Afterwards: `git checkout internal/scraper/previews.go`. The switch is a
+measurement tool, not something to ship. Record in `previews.go`,
+`docs/sync-speed-campaign.md` and the backlog. File list must diff empty
+against `tmp/filelist-repeat1_before.txt`.

@@ -83,7 +83,13 @@ func (s *OpalScraper) blockInlineFilePreviews(ctx playwright.BrowserContext) {
 	}
 	logging.Detail("Blocking inline file previews (%s is set)", blockPreviewsEnv)
 
-	err := ctx.Route("**"+folderResourceMarker+"**", func(route playwright.Route) {
+	// EXPERIMENT 2026-07-27: a pattern that matches nothing, to separate a
+	// per-matched-request tax from a fixed cost of having any route at all.
+	pattern := "**" + folderResourceMarker + "**"
+	if os.Getenv("OPAL_PREVIEW_ROUTE_NULLPATTERN") != "" {
+		pattern = "**/no-such-path-xyz/**"
+	}
+	err := ctx.Route(pattern, func(route playwright.Route) {
 		req := route.Request()
 		frame := req.Frame()
 		// A nil frame means no way to tell a preview from a download, so the

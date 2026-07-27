@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -307,24 +306,13 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 	}
 	visitStart := time.Now()
 	settleStart := time.Now()
-	// EXPERIMENT 2026-07-27 (OPAL_SKIP_SETTLE_WAIT): the settle wait costs
-	// 94.2s of a 210s run proving a page has stopped mutating, and the
-	// stability poll below then re-reads until the extraction stops changing
-	// anyway - two mechanisms inferring the same thing. The early-read probe
-	// measured that content only ever grows (278/278 sections: never empty at
-	// the start, never larger than the final reading), so a shrink the poll
-	// could miss is not a case that occurs. Skipping the settle wait leaves
-	// sectionCalm false, which makes the poll open on its full patience streak
-	// - deliberately the conservative direction.
-	// OPAL_SKIP_SETTLE_WAIT alone was measured at 317.1s against 210.3s (345
-	// files, diff empty): safe but 51% slower, because sectionCalm goes false
-	// and the poll then opens on its full patience streak. _CALM additionally
-	// asserts the verdict the wait would have produced, which separates "the
-	// wait's time is needed" from "only its verdict is".
-	sectionCalm := os.Getenv("OPAL_SKIP_SETTLE_WAIT_CALM") != ""
-	if os.Getenv("OPAL_SKIP_SETTLE_WAIT") == "" && !sectionCalm {
-		_, sectionCalm = s.waitForInteractiveLinks(page, contentFallbackWaitMs)
-	}
+	// Not overhead in front of the stability poll below, though it looked like
+	// it: measured 2026-07-27, skipping this wait is byte-identical and 51%
+	// SLOWER (317.1s vs 210.3s), and skipping it while asserting the calm
+	// verdict it would have produced is still 293.5s. The poll is the
+	// expensive way to wait - every iteration is a full DOM extraction - and
+	// this is the cheap way. See docs/sync-speed-campaign.md.
+	_, sectionCalm := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 	settleSpent := time.Since(settleStart)
 
 	// waitForStableSectionContent polls extraction until the candidate

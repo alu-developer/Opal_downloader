@@ -288,12 +288,32 @@ looking for a positive completion signal to replace the debounce — and the
 debounce **is** that signal, already built, already paying for itself. It is
 not the tax; it is what keeps the tax down.
 
-**Still open, and it is the sharper question:** is it the wait's *time* that is
-needed, or only its *verdict*? Skipping the wait while assuming `sectionCalm`
-is true separates them in one run. The risk is real and named — an optimistic
-verdict is how `sectionContentRequiredStableReads` 4->1 lost files at a
-staged-render false plateau — so the diff, not the count, is the acceptance
-test, exactly as above.
+**And the sharper question is answered too: it is the time, not the verdict.**
+Skipping the wait while *asserting* the calm verdict it would have produced —
+the optimistic case, the one that could have lost files:
+
+| | files | diff vs ground truth | wall clock |
+|---|---|---|---|
+| settle wait kept (ground truth) | 345 | — | **210.3s** |
+| skipped, verdict `false` | 345 | empty | 317.1s |
+| skipped, verdict asserted | 345 | **empty** | **293.5s** |
+
+The verdict recovers only 24s of the 107s penalty. **So the 94.2s is not
+signalling overhead that a cleverer signal could remove — it is time the page
+genuinely needs**, and the MutationObserver is simply the cheap way to spend it.
+The stability poll is the expensive way: every iteration is a full DOM
+extraction, against an observer that costs nothing until something moves.
+
+Nothing was lost in either direction, which is worth saying plainly given the
+`4->1` history — the risk was real, the diff was the test, and the test passed
+both times. The result is still a clear no.
+
+**This closes the largest line item in the campaign.** The 300ms debounce is
+not removable, not short-circuitable, and not replaceable by a better signal,
+because it is already the cheapest available way to wait for something that
+takes that long. Three independent attempts on it now, all measured, all
+negative. Anyone reaching for it again needs a genuinely new mechanism, not a
+new argument.
 
 Standing goal (2026-07-21, `docs/sync-speed-campaign.md`): a routine no-op
 sync should feel instant, target ~30s. That file is the full decision log -

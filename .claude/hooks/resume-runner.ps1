@@ -237,7 +237,9 @@ if (-not $Force) {
 $hasWork = $false
 $resumePath = Join-Path $repoRoot "docs\RESUME.md"
 if (Test-Path $resumePath) {
-    $resume = (Get-Content $resumePath -Raw -ErrorAction SilentlyContinue)
+    # -Encoding UTF8: RESUME.md has no BOM, so without this Windows
+    # PowerShell 5.1 would read it via the system ANSI codepage instead.
+    $resume = (Get-Content $resumePath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue)
     if ($resume -and $resume -notmatch '(?m)^_Nothing in flight\.') { $hasWork = $true }
 }
 if (-not $hasWork) {

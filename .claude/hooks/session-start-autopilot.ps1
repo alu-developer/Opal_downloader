@@ -109,7 +109,11 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $resumePath = Join-Path $repoRoot "docs\RESUME.md"
 if (Test-Path $resumePath) {
     try {
-        $resume = (Get-Content $resumePath -Raw -ErrorAction Stop).Trim()
+        # -Encoding UTF8 is required: RESUME.md has no BOM, and without it
+        # Windows PowerShell 5.1 reads the file as the system ANSI codepage,
+        # mangling every non-ASCII character (e.g. em dashes) before this
+        # text is embedded verbatim into the hook's JSON output.
+        $resume = (Get-Content $resumePath -Raw -Encoding UTF8 -ErrorAction Stop).Trim()
         # The placeholder state is a file whose only content is its own header
         # plus the "nothing in flight" line; treat that as no note at all.
         if ($resume -and $resume -notmatch '(?m)^_Nothing in flight\.') {

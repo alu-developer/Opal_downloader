@@ -59,8 +59,16 @@ Whatever the timing turns out to be, blocking still saves OPAL ~30 MB per
 course per pass, which is its own argument under `docs/server-load.md` — but
 that is the maintainer's call, not an assumption to bake into a default.
 
-**Also done this session:** removed the stale `.claude/worktrees/agent-
-ae4c52c8caec1f5e0` worktree/branch flagged in BACKLOG's "Noticed" — confirmed
-superseded (2026-07-23 prototype, predates the section-concurrency work that
-actually shipped and was measured 2026-07-26) before deleting. Detail in
-BACKLOG's "Done recently".
+**Also done this session:** fixed the hook-output mojibake flagged in
+BACKLOG's "Noticed" — `Get-Content` without `-Encoding UTF8` was reading
+BOM-less `RESUME.md`/`BACKLOG.md` as the system ANSI codepage, mangling em
+dashes before they reached the model. Fixed in the three call sites that
+actually surface this prose (`session-start-autopilot.ps1`,
+`resume-runner.ps1`, `budget-lib.ps1`'s `Get-BacklogItems`); verified against
+raw hook output bytes and mutation-tested in `scripts/test-hooks.ps1`. Detail
+in BACKLOG's "Done recently".
+
+The login-blocked preview-blocker measurement above is unchanged from the
+previous session — still needs the maintainer to run `login` by hand once
+before the repeat can happen. Not re-attempted this session since it already
+timed out once and nothing about that condition has changed.

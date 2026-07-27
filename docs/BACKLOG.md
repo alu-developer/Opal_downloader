@@ -442,21 +442,28 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
-- **The `SessionStart` hook's own output can be mojibake even when the source
-  file isn't.** This session's `additionalContext` (which embeds
-  `docs/RESUME.md`) showed `�?"` where the file has a correct em dash `—` —
-  likely a PowerShell encoding step when the hook reads the file into JSON.
-  `encoding_test.go`'s mojibake guard only scans git-tracked files, so it
-  can't see corruption introduced at hook-output time; a maintainer reading
-  the hook's context (not the file) would see garbage neither the guard nor a
-  file-level review would catch.
-
 ---
 
 ## Done recently
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Fixed the hook-output mojibake noticed in the previous session.** Root
+  cause: `docs/RESUME.md` and `docs/BACKLOG.md` have no BOM, and
+  `Get-Content` without an explicit `-Encoding` reads a BOM-less file as the
+  system ANSI codepage in Windows PowerShell 5.1 — so a UTF-8 em dash
+  (`E2 80 94`) was read as three CP1252 characters (`â€"`) and then
+  re-encoded as UTF-8 on the way out, doubling the corruption. Fixed in the
+  three call sites where this prose actually reaches the model:
+  `session-start-autopilot.ps1` (embeds `RESUME.md` in its `additionalContext`),
+  `resume-runner.ps1` (reads `RESUME.md` to decide if there's work), and
+  `budget-lib.ps1`'s `Get-BacklogItems` (titles feed directly into
+  `autopilot-gate.ps1`'s Stop-hook reason text). *Verified by running the
+  hook directly and inspecting the raw output bytes before and after: the em
+  dash arrived as the single correct 3-byte sequence, not six mangled bytes.
+  Mutation-tested in `scripts/test-hooks.ps1`: a non-ASCII backlog title now
+  round-trips byte-exact through `Get-BacklogItems`.*
 
 - **Removed the stale agent worktree flagged above.**
   `.claude/worktrees/agent-ae4c52c8caec1f5e0` (branch

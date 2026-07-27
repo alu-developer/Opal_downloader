@@ -168,6 +168,17 @@ try {
     Assert-That "an all-blocked backlog still parses its items" ($items.Count -eq 1) "got $($items.Count)"
     Assert-That "...and reports none of them actionable" (@($items | Where-Object { -not $_.Blocked }).Count -eq 0) "something came back actionable"
 
+    # BACKLOG.md has no BOM, and this file's Title values are embedded verbatim
+    # into autopilot-gate's Stop-hook reason text - reading it as the system
+    # ANSI codepage instead of UTF8 mangles any non-ASCII heading (an em dash,
+    # here) before the model ever sees it. Byte-exact, not just "contains".
+    @("# Backlog", "", "## Now", "", "### Title with an em dash `u{2014} here", "Some prose.", "", "## Done recently") -join "`n" |
+        Set-Content $bl -Encoding utf8
+    $items = @(Get-BacklogItems -BacklogPath $bl)
+    Assert-That "a non-ASCII title round-trips byte-exact" `
+        ($items.Count -eq 1 -and $items[0].Title -eq "Title with an em dash `u{2014} here") `
+        "got: $($items.Title -join '; ')"
+
     $items = @(Get-BacklogItems -BacklogPath (Join-Path $sandbox "no-such-backlog.md"))
     Assert-That "a missing backlog returns empty, no throw" ($items.Count -eq 0) "got $($items.Count)"
 

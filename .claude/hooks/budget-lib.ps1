@@ -139,7 +139,11 @@ function Get-BacklogItems {
     if (-not (Test-Path $BacklogPath)) { return $items }
 
     $current = $null
-    foreach ($line in @(Get-Content $BacklogPath -ErrorAction SilentlyContinue)) {
+    # -Encoding UTF8: BACKLOG.md has no BOM, so without this Windows
+    # PowerShell 5.1 reads it via the system ANSI codepage, mangling
+    # non-ASCII titles that later get embedded verbatim in autopilot-gate's
+    # Stop-hook reason text.
+    foreach ($line in @(Get-Content $BacklogPath -Encoding UTF8 -ErrorAction SilentlyContinue)) {
         if ($line -match '^##\s+Done recently') { break }
         if ($line -match '^###\s+(.+)$') {
             if ($null -ne $current) { $items += $current }

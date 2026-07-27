@@ -37,8 +37,11 @@ Code size otherwise stays a standing rule rather than a backlog item: keep the
 big files from growing while touching them. Two byte-identical splits landed
 this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
 
-### One thing needs your hand: `course_concurrency: 2` in your `config.yaml`
-**Blocked:** the code default is fixed; your live config still overrides it.
+### ~~One thing needs your hand: `course_concurrency: 2`~~ — done, nothing needed
+**Resolved 2026-07-27:** the live `config.yaml` now reads `course_concurrency:
+1`, so the setting matches the measured-correct default and no longer overrides
+it. Nothing for the maintainer to do. The measurements below are kept because
+they are the reason the default is 1.
 
 `DefaultCourseConcurrency` went back to **1** on 2026-07-26 after re-measuring
 the real account five times:
@@ -377,20 +380,33 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
-- **A live `config.yaml` has a mojibake character in a folder path.**
-  `subfolder_destinations` carries `...\Analysis\<U+FFFD>bung` (should be
-  `Übung`) on the maintainer's own machine. The mojibake guard added
-  2026-07-27 (`encoding_test.go`) only scans git-tracked text, so a real
-  user's local `config.yaml` — never tracked — is exactly the file it can't
-  see. Noticed while reading the real config for the network-trace probe
-  (2026-07-27), not chased since it was out of scope for that work.
-
 ---
 
 ## Done recently
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **The folder picker corrupted any path with a non-ASCII character.** Chased
+  from a mojibake spotted in a live `config.yaml` (`...\Analysis\<U+FFFD>bung`,
+  should be `Übung`) and it turned out to be a real bug, not a typo.
+  `browseForFolder` runs a PowerShell script and reads its stdout, and
+  PowerShell encodes stdout in the **console's OEM code page** — 850 on a
+  German Windows, where `Ü` is the single byte `0x9A`. Go reads those bytes as
+  UTF-8, `0x9A` is not valid UTF-8, and it becomes U+FFFD. So the user picks a
+  real folder with the file browser and the tool stores a path that points at
+  nothing — silently, with a successful-looking picker.
+  One line fixes it (`[Console]::OutputEncoding` before anything is written).
+  *Measured, not reasoned: under code page 850 the path arrives as
+  `...,92,154,98,117,110,103` without it and `...,92,195,156,98,117,110,103`
+  with it. Both directions are tests — one asserts the round trip survives, the
+  other asserts the corruption still happens without the guard, so the guard
+  cannot quietly stop being load-bearing.*
+  **Why it hid:** it does not reproduce on a console already at 65001, which is
+  what an interactive shell here happened to have. The machine's real OEM code
+  page had to be read out of the registry to see it.
+  The maintainer's own `config.yaml` was repaired in place (backup left beside
+  it); the `Übung` folder it should have pointed at already existed.
 
 - **The diagnostic log can be reached from the GUI now.** It was written to
   `~/.opal-downloader/logs/`, named in the CLI's `--help`, and mentioned

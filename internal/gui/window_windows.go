@@ -86,8 +86,29 @@ func openNativeWindow(url string) error {
 // handleBrowseFolder in settings.go for the HTTP handler that calls this.
 // -STA is required because WinForms dialogs need a single-threaded
 // apartment; PowerShell's default apartment state does not guarantee that.
+// powerShellUTF8Prelude must lead any PowerShell script whose stdout this
+// program reads.
+//
+// [Console]::OutputEncoding must be set before anything is written, and it
+// is not cosmetic: PowerShell encodes its stdout in the console's OEM code
+// page, which on a German Windows is 850, and Go reads those bytes as
+// UTF-8. A folder called "Übung" comes back as the single byte 0x9A, which
+// is not valid UTF-8 and turns into U+FFFD downstream - so the user picks a
+// real folder and the tool stores a path that points nowhere, silently.
+//
+// Measured on the maintainer's machine (2026-07-27), which has OEMCP 850:
+// without this line "C:\x\Übung" arrives as ...,92,154,98,117,110,103;
+// with it, as ...,92,195,156,98,117,110,103. Their live config.yaml carries
+// exactly that damage in a subfolder_destinations path.
+//
+// A const rather than an inlined line so the test can run the same prelude
+// under a forced legacy code page; see window_windows_test.go.
+const powerShellUTF8Prelude = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
+
 func browseForFolder() (string, error) {
-	const script = `Add-Type -AssemblyName System.Windows.Forms
+	// See powerShellUTF8Prelude above for why the script has to start with it:
+	// a picked folder containing "Ü" arrives corrupted otherwise.
+	const script = powerShellUTF8Prelude + `Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 	Write-Output $dialog.SelectedPath

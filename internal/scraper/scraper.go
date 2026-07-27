@@ -140,11 +140,6 @@ type OpalScraper struct {
 	// read off the source. See sectiontiming.go.
 	sectionTiming *sectionTiming
 
-	// earlyRead is the opt-in probe asking whether the settle wait is needed
-	// at all (earlyread.go). Nil-safe and inert unless OPAL_EARLY_READ_PROBE
-	// is set.
-	earlyRead *earlyReadProbe
-
 	// stall records when the crawl last made progress and what it was doing,
 	// so a run that wedges leaves behind the one thing that was missing the
 	// time this actually happened: which section it was on. See stallwatch.go.
@@ -440,7 +435,6 @@ func New(opalURL, stateFile string) *OpalScraper {
 		limiter:            polite.New(polite.DefaultMinInterval),
 		stall:              &stallWatch{},
 		sectionTiming:      &sectionTiming{},
-		earlyRead:          newEarlyReadProbe(),
 	}
 }
 
@@ -555,7 +549,6 @@ func (s *OpalScraper) Close() error {
 	s.LogRateLimitStats()
 	s.reportBlockedPreviews()
 	s.sectionTiming.log()
-	s.earlyRead.report()
 
 	_ = s.closeBrowser()
 	_ = s.CloseDebugLogFile()

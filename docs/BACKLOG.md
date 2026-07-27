@@ -224,38 +224,51 @@ built (see the last entry in `docs/sync-speed-campaign.md`). Nothing else
 here is unblocked without new evidence; re-measuring or re-arguing already-
 rejected approaches wastes a round trip.
 
-**The live lead, and tonight's measurements are what produced it.** Two facts
-that were never put next to each other:
+**The last unasked question is now asked, and the answer is no.** Every attempt
+in this campaign tried to make the settle wait shorter or cheaper. None had
+ever asked whether it is needed — and there was a measured reason to think it
+might not be, since the network trace showed an ordinary section's initial
+render fires no AJAX at all, implying the file table is already in the initial
+document.
 
-1. The network trace found that **an ordinary section's initial render fires no
-   AJAX at all** — the file table arrives in the initial document, not in a
-   later response. (Measured 2026-07-27; it is why the AJAX-completion-signal
-   idea died.)
-2. The settle wait costs 94.2s (63%) waiting for DOM mutations to stop, and the
-   stability poll another 49.5s (33%). Actual extraction: **4.3s**.
+It is not. Measured 2026-07-27 by reading every section immediately, before any
+settling, and diffing that byte-for-byte against what the full wait returns —
+same run, same page load, so no run-to-run variance:
 
-If the file table is already in the initial HTML, then **the mutations the
-debounce is waiting out are not the file table arriving.** The obvious
-candidate for what they actually are is the inline file previews — 72 per
-course, multi-megabyte, loading into subframes and churning the DOM the whole
-time. That is the same thing the preview blocker targets, and it would explain
-why blocking them *should* help while `ctx.Route`'s fixed ~30% tax buries the
-gain (measured tonight, see above).
+| | sections |
+|---|---|
+| total | 278 |
+| **identical with no settle wait** | **3** |
+| early read was empty | 0 |
+| early read was **incomplete** (fewer rows) | **274** |
+| early read had more | 0 |
+| **same row count, different rows** | **1** |
 
-**The experiment that settles it, and it is a diff rather than a timing:** read
-the file rows immediately at `domcontentloaded`, before any settle wait, and
-compare against what the current stable-wait path returns — for all 280
-sections, byte for byte. If they match, the entire 143s of settle-plus-poll is
-removable and the ~30s target stops being unreachable. If they differ, the
-sections where they differ are the whole problem, and there will be few enough
-to look at individually.
+**The wait is load-bearing.** No AJAX does not mean no client-side rendering:
+OPAL builds the file table progressively from the document it already has, and
+an immediate read essentially always catches it mid-render.
 
-This is not a re-run of a rejected approach. Every previous attempt tried to
-make the *wait* cheaper or shorter; this asks whether the wait is needed at
-all, which no measurement here has ever tested. Note the trap the project
-already fell into once: `sectionContentRequiredStableReads` 4→1 lost files
-byte-for-byte, so **a file count is not acceptable evidence** — only the diff
-is.
+Two things worth keeping from this:
+
+- **Content only ever grows.** Never empty at the start, never larger than the
+  final reading, not once in 278 sections. So "wait until it stops growing" is
+  the right shape, and the stability poll is doing real work rather than
+  guarding a case that never happens.
+- **One section changed rows without changing their count.** That is exactly
+  the failure a count cannot see, in a single run, on a real account — the
+  reason this project refuses file counts as evidence, now with an instance
+  attached to it rather than only a principle.
+
+The probe was deleted again after reporting (see `codebudget_test.go`); it was
+written with an expiry and the expiry was honoured. `git show 76a71fa` restores
+it if anyone wants to re-measure.
+
+**So the ~30s target needs the debounce itself to get cheaper, not skipped.**
+The 300ms is spent proving silence on a page that finishes in ~36ms, and that
+remains the single largest line item — but nothing here has yet found a
+positive completion signal to replace it, and the two candidates that looked
+most promising (an AJAX event, and the content already being present) are both
+now measured dead.
 
 Standing goal (2026-07-21, `docs/sync-speed-campaign.md`): a routine no-op
 sync should feel instant, target ~30s. That file is the full decision log -

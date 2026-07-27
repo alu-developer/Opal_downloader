@@ -115,25 +115,16 @@ import (
 //
 // Trimmed before raising: two <h2> sections on /settings that contained no
 // settings, only pointers to other pages, collapsed into one line.
-// Raised 2026-07-27 (was 11534) for internal/scraper/earlyread.go, and this
-// one comes with an expiry the others do not.
+// Lowered back to 11534 on 2026-07-27, the same day it was raised to 11630 for
+// internal/scraper/earlyread.go. That entry said the probe was an instrument
+// with an expiry and would be deleted once its question was answered. The
+// question was answered - the settle wait is load-bearing, 3 of 278 sections
+// identical without it - so the probe is gone and the budget is back. Recorded
+// because an expiry nobody honours is worse than no expiry: it makes every
+// future "temporary" raise cheaper to argue for.
 //
-// It is an instrument, not a feature: it asks whether the settle wait and the
-// stability poll - 143.7s of a 210s run, against 4.3s of actual extraction -
-// are needed at all, by reading each section before any settling and diffing
-// that against what the full wait returns, in the same page load. Every
-// previous attempt in docs/sync-speed-campaign.md tried to make that wait
-// cheaper; none asked whether it is necessary.
-//
-// Most of the cost is the comparison, and it is deliberately not a count:
-// lowering sectionContentRequiredStableReads 4->1 lost files byte-for-byte
-// while looking perfectly healthy, so only an exact diff is evidence here.
-//
-// WHEN THE QUESTION IS ANSWERED, DELETE THIS FILE AND LOWER THE BUDGET BACK.
-// If the answer is "the wait is removable" the wait goes and the budget drops
-// much further than this; if it is "it is needed", the probe has done its job
-// and there is nothing left for it to measure.
-const codeLineBudget = 11630
+// Re-adding it is one `git show` away if a future attempt wants to re-measure.
+const codeLineBudget = 11534
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

@@ -34,6 +34,24 @@ import (
 // comparing two standalone fetches when it meant to compare two in-batch ones.
 //
 //	OPAL_HTML_STABILITY=1 go test ./internal/scraper/ -run TestSectionHTMLStabilityAcrossRuns -v -timeout 10m
+
+// wicketVolatilePatterns are the fragments measured to vary between two
+// fetches of the same unchanged section. Shared by both probes here.
+var wicketVolatilePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)jsessionid=[^"'&;\s]*`),
+	regexp.MustCompile(`(?i)\b\d{10,13}\b`),                      // epoch-ish stamps
+	regexp.MustCompile(`(?i)(name|id|for)="[^"]*-[0-9a-f]{6,}"`), // generated ids
+	regexp.MustCompile(`(?i)csrf[^"']*["'][^"']+["']`),
+	// Found by this probe, 2026-07-27, and never isolated before: Wicket's
+	// per-session page-version counter ("?2284-1.0-...") and its generated
+	// component ids ("id3591a"). Both increment on every render and appear
+	// only in the header navigation's Ajax glue - tabs, profile, logout,
+	// search - never in the file table. They are bookkeeping, not content.
+	regexp.MustCompile(`\?\d+-[\d.]+-`),
+	regexp.MustCompile(`\?\d+"`),
+	regexp.MustCompile(`\bid[0-9a-f]{4,}\b`),
+}
+
 func TestSectionHTMLStabilityAcrossRuns(t *testing.T) {
 	if os.Getenv("OPAL_HTML_STABILITY") == "" {
 		t.Skip("set OPAL_HTML_STABILITY=1 to run the live section-HTML stability probe")
@@ -72,20 +90,7 @@ func TestSectionHTMLStabilityAcrossRuns(t *testing.T) {
 	// The four patterns the rejected implementation already normalised, per the
 	// campaign entry. Applying them here is what makes "what is LEFT" the
 	// question, rather than rediscovering the known ones.
-	known := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)jsessionid=[^"'&;\s]*`),
-		regexp.MustCompile(`(?i)\b\d{10,13}\b`),                      // epoch-ish stamps
-		regexp.MustCompile(`(?i)(name|id|for)="[^"]*-[0-9a-f]{6,}"`), // generated ids
-		regexp.MustCompile(`(?i)csrf[^"']*["'][^"']+["']`),
-		// Found by this probe, 2026-07-27, and never isolated before: Wicket's
-		// per-session page-version counter ("?2284-1.0-...") and its generated
-		// component ids ("id3591a"). Both increment on every render and appear
-		// only in the header navigation's Ajax glue - tabs, profile, logout,
-		// search - never in the file table. They are bookkeeping, not content.
-		regexp.MustCompile(`\?\d+-[\d.]+-`),
-		regexp.MustCompile(`\?\d+"`),
-		regexp.MustCompile(`\bid[0-9a-f]{4,}\b`),
-	}
+	known := wicketVolatilePatterns
 	normalise := func(s string) string {
 		for _, re := range known {
 			s = re.ReplaceAllString(s, "X")
@@ -197,4 +202,133 @@ func fetchBody(c *http.Client, url string) (string, error) {
 		return "", err
 	}
 	return string(body), nil
+}
+
+// TestSectionHTMLStabilityAcrossManySections generalises the single-section
+// result, and answers the stronger question at the same time.
+//
+// The single-section probe showed the only cross-run variation is Wicket's
+// per-session bookkeeping - a page-version counter and generated component ids
+// - living entirely in the page chrome. If that is right, then the CONTENT
+// region should be byte-identical across fetches with **no normalisation at
+// all**, which would make the design independent of Wicket's patterns and of
+// the session those counters belong to. That is the claim worth testing,
+// because chasing normalisation patterns is exactly how the previous attempt
+// convinced itself of something that was not true.
+//
+// Sections are discovered over plain HTTP from a course page rather than
+// hardcoded, so this measures whatever the account actually has.
+//
+//	OPAL_HTML_STABILITY=1 go test ./internal/scraper/ -run TestSectionHTMLStabilityAcrossManySections -v -timeout 20m
+func TestSectionHTMLStabilityAcrossManySections(t *testing.T) {
+	if os.Getenv("OPAL_HTML_STABILITY") == "" {
+		t.Skip("set OPAL_HTML_STABILITY=1 to run the live multi-section stability probe")
+	}
+
+	client, err := newSessionClient()
+	if err != nil {
+		t.Skipf("no usable saved session (%v) - run `login` first", err)
+	}
+
+	courseURL := os.Getenv("OPAL_HTML_STABILITY_COURSE")
+	if courseURL == "" {
+		courseURL = "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912"
+	}
+	courseHTML, err := fetchBody(client, courseURL)
+	if err != nil {
+		t.Fatalf("fetch course page: %v", err)
+	}
+
+	// Bounded deliberately: docs/server-load.md is a standing constraint, and a
+	// diagnostic has no business issuing a crawl's worth of requests.
+	nodeRe := regexp.MustCompile(`/opal/auth/RepositoryEntry/\d+/CourseNode/\d+`)
+	seen := map[string]bool{}
+	var urls []string
+	for _, m := range nodeRe.FindAllString(courseHTML, -1) {
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		urls = append(urls, "https://bildungsportal.sachsen.de"+m)
+		if len(urls) >= 12 {
+			break
+		}
+	}
+	if len(urls) == 0 {
+		t.Skip("no CourseNode links found on the course page - session may have expired")
+	}
+	t.Logf("discovered %d sections", len(urls))
+
+	first := make(map[string]string, len(urls))
+	for _, u := range urls {
+		body, err := fetchBody(client, u)
+		if err != nil {
+			t.Fatalf("first pass %s: %v", u, err)
+		}
+		first[u] = body
+	}
+
+	t.Log("first pass done; waiting 60s")
+	time.Sleep(60 * time.Second)
+
+	rawMatches, contentMatches, contentFound, contentNormMatches, rawNormMatches := 0, 0, 0, 0, 0
+	for _, u := range urls {
+		second, err := fetchBody(client, u)
+		if err != nil {
+			t.Fatalf("second pass %s: %v", u, err)
+		}
+		if first[u] == second {
+			rawMatches++
+		}
+		if normaliseWicket(first[u]) == normaliseWicket(second) {
+			rawNormMatches++
+		}
+		a, okA := contentRegion(first[u])
+		b, okB := contentRegion(second)
+		if !okA || !okB {
+			continue
+		}
+		contentFound++
+		if a == b {
+			contentMatches++
+		}
+		if normaliseWicket(a) == normaliseWicket(b) {
+			contentNormMatches++
+		}
+	}
+
+	t.Logf("RESULT over %d sections: whole page raw %d, whole page normalised %d, content region raw %d (located %d), content region normalised %d",
+		len(urls), rawMatches, rawNormMatches, contentMatches, contentFound, contentNormMatches)
+	if contentFound > 0 && contentNormMatches == contentFound {
+		t.Logf("EVERY content region matched after normalisation - the change-detection cache is viable")
+	}
+}
+
+// contentRegion slices out the main-content element the extractor already
+// targets (see extractSectionContentCandidates' rootSelectors).
+//
+// Crude on purpose, and worth saying so: it is a substring between the opening
+// tag and the footer, not a parsed subtree. That is fine for a stability
+// comparison - both sides are sliced the same way, so a false slice cannot
+// manufacture a match - but it is NOT good enough to hash for a real cache.
+func contentRegion(html string) (string, bool) {
+	start := strings.Index(html, `id="main-content"`)
+	if start < 0 {
+		start = strings.Index(html, `id="content"`)
+	}
+	if start < 0 {
+		return "", false
+	}
+	end := strings.Index(html[start:], "<footer")
+	if end < 0 {
+		return html[start:], true
+	}
+	return html[start : start+end], true
+}
+
+func normaliseWicket(s string) string {
+	for _, re := range wicketVolatilePatterns {
+		s = re.ReplaceAllString(s, "X")
+	}
+	return s
 }

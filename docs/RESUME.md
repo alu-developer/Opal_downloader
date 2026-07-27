@@ -64,10 +64,40 @@ for unchanged sections - is live again.
    already targets `section#main-content`. Hashing only that sidesteps every
    pattern above instead of chasing them.
 
-**Immediate next step:** run the probe across many sections and across two
-genuinely separate sessions. If the match rate holds, rebuild the cache against
-the content subtree and measure a warm no-op sync - the previous build measured
-317.6s warm because essentially nothing ever hit.
+**Generalised, and it holds for most sections (2026-07-27, ~22:40).** Twelve
+sections of one course, fetched twice 60s apart:
+
+| comparison | identical |
+|---|---|
+| whole page, raw | 0 / 12 |
+| whole page, normalised | **9 / 12** |
+| content region, raw | **0 / 12** |
+| content region, normalised | **9 / 12** |
+
+Two corrections to what is written above, both from this measurement:
+
+- **The content region is NOT stable on its own.** "All the volatility is in
+  the chrome" was my inference from one section and it is wrong - the raw
+  content region matched 0 of 12. Normalisation is required either way, so
+  hashing the subtree buys correctness-of-scope, not freedom from patterns.
+- **9 of 12, not 12 of 12.** Against the campaign's 0 of 276 that is the
+  finding, but three sections still vary for a reason nobody has looked at.
+
+**Why 75% would already be a large win:** a cache miss only costs a crawl of
+that section - the safe direction. A false *match* is the dangerous one, and
+nothing here has yet tested for that. So the two next steps, in order:
+
+1. **What varies in the 3 outliers?** Same diff treatment as the single-section
+   probe. They may share one more normalisable pattern, or they may be
+   genuinely dynamic (a "last visited" stamp, a per-render token in a file
+   row), which would matter a great deal.
+2. **Does a match ever lie?** Change one file in a course, then confirm that
+   section stops matching. Until that is measured the hit rate is worthless -
+   a cache that reports "unchanged" for a changed section silently stops
+   downloading, which is this project's worst failure mode.
+
+Only after both: rebuild the cache and measure a warm no-op sync. The previous
+build measured 317.6s warm because essentially nothing ever hit.
 
 Beware the trap the campaign already recorded: a cache of extractor output
 needs rootText interning, or the file is **52 MB** for 276 sections.

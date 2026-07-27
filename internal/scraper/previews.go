@@ -44,7 +44,12 @@ func (s *OpalScraper) blockInlineFilePreviews(ctx playwright.BrowserContext) {
 
 	err := ctx.Route("**"+folderResourceMarker+"**", func(route playwright.Route) {
 		req := route.Request()
-		if !s.isDiscardablePreview(req) {
+		frame := req.Frame()
+		// A nil frame means no way to tell a preview from a download, so the
+		// inSubframe argument is false and the request is let through: a slow
+		// crawl beats a broken one.
+		inSubframe := frame != nil && frame.ParentFrame() != nil
+		if !isDiscardablePreview(req.ResourceType(), req.URL(), inSubframe) {
 			_ = route.Continue()
 			return
 		}
@@ -60,19 +65,18 @@ func (s *OpalScraper) blockInlineFilePreviews(ctx playwright.BrowserContext) {
 	}
 }
 
-// isDiscardablePreview is the whole safety argument in one function, kept
-// separate so it can be tested without a browser.
-func (s *OpalScraper) isDiscardablePreview(req playwright.Request) bool {
-	if req.ResourceType() != "document" {
-		return false
-	}
-	if !strings.Contains(req.URL(), folderResourceMarker) {
-		return false
-	}
-	frame := req.Frame()
-	// No frame information means no way to tell a preview from a download.
-	// Let it through: a slow crawl beats a broken one.
-	return frame != nil && frame.ParentFrame() != nil
+// isDiscardablePreview is the whole safety argument in one function. It takes
+// plain values rather than a playwright.Request so the argument can be tested
+// exhaustively without a browser - which matters more than usual here, because
+// the expensive live A/B can only ever sample the cases a real account happens
+// to contain.
+func isDiscardablePreview(resourceType, url string, inSubframe bool) bool {
+	// A subframe navigation is a preview nothing reads. A main-frame one is
+	// the download path doing its job, and aborting it would break downloading
+	// rather than speed up discovery.
+	return resourceType == "document" &&
+		inSubframe &&
+		strings.Contains(url, folderResourceMarker)
 }
 
 // contentLengthOf reports what the request said it was about to fetch, for the

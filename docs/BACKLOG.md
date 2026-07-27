@@ -118,9 +118,36 @@ Re-checkable in one command: `OPAL_NETWORK_TRACE=1 go test ./internal/scraper/
 `OPAL_NETWORK_TRACE_COURSE="<exact configured name>"`; results are written to
 `tmp/`).
 
-What is left, and neither has been looked for: a DOM-level completion marker
-Wicket sets itself, or an OPAL view that serves the file listing without the
-staged client-side render.
+**But the trace found a bigger thing on the way, and this is the live lead.**
+Discovery downloads ~29 MB of the course's own files that nothing ever reads.
+Same run, one course, listing filenames only:
+
+| document responses | count | in the main frame | bytes |
+|---|---|---|---|
+| section pages (`/opal/auth/…`) | 324 | **324** | — |
+| the files themselves (`/opal/FolderResource/…`) | **72** | **0** | **30.6 MB** |
+| other | 12 | 0 | 0.1 MB |
+
+OPAL course nodes that show their file inline make the browser fetch the whole
+file to render a preview, in a subframe — and this codebase has *no iframe
+handling at all*, so nothing reads it. `crawl.go:1147` already keeps file links
+out of the crawl queue, so this is the page doing it, not us following links.
+
+Why it is worth doing next: it asks OPAL for **less** rather than for the same
+things faster — the one direction `docs/server-load.md` encourages — and it may
+attack the 94.2s settle wait at its cause, since a multi-megabyte PDF loading
+into an iframe keeps generating the very mutations that debounce waits to stop.
+
+**Needs your sign-off before it is built**, for the same reason the concurrency
+work did: aborting a request changes what the page renders, and silent file
+loss is this codebase's known failure mode. The fix itself is small (abort
+non-main-frame `document` requests under `/opal/FolderResource/`); the cost is
+the verification — a byte-for-byte file-list comparison against the 345-file
+ground truth, repeated, not a file count and not one run.
+
+Also unexplored, and now second in line: a DOM-level completion marker Wicket
+sets itself, or an OPAL view that serves the file listing without the staged
+client-side render.
 
 of the crawl's concurrency model in the most correctness-sensitive part of
 this codebase, with a documented history of *silent* file loss from past

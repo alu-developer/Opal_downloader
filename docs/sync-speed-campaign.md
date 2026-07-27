@@ -102,6 +102,54 @@ either claim can re-check in one command instead of rebuilding it, and it now
 writes its findings to `tmp/` — the first attempt at this ran in a background
 process that died with the session that started it, losing the result entirely.
 
+### 2026-07-27 — the trace found something else: discovery downloads ~30 MB of files it never looks at
+
+Chasing "why 408 document responses for a ~160-section course" turned up a
+larger finding than the question it came from. Same probe, one course,
+`Softwaretechnologie (SoSe 26)`, discovery only — no downloading phase:
+
+| document responses | count | in the main frame | bytes (content-length) |
+|---|---|---|---|
+| `/opal/auth/…` (section pages) | 324 | **324** | 0 (chunked) |
+| `/opal/FolderResource/…` (the files) | **72** | **0** | **30,617,106** |
+| `/opal/other/…` | 12 | 0 | 93,365 |
+
+**84 of the 408 documents load in a subframe, and 72 of those are the course's
+own PDFs and HTML pages — 29 MB of them — fetched during a pass whose entire
+job is to write down filenames.**
+
+These are OPAL course nodes that display their file inline. Arriving at the
+section makes the browser fetch the whole file to render a preview, and this
+codebase contains **no iframe handling at all** — no `FrameLocator`, no
+`ContentFrame`, no `page.Frames()` — so nothing ever reads them.
+`crawl.go:1147` already keeps file links out of the BFS queue, so this is not
+the crawl following them: it is the section page pulling them in by itself.
+
+**Why this is the most promising lead on this page.** It is the first one that
+asks OPAL for *less* rather than for the same things faster, which is the
+distinction `docs/server-load.md` draws and the direction it encourages. And it
+plausibly attacks the 94.2s settle wait directly rather than by shortening it:
+a multi-megabyte PDF loading into an iframe keeps generating mutations, and the
+settle wait is a MutationObserver debounce. If preview loads are part of what
+the page is waiting to go quiet about, the debounce is partly measuring
+downloads nobody wants.
+
+**Shape of the fix:** Playwright request interception, aborting `document`
+requests that are (a) not in the main frame and (b) under `/opal/FolderResource/`.
+Narrow by construction — it cannot touch a section navigation, which is always
+main-frame.
+
+**Not built, and deliberately so.** Blocking a request changes what the page
+renders, and this repo has lost files silently to exactly that class of change
+more than once (`AJAX_CALL_DONE`, `Attached`, the 700ms wait, HTTP-first
+discovery). Before this is believed it needs a **byte-for-byte comparison of
+the file list** against a ground-truth run — not a file count, and not one run.
+The 345-file full-account ground truth and `scripts/compare-visit-runs.ps1`
+already exist for this.
+
+Two numbers to take from the run, whatever happens next: **29 MB per course per
+discovery pass**, and **zero of it in the main frame**.
+
 **Consequence for the ~84s debounce toll: it stands too.** The 300ms is the
 price of having no positive signal, and there is no positive signal to be had
 from the network layer. Anything that attacks it now has to come from a

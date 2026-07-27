@@ -19,91 +19,21 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Sync speed lead tested and refuted (2026-07-27) — writing up now.**
+**Nothing in flight. Waiting on the maintainer for one decision.**
 
-RESUME previously said the untested lead was: does a positive completion
-signal exist ("AJAX_CALL_DONE fired AND the response carried the file-table
-markup") to replace the 300ms settle-wait debounce that costs ~84s of a
-216.6s run? `docs/sync-speed-campaign.md`'s 2026-07-27 entry proposed this on
-the premise "the file table arrives in a Wicket AJAX response the browser
-already receives and parses."
+The sync-speed work this session is finished and written up in
+`docs/sync-speed-campaign.md` and `docs/BACKLOG.md`:
 
-That premise contradicts `navigation.go`'s own existing doc comment on
-`waitForInteractiveLinks`, from an earlier research task: "network trace
-confirmed no separate 'populate content' AJAX request exists" for the
-initial per-section render. Built a live probe
-(`internal/scraper/network_trace_probe_test.go`, `OPAL_NETWORK_TRACE=1`) that
-records every network response during a real section crawl and checked which
-claim holds.
+1. The AJAX positive-signal lead is **refuted** — no AJAX fires for an ordinary
+   section's initial render (2 courses, 263 and 8139 responses, every xhr a
+   known `showAllLink`).
+2. On the way, a better lead: **discovery downloads ~29 MB of the course's own
+   files per pass and never reads them** (72 subframe `FolderResource`
+   documents, 0 in the main frame). That one needs sign-off before being built,
+   because aborting requests changes what the page renders.
 
-**Result on "Algorithmen und Datenstrukturen" (5 sections, 38 files): 263
-responses total, exactly 2 were xhr/fetch, and both were the already-known
-`pager-showAllLink` expansion calls** (already handled by
-`wicket.go`'s `AJAX_CALL_DONE`). Zero AJAX fires for an ordinary section's
-initial render. `navigation.go`'s claim holds; the campaign entry's premise
-does not, for ordinary sections.
-
-**Done — the lead is refuted, written up in `docs/sync-speed-campaign.md`
-(2026-07-27 entry) and `docs/BACKLOG.md`.** Softwaretechnologie (SoSe 26):
-8154 responses, 3 xhr, all three `showAllLink`. Zero unaccounted AJAX, same as
-the small course. There is no network event to key a positive completion signal
-off.
-
-**NEW LEAD, and it is a good one: discovery downloads the files it is only
-supposed to be listing.**
-
-Chasing "why 407 document responses for a ~160-section course", the answer is
-not iframes carrying a file table. It is that **the document responses are the
-files themselves** — `/opal/FolderResource/53228666883/10-st-object-orientation
-.pdf?<cache-buster>`, `swt1vl1.html`, `artemis-opal.html`, and so on, ~200 of
-them, on a pass that is *only meant to be listing filenames*.
-
-Almost certainly OPAL course nodes that display their file inline (a PDF viewer
-or an embedded single page), so navigating to the section makes the browser
-fetch the whole file to render a preview nobody reads. Note `crawl.go:1147`
-deliberately keeps file links *out* of the BFS queue, so this is not the crawl
-navigating to them — it is the section page pulling them in by itself.
-
-Why this matters more than the debounce work: it attacks bytes and time
-together, and it asks OPAL for **less** rather than for the same things faster,
-which is the one direction `docs/server-load.md` positively encourages.
-
-*One trap already paid for: calling `Response.HeaderValue()` from inside the
-`OnResponse` handler deadlocks Playwright's dispatch loop — a run sat at zero
-CPU for 55 minutes before being killed. Use `Response.Headers()`, which reads
-what the event already carried.*
-
-**In flight:** a third trace run recording, per document response, whether it
-is a subframe load and its `content-length`. That distinguishes "inline preview
-in an iframe" (blockable via Playwright request interception) from a main-frame
-navigation (not blockable without changing what the crawl does), and puts a
-number on the bytes. **Result lands in `tmp/network-trace-Softwaretechnologie
-(SoSe 26).txt`.**
-
-**Do not skip the safety step.** If the previews are blockable, blocking them
-changes what the page renders, and this project has lost files silently to
-exactly that kind of change three times. It needs a byte-for-byte file-list
-comparison against a ground-truth run before it is believed, not a file count.
-
----
-
-*History of this note's own failure, kept because the fix is in the tree:*
-
-**The second run was lost, and had to be re-run.** The 06:52 unattended run
-started it in the background, hit its iteration cap, and ended — taking the
-only copy of the output with it (see "What does not survive: a background
-process" in `docs/agent-operating-model.md`, added because of this). It also
-failed on the first retry for a plain reason: the course is configured as
-`Softwaretechnologie (SoSe 26)`, not `Softwaretechnologie`.
-
-In flight: the probe against `Softwaretechnologie (SoSe 26)` (the 160-section,
-largest and most JS-heavy course), to confirm the zero-AJAX result isn't a
-small-course artifact. **Its result lands in
-`tmp/network-trace-Softwaretechnologie (SoSe 26).txt`** — the probe now writes
-its findings to a file, so a killed session no longer loses them.
-
-Once it finishes: write the conclusion into `docs/sync-speed-campaign.md` and
-`docs/BACKLOG.md`, re-affirming the existing "not reachable by any approach
-identified so far" position, now covering this lead too. The probe stays in
-the tree, opt-in like `httpdiscovery_probe_test.go`, so a future doubt about
-this claim can be re-checked in one command instead of rebuilt.
+Next session: if the maintainer has approved the preview-blocking experiment,
+build it (abort non-main-frame `document` requests under `/opal/FolderResource/`)
+and verify with a **byte-for-byte file-list diff** against the 345-file ground
+truth, more than once. If not approved, the next item is the DOM-level
+completion marker.

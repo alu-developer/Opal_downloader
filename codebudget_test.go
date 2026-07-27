@@ -65,7 +65,20 @@ import (
 // The first version of that raise said +10 and was wrong: the new file was
 // still untracked, so the check could not see it. The real cost was 50 lines.
 // Hence the --others flag above.
-const codeLineBudget = 11241
+//
+// Raised 2026-07-27 (was 11241) for internal/gui/logs.go and the folder
+// picker's encoding fix. Bought, in order of what it is worth:
+//   - The diagnostic log is reachable at all. It was written to disk, named in
+//     the CLI's --help, and mentioned nowhere in the GUI - which is how most
+//     people use this, and where a windowed app's stdout goes nowhere. Most of
+//     the cost is a page: path, tail, and a button that reveals the file.
+//   - A picked folder containing "Ü" is no longer stored as a path that points
+//     at nothing. That part is one line of PowerShell; the rest of its cost is
+//     the comment explaining a code-page bug nobody would guess from the code.
+//
+// Trimmed before raising: a one-line urlQueryEscape wrapper around
+// template.URLQueryEscaper.
+const codeLineBudget = 11417
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

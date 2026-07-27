@@ -97,7 +97,7 @@ func handleLogsOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	target := "/logs?opened=1"
 	if err := revealLogFile(logPathForPage()); err != nil {
-		target = "/logs?opened=" + urlQueryEscape(err.Error())
+		target = "/logs?opened=" + template.URLQueryEscaper(err.Error())
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
@@ -175,10 +175,6 @@ func openContainingFolder(path string) error {
 		return fmt.Errorf("opening %s: %w", dir, err)
 	}
 	return nil
-}
-
-func urlQueryEscape(s string) string {
-	return template.URLQueryEscaper(s)
 }
 
 var logsPageTemplate = template.Must(template.New("logs").Parse(`<!DOCTYPE html>

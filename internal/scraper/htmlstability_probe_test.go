@@ -49,6 +49,12 @@ var wicketVolatilePatterns = []*regexp.Regexp{
 	// search - never in the file table. They are bookkeeping, not content.
 	regexp.MustCompile(`\?\d+-[\d.]+-`),
 	regexp.MustCompile(`\?\d+"`),
+	// Wicket's table-widget instance counter ("VFSItemTable_9072" ->
+	// "VFSItemTable_9079"), found 2026-07-27 as the only residue left on a
+	// file-bearing section. Narrow on purpose - matching "<word>Table_<digits>"
+	// rather than any "_<digits>" keeps it to widget identity and away from
+	// anything that could carry content.
+	regexp.MustCompile(`\b\w+Table_\d+`),
 	regexp.MustCompile(`\bid[0-9a-f]{4,}\b`),
 }
 

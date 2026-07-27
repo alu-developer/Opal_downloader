@@ -402,6 +402,61 @@ is lossless and cut the file to 6.7 MB. Any future cache of extractor output
 must do this — the file lives in `download_path`, which is typically a
 cloud-synced folder.
 
+### 2026-07-27 — the change-detection cache is REOPENED. The instability was Wicket bookkeeping.
+
+The 2026-07-21 entry above rejected this design on a real number — normalised
+section HTML matched across runs **0 of 276** — and named its own unfinished
+business: *"the remaining volatile fragments were never isolated [...] Do that
+diff properly before concluding the design is impossible rather than merely
+unproven."* Nobody had. Done now
+(`internal/scraper/htmlstability_probe_test.go`, test-only, opt-in).
+
+**Everything that varies is Wicket's per-session bookkeeping:**
+
+| fragment | example |
+|---|---|
+| page-version counter | `?2284-1.0-...`, `?2288"` |
+| generated component ids | `id35a0c` -> `id35a85` |
+| table-widget instance counter | `VFSItemTable_9072` -> `_9079` |
+
+All three are widget identity, none touches file content. Adding them as
+patterns took one file-bearing section from 168 differing lines to **0 —
+byte-identical** — and the match rate across sections from 9/12 to **11/12**.
+
+| comparison | identical |
+|---|---|
+| whole page, raw | 0 / 12 |
+| whole page, normalised | **11 / 12** |
+| content region, raw | 0 / 12 |
+| content region, normalised | **11 / 12** |
+
+**The safety half is tested and passes**, and it matters more than the hit
+rate: a cache *miss* costs one section's crawl, a false *match* silently stops
+downloading. `TestNormalisationDoesNotHideRealChanges` applies the edits a
+lecturer really makes — a file renamed, a new row appended, one character
+changed in the body — to the live page and requires each to survive
+normalisation as a visible difference. All detected.
+
+**Two corrections earned on the way, both worth keeping:**
+
+- *"All the volatility is in the page chrome"* was an inference from a single
+  section and is **wrong**: the raw content region matched 0 of 12.
+  Normalisation is needed whichever scope is hashed.
+- A probe against an **enrolment node** found zero file references in its HTML
+  and nearly produced the conclusion that a hash cannot detect file changes at
+  all. That node simply has no files; a file-bearing section carries its
+  filenames in the server HTML. **Always probe a file-bearing node.**
+
+**What this does and does not establish.** It establishes that OPAL section
+HTML is reproducible enough to hash, which is precisely the premise the 2026-07-21
+rejection lacked. It does **not** establish that a cache is fast: that
+build measured 317.6s warm because essentially nothing ever hit, and the
+reason it never hit is now fixed rather than the speed being re-measured.
+
+**Next, in order:** the remaining 1 of 12; then rebuild the cache against the
+content subtree — with rootText interning, or the file is **52 MB** for 276
+sections — and measure a warm no-op sync against the 210.3s baseline.
+
 ### 2026-07-21 — finer stability sampling: the first thing that actually worked
 
 After two structural rejections, the direct lever: the per-section stability

@@ -588,9 +588,6 @@ So: **not doing it, by the maintainer's own condition.** If they want it, the
 cheap path is checking in an `.ico` exported from `logoSVG` by any tool that
 can do it once; the wiring after that is small and either path above works.
 
-### Nothing ever works off the "Noticed" section
-**Done 2026-07-27** — kept here only until the next trim; see "Done recently".
-
 ---
 
 ## Noticed

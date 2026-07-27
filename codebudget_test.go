@@ -162,7 +162,20 @@ import (
 // to `null` and returns as four non-nil bytes, so "has rows" needed a length
 // check. Without it an entry carrying no rows was a hit that returned nothing,
 // dropping that section's files.
-const codeLineBudget = 11645
+// Raised 2026-07-27 (was 11645) for internal/scraper/sectionpayload.go: what
+// the change-detection cache stores per section, and the pack/unpack around it.
+//
+// It holds the extractor's candidates rather than a digested form, which is the
+// whole correctness argument - crawl.go feeds the same candidates to
+// appendSectionFolderTargets, so a cache hit returning only files would leave
+// that section's subfolders permanently unqueued and the course would come back
+// short with no warning. Replaying the real functions against the real
+// candidates means the cached path IS the crawled path.
+//
+// Only rootText is lifted out, and that is the 31 MB of the 52 MB file the
+// 2026-07-21 attempt produced. Every other key is kept rather than whitelisted:
+// a whitelist would silently drop a key the moment someone adds a use for it.
+const codeLineBudget = 11678
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

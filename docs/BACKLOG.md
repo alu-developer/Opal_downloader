@@ -502,13 +502,28 @@ Reported by the maintainer after running the GUI. **Four of five are done**
 (see "Done recently"); one is left, and it is the one that needs a real
 artefact rather than a code change.
 
-**Left: the Windows binary has no icon.** There is no `.ico` and no `.syso` in
-the repo, so the WebView2 window and the taskbar both show the generic default
-even though the app has a perfectly good mark (`logoSVG`, served at
-`/logo.svg` and already used as the favicon). Needs a real multi-size `.ico`
-rasterised from that SVG and embedded as a Windows resource - the SVG cannot
-do this job, and adding a build-time rasteriser or a fourth dependency for it
-is a judgement call worth making deliberately rather than in passing.
+**Left: the Windows binary has no icon — and it needs an asset, not code.**
+Investigated 2026-07-27 rather than assumed. The maintainer's condition was
+"add it if it does not cause problems, otherwise not that relevant", and this
+lands on the wrong side of that line for a reason worth writing down:
+
+- `go-webview2`'s `WindowOptions.IconId` loads an icon **by resource ID from
+  the executable**, so it needs an embedded `.syso` resource. Producing one
+  needs a build-time tool (`rsrc`/`goversioninfo`) or a hand-built COFF object.
+- The alternative avoids that: `w.Window()` exposes the HWND, so the icon could
+  be set at runtime with `WM_SETICON` and `CreateIconFromResourceEx` using
+  stdlib `syscall` only — no new dependency, no build tooling. But it only
+  fixes the *running window*; the `.exe`'s own icon in Explorer still needs the
+  resource.
+- **Both paths need a rasterised multi-size `.ico`, and that is the actual
+  blocker.** The app's mark is `logoSVG` (a gradient rounded rect plus a
+  two-part path); rasterising it faithfully needs an SVG renderer. Hand-drawing
+  an approximation would ship an icon that does not match the logo, which is a
+  worse outcome than the default icon.
+
+So: **not doing it, by the maintainer's own condition.** If they want it, the
+cheap path is checking in an `.ico` exported from `logoSVG` by any tool that
+can do it once; the wiring after that is small and either path above works.
 
 ### Nothing ever works off the "Noticed" section
 The Stop hook appends one entry per session and no process consumes them, so

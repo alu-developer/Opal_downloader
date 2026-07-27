@@ -407,6 +407,13 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
+- **`docs/sync-speed-campaign.md` (2026-07-26 entry) references
+  `docs/BACKLOG.md`'s "Concurrency SOLVED" entry** as the thing its
+  measurements contradict — that heading no longer exists under that name
+  (the backlog is trimmed periodically and the item has since moved to
+  "Done recently" under different wording), so a reader following the
+  cross-reference today would search and not find it.
+
 ---
 
 ## Done recently

@@ -268,6 +268,33 @@ positive completion signal to replace it, and the two candidates that looked
 most promising (an AJAX event, and the content already being present) are both
 now measured dead.
 
+**Then: can the settle wait simply go? Measured, and no — it pays for itself.**
+It costs 94.2s of a 210s run, and the stability poll after it re-reads until
+extraction stops changing anyway, so it looked like two mechanisms inferring the
+same fact. Skipping it entirely (`OPAL_SKIP_SETTLE_WAIT`):
+
+| | files | diff vs ground truth | wall clock |
+|---|---|---|---|
+| settle wait kept | 345 | — | **210.3s** |
+| settle wait skipped | 345 | **empty** | **317.1s** |
+
+**Nothing is lost — and it is 51% slower.** The wait is not overhead sitting in
+front of the poll; it *produces* the `sectionCalm` signal that lets the poll
+open impatient. Remove the wait and every section pays the poll's full patience
+streak instead, which costs far more than the 336ms it saved.
+
+That reframes the whole line of attack. This project has spent the campaign
+looking for a positive completion signal to replace the debounce — and the
+debounce **is** that signal, already built, already paying for itself. It is
+not the tax; it is what keeps the tax down.
+
+**Still open, and it is the sharper question:** is it the wait's *time* that is
+needed, or only its *verdict*? Skipping the wait while assuming `sectionCalm`
+is true separates them in one run. The risk is real and named — an optimistic
+verdict is how `sectionContentRequiredStableReads` 4->1 lost files at a
+staged-render false plateau — so the diff, not the count, is the acceptance
+test, exactly as above.
+
 Standing goal (2026-07-21, `docs/sync-speed-campaign.md`): a routine no-op
 sync should feel instant, target ~30s. That file is the full decision log -
 read it before touching this, several plausible-looking approaches (HTTP-fast-

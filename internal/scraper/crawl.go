@@ -316,8 +316,13 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 	// could miss is not a case that occurs. Skipping the settle wait leaves
 	// sectionCalm false, which makes the poll open on its full patience streak
 	// - deliberately the conservative direction.
-	sectionCalm := false
-	if os.Getenv("OPAL_SKIP_SETTLE_WAIT") == "" {
+	// OPAL_SKIP_SETTLE_WAIT alone was measured at 317.1s against 210.3s (345
+	// files, diff empty): safe but 51% slower, because sectionCalm goes false
+	// and the poll then opens on its full patience streak. _CALM additionally
+	// asserts the verdict the wait would have produced, which separates "the
+	// wait's time is needed" from "only its verdict is".
+	sectionCalm := os.Getenv("OPAL_SKIP_SETTLE_WAIT_CALM") != ""
+	if os.Getenv("OPAL_SKIP_SETTLE_WAIT") == "" && !sectionCalm {
 		_, sectionCalm = s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 	}
 	settleSpent := time.Since(settleStart)

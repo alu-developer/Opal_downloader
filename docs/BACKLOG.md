@@ -224,6 +224,39 @@ built (see the last entry in `docs/sync-speed-campaign.md`). Nothing else
 here is unblocked without new evidence; re-measuring or re-arguing already-
 rejected approaches wastes a round trip.
 
+**The live lead, and tonight's measurements are what produced it.** Two facts
+that were never put next to each other:
+
+1. The network trace found that **an ordinary section's initial render fires no
+   AJAX at all** — the file table arrives in the initial document, not in a
+   later response. (Measured 2026-07-27; it is why the AJAX-completion-signal
+   idea died.)
+2. The settle wait costs 94.2s (63%) waiting for DOM mutations to stop, and the
+   stability poll another 49.5s (33%). Actual extraction: **4.3s**.
+
+If the file table is already in the initial HTML, then **the mutations the
+debounce is waiting out are not the file table arriving.** The obvious
+candidate for what they actually are is the inline file previews — 72 per
+course, multi-megabyte, loading into subframes and churning the DOM the whole
+time. That is the same thing the preview blocker targets, and it would explain
+why blocking them *should* help while `ctx.Route`'s fixed ~30% tax buries the
+gain (measured tonight, see above).
+
+**The experiment that settles it, and it is a diff rather than a timing:** read
+the file rows immediately at `domcontentloaded`, before any settle wait, and
+compare against what the current stable-wait path returns — for all 280
+sections, byte for byte. If they match, the entire 143s of settle-plus-poll is
+removable and the ~30s target stops being unreachable. If they differ, the
+sections where they differ are the whole problem, and there will be few enough
+to look at individually.
+
+This is not a re-run of a rejected approach. Every previous attempt tried to
+make the *wait* cheaper or shorter; this asks whether the wait is needed at
+all, which no measurement here has ever tested. Note the trap the project
+already fell into once: `sectionContentRequiredStableReads` 4→1 lost files
+byte-for-byte, so **a file count is not acceptable evidence** — only the diff
+is.
+
 Standing goal (2026-07-21, `docs/sync-speed-campaign.md`): a routine no-op
 sync should feel instant, target ~30s. That file is the full decision log -
 read it before touching this, several plausible-looking approaches (HTTP-fast-

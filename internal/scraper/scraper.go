@@ -99,6 +99,12 @@ type OpalScraper struct {
 	// request came from.
 	limiter *polite.Limiter
 
+	// previewsBlocked/previewBytesSaved count what the inline-preview route
+	// discarded (previews.go). Accessed with sync/atomic because the route
+	// handler runs on Playwright's dispatch goroutine, not the crawl's.
+	previewsBlocked   int64
+	previewBytesSaved int64
+
 	// debugClicks enables the click/wait audit log (see audit.go). Same
 	// set-once-before-scrape/read-only-afterward lifecycle as
 	// developerMode, so it needs no locking of its own.
@@ -541,6 +547,7 @@ func (s *OpalScraper) Close() error {
 	// requests the ceiling exists for. Close is the one point that sees a
 	// whole run.
 	s.LogRateLimitStats()
+	s.reportBlockedPreviews()
 	s.sectionTiming.log()
 
 	_ = s.closeBrowser()

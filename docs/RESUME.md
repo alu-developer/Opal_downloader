@@ -19,16 +19,35 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Sync speed: measured, written up, not yet attacked.** The numbers are in
-docs/sync-speed-campaign.md (top entry) and summarised in docs/BACKLOG.md.
+**Sync speed lead tested and refuted (2026-07-27) — writing up now.**
 
-Short version: 63% of in-section time is the 300ms mutation-observer debounce,
-33% the stability poll, 2% the actual extraction. ~84s of a 216.6s run is a
-fixed per-section toll paid for silence.
+RESUME previously said the untested lead was: does a positive completion
+signal exist ("AJAX_CALL_DONE fired AND the response carried the file-table
+markup") to replace the 300ms settle-wait debounce that costs ~84s of a
+216.6s run? `docs/sync-speed-campaign.md`'s 2026-07-27 entry proposed this on
+the premise "the file table arrives in a Wicket AJAX response the browser
+already receives and parses."
 
-Next, and NOT started: test whether a positive completion signal exists -
-"AJAX_CALL_DONE fired AND the response body carried the file-table markup" -
-instead of inferring completion from absence of change. AJAX_CALL_DONE alone is
-already known insufficient (lost 52 files, see internal/scraper/wicket.go); the
-stronger condition is untried. Any attempt must be validated by a byte-for-byte
-file-list diff against a serial ground-truth run, not by wall clock.
+That premise contradicts `navigation.go`'s own existing doc comment on
+`waitForInteractiveLinks`, from an earlier research task: "network trace
+confirmed no separate 'populate content' AJAX request exists" for the
+initial per-section render. Built a live probe
+(`internal/scraper/network_trace_probe_test.go`, `OPAL_NETWORK_TRACE=1`) that
+records every network response during a real section crawl and checked which
+claim holds.
+
+**Result on "Algorithmen und Datenstrukturen" (5 sections, 38 files): 263
+responses total, exactly 2 were xhr/fetch, and both were the already-known
+`pager-showAllLink` expansion calls** (already handled by
+`wicket.go`'s `AJAX_CALL_DONE`). Zero AJAX fires for an ordinary section's
+initial render. `navigation.go`'s claim holds; the campaign entry's premise
+does not, for ordinary sections.
+
+Second run in flight against `Softwaretechnologie` (the 160-section, largest
+and most JS-heavy course) to confirm this isn't a small-course artifact
+before writing the conclusion into `docs/sync-speed-campaign.md` and
+`docs/BACKLOG.md`. The probe test stays in the tree afterwards, opt-in like
+its siblings (`httpdiscovery_probe_test.go`), so a future doubt about this
+claim can be re-checked in one command instead of rebuilt. Once the writeup
+lands, re-affirm the backlog's existing "not reachable by any approach
+identified so far" conclusion, now covering this lead too.

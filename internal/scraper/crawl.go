@@ -305,6 +305,10 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 		}
 	}
 	visitStart := time.Now()
+	// Off unless OPAL_EARLY_READ_PROBE is set; see earlyread.go. Taken here,
+	// before any settling, because "what the page already had" is the whole
+	// question.
+	earlyCandidates := s.earlyRead.read(s, page)
 	settleStart := time.Now()
 	_, sectionCalm := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
 	settleSpent := time.Since(settleStart)
@@ -321,6 +325,7 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 	stableStart := time.Now()
 	candidates, err := s.waitForStableSectionContent(page, sectionCalm)
 	stableSpent := time.Since(stableStart)
+	s.earlyRead.compare(sectionTitle, currentURL, earlyCandidates, candidates)
 	// Recorded before the error branches below, so a section that fails after
 	// waiting still contributes the time it spent waiting - otherwise the
 	// measurement would quietly exclude the slowest cases.

@@ -64,40 +64,45 @@ for unchanged sections - is live again.
    already targets `section#main-content`. Hashing only that sidesteps every
    pattern above instead of chasing them.
 
-**Generalised, and it holds for most sections (2026-07-27, ~22:40).** Twelve
-sections of one course, fetched twice 60s apart:
+**Generalised, corrected twice, and still alive (2026-07-27, ~23:00).**
 
-| comparison | identical |
-|---|---|
-| whole page, raw | 0 / 12 |
-| whole page, normalised | **9 / 12** |
-| content region, raw | **0 / 12** |
-| content region, normalised | **9 / 12** |
+Twelve sections, fetched twice 60s apart: whole page raw **0/12**, whole page
+normalised **9/12**, content region raw **0/12**, content region normalised
+**9/12**.
 
-Two corrections to what is written above, both from this measurement:
+**Correction 1 (mine, from one section):** "all the volatility is in the page
+chrome" is wrong - the raw content region matched 0 of 12. Normalisation is
+required either way.
 
-- **The content region is NOT stable on its own.** "All the volatility is in
-  the chrome" was my inference from one section and it is wrong - the raw
-  content region matched 0 of 12. Normalisation is required either way, so
-  hashing the subtree buys correctness-of-scope, not freedom from patterns.
-- **9 of 12, not 12 of 12.** Against the campaign's 0 of 276 that is the
-  finding, but three sections still vary for a reason nobody has looked at.
+**Correction 2, and this one nearly killed the lead on a false premise.** A
+probe against `CourseNode/1757385431705760008` found **zero** file references
+in the server HTML and I was about to conclude that a hash cannot see file
+changes at all. That node is an *enrolment* node with no files. A section that
+actually holds files carries its filenames in the server HTML:
+`AnalysisSkriptChill` appears 3 times, `.pdf` 3 times. **Always probe a
+file-bearing node** - the default in the probe now is one.
 
-**Why 75% would already be a large win:** a cache miss only costs a crawl of
-that section - the safe direction. A false *match* is the dangerous one, and
-nothing here has yet tested for that. So the two next steps, in order:
+**Safety, tested and passing.** `TestNormalisationDoesNotHideRealChanges`
+applies the edits a lecturer really makes to the live page and requires the
+normalisation to still see each: a file renamed, a new file row appended, a
+single character changed in the body. All detected. (The href-change case skips
+- file URLs are `/CourseNode/.../Name.pdf`, not `/FolderResource/`.) This is
+the half that matters: a miss costs a crawl, a false match silently stops
+downloading.
 
-1. **What varies in the 3 outliers?** Same diff treatment as the single-section
-   probe. They may share one more normalisable pattern, or they may be
-   genuinely dynamic (a "last visited" stamp, a per-render token in a file
-   row), which would matter a great deal.
-2. **Does a match ever lie?** Change one file in a course, then confirm that
-   section stops matching. Until that is measured the hit rate is worthless -
-   a cache that reports "unchanged" for a changed section silently stops
-   downloading, which is this project's worst failure mode.
+**Where it stands: viable, not proven.** The one remaining measured gap is that
+the file-bearing section still shows **4 differing lines** after normalisation,
+and 3 of 12 sections do not match at all. Nobody has looked at what those are.
 
-Only after both: rebuild the cache and measure a warm no-op sync. The previous
-build measured 317.6s warm because essentially nothing ever hit.
+**Immediate next step:** dump the 4 differing lines for the file-bearing
+section (the single-section probe already prints them - just read them) and
+decide whether they are one more bookkeeping pattern or something genuinely
+per-render. That single answer decides whether the hit rate goes to ~100% or
+stalls at 75%.
+
+Then, only then: rebuild the cache against the content subtree, with rootText
+interning (without it the file was **52 MB** for 276 sections), and measure a
+warm no-op sync against the 210.3s baseline.
 
 Beware the trap the campaign already recorded: a cache of extractor output
 needs rootText interning, or the file is **52 MB** for 276 sections.

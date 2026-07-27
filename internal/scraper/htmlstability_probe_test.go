@@ -57,9 +57,14 @@ func TestSectionHTMLStabilityAcrossRuns(t *testing.T) {
 		t.Skip("set OPAL_HTML_STABILITY=1 to run the live section-HTML stability probe")
 	}
 
+	// A node that actually HOLDS FILES. This matters more than it looks: an
+	// enrolment node's HTML contains no file references at all, and probing one
+	// nearly produced the conclusion that section HTML cannot reflect file
+	// changes - when in truth that node simply has no files. A file-bearing
+	// section does carry its filenames in the server HTML.
 	sectionURL := os.Getenv("OPAL_HTML_STABILITY_URL")
 	if sectionURL == "" {
-		sectionURL = "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431705760008"
+		sectionURL = "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757212677096374003"
 	}
 
 	client, err := newSessionClient()
@@ -331,4 +336,76 @@ func normaliseWicket(s string) string {
 		s = re.ReplaceAllString(s, "X")
 	}
 	return s
+}
+
+// TestNormalisationDoesNotHideRealChanges is the safety half, and it matters
+// far more than the hit rate.
+//
+// A cache MISS only costs a crawl of that section - the safe direction. A
+// cache HIT that is wrong means a changed section is reported unchanged and
+// silently stops downloading, which is this project's worst failure mode and
+// the one it has actually suffered twice.
+//
+// A live test would need a file added to a real course, which is not something
+// to do to the maintainer's account. So this works the other way round: take a
+// real section's HTML and apply the kinds of change a real edit produces, then
+// require the normalisation to still see each one. If a mutation survives
+// normalisation undetected, the pattern set is too aggressive - which is
+// exactly how a hash-based cache goes silently wrong.
+//
+//	OPAL_HTML_STABILITY=1 go test ./internal/scraper/ -run TestNormalisationDoesNotHideRealChanges -v
+func TestNormalisationDoesNotHideRealChanges(t *testing.T) {
+	if os.Getenv("OPAL_HTML_STABILITY") == "" {
+		t.Skip("set OPAL_HTML_STABILITY=1 to run against a real section")
+	}
+	client, err := newSessionClient()
+	if err != nil {
+		t.Skipf("no usable saved session (%v)", err)
+	}
+	sectionURL := os.Getenv("OPAL_HTML_STABILITY_URL")
+	if sectionURL == "" {
+		sectionURL = "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757212677096374003"
+	}
+	html, err := fetchBody(client, sectionURL)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	base := normaliseWicket(html)
+
+	// Each mutation stands for a real edit a lecturer makes. Applied to the
+	// live page rather than to a fixture, so the patterns are tested against
+	// the markup they will actually meet.
+	mutations := []struct {
+		name  string
+		apply func(string) string
+	}{
+		{"a file is renamed", func(s string) string {
+			return strings.Replace(s, ".pdf", ".RENAMED.pdf", 1)
+		}},
+		{"a new file row appears", func(s string) string {
+			return strings.Replace(s, "</table>", `<tr><td><a href="/opal/FolderResource/new.pdf">new.pdf</a></td></tr></table>`, 1)
+		}},
+		{"a file's href changes", func(s string) string {
+			return strings.Replace(s, "/opal/FolderResource/", "/opal/FolderResource/v2/", 1)
+		}},
+		{"a single character changes anywhere in the body", func(s string) string {
+			i := strings.Index(s, "<body")
+			if i < 0 {
+				return s + "x"
+			}
+			return s[:i+400] + "Z" + s[i+400:]
+		}},
+	}
+
+	for _, m := range mutations {
+		t.Run(m.name, func(t *testing.T) {
+			mutated := m.apply(html)
+			if mutated == html {
+				t.Skipf("mutation did not apply to this page - nothing to conclude")
+			}
+			if normaliseWicket(mutated) == base {
+				t.Fatalf("NORMALISATION HID A REAL CHANGE (%s) - a cache built on this would silently stop downloading", m.name)
+			}
+		})
+	}
 }

@@ -20,8 +20,17 @@ func TestCheckExecutableStableRejectsGoBuildCache(t *testing.T) {
 		t.Fatalf("expected ErrEphemeralExecutable, got %v", err)
 	}
 	// The message has to tell the user what to do, not just that it failed.
-	if !strings.Contains(err.Error(), "permanent location") {
-		t.Fatalf("error should say what to do instead, got %q", err)
+	// A `go run` build gets the concrete instruction rather than the generic
+	// "build to a permanent location", because it is a specific, recognisable
+	// situation with a specific answer - the maintainer hit exactly this
+	// (2026-07-27) running `go run . gui` and read it as a fault.
+	if !strings.Contains(err.Error(), "go build .") {
+		t.Fatalf("error should name the command that fixes it, got %q", err)
+	}
+	// It must also not read as breakage. "go run" names the situation; without
+	// it the user is left with "temporary location" and no idea why.
+	if !strings.Contains(err.Error(), "`go run` build") {
+		t.Fatalf("error should say this is a go run build, got %q", err)
 	}
 }
 

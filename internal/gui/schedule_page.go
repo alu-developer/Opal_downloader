@@ -178,7 +178,7 @@ var schedulePageTemplate = template.Must(template.New("schedule").Parse(`<!DOCTY
 	</div>
 	{{end}}
 
-	{{if .Error}}<div class="error"><strong>Could not update:</strong> {{.Error}}</div>{{end}}
+	{{if .Error}}<div class="error"><strong>Could not change the schedule:</strong> {{.Error}}</div>{{end}}
 	{{if .Saved}}<div class="success">Saved.</div>{{end}}
 	{{if .Notice}}<div class="warning"><strong>Daily sync repaired:</strong> {{.Notice}}</div>{{end}}
 

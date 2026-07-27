@@ -33,8 +33,11 @@ var ErrEphemeralExecutable = fmt.Errorf("this program is running from a temporar
 // here later". go-build is Go's build cache (a `go run` session); the temp
 // directories cover the common "downloaded and ran it from Downloads/Temp"
 // and installer-staging cases.
+// goBuildCacheMarker is handled ahead of ephemeralPathMarkers so it can carry
+// its own wording, which is why it is not in that list.
+const goBuildCacheMarker = "go-build"
+
 var ephemeralPathMarkers = []string{
-	"go-build",
 	string(filepath.Separator) + "Temp" + string(filepath.Separator),
 	string(filepath.Separator) + "tmp" + string(filepath.Separator),
 }
@@ -49,6 +52,19 @@ var ephemeralPathMarkers = []string{
 // than one that lets a doomed registration through.
 func CheckExecutableStable(exePath string) error {
 	normalized := filepath.Clean(exePath)
+
+	// A `go run` build gets its own sentence. The generic "temporary
+	// location" wording is accurate but reads as a fault, when it is simply
+	// how `go run` works - reported by the maintainer (2026-07-27) after
+	// seeing it while running `go run . gui`, where it is the expected state
+	// and there is nothing wrong to fix.
+	if strings.Contains(normalized, goBuildCacheMarker) {
+		return fmt.Errorf(
+			"%w: this is a `go run` build, which lives in Go's build cache and is deleted whenever that cache is trimmed. "+
+				"Automatic sync needs an installed binary - run `go build .` and start opal-downloader from the built file",
+			ErrEphemeralExecutable)
+	}
+
 	for _, marker := range ephemeralPathMarkers {
 		if strings.Contains(normalized, marker) {
 			return fmt.Errorf(

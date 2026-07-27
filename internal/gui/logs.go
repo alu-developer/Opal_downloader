@@ -3,6 +3,7 @@ package gui
 import (
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -229,3 +230,36 @@ var logsPageTemplate = template.Must(template.New("logs").Parse(`<!DOCTYPE html>
 </body>
 </html>
 `))
+
+// handleLogsDownload serves the log as a file download.
+//
+// The feedback page has always told people the log "is safe to attach" and
+// then offered no way to attach it - it linked to /logs, which shows the file
+// and can reveal it in a file manager, leaving the user to go find it. The
+// maintainer put it plainly (2026-07-27): a pointer to attach something,
+// without the means to. A download is the means.
+//
+// Serves the whole file rather than the tail shown on the page: a bug report
+// wants everything, and the tail exists only so a page render stays sane.
+// Safe for the same reason the page is - every line went through
+// statuslog.SanitizeMessage before it was written.
+func handleLogsDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	path := logPathForPage()
+	f, err := os.Open(path)
+	if err != nil {
+		// A fresh install has no log yet. Say so in words rather than serving
+		// an empty file the user would attach to a report believing it holds
+		// something.
+		http.Error(w, "There is no log file yet ("+path+"). It appears the first time opal-downloader runs.", http.StatusNotFound)
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="opal-downloader-log.txt"`)
+	_, _ = io.Copy(w, f)
+}

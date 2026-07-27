@@ -321,7 +321,9 @@ func TestHandleScheduleActionInvalidTimeDoesNotCallEnable(t *testing.T) {
 	if enableCalled {
 		t.Fatal("expected scheduleEnableFunc NOT to be called for an invalid time")
 	}
-	if !strings.Contains(rec.Body.String(), "Could not update") {
+	// "Could not update" until 2026-07-27, which read as an app update having
+	// failed rather than the schedule not being changed.
+	if !strings.Contains(rec.Body.String(), "Could not change the schedule") {
 		t.Fatalf("expected an error message in the response, got: %s", rec.Body.String())
 	}
 }

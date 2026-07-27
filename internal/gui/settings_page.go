@@ -89,17 +89,6 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<form method="post" action="/settings" id="settings-form">
 
-	<h2>Browser</h2>
-
-	<p class="hint">
-		Login and sync always use Playwright's bundled Chromium against a
-		single dedicated profile (<code>~/.opal-downloader/login-profile</code>).
-		First time? Log in manually, or
-		<a href="/tufast-setup">set up TU-Fast</a> once for automatic 2FA on
-		every future login (fewer clicks, and an optional shortcut if TU-Fast
-		is already logged in elsewhere on this computer).
-	</p>
-
 	<h2>Sync behavior &amp; folders</h2>
 
 	<div class="field">
@@ -228,10 +217,16 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>
 
-	<h2>Running it automatically</h2>
-	<p class="hint">Whether opal-downloader syncs on its own once a day, and
-	what happens if one of those runs fails, is on its own page:
-	<a href="/schedule">Automatic sync</a>.</p>
+	<!-- Not an <h2>: these are pointers elsewhere, not settings. Two sections
+	     that looked exactly like the real ones but held nothing you could set
+	     were the maintainer's "weird: verweis in foldersettings auf automatic
+	     sync genauso wie der zum browser" (2026-07-27). -->
+	<p class="elsewhere">Configured elsewhere:
+		<a href="/schedule">Automatic sync</a> (running once a day on its own)
+		&middot;
+		<a href="/tufast-setup">TU-Fast</a> (automatic 2FA, so login needs no
+		clicks). Login always uses a dedicated browser profile at
+		<code>~/.opal-downloader/login-profile</code>.</p>
 
 	<p class="back"><a href="/">&larr; Back</a></p>
 

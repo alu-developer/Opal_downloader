@@ -56,8 +56,11 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 	</p>
 
 	<p class="hint">
-		Reporting something that went wrong? The <a href="/logs">diagnostic
-		log</a> usually says what happened, and it is safe to attach.
+		Reporting something that went wrong?
+		<a href="/logs/download">Download the diagnostic log</a> and attach it
+		to your report &ndash; it usually says what happened, and it is safe to
+		share (credentials and session tokens are stripped before anything is
+		written to it). You can also <a href="/logs">read it here</a> first.
 	</p>
 
 	{{if .CrashDetected}}

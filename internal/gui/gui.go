@@ -159,6 +159,7 @@ func newMux(srv *server, configPath string) *http.ServeMux {
 	mux.HandleFunc("/update/start", srv.withRecover(srv.handleUpdateStart))
 	mux.HandleFunc("/logs", srv.withRecover(handleLogsPage))
 	mux.HandleFunc("/logs/open", srv.withRecover(handleLogsOpen))
+	mux.HandleFunc("/logs/download", srv.withRecover(handleLogsDownload))
 	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
 	mux.HandleFunc("/feedback/open", srv.withRecover(srv.handleFeedbackOpen))
 	mux.HandleFunc("/scheduled-status", srv.withRecover(srv.handleScheduledStatus))

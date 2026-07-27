@@ -149,3 +149,63 @@ func TestFeedbackPageLinksToTheLog(t *testing.T) {
 		t.Errorf("feedback page does not link to the diagnostic log")
 	}
 }
+
+// The feedback page asked people to attach the log and gave them no way to get
+// it - reported by the maintainer, 2026-07-27. These pin the fix in both
+// directions: the file is actually served as a download, and the page that
+// asks for it actually links to it.
+func TestLogDownloadServesTheWholeFileAsAnAttachment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "opal-downloader.log")
+	const contents = "line one\nline two\nline three\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	restore := logPathForPage
+	logPathForPage = func() string { return path }
+	defer func() { logPathForPage = restore }()
+
+	rec := httptest.NewRecorder()
+	handleLogsDownload(rec, httptest.NewRequest(http.MethodGet, "/logs/download", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Body.String(); got != contents {
+		t.Fatalf("expected the whole file, got %q", got)
+	}
+	// Without this the browser renders the log in a tab instead of saving it,
+	// which is the same dead end as before: visible, not attachable.
+	if disp := rec.Header().Get("Content-Disposition"); !strings.Contains(disp, "attachment") {
+		t.Fatalf("log must download rather than render, got Content-Disposition %q", disp)
+	}
+}
+
+func TestLogDownloadSaysSoWhenThereIsNoLogYet(t *testing.T) {
+	restore := logPathForPage
+	logPathForPage = func() string { return filepath.Join(t.TempDir(), "nope.log") }
+	defer func() { logPathForPage = restore }()
+
+	rec := httptest.NewRecorder()
+	handleLogsDownload(rec, httptest.NewRequest(http.MethodGet, "/logs/download", nil))
+
+	// An empty file would be worse than an error: the user attaches it to a
+	// bug report believing it contains something.
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when no log exists, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "no log file yet") {
+		t.Fatalf("expected an explanation, got %q", rec.Body.String())
+	}
+}
+
+func TestFeedbackPageLinksToTheLogDownload(t *testing.T) {
+	srv := &server{}
+	rec := httptest.NewRecorder()
+	srv.handleFeedbackPage(rec, httptest.NewRequest(http.MethodGet, "/feedback", nil))
+
+	if !strings.Contains(rec.Body.String(), `href="/logs/download"`) {
+		t.Fatal("the page that asks for the log must link to the download, not only to the viewer")
+	}
+}

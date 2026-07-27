@@ -99,7 +99,23 @@ import (
 //
 // Trimmed before raising: a redundant third substring check in
 // isClosedBrowserError that the second already subsumed.
-const codeLineBudget = 11504
+// Raised 2026-07-27 (was 11504) for preferCancellation. Five lines, and they
+// buy the difference between "you stopped this" and "this is broken": a cancel
+// kills the browser, so discovery fails, so the user who pressed Cancel was
+// being handed a course-listing failure and told to leave their browser window
+// open. Small enough to be tempting to inline; kept separate because the
+// wiring is the part that breaks, and a call site is what a mutation test can
+// remove.
+// Raised 2026-07-27 (was 11509) for the log download handler and the `go run`
+// message. Bought: /feedback stops asking people to attach a file it gives
+// them no way to obtain - it linked to a viewer and left them to go find the
+// file themselves - and a `go run` build is told it is a `go run` build
+// instead of "a temporary location", which reads as a fault when it is the
+// expected state.
+//
+// Trimmed before raising: two <h2> sections on /settings that contained no
+// settings, only pointers to other pages, collapsed into one line.
+const codeLineBudget = 11534
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

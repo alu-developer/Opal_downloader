@@ -54,6 +54,10 @@ $statusFile = Join-Path $sandbox "rate-limit-status.json"
 
 $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
 $env:OPAL_RATE_LIMIT_STATUS = $statusFile
+# Isolate from the real launching process: when this suite runs inside an
+# actual unattended resume session, OPAL_UNATTENDED_RESUME=1 is already set
+# in the environment and would leak into the attended-path assertions below.
+Remove-Item Env:\OPAL_UNATTENDED_RESUME -ErrorAction SilentlyContinue
 
 function Set-Status {
     <#  Writes a synthetic rate-limit-status.json.

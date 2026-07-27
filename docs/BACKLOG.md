@@ -162,12 +162,23 @@ have to serve.** That is a `docs/server-load.md` win on its own terms, and may
 justify enabling it even if it is slower — a judgement call, not an assumption
 to bake into a default.
 
-**Next, and cheap:** repeat the pair twice to find out whether 324.3s is real.
-If it is, the guess worth testing first is that an aborted subframe leaves the
-parent churning over an error state — precisely what the 300ms settle-wait
-debounce watches for — in which case `route.Fulfill` with an empty body may
-behave differently from `route.Abort`. That was reasoned about when this was
-built, and guessed the other way round.
+**Next, and cheap in principle:** repeat the pair twice to find out whether
+324.3s is real. If it is, the guess worth testing first is that an aborted
+subframe leaves the parent churning over an error state — precisely what the
+300ms settle-wait debounce watches for — in which case `route.Fulfill` with an
+empty body may behave differently from `route.Abort`. That was reasoned about
+when this was built, and guessed the other way round.
+
+**Blocked right now on a login, not a decision.** Attempted 2026-07-27
+13:53–14:00: the saved session (`~/.opal_storage_state.json`, written 08:12
+the same day) had expired, and the fallback — TU-Fast completing Shibboleth
+automatically — did not fire; the run hit `timed out after 300000ms waiting
+for the OPAL course list after login` (`TestFileListSnapshot`, one full 300s
+timeout). This is the "human only needed if TU-Fast isn't installed or the
+profile is locked" case `CLAUDE.md` describes, and no human is present in an
+unattended run to complete it. Needs the maintainer to run `login` by hand
+once (or check whether TU-Fast is broken again — see the 2026-07-16
+recurrence in memory) before this measurement can be repeated.
 
 Also unexplored, and now second in line: a DOM-level completion marker Wicket
 sets itself, or an OPAL view that serves the file listing without the staged
@@ -431,14 +442,7 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
-- **A stale worktree under `.claude/worktrees/` holds a second copy of the
-  source, and searches hit it.** `.claude/worktrees/agent-ae4c52c8caec1f5e0/`
-  turned up as a duplicate result while grepping for `golang.org/x/text`
-  (2026-07-27) — two hits for one import, in `internal/config` and
-  `internal/scheduler`. Harmless this time because the duplicate was obvious,
-  but a future search that lands on the stale copy and reads *its* version of a
-  file would be quietly reading old code, and nothing in a grep result says
-  which tree a path belongs to.
+(nothing right now)
 
 ---
 
@@ -446,6 +450,18 @@ matter.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Removed the stale agent worktree flagged above.**
+  `.claude/worktrees/agent-ae4c52c8caec1f5e0` (branch
+  `worktree-agent-ae4c52c8caec1f5e0`) was a 2026-07-23 prototype ("Add
+  section-level flattened crawl (shared frontier across courses)") that
+  predates and was superseded by the per-course tab-pool section concurrency
+  that actually shipped and was measured on 2026-07-26 (`ca299c5` "Build
+  section-level concurrency" onward) — confirmed by comparing commit dates
+  and `git merge-base` before removing anything. Uncommitted changes in the
+  worktree (`.gitignore`, `section_crawl.go`) were an earlier iteration of
+  the same dead approach. `git worktree remove --force` + `git branch -D`;
+  nothing pushed, nothing referenced elsewhere.
 
 - **The folder picker corrupted any path with a non-ASCII character.** Chased
   from a mojibake spotted in a live `config.yaml` (`...\Analysis\<U+FFFD>bung`,

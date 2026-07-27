@@ -31,6 +31,11 @@ repeated. Running:
     OPAL_FILELIST=repeat1_before  go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
     OPAL_FILELIST=repeat1_after OPAL_BLOCK_FILE_PREVIEWS=1  (same)
 
+**Half done.** `repeat1_before` (previews kept): **345 files, 210.3s** — the
+fastest run this account has recorded, and well inside the 212–245s band. The
+`repeat1_after` side is running now; if it lands near 210s too, the earlier
+324.3s was noise and the blocker is not actually slower.
+
 The question being answered: the single existing pair measured 248.3s with
 previews kept and 324.3s with them blocked (31% slower), which is outside the
 212–245s band this account has measured before. One pair is not proof. If the

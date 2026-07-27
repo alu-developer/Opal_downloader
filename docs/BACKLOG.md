@@ -170,13 +170,40 @@ slowdown was about the blocking, and all of them were wrong.
    for request interception — the network trace probe already does — is paying
    it, and any past measurement taken with a route installed is suspect.
 
-**Next, and it decides whether the saving is recoverable:** is the tax
-proportional to *matched* requests, or is it a fixed cost of having any route
-at all? One run separates them — register a route whose pattern matches
-nothing (`**/no-such-path-xyz/**`) and measure. Near 210s means a narrower
-pattern rescues the saving. Near 274s means `ctx.Route` is unusable on this
-crawl at any pattern, and the preview saving needs a browser-level setting that
-stops the fetch without interception.
+**Answered, and the tax is fixed.** The same route registered under
+`**/no-such-path-xyz/**` — a pattern that matches nothing, so the handler never
+fires once — came back at **272.2s**. Full picture, one session, one evening,
+345 files and a byte-identical list every single time:
+
+| condition | wall clock |
+|---|---|
+| no route installed at all | **210.3s** |
+| route + `Abort` | 265.0s |
+| route + `Fulfill` (empty 200) | 272.0s |
+| route installed, always `Continue` | 274.6s |
+| route under a pattern matching **nothing** | **272.2s** |
+
+**`ctx.Route` costs ~30% of a run just by existing.** Not the pattern, not the
+handler, not the blocking. A narrower pattern cannot rescue the saving; that
+was exactly the hypothesis this row was run to test.
+
+**Where that leaves the preview blocker:** the ~30 MB per course per pass is
+real, otherwise-free, and stuck behind a delivery mechanism costing ~64s.
+Shipping it means dropping request interception for something browser-level
+that stops the fetch without a route. Nobody has looked for that yet — it is
+the one open thread here, and it is a genuinely new direction rather than a
+re-run of a rejected one.
+
+**Checked immediately, because it would have been the bigger prize:** nothing
+in the normal code path installs a route. `previews.go` is the only
+`ctx.Route` in the repo and it is off by default, so a routine sync pays none
+of this. No free 30% was sitting there.
+
+**But this does invalidate measurements taken with a route installed** —
+including the network trace that discovered the 30 MB in the first place. Its
+*finding* stands (the bytes are really fetched; that is a count, not a
+timing), but any timing from a traced run is inflated by roughly a third and
+should not be compared against untraced numbers.
 
 **No longer blocked: the session is fresh again (2026-07-27 18:31).** The
 maintainer ran the GUI by hand and TU-Fast completed Shibboleth on its own in

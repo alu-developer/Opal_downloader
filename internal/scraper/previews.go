@@ -50,27 +50,31 @@ import (
 // 2026-07-27, same session and evening, 345 files every time, every list
 // byte-identical against the no-route ground truth:
 //
-//	condition                        wall clock
-//	no route installed at all             210.3s
-//	route + Abort                         265.0s
-//	route + Fulfill (empty 200)           272.0s
-//	route installed, always Continue      274.6s
+//	condition                             wall clock
+//	no route installed at all                  210.3s
+//	route + Abort                              265.0s
+//	route + Fulfill (empty 200)                272.0s
+//	route installed, always Continue           274.6s
+//	route under a pattern matching nothing     272.2s
 //
-// The last row is the whole finding: install this route, block *nothing*, and
-// the run still costs ~64s more. Whatever is expensive, it is ctx.Route
-// itself - not aborting, not the missing file, not the settle wait reacting to
-// an error state. Every explanation this campaign had written down for the
-// slowdown was about the blocking, and all of them are wrong.
+// The last two rows are the finding. Install this route and block *nothing*
+// and the run still costs ~64s more; install it under "**/no-such-path-xyz/**"
+// so it never fires at all and it still costs ~62s. Every explanation this
+// campaign had written down for the slowdown was about the blocking, and all
+// of them are wrong.
 //
-// So the ~30 MB saving is real and its apparent price tag belongs to something
-// else. Do not re-measure Abort vs Fulfill vs blocking strategy; the open
-// question is whether interception can be made cheap (a narrower pattern, or
-// avoiding ctx.Route entirely in favour of a browser-level setting that stops
-// the preview being fetched in the first place).
+// ctx.Route is a FIXED ~30% tax on this crawl, independent of pattern and of
+// what the handler does. A narrower pattern cannot rescue it - that was the
+// hypothesis the last row was run to test, and it is dead.
 //
-// Until that is answered it stays off. Set OPAL_BLOCK_FILE_PREVIEWS=1 to
-// enable it; you are buying ~30 MB per course per pass that OPAL does not have
-// to serve (see docs/server-load.md) for ~64s of interception overhead.
+// So the ~30 MB per course per pass is a real and otherwise-free saving stuck
+// behind a delivery mechanism that costs more than it saves. Making it
+// shippable means dropping request interception entirely in favour of
+// something browser-level that stops the fetch without a route. Until someone
+// does that, this stays off, and enabling it is a deliberate trade of ~64s of
+// wall clock for traffic OPAL does not have to serve (docs/server-load.md).
+//
+// Do not re-measure Abort vs Fulfill vs pattern width. Those are all answered.
 const blockPreviewsEnv = "OPAL_BLOCK_FILE_PREVIEWS"
 
 const folderResourceMarker = "/FolderResource/"
@@ -83,13 +87,7 @@ func (s *OpalScraper) blockInlineFilePreviews(ctx playwright.BrowserContext) {
 	}
 	logging.Detail("Blocking inline file previews (%s is set)", blockPreviewsEnv)
 
-	// EXPERIMENT 2026-07-27: a pattern that matches nothing, to separate a
-	// per-matched-request tax from a fixed cost of having any route at all.
-	pattern := "**" + folderResourceMarker + "**"
-	if os.Getenv("OPAL_PREVIEW_ROUTE_NULLPATTERN") != "" {
-		pattern = "**/no-such-path-xyz/**"
-	}
-	err := ctx.Route(pattern, func(route playwright.Route) {
+	err := ctx.Route("**"+folderResourceMarker+"**", func(route playwright.Route) {
 		req := route.Request()
 		frame := req.Frame()
 		// A nil frame means no way to tell a preview from a download, so the

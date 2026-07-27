@@ -19,56 +19,50 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Testing route.Fulfill vs route.Abort (2026-07-27, ~19:05).**
+**Isolating the preview blocker's cost (2026-07-27, ~19:20).**
 
-The A/B repeat is DONE and committed (`3316eb3`). Result: the slowdown is real,
-confirmed across two pairs — 248.3→324.3s (+30.6%) and 210.3→265.0s (+26.0%),
-both with byte-identical 345-file lists. Blocking previews is safe and costs
-~26–31%.
+Everything below is committed except the one deliberate patch named at the end.
 
-**In flight now:** `internal/scraper/previews.go` is patched *uncommitted* —
-`route.Abort("blockedbyclient")` replaced with `route.Fulfill` serving an empty
-200 `text/html`. This tests the one recorded guess for the slowdown: that the
-abort's error state generates the DOM churn the 300ms settle-wait debounce is
-watching for. The comment in that file argued the opposite, reasoned and never
-measured.
+Settled today, in order:
 
-Running: `OPAL_FILELIST=repeat1_fulfill OPAL_BLOCK_FILE_PREVIEWS=1 go test
-./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m`
+- `62d0515` — discovery reporting "0 courses" instead of an error when every
+  source fails. Done, tested, green.
+- `3316eb3` — the A/B repeat. Slowdown is **real**: 248.3→324.3s (+30.6%) and
+  210.3→265.0s (+26.0%), byte-identical 345-file lists both times.
+- `4696ed9` — the abort-error-state guess is **dead**. `route.Fulfill` (empty
+  200 `text/html`) came back 272.0s against `Abort`'s 265.0s. How the request
+  is refused does not matter.
 
-Compare against **265.0s** (Abort, same session, same evening). Beat it clearly
-→ keep Fulfill and re-argue the comment. Not faster → `git checkout
-internal/scraper/previews.go` to restore Abort, and record that the guess is
-dead so nobody tries it a third time. Either way the file list must diff empty
-against `tmp/filelist-repeat1_before.txt`.
+**In flight:** `internal/scraper/previews.go` is patched *uncommitted* with an
+`OPAL_PREVIEW_ROUTE_NOOP` escape hatch — the route is installed and matches,
+but always calls `route.Continue()`. Nothing is blocked; only the interception
+happens.
 
----
+Running: `OPAL_FILELIST=repeat1_routenoop OPAL_BLOCK_FILE_PREVIEWS=1
+OPAL_PREVIEW_ROUTE_NOOP=1 go test ./internal/scraper/ -run TestFileListSnapshot
+-v -timeout 30m`
 
-**Earlier this turn (all committed, nothing pending):**
+**How to read the result** — three reference points, all same session, same
+evening, all 345 files:
 
-Committed and safe already: `62d0515` fixes discovery reporting "0 courses"
-instead of an error when every source fails. That work is done and green.
+| condition | wall clock |
+|---|---|
+| no route at all (ground truth) | 210.3s |
+| route + Abort | 265.0s |
+| route + Fulfill | 272.0s |
+| route + always Continue | *this run* |
 
-In flight: the sync-speed measurement that was blocked on a login. The session
-is fresh (TU-Fast completed by hand at 18:31), so the pair can finally be
-repeated. Running:
+- Comes back near **265s** → interception itself is the tax. The blocker is
+  innocent, and the ~30 MB saving could be had for free if the route were
+  installed more narrowly (it currently matches `**/FolderResource/**`, which
+  is every file request including real downloads, and Playwright routing
+  disables the browser cache for everything it matches).
+- Comes back near **210s** → interception is free and the missing file really
+  is what costs the time, most likely a subframe that never reaches a loaded
+  state something is waiting on. That would make the blocker genuinely a
+  speed/traffic trade-off and the campaign entry can say so and stop.
 
-    OPAL_FILELIST=repeat1_before  go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
-    OPAL_FILELIST=repeat1_after OPAL_BLOCK_FILE_PREVIEWS=1  (same)
-
-**Half done.** `repeat1_before` (previews kept): **345 files, 210.3s** — the
-fastest run this account has recorded, and well inside the 212–245s band. The
-`repeat1_after` side is running now; if it lands near 210s too, the earlier
-324.3s was noise and the blocker is not actually slower.
-
-The question being answered: the single existing pair measured 248.3s with
-previews kept and 324.3s with them blocked (31% slower), which is outside the
-212–245s band this account has measured before. One pair is not proof. If the
-slowdown is real, the next guess to test is that an aborted subframe leaves the
-parent churning over an error state — the very thing the 300ms settle-wait
-debounce watches for — in which case `route.Fulfill` with an empty body may
-behave differently from `route.Abort`.
-
-Results go in `docs/sync-speed-campaign.md` and the backlog entry. If this is
-picked up cold: check `tmp/` for whichever snapshots completed, and just rerun
-the missing side.
+Either way: `git checkout internal/scraper/previews.go` afterwards — the
+escape hatch is a measurement tool, not something to ship. Record the number in
+`docs/sync-speed-campaign.md`, `previews.go`'s comment, and the backlog entry.
+The file list must diff empty against `tmp/filelist-repeat1_before.txt`.

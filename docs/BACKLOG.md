@@ -369,6 +369,14 @@ matter.
   it (2026-07-27), named out loud as an example of not raising things, and then
   still not acted on, which is its own small illustration.
 
+- **A live `config.yaml` has a mojibake character in a folder path.**
+  `subfolder_destinations` carries `...\Analysis\<U+FFFD>bung` (should be
+  `Übung`) on the maintainer's own machine. The mojibake guard added
+  2026-07-27 (`encoding_test.go`) only scans git-tracked text, so a real
+  user's local `config.yaml` — never tracked — is exactly the file it can't
+  see. Noticed while reading the real config for the network-trace probe
+  (2026-07-27), not chased since it was out of scope for that work.
+
 ---
 
 ## Done recently

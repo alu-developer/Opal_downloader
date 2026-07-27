@@ -66,33 +66,52 @@ pattern would otherwise make old hashes match HTML they should not), and a
 section not recorded this run is dropped rather than carried over, so a section
 removed from OPAL cannot answer "unchanged" forever.
 
-**Piece 3, next and the only risky one — but the design in "piece 2 done"
-above needs one correction first, found while starting the wiring:**
+**Piece 3, next and the only risky one — the design is now fully worked out.
+Two traps were found by reading the crawl rather than by assuming, and both
+would have caused silent loss.**
 
-A hit has to *return that section's files*, and nothing currently stores them
-per section. `SectionURL` exists on `DiscoveryProgress` (`crawl.go:175`) but
-**not** on `FileRef` (`internal/scraper/types.go:15`) and not on `RemoteFile`
-(`scraper.go:19`). The manifest records course + section *titles*, not URLs, so
-it cannot supply them either without a schema change and migration.
+**Trap 1: skipping a section also skips discovering its children.**
+`crawl.go:205` feeds `appendSectionFolderTargets` the *same* `candidates` the
+file extraction uses, so a cache hit that returned only files would leave that
+section's subfolders permanently unqueued. The course would come back short and
+nothing would warn.
 
-**So the cache must store the file rows after all, and that is fine.** The
-52 MB disaster of 2026-07-21 came from storing the extractor's raw candidates,
-where the same section text was duplicated across 9,958 of them. Storing the
-resulting FileRef fields instead - course, section, name, URL, size, modified -
-is about 345 rows of ~200 bytes, i.e. **~70 KB**. It was the wrong *thing*
-being stored, not the storing.
+**The fix makes the cached path and the crawled path literally the same code:**
+cache the `candidates` slice itself. On a hit, replay
+`appendSectionFiles` and `appendSectionFolderTargets` against the cached
+candidates exactly as a fresh crawl does. No parallel logic to drift, and
+children fall out for free.
 
-Concretely, before wiring:
-1. Add `SectionURL` to `FileRef` (populated at the point crawl.go already has
-   `currentURL`), so a file knows which section produced it.
-2. Widen `sectioncache` from `sectionURL -> hash` to
-   `sectionURL -> {hash, files[]}`. Bump `SchemaVersion`; the existing
-   degrade-to-crawl paths already cover an old file.
+**Trap 2, and it explains the 52 MB.** Nine candidate keys are read across
+`files.go` and `crawl.go`: `className`, `dataHref`, `dataUrl`, `href`,
+`onclick`, `rootText`, `rowText`, `text`, `title`. Eight are per-candidate and
+small. **`rootText` is the section root's entire textContent** - identical for
+every candidate in that section, read once, by `deriveSectionTitle`
+(`crawl.go:1142`). That is precisely the 31 MB of duplication the 2026-07-21
+entry recorded. Store it **once per section** and restore it into each
+candidate on load. The campaign entry already demanded interning; this is
+exactly where it goes and why.
 
-**Then** wire it into `collectCourseFiles` - fetch + hash before crawling a
-section, crawl on any miss or any doubt. Then measure a warm no-op sync against
-the 210.3s baseline, with a byte-for-byte file-list diff as the acceptance test,
-never a count.
+So the cache payload per section is: the candidates with `rootText` stripped,
+plus one copy of `rootText`. The `sectioncache` API needs no change at all -
+its payload is opaque JSON, and that decision now pays for itself.
+
+**Remaining work, in order:**
+
+1. An HTTP client in the scraper built from `s.stateFile`'s cookies (the probe
+   in `htmlstability_probe_test.go` already does this - lift it).
+2. Before visiting a section: fetch, `sectionhash.Of`, `cache.Unchanged`. On a
+   hit, replay from cached candidates and skip the visit. On anything doubtful,
+   crawl.
+3. **The HTTP fetches must go through `gotoPolitely`'s rate ceiling** or an
+   equivalent - `docs/server-load.md` is a standing constraint and this adds a
+   request per section.
+4. Off by default behind a flag until measured, per this campaign's own rule.
+
+**Acceptance, unchanged and non-negotiable:** a byte-for-byte diff of the file
+list against `tmp/filelist-repeat1_before.txt` (345 files). Never a count -
+one section changed rows without changing their count in a single real run
+tonight.
 
 **Open question that is genuinely the maintainer's, not mine:** realising the
 ~70s floor rather than ~93s means letting the effective request rate rise

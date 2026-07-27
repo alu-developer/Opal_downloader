@@ -49,27 +49,36 @@ does not, for ordinary sections.
 the small course. There is no network event to key a positive completion signal
 off.
 
-**In flight now: a second, sharper question the trace raised.** That run
-recorded **406 document responses for a ~160-section course** — more than one
-document per section — and this codebase has *no iframe handling at all* (no
-`FrameLocator`, no `ContentFrame`, no `page.Frames()`).
+**NEW LEAD, and it is a good one: discovery downloads the files it is only
+supposed to be listing.**
 
-Why that matters: the 2026-07-21 HTTP-first attempt got **zero files** out of
-this exact course and concluded it was "client-side rendered". But the trace
-proves no AJAX fetches its content. If the file table instead lives in a
-*second document* (an iframe), then HTTP-first fetched the outer shell and
-never saw the inner document — a parsing gap, not a rendering one, and the
-kind that is fixable.
+Chasing "why 407 document responses for a ~160-section course", the answer is
+not iframes carrying a file table. It is that **the document responses are the
+files themselves** — `/opal/FolderResource/53228666883/10-st-object-orientation
+.pdf?<cache-buster>`, `swt1vl1.html`, `artemis-opal.html`, and so on, ~200 of
+them, on a pass that is *only meant to be listing filenames*.
 
-The probe now reports document responses as well. Re-running against
-`Softwaretechnologie (SoSe 26)`; **result lands in
-`tmp/network-trace-Softwaretechnologie (SoSe 26).txt`**.
+Almost certainly OPAL course nodes that display their file inline (a PDF viewer
+or an embedded single page), so navigating to the section makes the browser
+fetch the whole file to render a preview nobody reads. Note `crawl.go:1147`
+deliberately keeps file links *out* of the BFS queue, so this is not the crawl
+navigating to them — it is the section page pulling them in by itself.
 
-If the extra documents turn out to be iframes carrying the file table, the next
-step is fetching that inner URL over HTTP and checking a known filename appears
-in it — which would reopen HTTP-first discovery with an actual completeness
-signal. If they are something mundane (redirects, the course entry page), this
-is closed and the remaining lead is a DOM-level completion marker.
+Why this matters more than the debounce work: it attacks bytes and time
+together, and it asks OPAL for **less** rather than for the same things faster,
+which is the one direction `docs/server-load.md` positively encourages.
+
+**In flight:** a third trace run recording, per document response, whether it
+is a subframe load and its `content-length`. That distinguishes "inline preview
+in an iframe" (blockable via Playwright request interception) from a main-frame
+navigation (not blockable without changing what the crawl does), and puts a
+number on the bytes. **Result lands in `tmp/network-trace-Softwaretechnologie
+(SoSe 26).txt`.**
+
+**Do not skip the safety step.** If the previews are blockable, blocking them
+changes what the page renders, and this project has lost files silently to
+exactly that kind of change three times. It needs a byte-for-byte file-list
+comparison against a ground-truth run before it is believed, not a file count.
 
 ---
 

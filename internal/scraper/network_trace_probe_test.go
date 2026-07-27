@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -87,14 +88,29 @@ func TestNetworkTraceDuringSectionCrawl(t *testing.T) {
 		url          string
 		resourceType string
 		status       int
+		mainFrame    bool
+		bytes        int64
 	}
 	var responses []respRecord
+	mainFrame := page.MainFrame()
 	page.OnResponse(func(r playwright.Response) {
 		req := r.Request()
+		// Frame and size, because the interesting question turned out not to be
+		// "was there an AJAX call" but "what is this navigation actually
+		// fetching". A document response in a *sub*frame is an inline preview
+		// the crawl never reads; content-length says what that costs.
+		var size int64
+		if cl, err := r.HeaderValue("content-length"); err == nil {
+			if n, convErr := strconv.ParseInt(strings.TrimSpace(cl), 10, 64); convErr == nil {
+				size = n
+			}
+		}
 		responses = append(responses, respRecord{
 			url:          r.URL(),
 			resourceType: req.ResourceType(),
 			status:       r.Status(),
+			mainFrame:    req.Frame() == mainFrame,
+			bytes:        size,
 		})
 	})
 
@@ -162,6 +178,43 @@ func TestNetworkTraceDuringSectionCrawl(t *testing.T) {
 	}
 	say("--- document responses: %d total, %d distinct URLs ---", len(docs), len(distinctDocs))
 
+	// Group by the path segment straight after /opal/, which is what separates
+	// a course-node page (auth/...) from a served file (FolderResource/...). The
+	// first run printed an alphabetical sample and every visible entry was a
+	// FolderResource PDF, which said something was fetching file *contents*
+	// during a discovery-only pass but not how much.
+	type bucket struct {
+		count     int
+		mainFrame int
+		bytes     int64
+	}
+	buckets := map[string]*bucket{}
+	for _, r := range docs {
+		kind := "other"
+		if _, after, found := strings.Cut(r.url, "/opal/"); found {
+			kind, _, _ = strings.Cut(after, "/")
+		}
+		b := buckets[kind]
+		if b == nil {
+			b = &bucket{}
+			buckets[kind] = b
+		}
+		b.count++
+		b.bytes += r.bytes
+		if r.mainFrame {
+			b.mainFrame++
+		}
+	}
+	var kindNames []string
+	for k := range buckets {
+		kindNames = append(kindNames, k)
+	}
+	sort.Strings(kindNames)
+	for _, k := range kindNames {
+		b := buckets[k]
+		say("  /opal/%-20s %4d document(s), %4d in the main frame, %d bytes (content-length)", k+"/", b.count, b.mainFrame, b.bytes)
+	}
+
 	// Print a bounded sample rather than all of them: on the large course this
 	// is hundreds of lines, and the question here is what *shape* they have.
 	var docURLs []string
@@ -169,7 +222,7 @@ func TestNetworkTraceDuringSectionCrawl(t *testing.T) {
 		docURLs = append(docURLs, u)
 	}
 	sort.Strings(docURLs)
-	const sample = 40
+	const sample = 15
 	for i, u := range docURLs {
 		if i >= sample {
 			say("  ... and %d more distinct document URLs", len(docURLs)-sample)

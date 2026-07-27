@@ -19,21 +19,30 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Nothing in flight. Waiting on the maintainer for one decision.**
+**Verifying the inline-preview blocker. Maintainer approved building it
+(2026-07-27); the code is committed (`6c75e98`) and is NOT yet proven safe.**
 
-The sync-speed work this session is finished and written up in
-`docs/sync-speed-campaign.md` and `docs/BACKLOG.md`:
+What it does: aborts `document` requests that are under `/opal/FolderResource/`
+**and** in a subframe — OPAL's inline file previews, ~30 MB per course per
+discovery pass, which nothing in this package ever reads (there is no iframe
+handling at all). `OPAL_KEEP_FILE_PREVIEWS=1` restores the old behaviour.
 
-1. The AJAX positive-signal lead is **refuted** — no AJAX fires for an ordinary
-   section's initial render (2 courses, 263 and 8139 responses, every xhr a
-   known `showAllLink`).
-2. On the way, a better lead: **discovery downloads ~29 MB of the course's own
-   files per pass and never reads them** (72 subframe `FolderResource`
-   documents, 0 in the main frame). That one needs sign-off before being built,
-   because aborting requests changes what the page renders.
+**The verification, and it is the whole point.** A file *count* is not
+acceptable evidence here: the 2026-07-26 concurrency work lost nine files while
+counts looked normal, and the 2026-07-21 poll change lost files byte-for-byte
+identically to the unfixed code. So `internal/scraper/filelist_probe_test.go`
+writes every file's course, section, name and URL, sorted, to a diffable file.
 
-Next session: if the maintainer has approved the preview-blocking experiment,
-build it (abort non-main-frame `document` requests under `/opal/FolderResource/`)
-and verify with a **byte-for-byte file-list diff** against the 345-file ground
-truth, more than once. If not approved, the next item is the DOM-level
-completion marker.
+Run both, then diff. An empty diff is the only acceptable result:
+
+    OPAL_FILELIST=before OPAL_KEEP_FILE_PREVIEWS=1 go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
+    OPAL_FILELIST=after                            go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
+    diff "tmp/filelist-before.txt" "tmp/filelist-after.txt"
+
+**State right now:** the `before` (ground truth, previews kept) run is in
+flight. `after` has not been run. Expect ~345 files.
+
+**If the diff is not empty, revert `6c75e98` rather than tuning the filter** —
+losing files is the failure mode this whole project fears most, and a
+narrower abort condition that still loses one file is not an improvement. One
+clean pair of runs is also not proof; repeat before believing it.

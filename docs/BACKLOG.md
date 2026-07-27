@@ -134,16 +134,13 @@ subframe leaves the parent churning over an error state — precisely what the
 empty body may behave differently from `route.Abort`. That was reasoned about
 when this was built, and guessed the other way round.
 
-**Blocked right now on a login, not a decision.** Attempted 2026-07-27
-13:53–14:00: the saved session (`~/.opal_storage_state.json`, written 08:12
-the same day) had expired, and the fallback — TU-Fast completing Shibboleth
-automatically — did not fire; the run hit `timed out after 300000ms waiting
-for the OPAL course list after login` (`TestFileListSnapshot`, one full 300s
-timeout). This is the "human only needed if TU-Fast isn't installed or the
-profile is locked" case `CLAUDE.md` describes, and no human is present in an
-unattended run to complete it. Needs the maintainer to run `login` by hand
-once (or check whether TU-Fast is broken again — see the 2026-07-16
-recurrence in memory) before this measurement can be repeated.
+**No longer blocked: the session is fresh again (2026-07-27 18:31).** The
+maintainer ran the GUI by hand and TU-Fast completed Shibboleth on its own in
+**5 seconds** (18:31:05 opened OPAL → 18:31:10 saved state), so TU-Fast is
+*not* broken — the earlier 13:53–14:00 failure (`timed out after 300000ms
+waiting for the OPAL course list after login`) was an unattended run against
+an expired session with nobody present, exactly the case `CLAUDE.md`
+describes. The A/B repeat can now be run.
 
 Also unexplored, and now second in line: a DOM-level completion marker Wicket
 sets itself, or an OPAL view that serves the file listing without the staged
@@ -427,6 +424,36 @@ matter.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **A run that read nothing no longer reports as a healthy empty account.**
+  Found by the maintainer running `go run . gui` (2026-07-27 18:31): login
+  succeeded, then all three course-listing sources failed with Playwright's
+  `target closed` and the run finished as `Found 0 course links / Discovered
+  0 remote files` — which is exactly what a successful sync of an empty
+  account looks like. `discoverCourseLinks` warned per source, `continue`d,
+  and returned an empty list with a **nil error**; "every source failed" and
+  "you have no courses" were the same value to every caller.
+  Now all-sources-failed is an error. A *partial* failure stays a warning on
+  purpose — the sources overlap, and one transient navigation failure
+  aborting a whole sync would be a worse bug than the one being fixed. An
+  empty result with no failures also stays fine, since `courses:` can
+  legitimately filter everything away.
+  **Nothing was lost or damaged by the bad run**: checked rather than
+  assumed — the syncer's only `os.Remove` is a temp file, and it never
+  removes a local file on the strength of a remote listing.
+  The likely trigger is worth knowing on its own: in developer mode the crawl
+  keeps running in the *same visible window* the interactive login used, and
+  nothing tells you to leave it open. So the error names that case
+  specifically when the failure looks like a closed browser.
+  *Verified against a real headless browser
+  (`TestDiscoveryAgainstARealBrowser`, opt-in via
+  `OPAL_SCRAPER_BROWSER_PROBE=1`), which reproduces the incident by closing
+  the page mid-run — the unit tests cover the predicates, and this covers
+  that `discoverCourseLinks` actually calls them, the gap the stall watchdog
+  fell into. Mutation-tested: making the predicate always return false
+  reproduces the original message verbatim. Both directions covered — a
+  readable listing still discovers its course and does not error, and a plain
+  timeout must not be reported as a closed window.*
 
 - **`course_concurrency` default confirmed at 1, live config now matches.**
   Re-measured the real account five times: serial 227.9s/345 files; `2` came

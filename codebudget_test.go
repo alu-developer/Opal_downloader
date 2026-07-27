@@ -86,7 +86,20 @@ import (
 // file lists came back byte-for-byte identical, and the run came back 31%
 // slower. A future reader deciding whether to turn it on needs both numbers
 // more than they need the six lines of logic.
-const codeLineBudget = 11477
+// Raised 2026-07-27 (was 11477) for discovery.go telling "every course-listing
+// page failed" apart from "this account has no courses". Bought: a run that
+// read nothing can no longer finish as "Found 0 course links / Discovered 0
+// remote files", which is what a healthy sync of an empty account looks like.
+// Observed live the same day - the developer-mode browser window was gone by
+// the time discovery ran, all three sources failed with "target closed", and
+// the run reported success. Most of the cost is the two predicates, which are
+// small but need to be separately testable: one decides whether to fail at
+// all, the other decides whether the user is told their window closed, and
+// getting the second wrong sends them looking in the wrong place.
+//
+// Trimmed before raising: a redundant third substring check in
+// isClosedBrowserError that the second already subsumed.
+const codeLineBudget = 11504
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

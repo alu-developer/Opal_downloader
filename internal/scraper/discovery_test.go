@@ -1,6 +1,10 @@
 package scraper
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestAppendDiscoveredCoursesAcceptsOnlyExactConfiguredCourseTitle(t *testing.T) {
 	discovered := map[string]CourseRef{}
@@ -115,5 +119,83 @@ func TestIsBoilerplateCourseTitle(t *testing.T) {
 		if isBoilerplateCourseTitle(title) {
 			t.Errorf("expected %q to NOT be classified as boilerplate", title)
 		}
+	}
+}
+
+// The three cases below pin the distinction that was missing until
+// 2026-07-27: "every course-listing page failed" and "this account has no
+// courses" used to arrive at the caller as the identical (empty, nil) result.
+// A live developer-mode run reported "Found 0 course links / Discovered 0
+// remote files" - indistinguishable from a healthy sync - when in truth the
+// browser window had gone and nothing had been read at all.
+func TestAllCourseSourcesFailed(t *testing.T) {
+	cases := []struct {
+		name   string
+		failed int
+		total  int
+		want   bool
+	}{
+		{"every source failed", 3, 3, true},
+		{"a partial failure is only a warning", 2, 3, false},
+		{"no failures", 0, 3, false},
+		// Guards against the predicate reading "0 == 0" as total failure if
+		// sourcePages were ever emptied, which would abort every discovery.
+		{"no sources at all is not a failure", 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := allCourseSourcesFailed(tc.failed, tc.total); got != tc.want {
+				t.Fatalf("allCourseSourcesFailed(%d, %d) = %v, want %v", tc.failed, tc.total, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsClosedBrowserError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		// Both strings are copied from the real 2026-07-27 log, which is the
+		// point: these are matched on Playwright's wording, so a test that
+		// invented its own phrasing would prove nothing.
+		{
+			"playwright's long form",
+			errors.New(`Frame.Goto https://bildungsportal.sachsen.de/opal/auth/resource/courses: playwright: target closed: Target page, context or browser has been closed`),
+			true,
+		},
+		{
+			"playwright's short form",
+			errors.New(`Frame.Goto https://bildungsportal.sachsen.de/opal/auth/home: target closed`),
+			true,
+		},
+		{"an ordinary timeout is not a closed browser", errors.New("Timeout 20000ms exceeded"), false},
+		{"nil", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isClosedBrowserError(tc.err); got != tc.want {
+				t.Fatalf("isClosedBrowserError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCourseDiscoveryFailureExplainsAClosedWindow(t *testing.T) {
+	closed := courseDiscoveryFailure(3, errors.New("target closed")).Error()
+	if !strings.Contains(closed, "leave it open") {
+		t.Fatalf("a closed-browser failure must tell the user to leave the window open, got: %s", closed)
+	}
+
+	// The hint must stay specific to the cause. Telling someone their browser
+	// window closed when OPAL merely timed out sends them looking in the wrong
+	// place, which is worse than saying nothing.
+	timedOut := courseDiscoveryFailure(3, errors.New("Timeout 20000ms exceeded")).Error()
+	if strings.Contains(timedOut, "leave it open") {
+		t.Fatalf("a timeout must not be reported as a closed window, got: %s", timedOut)
+	}
+	if !strings.Contains(timedOut, "Timeout 20000ms exceeded") {
+		t.Fatalf("the underlying error must survive into the message, got: %s", timedOut)
 	}
 }

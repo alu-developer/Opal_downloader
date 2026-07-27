@@ -33,6 +33,19 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 		resolveURL(s.opalURL, "auth/home"),
 	}
 
+	// Every source failing is not the same fact as the account having no
+	// courses, and until 2026-07-27 this function reported them identically:
+	// each failure warned and `continue`d, and an empty list came back with a
+	// nil error. Live case that exposed it - the visible developer-mode login
+	// window was gone by the time discovery ran, so all three sources failed
+	// with "target closed" and the run finished as "Found 0 course links /
+	// Discovered 0 remote files", which reads exactly like a healthy sync of
+	// an empty account. Nothing was destroyed (the syncer never removes local
+	// files on the strength of a remote listing) but the user is told their
+	// courses are up to date when in fact nothing was ever read.
+	failedSources := 0
+	var lastFailure error
+
 	for _, sourceURL := range sourcePages {
 		if _, err := s.gotoPolitely(page, sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); err != nil {
 			// Retry once after a short wait, mirroring the transient-nav-failure
@@ -51,6 +64,8 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 			page.WaitForTimeout(contentFallbackWaitMs)
 			if _, retryErr := s.gotoPolitely(page, sourceURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: playwright.Float(20000)}); retryErr != nil {
 				logging.Warn("course discovery source %s failed to load after retry: %v (courses only listed on this page may be missing from the result)", sourceURL, retryErr)
+				failedSources++
+				lastFailure = retryErr
 				continue
 			}
 		}
@@ -59,14 +74,63 @@ func (s *OpalScraper) discoverCourseLinks(courseFilter []string) ([]CourseRef, e
 		candidates, err := s.extractCourseCardsFromCurrentPage()
 		if err != nil {
 			logging.Warn("course discovery source %s failed to extract course cards: %v (courses only listed on this page may be missing from the result)", sourceURL, err)
+			failedSources++
+			lastFailure = err
 			continue
 		}
 		appendDiscoveredCourses(discovered, candidates, s.opalURL, courseFilter)
 	}
 
+	if allCourseSourcesFailed(failedSources, len(sourcePages)) {
+		return nil, courseDiscoveryFailure(len(sourcePages), lastFailure)
+	}
+
 	items := mapValues(discovered)
 	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Title) < strings.ToLower(items[j].Title) })
 	return items, nil
+}
+
+// allCourseSourcesFailed reports whether *every* course-listing page errored,
+// which is the only case discoverCourseLinks may treat as a failed discovery.
+//
+// A partial failure deliberately stays a warning: the sources overlap, so one
+// of them dying usually costs nothing, and turning that into a hard error
+// would make a routine transient navigation failure abort a whole sync.
+//
+// An empty result with no failures is likewise *not* an error - `courses:` in
+// config.yaml can legitimately filter every discovered course away, and an
+// account really can have none.
+func allCourseSourcesFailed(failed, total int) bool {
+	return total > 0 && failed == total
+}
+
+// courseDiscoveryFailure builds the error for the all-sources-failed case.
+//
+// The closed-browser hint is worth its own sentence because it is the failure
+// actually observed in the wild, and it is the one a user can fix themselves:
+// in developer mode the crawl keeps running in the same visible window the
+// interactive login used, so closing that window once login looks finished -
+// the natural thing to do, since nothing asks you to leave it open - takes the
+// rest of the run down with it.
+func courseDiscoveryFailure(totalSources int, lastFailure error) error {
+	hint := ""
+	if isClosedBrowserError(lastFailure) {
+		hint = " - the browser window appears to have been closed; leave it open until the run finishes"
+	}
+	return fmt.Errorf("could not read the course list: all %d OPAL course-listing pages failed%s (last error: %v)", totalSources, hint, lastFailure)
+}
+
+// isClosedBrowserError matches Playwright's wording for "the thing you are
+// driving is gone". Matched on text because playwright-go reports these as
+// plain errors with no distinguishable type to test against.
+func isClosedBrowserError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	// "context or browser has been closed" is deliberately not a third check:
+	// it contains the second as a substring, so it was already matched.
+	return strings.Contains(lower, "target closed") || strings.Contains(lower, "browser has been closed")
 }
 
 func (s *OpalScraper) extractCourseCardsFromCurrentPage() ([]map[string]string, error) {

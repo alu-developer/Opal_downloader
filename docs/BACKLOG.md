@@ -98,9 +98,26 @@ Wicket renders in stages.
 
 The real question, in `docs/sync-speed-campaign.md`: both mechanisms *infer*
 completion from absence of change, which costs the same 300ms whether the page
-took 20ms or 2s. Is there a positive signal instead? `AJAX_CALL_DONE` alone is
-known insufficient (lost 52 files), but "DONE fired *and* the response carried
-the file-table markup" is a stronger condition nobody has tried.
+took 20ms or 2s. Is there a positive signal instead?
+
+**The network-layer answer is no, measured 2026-07-27 and now closed.** The
+proposed signal — "`AJAX_CALL_DONE` fired *and* the response carried the
+file-table markup" — assumed the file table arrives in an AJAX response. It
+does not. A live network trace of two courses (5 sections / 38 files, and the
+160-section / 207-file Softwaretechnologie) recorded 263 and 8154 responses, of
+which **2 and 3 were xhr, and every one of them was the already-handled
+`showAllLink` expansion**. An ordinary section's initial render fires no AJAX
+at all, confirming `navigation.go`'s existing claim over the campaign entry's
+premise. There is no event to key off, so the 300ms toll stands.
+
+Re-checkable in one command: `OPAL_NETWORK_TRACE=1 go test ./internal/scraper/
+-run TestNetworkTraceDuringSectionCrawl -v` (add
+`OPAL_NETWORK_TRACE_COURSE="<exact configured name>"`; results are written to
+`tmp/`).
+
+What is left, and neither has been looked for: a DOM-level completion marker
+Wicket sets itself, or an OPAL view that serves the file listing without the
+staged client-side render.
 
 of the crawl's concurrency model in the most correctness-sensitive part of
 this codebase, with a documented history of *silent* file loss from past

@@ -65,6 +65,50 @@ different and stronger condition than "DONE fired", and nobody has tried it.
 first lead in this campaign that attacks the cause rather than a symptom, and
 the first one with a number behind it.
 
+### 2026-07-27 — that lead is REFUTED. There is no AJAX response to key off.
+
+The premise above — "the file table arrives in a Wicket AJAX response the
+browser already receives and parses" — was written without checking, and it is
+false. `navigation.go`'s own doc comment on `waitForInteractiveLinks` already
+said so, from the 2026-07-16 load-completion research: *"network trace confirmed
+no separate 'populate content' AJAX request exists to hook a response-based wait
+on instead."* Two documents in this repo contradicting each other is exactly the
+situation the "quote the measurement" rule exists for, so the trace was run
+again rather than one of them believed.
+
+`internal/scraper/network_trace_probe_test.go` (opt-in,
+`OPAL_NETWORK_TRACE=1`) records every network response during a real section
+crawl. Two courses, chosen as the small and the large end of the account:
+
+| course | sections | files | responses | xhr/fetch | unaccounted |
+|---|---|---|---|---|---|
+| Algorithmen und Datenstrukturen | 5 | 38 | 263 | 2 | **0** |
+| Softwaretechnologie (SoSe 26) | ~160 | 207 | 8154 | 3 | **0** |
+
+Every xhr on both runs was a `pager-showAllLink` expansion — the post-click
+"show all" call this code already issues and already waits on via
+`AJAX_CALL_DONE` (`wicket.go`). **An ordinary section's initial render fires no
+AJAX at all.** The file table comes down inside the section's own `document`
+response and is then assembled by Wicket's scripts client-side, which is why
+only silence-based inference has ever worked here.
+
+So the stronger condition proposed above — "DONE fired *and* the response
+carried the file-table markup" — has nothing to fire on. It is not a harder
+version of a workable idea; there is no event.
+
+`navigation.go`'s claim stands. The 2026-07-27 entry's premise does not, and
+this table is why. The probe stays in the tree so the next person who doubts
+either claim can re-check in one command instead of rebuilding it, and it now
+writes its findings to `tmp/` — the first attempt at this ran in a background
+process that died with the session that started it, losing the result entirely.
+
+**Consequence for the ~84s debounce toll: it stands too.** The 300ms is the
+price of having no positive signal, and there is no positive signal to be had
+from the network layer. Anything that attacks it now has to come from a
+different direction — a DOM-level completion marker Wicket itself sets, if one
+exists, or a different OPAL view that serves the listing without the staged
+client-side render. Neither has been looked for.
+
 
 Standing goal set by the maintainer on 2026-07-21:
 

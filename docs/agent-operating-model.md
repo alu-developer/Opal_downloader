@@ -290,6 +290,27 @@ Ending a run remains the guards' call or the maintainer's, exactly as in §1.
   `turn-failures.log`, so a recurring pattern is visible instead of each
   failure erasing evidence of the last.
 
+### What does *not* survive: a background process
+
+A command started in the background belongs to the session that started it.
+Its output goes to a per-session scratch file, and both die together — a run
+still in flight when the turn ends leaves nothing behind at all.
+
+This is not hypothetical. On 2026-07-27 an unattended run started a multi-
+minute live network trace, hit its iteration cap, and ended with
+`docs/RESUME.md` reading "second run in flight". The next session had no
+result, no output file, and no way to tell a finished run from a lost one —
+so it re-ran the whole thing.
+
+Two rules follow:
+
+- **A long verification run must write its result to a file** under `tmp/`
+  (gitignored) or `docs/`, not only to stdout. `internal/scraper/
+  network_trace_probe_test.go` is the worked example.
+- **`docs/RESUME.md` must never describe a background process as in flight**
+  without saying where its result will land. "Running, output at X" is a
+  handoff; "running" alone is a dead end for whoever reads it next.
+
 ### Automatic resumption
 
 Everything above makes a kill *cheap*. This makes work *restart*. The

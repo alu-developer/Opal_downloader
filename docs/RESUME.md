@@ -43,11 +43,35 @@ responses total, exactly 2 were xhr/fetch, and both were the already-known
 initial render. `navigation.go`'s claim holds; the campaign entry's premise
 does not, for ordinary sections.
 
-Second run in flight against `Softwaretechnologie` (the 160-section, largest
-and most JS-heavy course) to confirm this isn't a small-course artifact
-before writing the conclusion into `docs/sync-speed-campaign.md` and
-`docs/BACKLOG.md`. The probe test stays in the tree afterwards, opt-in like
-its siblings (`httpdiscovery_probe_test.go`), so a future doubt about this
-claim can be re-checked in one command instead of rebuilt. Once the writeup
-lands, re-affirm the backlog's existing "not reachable by any approach
-identified so far" conclusion, now covering this lead too.
+**Done — the lead is refuted, written up in `docs/sync-speed-campaign.md`
+(2026-07-27 entry) and `docs/BACKLOG.md`.** Softwaretechnologie (SoSe 26):
+8154 responses, 3 xhr, all three `showAllLink`. Zero unaccounted AJAX, same as
+the small course. There is no network event to key a positive completion signal
+off.
+
+Next, if continuing: the two directions the write-up names as unexplored — a
+DOM-level completion marker Wicket sets itself, or an OPAL view that serves the
+file listing without the staged client-side render.
+
+---
+
+*History of this note's own failure, kept because the fix is in the tree:*
+
+**The second run was lost, and had to be re-run.** The 06:52 unattended run
+started it in the background, hit its iteration cap, and ended — taking the
+only copy of the output with it (see "What does not survive: a background
+process" in `docs/agent-operating-model.md`, added because of this). It also
+failed on the first retry for a plain reason: the course is configured as
+`Softwaretechnologie (SoSe 26)`, not `Softwaretechnologie`.
+
+In flight: the probe against `Softwaretechnologie (SoSe 26)` (the 160-section,
+largest and most JS-heavy course), to confirm the zero-AJAX result isn't a
+small-course artifact. **Its result lands in
+`tmp/network-trace-Softwaretechnologie (SoSe 26).txt`** — the probe now writes
+its findings to a file, so a killed session no longer loses them.
+
+Once it finishes: write the conclusion into `docs/sync-speed-campaign.md` and
+`docs/BACKLOG.md`, re-affirming the existing "not reachable by any approach
+identified so far" position, now covering this lead too. The probe stays in
+the tree, opt-in like `httpdiscovery_probe_test.go`, so a future doubt about
+this claim can be re-checked in one command instead of rebuilt.

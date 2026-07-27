@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/mxschmitt/playwright-go"
@@ -303,7 +304,10 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 			return page, visit
 		}
 	}
+	visitStart := time.Now()
+	settleStart := time.Now()
 	_, sectionCalm := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	settleSpent := time.Since(settleStart)
 
 	// waitForStableSectionContent polls extraction until the candidate
 	// count stabilizes (see its doc comment and candidateStabilityPoll's
@@ -314,7 +318,13 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 	// under concurrent load at once, up to and including an entire course
 	// silently coming back with 0 files. Section concurrency makes that
 	// budget matter more, not less.
+	stableStart := time.Now()
 	candidates, err := s.waitForStableSectionContent(page, sectionCalm)
+	stableSpent := time.Since(stableStart)
+	// Recorded before the error branches below, so a section that fails after
+	// waiting still contributes the time it spent waiting - otherwise the
+	// measurement would quietly exclude the slowest cases.
+	defer func() { s.sectionTiming.record(settleSpent, stableSpent, time.Since(visitStart)) }()
 	if err != nil {
 		if isPageCrashError(err) {
 			newPage, recErr := s.recoverFromPageCrash(page)

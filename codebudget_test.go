@@ -55,7 +55,13 @@ import (
 // this repo has lost files before by removing something whose purpose was not
 // obvious from reading it (see sectionContentRequiredStableReads in
 // internal/scraper/crawl.go, which looks arbitrary and is load-bearing).
-const codeLineBudget = 11181
+// Raised 2026-07-27 (+10, was 11181) for internal/scraper/sectiontiming.go:
+// the per-section timing measurement the sync-speed question needs. Bought:
+// an answer to "where does each section's ~1s actually go" that is a number
+// from a real run rather than constants read off the source. Trimmed once
+// before raising this - the per-section worst-case tracking went, since the
+// first question is only where the time goes.
+const codeLineBudget = 11191
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	out, err := exec.Command("git", "ls-files", "*.go").Output()

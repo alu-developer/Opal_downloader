@@ -129,6 +129,11 @@ type OpalScraper struct {
 	progressFn      func(DiscoveryProgress)
 	progressStarted int
 
+	// sectionTiming records where each section's wall time goes, so the
+	// sync-speed question can be answered with numbers instead of constants
+	// read off the source. See sectiontiming.go.
+	sectionTiming *sectionTiming
+
 	// stall records when the crawl last made progress and what it was doing,
 	// so a run that wedges leaves behind the one thing that was missing the
 	// time this actually happened: which section it was on. See stallwatch.go.
@@ -423,6 +428,7 @@ func New(opalURL, stateFile string) *OpalScraper {
 		downloadCandidates: map[string]downloadCandidate{},
 		limiter:            polite.New(polite.DefaultMinInterval),
 		stall:              &stallWatch{},
+		sectionTiming:      &sectionTiming{},
 	}
 }
 
@@ -535,6 +541,7 @@ func (s *OpalScraper) Close() error {
 	// requests the ceiling exists for. Close is the one point that sees a
 	// whole run.
 	s.LogRateLimitStats()
+	s.sectionTiming.log()
 
 	_ = s.closeBrowser()
 	_ = s.CloseDebugLogFile()

@@ -55,16 +55,25 @@ import (
 // this repo has lost files before by removing something whose purpose was not
 // obvious from reading it (see sectionContentRequiredStableReads in
 // internal/scraper/crawl.go, which looks arbitrary and is load-bearing).
-// Raised 2026-07-27 (+10, was 11181) for internal/scraper/sectiontiming.go:
-// the per-section timing measurement the sync-speed question needs. Bought:
-// an answer to "where does each section's ~1s actually go" that is a number
-// from a real run rather than constants read off the source. Trimmed once
-// before raising this - the per-section worst-case tracking went, since the
-// first question is only where the time goes.
-const codeLineBudget = 11191
+// Raised 2026-07-27 (was 11181) for internal/scraper/sectiontiming.go: the
+// per-section timing measurement the sync-speed question needs. Bought: an
+// answer to "where does each section's ~1s actually go" that is a number from
+// a real run rather than constants read off the source - it found that 63% of
+// in-section time is a 300ms debounce. Trimmed once before raising this; the
+// per-section worst-case tracking went.
+//
+// The first version of that raise said +10 and was wrong: the new file was
+// still untracked, so the check could not see it. The real cost was 50 lines.
+// Hence the --others flag above.
+const codeLineBudget = 11241
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
-	out, err := exec.Command("git", "ls-files", "*.go").Output()
+	// --others --exclude-standard includes files that are new and not yet
+	// staged. Without it a brand-new .go file is invisible to this check until
+	// it is committed - which is exactly the case the budget most needs to
+	// catch, and it went unnoticed once: sectiontiming.go passed the budget
+	// while untracked and put the repo 50 lines over the moment it landed.
+	out, err := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard", "*.go").Output()
 	if err != nil {
 		t.Skipf("cannot list git-tracked files (%v) - code budget not checked", err)
 	}

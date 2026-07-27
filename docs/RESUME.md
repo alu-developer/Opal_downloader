@@ -19,30 +19,33 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**Verifying the inline-preview blocker. Maintainer approved building it
-(2026-07-27); the code is committed (`6c75e98`) and is NOT yet proven safe.**
+**Nothing in flight. One measurement is owed before the preview blocker can be
+turned on.**
 
-What it does: aborts `document` requests that are under `/opal/FolderResource/`
-**and** in a subframe — OPAL's inline file previews, ~30 MB per course per
-discovery pass, which nothing in this package ever reads (there is no iframe
-handling at all). `OPAL_KEEP_FILE_PREVIEWS=1` restores the old behaviour.
+The blocker is built, verified safe, and **off by default**
+(`OPAL_BLOCK_FILE_PREVIEWS=1` enables it). Paired full-account A/B, 2026-07-27:
 
-**The verification, and it is the whole point.** A file *count* is not
-acceptable evidence here: the 2026-07-26 concurrency work lost nine files while
-counts looked normal, and the 2026-07-21 poll change lost files byte-for-byte
-identically to the unfixed code. So `internal/scraper/filelist_probe_test.go`
-writes every file's course, section, name and URL, sorted, to a diffable file.
+| run | files | wall clock |
+|---|---|---|
+| previews kept (ground truth) | **345** | **248.3s** |
+| previews blocked | **345** | **324.3s** |
 
-Run both, then diff. An empty diff is the only acceptable result:
+`diff` of the two sorted file lists (course, section, name, URL) was **empty**.
+Safety is settled: nothing is lost.
 
-    OPAL_FILELIST=before OPAL_KEEP_FILE_PREVIEWS=1 go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
-    OPAL_FILELIST=after                            go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
-    diff "tmp/filelist-before.txt" "tmp/filelist-after.txt"
+Speed came back the wrong way — 31% slower, outside the 212–245s band this
+account has measured before. One pair is not proof of a slowdown, but it is the
+only comparison that exists, so it ships off rather than on.
 
-**State right now:** the `before` (ground truth, previews kept) run is in
-flight. `after` has not been run. Expect ~345 files.
+**The next measurement, and it is cheap to run:** repeat the pair (ideally
+twice more) to find out whether 324.3s is real or an outlier. Command is in
+`internal/scraper/filelist_probe_test.go`'s doc comment. If it is real, the
+interesting question is *why* — the guess worth testing first is that an
+aborted subframe leaves the parent page churning (an error state to render),
+which is exactly what the 300ms settle-wait debounce is watching for. If so,
+`route.Fulfill` with an empty body might behave differently from `route.Abort`;
+that was reasoned about and guessed the other way round when this was built.
 
-**If the diff is not empty, revert `6c75e98` rather than tuning the filter** —
-losing files is the failure mode this whole project fears most, and a
-narrower abort condition that still loses one file is not an improvement. One
-clean pair of runs is also not proof; repeat before believing it.
+Whatever the timing turns out to be, blocking still saves OPAL ~30 MB per
+course per pass, which is its own argument under `docs/server-load.md` — but
+that is the maintainer's call, not an assumption to bake into a default.

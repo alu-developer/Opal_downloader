@@ -24,8 +24,8 @@ import (
 //
 // Usage:
 //
-//	OPAL_FILELIST=before OPAL_KEEP_FILE_PREVIEWS=1 go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
-//	OPAL_FILELIST=after                            go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
+//	OPAL_FILELIST=before                             go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
+//	OPAL_FILELIST=after OPAL_BLOCK_FILE_PREVIEWS=1   go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
 //	diff "tmp/filelist-before.txt" "tmp/filelist-after.txt"
 //
 // An empty diff is the only acceptable result.
@@ -68,5 +68,5 @@ func TestFileListSnapshot(t *testing.T) {
 	if err := os.WriteFile(out, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", out, err)
 	}
-	t.Logf("%d files written to %s (previews kept: %q)", len(files), out, os.Getenv(keepPreviewsEnv))
+	t.Logf("%d files written to %s (previews blocked: %q)", len(files), out, os.Getenv(blockPreviewsEnv))
 }

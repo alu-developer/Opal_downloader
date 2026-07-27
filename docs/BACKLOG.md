@@ -138,20 +138,36 @@ things faster — the one direction `docs/server-load.md` encourages — and it 
 attack the 94.2s settle wait at its cause, since a multi-megabyte PDF loading
 into an iframe keeps generating the very mutations that debounce waits to stop.
 
-**Approved and built (2026-07-27), verification in progress.**
-`internal/scraper/previews.go` aborts `document` requests that are under
-`/opal/FolderResource/` **and** in a subframe; `OPAL_KEEP_FILE_PREVIEWS=1`
-restores the old behaviour so an A/B is one command away. The filter's safety
-argument is unit-tested exhaustively, including the two cases that would break
-downloading (a main-frame navigation to a file, and a section page).
+**Approved, built, verified — and it is not a speed fix.** Off by default;
+`OPAL_BLOCK_FILE_PREVIEWS=1` enables it. Paired full-account A/B, 2026-07-27:
 
-**Not yet proven safe.** The evidence that decides it is a byte-for-byte
-file-list diff against the ground truth, not a file count —
-`internal/scraper/filelist_probe_test.go` writes every file's course, section,
-name and URL, sorted, for exactly this. A count would have passed both of the
-losses this project already knows about. If the diff is not empty, revert
-rather than narrowing the filter: a condition that still loses one file is not
-an improvement.
+| run | files | wall clock |
+|---|---|---|
+| previews kept (ground truth) | **345** | **248.3s** |
+| previews blocked | **345** | **324.3s** |
+
+**Safety: settled.** The `diff` of the two sorted file lists — course, section,
+name and URL for every file — was **empty**. Nothing is lost. A file count
+would not have been acceptable evidence here and both of this project's known
+losses would have passed one.
+
+**Speed: came back the wrong way.** 31% slower, outside the 212–245s band this
+account has measured before. One pair is not proof of a slowdown any more than
+it would have been proof of a speedup — but shipping a default that measured
+31% slower on the only comparison that exists is exactly the mistake this
+campaign keeps recording, so it is opt-in.
+
+**What it still buys regardless: ~30 MB per course per pass that OPAL does not
+have to serve.** That is a `docs/server-load.md` win on its own terms, and may
+justify enabling it even if it is slower — a judgement call, not an assumption
+to bake into a default.
+
+**Next, and cheap:** repeat the pair twice to find out whether 324.3s is real.
+If it is, the guess worth testing first is that an aborted subframe leaves the
+parent churning over an error state — precisely what the 300ms settle-wait
+debounce watches for — in which case `route.Fulfill` with an empty body may
+behave differently from `route.Abort`. That was reasoned about when this was
+built, and guessed the other way round.
 
 Also unexplored, and now second in line: a DOM-level completion marker Wicket
 sets itself, or an OPAL view that serves the file listing without the staged

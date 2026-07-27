@@ -26,21 +26,36 @@ import (
 //     FolderResource URL is the download path doing its job, and aborting that
 //     would break downloading rather than speed up discovery.
 //
-// The kill switch is deliberate. Every past attempt to make this crawl faster
-// that changed what the page renders lost files silently, so the old behaviour
-// has to stay one environment variable away for an A/B comparison to be
-// possible at all.
-const keepPreviewsEnv = "OPAL_KEEP_FILE_PREVIEWS"
+// OFF BY DEFAULT, and the reason is a measurement rather than caution.
+//
+// The safety question came back clean: a paired full-account A/B (2026-07-27,
+// internal/scraper/filelist_probe_test.go) produced **byte-for-byte identical
+// file lists**, 345 files each, matching the known ground truth. Nothing is
+// lost by blocking previews.
+//
+// The speed question came back the wrong way. The blocking run took **324.3s
+// against 248.3s** - 31% slower, and well outside the 212-245s band this
+// account has previously measured. One pair is not proof of a slowdown any
+// more than it would have been proof of a speedup, but shipping a default that
+// measured 31% slower on the only comparison that exists would be exactly the
+// mistake this campaign keeps writing down.
+//
+// So it stays available and unproven rather than on. Set
+// OPAL_BLOCK_FILE_PREVIEWS=1 to enable it. What it definitely still buys is
+// ~30 MB per course per pass that OPAL does not have to serve (see
+// docs/server-load.md) - which may yet justify enabling it even if it is
+// slower, but that is the maintainer's call once the timing is nailed down.
+const blockPreviewsEnv = "OPAL_BLOCK_FILE_PREVIEWS"
 
 const folderResourceMarker = "/FolderResource/"
 
 // blockInlineFilePreviews installs the route on ctx. Failing to install it is
 // not fatal: the crawl still works, it is just paying for previews again.
 func (s *OpalScraper) blockInlineFilePreviews(ctx playwright.BrowserContext) {
-	if os.Getenv(keepPreviewsEnv) != "" {
-		logging.Detail("Inline file previews left enabled (%s is set)", keepPreviewsEnv)
+	if os.Getenv(blockPreviewsEnv) == "" {
 		return
 	}
+	logging.Detail("Blocking inline file previews (%s is set)", blockPreviewsEnv)
 
 	err := ctx.Route("**"+folderResourceMarker+"**", func(route playwright.Route) {
 		req := route.Request()

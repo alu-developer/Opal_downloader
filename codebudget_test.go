@@ -78,7 +78,15 @@ import (
 //
 // Trimmed before raising: a one-line urlQueryEscape wrapper around
 // template.URLQueryEscaper.
-const codeLineBudget = 11417
+//
+// Raised 2026-07-27 (was 11417) for internal/scraper/previews.go. Bought: the
+// ability to not download ~30 MB of file previews per course per discovery
+// pass. Most of the file is the argument rather than the code - which two
+// conditions make it safe, and the measured result that made it opt-in: the
+// file lists came back byte-for-byte identical, and the run came back 31%
+// slower. A future reader deciding whether to turn it on needs both numbers
+// more than they need the six lines of logic.
+const codeLineBudget = 11477
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

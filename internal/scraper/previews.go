@@ -76,9 +76,15 @@ func (s *OpalScraper) blockInlineFilePreviews(ctx playwright.BrowserContext) {
 		}
 		atomic.AddInt64(&s.previewsBlocked, 1)
 		atomic.AddInt64(&s.previewBytesSaved, contentLengthOf(req))
-		// Abort rather than fulfil with an empty body: an empty 200 would make
-		// the frame render an error state, which is more DOM churn than a
-		// failed load, and the settle wait is watching exactly that.
+		// Abort rather than fulfil with an empty body. This was originally a
+		// guess - that an empty 200 would make the frame render an error state,
+		// more DOM churn than a failed load, which the settle wait is watching
+		// for. Measured 2026-07-27 and the guess was simply wrong in both
+		// directions: Fulfill with an empty 200 text/html came back at 272.0s
+		// against Abort's 265.0s on the same session and evening (345 files,
+		// list byte-identical). How the request is refused does not matter.
+		// Whatever costs the ~26-31%, it is not the abort's error state, so do
+		// not spend another run on this.
 		_ = route.Abort("blockedbyclient")
 	})
 	if err != nil {

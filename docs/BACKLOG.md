@@ -130,15 +130,30 @@ have to serve.** That is a `docs/server-load.md` win on its own terms, and may
 justify enabling it even if it is slower — a judgement call, not an assumption
 to bake into a default.
 
-**Next:** the repeat is done and the slowdown is real, so the guess it was
-meant to gate is now the live experiment — that an aborted subframe leaves the
-parent churning over an error state, precisely what the 300ms settle-wait
-debounce watches for, in which case `route.Fulfill` with an empty body may
-behave differently from `route.Abort`. `previews.go` currently argues the
-opposite in a comment ("an empty 200 would make the frame render an error
-state, which is more DOM churn than a failed load"), reasoned and never
-measured — exactly the kind of confident sentence `CLAUDE.md` says does not
-block anything.
+**The one recorded guess for the slowdown is now dead, measured.** It was that
+an aborted subframe leaves the parent churning over an error state — precisely
+what the 300ms settle-wait debounce watches for — so `route.Fulfill` with an
+empty body might behave differently from `route.Abort`. Same session, same
+evening, 345 files, list byte-identical:
+
+| refusal | wall clock |
+|---|---|
+| `route.Abort("blockedbyclient")` | 265.0s |
+| `route.Fulfill` empty 200 `text/html` | **272.0s** |
+
+**How the request is refused does not matter.** `previews.go` argued the
+opposite in a comment; the argument was reasoned, never measured, and wrong in
+both directions. Recorded in that file so nobody spends a fourth run on it.
+
+**What this leaves, and it is a better question than the one it replaced:** the
+cost is not in *how* the preview is refused, so it is either the interception
+itself (every `/FolderResource/` request now round-trips through Go, and
+Playwright routing disables the browser cache for matched requests) or a real
+consequence of the file never arriving — a subframe that never reaches a loaded
+state the parent is waiting on. Those are distinguishable in one run: install
+the route but always call `route.Continue()`. If that alone costs ~55s, the
+blocker is innocent and interception is the tax; if it comes back at ~210s, the
+missing file is genuinely what costs the time.
 
 **No longer blocked: the session is fresh again (2026-07-27 18:31).** The
 maintainer ran the GUI by hand and TU-Fast completed Shibboleth on its own in

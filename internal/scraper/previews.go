@@ -46,11 +46,31 @@ import (
 // fastest run this account has recorded, which rules out the first pair having
 // simply caught a slow day.
 //
-// So it stays available and *measured slower* rather than on. Set
-// OPAL_BLOCK_FILE_PREVIEWS=1 to enable it. What it definitely still buys is
-// ~30 MB per course per pass that OPAL does not have to serve (see
-// docs/server-load.md) - which may yet justify enabling it even if it is
-// slower, but that is the maintainer's call once the timing is nailed down.
+// THE SLOWDOWN IS NOT THE BLOCKING. It is the interception. Measured
+// 2026-07-27, same session and evening, 345 files every time, every list
+// byte-identical against the no-route ground truth:
+//
+//	condition                        wall clock
+//	no route installed at all             210.3s
+//	route + Abort                         265.0s
+//	route + Fulfill (empty 200)           272.0s
+//	route installed, always Continue      274.6s
+//
+// The last row is the whole finding: install this route, block *nothing*, and
+// the run still costs ~64s more. Whatever is expensive, it is ctx.Route
+// itself - not aborting, not the missing file, not the settle wait reacting to
+// an error state. Every explanation this campaign had written down for the
+// slowdown was about the blocking, and all of them are wrong.
+//
+// So the ~30 MB saving is real and its apparent price tag belongs to something
+// else. Do not re-measure Abort vs Fulfill vs blocking strategy; the open
+// question is whether interception can be made cheap (a narrower pattern, or
+// avoiding ctx.Route entirely in favour of a browser-level setting that stops
+// the preview being fetched in the first place).
+//
+// Until that is answered it stays off. Set OPAL_BLOCK_FILE_PREVIEWS=1 to
+// enable it; you are buying ~30 MB per course per pass that OPAL does not have
+// to serve (see docs/server-load.md) for ~64s of interception overhead.
 const blockPreviewsEnv = "OPAL_BLOCK_FILE_PREVIEWS"
 
 const folderResourceMarker = "/FolderResource/"

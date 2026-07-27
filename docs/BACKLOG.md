@@ -145,15 +145,38 @@ evening, 345 files, list byte-identical:
 opposite in a comment; the argument was reasoned, never measured, and wrong in
 both directions. Recorded in that file so nobody spends a fourth run on it.
 
-**What this leaves, and it is a better question than the one it replaced:** the
-cost is not in *how* the preview is refused, so it is either the interception
-itself (every `/FolderResource/` request now round-trips through Go, and
-Playwright routing disables the browser cache for matched requests) or a real
-consequence of the file never arriving — a subframe that never reaches a loaded
-state the parent is waiting on. Those are distinguishable in one run: install
-the route but always call `route.Continue()`. If that alone costs ~55s, the
-blocker is innocent and interception is the tax; if it comes back at ~210s, the
-missing file is genuinely what costs the time.
+**And that follow-up answered it. The slowdown was never the blocking — it is
+`ctx.Route` itself.** Same session, same evening, 345 files every run, every
+list byte-identical against the no-route ground truth:
+
+| condition | wall clock |
+|---|---|
+| no route installed at all | **210.3s** |
+| route + `Abort` | 265.0s |
+| route + `Fulfill` (empty 200) | 272.0s |
+| **route installed, always `Continue`** | **274.6s** |
+
+The last row is the finding: install the route, block **nothing**, and the run
+still costs ~64s more. Every explanation this campaign had written down for the
+slowdown was about the blocking, and all of them were wrong.
+
+**Two things follow, and the second is bigger than this item.**
+
+1. The ~30 MB saving is real and its price tag belongs to something else. The
+   blocker is not a speed/traffic trade-off; it is a free saving sitting behind
+   an expensive delivery mechanism.
+2. **`ctx.Route` costs ~30% of a run on this workload**, which is a fact about
+   this codebase's tooling and not about previews. Anything else that reaches
+   for request interception — the network trace probe already does — is paying
+   it, and any past measurement taken with a route installed is suspect.
+
+**Next, and it decides whether the saving is recoverable:** is the tax
+proportional to *matched* requests, or is it a fixed cost of having any route
+at all? One run separates them — register a route whose pattern matches
+nothing (`**/no-such-path-xyz/**`) and measure. Near 210s means a narrower
+pattern rescues the saving. Near 274s means `ctx.Route` is unusable on this
+crawl at any pattern, and the preview saving needs a browser-level setting that
+stops the fetch without interception.
 
 **No longer blocked: the session is fresh again (2026-07-27 18:31).** The
 maintainer ran the GUI by hand and TU-Fast completed Shibboleth on its own in

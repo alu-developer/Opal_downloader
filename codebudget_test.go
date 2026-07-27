@@ -124,7 +124,17 @@ import (
 // future "temporary" raise cheaper to argue for.
 //
 // Re-adding it is one `git show` away if a future attempt wants to re-measure.
-const codeLineBudget = 11534
+// Raised 2026-07-27 (was 11534) for internal/sectionhash. Bought: the first
+// piece of the change-detection cache, which is the only approach measured
+// capable of a large sync-speed win (210.3s -> ~93s projected). Pure, no
+// integration, and useless on its own until the cache is built on it - added
+// separately because it is the piece the whole design's SAFETY rests on, and
+// it deserves to be reviewable without a crawl attached.
+//
+// Most of the file is the pattern list and the argument for each pattern being
+// narrow. That is proportionate: a pattern one character too wide turns a
+// changed section into an unchanged one, which stops downloads silently.
+const codeLineBudget = 11563
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

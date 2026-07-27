@@ -19,90 +19,57 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**The change-detection cache is reopened by a measurement (2026-07-27, ~22:20).**
+**Building the change-detection cache (2026-07-27, ~23:30). Piece 1 of 3 done.**
 
-**Read this first if picked up cold: it is the most important sync-speed result
-in the campaign, and it is only half-proven.**
+The sync-speed question moved a long way tonight and this is where it stands.
+Everything below is committed.
 
-`docs/sync-speed-campaign.md` rejected the change-detection cache in July on a
-real number - normalised section HTML matched across runs **0 of 276 times** -
-but that entry names its own unfinished business: the remaining volatile
-fragments were never isolated, and the diagnostic meant to do it was botched
-(it compared two standalone fetches). So the rejection was measured, and its
-*cause* was never established.
+**Settled and closed, do not redo:**
 
-It is established now. `internal/scraper/htmlstability_probe_test.go` (test
-only, opt-in, no product code) fetches one section twice over plain HTTP 45s
-apart with the saved session cookies and diffs the normalised forms.
+- The 300ms debounce cannot go. Skipping the settle wait is byte-identical and
+  **51% slower** (317.1s vs 210.3s); skipping it while asserting its calm
+  verdict is still 293.5s. It is not overhead - it is the *cheap* way to wait,
+  and the stability poll is the expensive way. Three measured attempts, all
+  negative (`dd68b0e`).
+- Blocking file previews is safe but costs ~26-31%, and the cost is `ctx.Route`
+  itself: a route matching **nothing** still costs ~62s (`1be1001`).
 
-**What varies is Wicket bookkeeping, nothing else:**
+**The live thread: the change-detection cache, reopened by measurement.**
+July rejected it because normalised section HTML matched across runs 0 of 276
+times. That entry named a diagnostic it never ran. Run now, the entire
+difference is Wicket bookkeeping - a page-version counter, generated component
+ids, a table-widget instance counter. Normalise those and the match rate is
+**11 of 12**, with a file-bearing section byte-identical (`350ecc1`).
 
-- `?2284-1.0-...` / `?2288"` - Wicket's per-session **page-version counter**,
-  incremented on every render.
-- `id35a0c` / `id35a85` - Wicket's **generated component ids**, the same
-  counter in hex.
+Safety is tested and passes: a file renamed, a row added, one character changed
+are all still visible after normalisation (`2e4ba1e`). That asymmetry is the
+design - a miss costs one crawl, a false match stops downloads silently.
 
-Both live only in the header navigation's Ajax glue (tabs, profile, logout,
-search) and in `<title id=...>`. **Neither touches the file table.** With two
-more patterns added, 168 differing lines went to 1, then to **0 - the
-normalised forms are byte-identical.**
+**The ceiling, measured BEFORE building** (the previous attempt built first and
+then found nothing hit): HTTP fetch is 331ms mean, 91 KiB/section, so 280
+sections is **~93s** against today's 210.3s. A 2.3x win, and the ~30s target is
+out of reach for this design too - stop quoting it (`b471609`).
 
-**So OPAL section HTML IS reproducible across runs.** The campaign's standing
-conclusion ("not reproducible beyond the four normalised patterns") is wrong,
-and the approach that could actually reach ~30s - skipping the browser crawl
-for unchanged sections - is live again.
+**Piece 1 done:** `internal/sectionhash` - normalise + SHA-256, pure, no
+integration, fully tested including the case a file count cannot see (same row
+count, different rows).
 
-**What is NOT yet proven, and must be before anyone builds on this:**
+**Piece 2, next:** the cache file. **Design decision made tonight and not yet
+written anywhere else:** store only `sectionURL -> hash`, NOT the extractor
+output. The previous build stored extractor output and produced a **52 MB**
+file for 276 sections. It does not need to: on a hit, that section's files can
+be taken from the previous run's own results, and the manifest already records
+course + section per file. So the cache is tiny and the interning problem
+disappears entirely.
 
-1. One section, one pair, **same saved session**. The original rejection
-   measured 276 sections across separate runs, where JSESSIONID differs too.
-   Wicket's counters are per-session, so a fresh session starts them elsewhere -
-   the normalisation should still cover it, but that is reasoning, not a
-   measurement.
-2. The safer design this suggests anyway: **hash the content subtree, not the
-   page.** All the volatility found is in the page chrome; the extractor
-   already targets `section#main-content`. Hashing only that sidesteps every
-   pattern above instead of chasing them.
+**Piece 3:** wire it into `collectCourseFiles` - fetch + hash before crawling a
+section, crawl on any miss or any doubt. Then measure a warm no-op sync against
+the 210.3s baseline, with a byte-for-byte file-list diff as the acceptance test,
+never a count.
 
-**Generalised, corrected twice, and still alive (2026-07-27, ~23:00).**
-
-Twelve sections, fetched twice 60s apart: whole page raw **0/12**, whole page
-normalised **9/12**, content region raw **0/12**, content region normalised
-**9/12**.
-
-**Correction 1 (mine, from one section):** "all the volatility is in the page
-chrome" is wrong - the raw content region matched 0 of 12. Normalisation is
-required either way.
-
-**Correction 2, and this one nearly killed the lead on a false premise.** A
-probe against `CourseNode/1757385431705760008` found **zero** file references
-in the server HTML and I was about to conclude that a hash cannot see file
-changes at all. That node is an *enrolment* node with no files. A section that
-actually holds files carries its filenames in the server HTML:
-`AnalysisSkriptChill` appears 3 times, `.pdf` 3 times. **Always probe a
-file-bearing node** - the default in the probe now is one.
-
-**Safety, tested and passing.** `TestNormalisationDoesNotHideRealChanges`
-applies the edits a lecturer really makes to the live page and requires the
-normalisation to still see each: a file renamed, a new file row appended, a
-single character changed in the body. All detected. (The href-change case skips
-- file URLs are `/CourseNode/.../Name.pdf`, not `/FolderResource/`.) This is
-the half that matters: a miss costs a crawl, a false match silently stops
-downloading.
-
-**Where it stands: viable, not proven.** The one remaining measured gap is that
-the file-bearing section still shows **4 differing lines** after normalisation,
-and 3 of 12 sections do not match at all. Nobody has looked at what those are.
-
-**Immediate next step:** dump the 4 differing lines for the file-bearing
-section (the single-section probe already prints them - just read them) and
-decide whether they are one more bookkeeping pattern or something genuinely
-per-render. That single answer decides whether the hit rate goes to ~100% or
-stalls at 75%.
-
-Then, only then: rebuild the cache against the content subtree, with rootText
-interning (without it the file was **52 MB** for 276 sections), and measure a
-warm no-op sync against the 210.3s baseline.
-
-Beware the trap the campaign already recorded: a cache of extractor output
-needs rootText interning, or the file is **52 MB** for 276 sections.
+**Open question that is genuinely the maintainer's, not mine:** realising the
+~70s floor rather than ~93s means letting the effective request rate rise
+toward `docs/server-load.md`'s 4/s ceiling. It asks for the same *number* of
+things while dropping payload enormously (91 KiB of HTML vs a full render plus
+~30 MB of previews per course), but it is a policy call. The 2.3x win does not
+depend on it.

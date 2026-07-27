@@ -49,9 +49,27 @@ does not, for ordinary sections.
 the small course. There is no network event to key a positive completion signal
 off.
 
-Next, if continuing: the two directions the write-up names as unexplored — a
-DOM-level completion marker Wicket sets itself, or an OPAL view that serves the
-file listing without the staged client-side render.
+**In flight now: a second, sharper question the trace raised.** That run
+recorded **406 document responses for a ~160-section course** — more than one
+document per section — and this codebase has *no iframe handling at all* (no
+`FrameLocator`, no `ContentFrame`, no `page.Frames()`).
+
+Why that matters: the 2026-07-21 HTTP-first attempt got **zero files** out of
+this exact course and concluded it was "client-side rendered". But the trace
+proves no AJAX fetches its content. If the file table instead lives in a
+*second document* (an iframe), then HTTP-first fetched the outer shell and
+never saw the inner document — a parsing gap, not a rendering one, and the
+kind that is fixable.
+
+The probe now reports document responses as well. Re-running against
+`Softwaretechnologie (SoSe 26)`; **result lands in
+`tmp/network-trace-Softwaretechnologie (SoSe 26).txt`**.
+
+If the extra documents turn out to be iframes carrying the file table, the next
+step is fetching that inner URL over HTTP and checking a known filename appears
+in it — which would reopen HTTP-first discovery with an actual completeness
+signal. If they are something mundane (redirects, the course entry page), this
+is closed and the remaining lead is a DOM-level completion marker.
 
 ---
 

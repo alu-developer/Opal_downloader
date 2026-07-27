@@ -141,6 +141,43 @@ func TestNetworkTraceDuringSectionCrawl(t *testing.T) {
 		say("  [%d] %s %s", r.status, r.resourceType, r.url)
 	}
 
+	// Document responses, and why they matter as much as the xhr count. The
+	// first run of this probe recorded 406 documents for a ~160-section course -
+	// more than one per section - while this codebase contains no iframe
+	// handling whatsoever (no FrameLocator, no ContentFrame, no page.Frames()).
+	// If the browser is fetching a second document per section, that is where a
+	// server-rendered file table could be living, and it would explain how
+	// HTTP-first discovery got zero files out of this exact course while calling
+	// it "client-side rendered" (2026-07-21 entry, docs/sync-speed-campaign.md):
+	// it fetched the outer URL and never saw the inner document.
+	var docs []respRecord
+	for _, r := range responses {
+		if r.resourceType == "document" {
+			docs = append(docs, r)
+		}
+	}
+	distinctDocs := map[string]int{}
+	for _, r := range docs {
+		distinctDocs[r.url]++
+	}
+	say("--- document responses: %d total, %d distinct URLs ---", len(docs), len(distinctDocs))
+
+	// Print a bounded sample rather than all of them: on the large course this
+	// is hundreds of lines, and the question here is what *shape* they have.
+	var docURLs []string
+	for u := range distinctDocs {
+		docURLs = append(docURLs, u)
+	}
+	sort.Strings(docURLs)
+	const sample = 40
+	for i, u := range docURLs {
+		if i >= sample {
+			say("  ... and %d more distinct document URLs", len(docURLs)-sample)
+			break
+		}
+		say("  x%-3d %s", distinctDocs[u], u)
+	}
+
 	// The claim under test: does any xhr/fetch response fire during a normal
 	// (non-paginated) section's initial render? A raw count cannot answer that,
 	// because the post-click "show all" expansion is a real AJAX call that this

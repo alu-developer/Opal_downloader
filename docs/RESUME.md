@@ -19,4 +19,26 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-_Nothing in flight._
+**Repeating the preview-blocker A/B (2026-07-27, ~18:45).**
+
+Committed and safe already: `62d0515` fixes discovery reporting "0 courses"
+instead of an error when every source fails. That work is done and green.
+
+In flight: the sync-speed measurement that was blocked on a login. The session
+is fresh (TU-Fast completed by hand at 18:31), so the pair can finally be
+repeated. Running:
+
+    OPAL_FILELIST=repeat1_before  go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
+    OPAL_FILELIST=repeat1_after OPAL_BLOCK_FILE_PREVIEWS=1  (same)
+
+The question being answered: the single existing pair measured 248.3s with
+previews kept and 324.3s with them blocked (31% slower), which is outside the
+212–245s band this account has measured before. One pair is not proof. If the
+slowdown is real, the next guess to test is that an aborted subframe leaves the
+parent churning over an error state — the very thing the 300ms settle-wait
+debounce watches for — in which case `route.Fulfill` with an empty body may
+behave differently from `route.Abort`.
+
+Results go in `docs/sync-speed-campaign.md` and the backlog entry. If this is
+picked up cold: check `tmp/` for whichever snapshots completed, and just rerun
+the missing side.

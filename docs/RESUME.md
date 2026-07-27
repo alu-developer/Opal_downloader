@@ -66,7 +66,30 @@ pattern would otherwise make old hashes match HTML they should not), and a
 section not recorded this run is dropped rather than carried over, so a section
 removed from OPAL cannot answer "unchanged" forever.
 
-**Piece 3, next and the only risky one:** wire it into `collectCourseFiles` - fetch + hash before crawling a
+**Piece 3, next and the only risky one — but the design in "piece 2 done"
+above needs one correction first, found while starting the wiring:**
+
+A hit has to *return that section's files*, and nothing currently stores them
+per section. `SectionURL` exists on `DiscoveryProgress` (`crawl.go:175`) but
+**not** on `FileRef` (`internal/scraper/types.go:15`) and not on `RemoteFile`
+(`scraper.go:19`). The manifest records course + section *titles*, not URLs, so
+it cannot supply them either without a schema change and migration.
+
+**So the cache must store the file rows after all, and that is fine.** The
+52 MB disaster of 2026-07-21 came from storing the extractor's raw candidates,
+where the same section text was duplicated across 9,958 of them. Storing the
+resulting FileRef fields instead - course, section, name, URL, size, modified -
+is about 345 rows of ~200 bytes, i.e. **~70 KB**. It was the wrong *thing*
+being stored, not the storing.
+
+Concretely, before wiring:
+1. Add `SectionURL` to `FileRef` (populated at the point crawl.go already has
+   `currentURL`), so a file knows which section produced it.
+2. Widen `sectioncache` from `sectionURL -> hash` to
+   `sectionURL -> {hash, files[]}`. Bump `SchemaVersion`; the existing
+   degrade-to-crawl paths already cover an old file.
+
+**Then** wire it into `collectCourseFiles` - fetch + hash before crawling a
 section, crawl on any miss or any doubt. Then measure a warm no-op sync against
 the 210.3s baseline, with a byte-for-byte file-list diff as the acceptance test,
 never a count.

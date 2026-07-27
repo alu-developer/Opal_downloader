@@ -442,7 +442,14 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
-(nothing right now)
+- **The `SessionStart` hook's own output can be mojibake even when the source
+  file isn't.** This session's `additionalContext` (which embeds
+  `docs/RESUME.md`) showed `�?"` where the file has a correct em dash `—` —
+  likely a PowerShell encoding step when the hook reads the file into JSON.
+  `encoding_test.go`'s mojibake guard only scans git-tracked files, so it
+  can't see corruption introduced at hook-output time; a maintainer reading
+  the hook's context (not the file) would see garbage neither the guard nor a
+  file-level review would catch.
 
 ---
 

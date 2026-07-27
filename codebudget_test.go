@@ -148,7 +148,11 @@ import (
 // defensive padding and are the opposite: each is a route by which a cache
 // could answer "unchanged" for something it cannot vouch for, and that answer
 // stops downloads silently.
-const codeLineBudget = 11628
+// Raised 2026-07-27 (was 11628) by two lines: FileRef.SectionURL and its
+// assignment. A file has to know which section produced it before anything can
+// be cached per section, and the title cannot stand in - it is sanitised for
+// the filesystem and two sections can share one.
+const codeLineBudget = 11630
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

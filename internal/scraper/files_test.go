@@ -411,3 +411,29 @@ func TestIsSameHostAsOpal(t *testing.T) {
 		})
 	}
 }
+
+// A file has to know which section produced it, or nothing can be cached per
+// section. The title cannot stand in: it is sanitised for the filesystem and
+// two sections can share one.
+func TestAppendSectionFilesRecordsTheSectionURL(t *testing.T) {
+	const sectionURL = "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/2"
+	files := appendSectionFiles(
+		nil,
+		map[string]struct{}{},
+		[]map[string]string{{
+			"href": "/opal/auth/RepositoryEntry/1/CourseNode/2/Skript.pdf",
+			"text": "Skript.pdf",
+		}},
+		CourseRef{RepoID: "1", Title: "Analysis"},
+		SectionRef{CourseRepoID: "1", Title: "Material", URL: sectionURL},
+		sectionURL, "", "", false,
+		"https://bildungsportal.sachsen.de/opal/",
+		nil,
+	)
+	if len(files) != 1 {
+		t.Fatalf("expected one file, got %d", len(files))
+	}
+	if files[0].SectionURL != sectionURL {
+		t.Fatalf("SectionURL = %q, want %q", files[0].SectionURL, sectionURL)
+	}
+}

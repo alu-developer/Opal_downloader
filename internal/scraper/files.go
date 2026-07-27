@@ -128,6 +128,7 @@ func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candid
 			CourseRepoID: course.RepoID,
 			CourseTitle:  safeCourse,
 			SectionTitle: sanitizeFilename(section.Title),
+			SectionURL:   section.URL,
 			Name:         safeName,
 			URL:          absURL,
 			Path:         filepath.ToSlash(filepath.Join(safeCourse, safeName)),

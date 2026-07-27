@@ -16,9 +16,14 @@ type FileRef struct {
 	CourseRepoID string
 	CourseTitle  string
 	SectionTitle string
-	Name         string
-	URL          string
-	Path         string
+	// SectionURL is the page this file was found on. Titles are not usable as
+	// an identity - two sections can share one, and they are sanitised for the
+	// filesystem - so anything keyed per section (the change-detection cache in
+	// internal/sectioncache) needs the URL.
+	SectionURL string
+	Name       string
+	URL        string
+	Path       string
 	// Size and Modified carry OPAL's own "Größe"/"Zuletzt geändert" file-list
 	// column values, when present, so syncer.fileChanged can detect an
 	// in-place content edit on OPAL's side (same name/path, different

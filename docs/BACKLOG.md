@@ -407,6 +407,15 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
+- **A stale worktree under `.claude/worktrees/` holds a second copy of the
+  source, and searches hit it.** `.claude/worktrees/agent-ae4c52c8caec1f5e0/`
+  turned up as a duplicate result while grepping for `golang.org/x/text`
+  (2026-07-27) — two hits for one import, in `internal/config` and
+  `internal/scheduler`. Harmless this time because the duplicate was obvious,
+  but a future search that lands on the stale copy and reads *its* version of a
+  file would be quietly reading old code, and nothing in a grep result says
+  which tree a path belongs to.
+
 ---
 
 ## Done recently

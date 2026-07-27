@@ -38,17 +38,15 @@ big files from growing while touching them. Two byte-identical splits landed
 this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
 
 ### Sync speed: measured for the first time, and the lead is real
-**Blocked:** every concrete next step needs either the maintainer (the
-preview-blocker repeat needs a hand-run `login`) or a genuinely new idea this
-file hasn't found yet (a DOM-level completion signal or an alternate OPAL
-view — searched for once, 2026-07-27, nothing concrete found; still worth
-another look if anyone has a lead). The parser only reads this heading's
-first line, and it previously said "Not blocked" from the debounce
-measurement below — correct when written, stale once that measurement
-finished, and it was letting the resume-runner/autopilot gates count this as
-actionable unattended work with nothing they could actually do. Two thirds
-of a run is this tool waiting on its own timers, for context on what was
-measured.
+**Not blocked.** It was marked blocked this morning ("needs a hand-run
+`login`"), the maintainer ran that login the same evening, and the heading was
+never updated — so the autopilot gate, which reads only this first line, kept
+concluding there was no work here. That is the mechanical reason the maintainer
+had to prompt for every continuation on 2026-07-27; see "Done recently".
+
+Four live measurements ran against it that evening. What is actionable now
+comes out of them rather than out of this file's older speculation, and is
+stated at the end of this entry.
 
 **2026-07-27, live run, 280 sections, 216.6s:** settle wait 94.2s (63% of
 in-section time), stability poll 49.5s (33%), actual extraction 4.3s (**2%**).
@@ -575,6 +573,30 @@ matter.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Autopilot had been dead all session, and nothing said so.** The maintainer
+  asked "wo hook? warum muss ich dich schon wieder anschreiben?" — and they
+  were right: `.autopilot-state.json` had not been touched since 14:08, so the
+  Stop gate never blocked once during a session lasting hours.
+  **Two independent causes, both found by looking rather than guessing.**
+  First, every item under "Now" was marked `**Blocked:**`, including sync speed
+  — whose blocker (a hand-run `login`) the maintainer had cleared that very
+  evening, while the heading was never updated. The gate reads only the
+  heading's first line, so it correctly concluded there was no work, which is
+  indistinguishable from being broken. Second, the marker and session record
+  later vanished with nothing recording why, after which the gate allowed every
+  stop *silently*.
+  The silence is the part that was fixed, because it is what made this cost an
+  evening: autopilot ending now always writes `.autopilot-ended.json` with a
+  reason, and a gate that finds no config but sees a state file — proof it once
+  ran here — blocks **once** to say so and explains how to re-arm. A repo that
+  never armed autopilot stays a complete no-op, and the report writes its record
+  before blocking, so a confused state can never trap anyone in a loop.
+  *Five new hook assertions covering exactly those three cases (122 total).*
+  **Still unattributed:** what removed the marker. The off switch was absent and
+  the arithmetic does not obviously fit the expiry either. Recording the reason
+  is what makes the next occurrence answerable instead of guessed at — which is
+  the honest fix available, since the evidence for this one is gone.
 
 - **Four things the maintainer hit running the GUI (2026-07-27 evening).**
   `/feedback` asked people to attach the diagnostic log and offered no way to

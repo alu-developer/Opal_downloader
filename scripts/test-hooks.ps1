@@ -721,6 +721,42 @@ try {
     Assert-That "budget-guard has no matcher, so it sees every tool call" ($null -eq $guardEntry.matcher) "matcher=$($guardEntry.matcher)"
     Assert-That "StopFailure is registered" ($null -ne $settings.hooks.StopFailure) "no StopFailure hook"
 
+    # Autopilot dying silently, 2026-07-27. The marker and session record both
+    # vanished mid-session and the gate then allowed every stop with no output
+    # at all, so the only symptom was the maintainer having to prompt for each
+    # continuation. These pin the three cases the fix has to keep apart.
+    $vanishDir = Join-Path $sandbox "vanished"
+    New-Item -ItemType Directory -Path $vanishDir -Force | Out-Null
+    $gateHook = Join-Path $hooksDir "autopilot-gate.ps1"
+    $vanishPayload = '{"session_id":"vanish-probe","stop_hook_active":false}'
+
+    # Never armed here: must stay a complete no-op, or every ordinary
+    # conversation in a fresh clone gets nagged.
+    $env:OPAL_AUTOPILOT_QUEUE_DIR = $vanishDir
+    $fresh = $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    Assert-That "a repo that never armed autopilot is untouched" ([string]::IsNullOrWhiteSpace($fresh)) "got: $fresh"
+
+    # Armed at some point (the state file proves it), no marker, no recorded
+    # ending: the failure itself.
+    Set-Content (Join-Path $vanishDir ".autopilot-state.json") '{"vanish-probe":3}' -Encoding utf8
+    $reported = $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    Assert-That "a vanished autopilot is reported" ($reported -match '"decision":"block"') "got: $reported"
+    Assert-That "the report says how to re-arm" ($reported -match "expires_at") "got: $reported"
+
+    # Once only. A gate that keeps blocking on a confused state traps the user
+    # in a loop, which is worse than the silence it replaces.
+    $again = $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    Assert-That "it reports once and then stays quiet" ([string]::IsNullOrWhiteSpace($again)) "got: $again"
+
+    # Expiry must leave its reason behind, so a future disappearance is
+    # attributable instead of guessed at - which is what cost an hour here.
+    Remove-Item (Join-Path $vanishDir ".autopilot-ended.json") -Force -ErrorAction SilentlyContinue
+    Set-Content (Join-Path $vanishDir "AUTOPILOT") '{"expires_at":1,"max_iterations":20}' -Encoding utf8
+    $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook | Out-Null
+    $endedRaw = Get-Content (Join-Path $vanishDir ".autopilot-ended.json") -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+    Assert-That "an expired autopilot records why it ended" ($endedRaw -match "expired") "got: $endedRaw"
+    $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
+
     # =========================================================================
     Write-Host "`nnoticed-gate (Stop)" -ForegroundColor Cyan
     # =========================================================================

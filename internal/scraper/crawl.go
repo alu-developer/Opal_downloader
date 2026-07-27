@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -306,7 +307,19 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 	}
 	visitStart := time.Now()
 	settleStart := time.Now()
-	_, sectionCalm := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	// EXPERIMENT 2026-07-27 (OPAL_SKIP_SETTLE_WAIT): the settle wait costs
+	// 94.2s of a 210s run proving a page has stopped mutating, and the
+	// stability poll below then re-reads until the extraction stops changing
+	// anyway - two mechanisms inferring the same thing. The early-read probe
+	// measured that content only ever grows (278/278 sections: never empty at
+	// the start, never larger than the final reading), so a shrink the poll
+	// could miss is not a case that occurs. Skipping the settle wait leaves
+	// sectionCalm false, which makes the poll open on its full patience streak
+	// - deliberately the conservative direction.
+	sectionCalm := false
+	if os.Getenv("OPAL_SKIP_SETTLE_WAIT") == "" {
+		_, sectionCalm = s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	}
 	settleSpent := time.Since(settleStart)
 
 	// waitForStableSectionContent polls extraction until the candidate

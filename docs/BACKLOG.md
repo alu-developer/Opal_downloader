@@ -611,6 +611,15 @@ matter.
   `.claude/queue/` likewise accumulates a `resume-run-*.log`/`.err` pair per
   launch, mostly empty. Neither hurts anything today; both grow forever.
 
+- **`tmp/` is the same unpruned-accumulator shape as the two entries above,
+  just gitignored instead of git-tracked.** It's carrying probe outputs from
+  weeks of past A/Bs (`filelist-earlyread.txt`, `filelist-noSettle*.txt`,
+  `network-trace-*.txt`, a stray `uicheck-opal.exe`, `dump-links.*`) next to
+  the ones still actively in use for the section-cache A/B. Harmless today,
+  but nothing ever tells old probe output from the current run apart, and a
+  human trying to reconstruct "what does the section-cache A/B's output even
+  look like" would have to guess which `filelist-*.txt` is current.
+
 ---
 
 ## Done recently

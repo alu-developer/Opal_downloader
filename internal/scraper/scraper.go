@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/alu-developer/opal-downloader/internal/polite"
+	"github.com/alu-developer/opal-downloader/internal/sectioncache"
 	"github.com/alu-developer/opal-downloader/internal/visitlog"
 	"github.com/mxschmitt/playwright-go"
 )
@@ -287,6 +289,27 @@ type OpalScraper struct {
 	// follows it) keeps tab creation itself from piling up, while still
 	// letting already-open tabs render/crawl fully concurrently.
 	newPageMu sync.Mutex
+
+	// sectionCache holds what each section looked like last sync, so an
+	// unchanged one can be skipped instead of crawled - see
+	// internal/sectioncache and docs/sync-speed-campaign.md. Set once via
+	// SetSectionCache before a scrape begins, like courseConcurrency; nil
+	// (the zero value) means no caller opted in, which collectCourseFiles
+	// treats identically to the feature flag being off.
+	sectionCache *sectioncache.Cache
+
+	// sectionCacheHTTP is the lazily-built authenticated HTTP client used to
+	// probe a section's hash before deciding whether to crawl it - see
+	// sectioncachewiring.go. Built once per scraper from stateFile's saved
+	// cookies and reused for every probe in a scrape.
+	sectionCacheHTTPMu sync.Mutex
+	sectionCacheHTTP   *http.Client
+
+	// sectionCacheFetch overrides fetchSectionHTMLPolitely when set. A test
+	// seam only (nil in production, see fetchSectionHTML) - checkSectionCache
+	// needs to be exercisable without a real network fetch or a saved session
+	// file on disk.
+	sectionCacheFetch func(string) (string, error)
 }
 
 // suspendPageTracking stops trackActivePage's ctx.OnPage hook from
@@ -398,6 +421,17 @@ func (s *OpalScraper) SetCourseConcurrency(concurrency int) {
 // and restores the original one-tab serial crawl.
 func (s *OpalScraper) SetSectionConcurrency(concurrency int) {
 	s.sectionConcurrency = concurrency
+}
+
+// SetSectionCache opts a scrape into the change-detection cache: sections
+// whose HTTP-fetched hash matches what cache recorded last time are replayed
+// from the cached candidates instead of being crawled with a browser tab. Not
+// calling this at all (cache stays nil) leaves the pre-existing "crawl every
+// section" behavior unchanged, and is what every caller gets today - see
+// sectionCacheEnabled in sectioncachewiring.go for the other half of the
+// off-by-default gate.
+func (s *OpalScraper) SetSectionCache(cache *sectioncache.Cache) {
+	s.sectionCache = cache
 }
 
 // SetSkipEnrollmentSections enables or disables the structural

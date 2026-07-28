@@ -175,7 +175,22 @@ import (
 // Only rootText is lifted out, and that is the 31 MB of the 52 MB file the
 // 2026-07-21 attempt produced. Every other key is kept rather than whitelisted:
 // a whitelist would silently drop a key the moment someone adds a use for it.
-const codeLineBudget = 11678
+// Raised 2026-07-28 (was 11678) for piece 3: wiring the cache into the actual
+// crawl. Bought: an HTTP probe (sectioncachewiring.go) that fetches a section's
+// page over plain HTTP - through the same polite.Limiter every browser Goto
+// uses - hashes it, and only then decides whether to skip the browser
+// entirely; the crawl.go loop change that makes a cache hit replay through the
+// real appendSectionFiles/appendSectionFolderTargets instead of a parallel
+// path (the whole point of piece 1/2's design); and the syncer.go load/save
+// around a sync, gated on the same off-by-default flag so a caller who never
+// sets it never touches the cache file at all.
+//
+// A collectCourseFiles-level test proves the wiring rather than just the
+// pieces: it runs a two-level cache-hit course with a fakePage that panics if
+// any browser method is called, so a regression that crawls a cache hit
+// anyway fails loudly instead of merely losing the speedup. Confirmed to
+// actually panic on the intended mutation before being trusted.
+const codeLineBudget = 11901
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

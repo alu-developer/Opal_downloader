@@ -18,7 +18,7 @@ func TestSectionPayloadRoundTripsExactly(t *testing.T) {
 	}
 
 	// Through JSON, because that is how it really travels.
-	body, err := json.Marshal(packSection(original))
+	body, err := json.Marshal(packSection(original, "https://example/show-all", "https://example/expanded?7", true))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -27,8 +27,12 @@ func TestSectionPayloadRoundTripsExactly(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if got := unpackSection(packed); !reflect.DeepEqual(got, original) {
-		t.Fatalf("round trip changed the candidates:\n got: %#v\nwant: %#v", got, original)
+	gotCandidates, gotShowAllURL, gotExpandedPageURL, gotExpandedShowAll := unpackSection(packed)
+	if !reflect.DeepEqual(gotCandidates, original) {
+		t.Fatalf("round trip changed the candidates:\n got: %#v\nwant: %#v", gotCandidates, original)
+	}
+	if gotShowAllURL != "https://example/show-all" || gotExpandedPageURL != "https://example/expanded?7" || !gotExpandedShowAll {
+		t.Fatalf("round trip changed the show-all fields: url=%q expanded=%q flag=%v", gotShowAllURL, gotExpandedPageURL, gotExpandedShowAll)
 	}
 }
 
@@ -41,7 +45,7 @@ func TestRootTextIsStoredOnce(t *testing.T) {
 		candidates[i] = map[string]string{"href": "/x", "rootText": rootText}
 	}
 
-	packed := packSection(candidates)
+	packed := packSection(candidates, "", "", false)
 	if packed.RootText != rootText {
 		t.Fatalf("rootText was not lifted out, got %q", packed.RootText)
 	}
@@ -62,7 +66,7 @@ func TestRootTextIsStoredOnce(t *testing.T) {
 // sectioncache treats "nothing recorded" and "recorded zero" differently on
 // purpose, and collapsing them would re-crawl every empty section forever.
 func TestEmptySectionPacksToAnEmptyList(t *testing.T) {
-	packed := packSection(nil)
+	packed := packSection(nil, "", "", false)
 	if packed.Candidates == nil {
 		t.Fatal("an empty section packed to nil, which is indistinguishable from nothing recorded")
 	}
@@ -73,7 +77,7 @@ func TestEmptySectionPacksToAnEmptyList(t *testing.T) {
 	if string(body) == "null" {
 		t.Fatalf("packed to JSON null: %s", body)
 	}
-	if got := unpackSection(packed); len(got) != 0 {
+	if got, _, _, _ := unpackSection(packed); len(got) != 0 {
 		t.Fatalf("expected no candidates back, got %d", len(got))
 	}
 }

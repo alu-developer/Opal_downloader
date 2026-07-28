@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/sectioncache"
 )
 
 // The instrument for the one question that decides whether blocking inline file
@@ -45,6 +46,24 @@ func TestFileListSnapshot(t *testing.T) {
 	sc.SetSectionConcurrency(loaded.App.SectionConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()
+
+	// Reusable for the section-cache A/B the same way this probe already is
+	// for the previews one: only touches the cache file when SectionCacheEnv
+	// is set, mirroring syncer.go's own gate exactly (see its doc comment for
+	// why an unconditional Load/Save would be its own hazard).
+	if os.Getenv(SectionCacheEnv) != "" {
+		cacheDir := filepath.Join("..", "..", "tmp")
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", cacheDir, err)
+		}
+		cache := sectioncache.Load(cacheDir)
+		sc.SetSectionCache(cache)
+		defer func() {
+			if err := cache.Save(cacheDir); err != nil {
+				t.Fatalf("save section cache: %v", err)
+			}
+		}()
+	}
 
 	files, err := sc.ScrapeWithSavedSession(context.Background(), loaded.App.Courses)
 	if err != nil {

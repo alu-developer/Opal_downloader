@@ -643,6 +643,15 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
+- **`sectioncachewiring.go`'s probe fetch sends a synthetic User-Agent**
+  (`"Mozilla/5.0 (Windows NT 10.0; Win64; x64) opal-downloader"`) that looks
+  nothing like a real Chromium UA string (no `AppleWebKit`/`Chrome`/`Safari`
+  tokens) — noticed while reading it as a candidate cause for the 2026-07-29
+  5-courses-return-0-files bug, but not pursued yet since isolating whether
+  the section-cache feature is even the cause (control run in flight) comes
+  first. If a WAF/bot-detection layer or a UA-bound session on OPAL's side
+  is involved, this string is the first thing to change.
+
 ---
 
 ## Done recently

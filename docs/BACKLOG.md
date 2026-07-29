@@ -620,6 +620,17 @@ matter.
   human trying to reconstruct "what does the section-cache A/B's output even
   look like" would have to guess which `filelist-*.txt` is current.
 
+- **A background `go test -v ... > log 2>&1` run that gets killed mid-flight
+  (e.g. by the usage-limit/budget guard) leaves a log with no marker that
+  it's incomplete.** Hit this directly 2026-07-28: `tmp/cache_cold_run.log`
+  ended after "Discovery: 3.6s (6 courses)" with a bare `FAIL ... 40.134s`
+  and no error text — indistinguishable from a real, silent test failure.
+  Had to cross-check `~/.opal_storage_state.json`'s mtime and re-run from
+  scratch to tell "log got cut off" from "the test actually failed for an
+  unlogged reason." An `EXIT:<code>` sentinel appended after the command is
+  a partial fix (added ad hoc for the rerun) but doesn't help if the kill
+  happens before that line is ever reached.
+
 ---
 
 ## Done recently

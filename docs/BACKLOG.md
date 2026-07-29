@@ -597,6 +597,18 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
+- **The resume runner's new unlock/logon triggers have not been seen firing
+  yet (2026-07-29).** They are registered and Task Scheduler accepted them
+  (`SessionStateChange` with `StateChange 8`, `Logon` with a 2m delay), and the
+  runner itself is verified end to end from the task — but the only honest
+  proof that the unlock trigger fires is an event 107/`SessionStateChange`
+  entry in `Microsoft-Windows-TaskScheduler/Operational` after the machine has
+  actually been locked and unlocked. Testing it for real means locking the
+  maintainer's workstation, so it was left for the next natural unlock. Check
+  with `scripts/register-resume-task.ps1 -Status`: a `missed` count climbing
+  again while work sits in `docs/RESUME.md` means the triggers did not take and
+  event 332 is back.
+
 - **`docs/sync-speed-campaign.md` (2026-07-26 entry) references
   `docs/BACKLOG.md`'s "Concurrency SOLVED" entry** as the thing its
   measurements contradict — that heading no longer exists under that name

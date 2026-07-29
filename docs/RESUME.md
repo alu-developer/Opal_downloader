@@ -24,28 +24,45 @@ committed (`597bd6d`).** Off by default (`OPAL_SECTION_CACHE`). Live
 verification is in progress (2026-07-28) — see the status block below for
 exactly where it's at; do not restart from scratch.
 
-**Live verification status (2026-07-28):**
+**Live verification status (2026-07-28 evening, unattended resume run):**
 
-- Ground truth was already captured by an earlier iteration today (11:17):
-  `tmp/filelist-cache_ground_truth.txt`, 345 files, confirmed byte-identical
-  to `tmp/filelist-repeat1_before.txt` via `diff` (exit 0). No need to
-  re-run it unless the account has changed.
-- The probe's missing piece — `sc.SetSectionCache(...)` wired into
-  `TestFileListSnapshot`, gated on `SectionCacheEnv` exactly like
-  `syncer.go` — is done and committed (`50fab5b`).
-- Cold run in progress in the background: `OPAL_FILELIST=cache_cold
-  OPAL_SECTION_CACHE=1 go test ./internal/scraper/ -run TestFileListSnapshot
-  -v -timeout 30m` (stale `tmp/.opal-sync.sections.json` deleted first, so
-  this is a genuine all-miss pass). Produces `tmp/filelist-cache_cold.txt`
-  and the cache file `tmp/.opal-sync.sections.json`.
-- **Next, once the cold run finishes:** diff `filelist-cache_cold.txt`
-  against `filelist-cache_ground_truth.txt` (must be empty), then
-  immediately run the warm pass with the same command but
-  `OPAL_FILELIST=cache_warm` — leave the cache file from the cold run in
-  place so hits can fire. Diff the warm output against ground truth too;
-  that diff is the acceptance criterion. Also capture from the warm run:
-  hit/miss counts if the `go test -v` output logs them, and the wall-clock
-  delta vs the cold run and vs the ~93s/~210s figures already on record.
+- Ground truth: `tmp/filelist-cache_ground_truth.txt`, 345 files, confirmed
+  byte-identical to `tmp/filelist-repeat1_before.txt`. Still valid, no need
+  to re-run.
+- The probe's `sc.SetSectionCache(...)` wiring is done and committed
+  (`50fab5b`).
+- **First cold-run attempt this session failed before producing an output
+  file.** Found on resume: `tmp/cache_cold_run.log` showed the saved
+  session (`~/.opal_storage_state.json`) had expired, an interactive
+  TU-Fast login ran automatically (no human present, as expected per
+  CLAUDE.md), discovery found 6 courses in 3.6s — then the test FAILed at
+  40s total with no error text captured in the log. Most likely the
+  background shell job's output got cut when the prior session was killed
+  by the usage-limit/budget guard mid-run, not a real test failure — but
+  that's unconfirmed, not swept under the rug. No
+  `tmp/.opal-sync.sections.json` was written, so nothing from that attempt
+  is salvageable or trustworthy.
+- Session state is now fresh (saved at 21:46 by that login), so a re-run
+  should go straight to headless crawl with no interactive step.
+- **Restarted the cold run** (stale cache file deleted first, so still a
+  genuine all-miss pass): `OPAL_FILELIST=cache_cold OPAL_SECTION_CACHE=1 go
+  test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m >
+  tmp/cache_cold_run.log 2>&1`, running in background. Check
+  `tmp/cache_cold_run.log` directly — it now ends with an `EXIT:<code>`
+  line once done (the log-capture change added specifically so a killed
+  session doesn't lose the exit status again).
+- **Next, once that finishes:** check `tmp/cache_cold_run.log`'s `EXIT:`
+  line and whether `tmp/filelist-cache_cold.txt` exists. If it failed
+  again, that's a real finding to write up (not the budget theory) — read
+  the full log for the actual error this time. If it succeeded, diff
+  `filelist-cache_cold.txt` against `filelist-cache_ground_truth.txt`
+  (must be empty), then immediately run the warm pass with the same
+  command but `OPAL_FILELIST=cache_warm` — leave the cache file from the
+  cold run in place so hits can fire. Diff the warm output against ground
+  truth too; that diff is the acceptance criterion. Also capture from the
+  warm run: hit/miss counts if the `go test -v` output logs them, and the
+  wall-clock delta vs the cold run and vs the ~93s/~210s figures already on
+  record.
 - Only after both diffs come back empty: update `docs/BACKLOG.md`'s
   sync-speed entry with the result and clear this note. A non-empty diff on
   either pass is a real correctness finding — write it up plainly, don't

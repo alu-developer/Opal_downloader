@@ -431,6 +431,62 @@ The unattended prompt tells it to keep `docs/RESUME.md` current, commit as it
 goes, and **not** to make decisions reserved for a human — those get written
 into `docs/BACKLOG.md` as open questions instead.
 
+### The machine has to be awake, and logged on (2026-07-29)
+
+Every gate above was healthy and the runner still did nothing for **19 hours**.
+Two independent faults, both silent, both invisible in the runner's own log
+because neither one ever reached it.
+
+**1. The hourly trigger was refused, not deferred.** From 2026-07-28 21:52 to
+2026-07-29 16:52 every tick logged Task Scheduler event **332**, *"did not
+launch because user was not logged on when the launching conditions were met"*.
+This laptop idles in Modern Standby, which to an `InteractiveToken` principal
+reads as nobody being logged on. `StartWhenAvailable` did not replay the missed
+ticks — a refusal is a decision — and the machine leaving standby four times
+that night changed nothing. `Get-ScheduledTaskInfo` said `State: Ready`
+throughout; the only visible symptom was `NumberOfMissedRuns` climbing to 19,
+which nothing looked at.
+
+Fixed by triggering on moments an interactive token demonstrably exists:
+**workstation unlock** and **logon**, alongside the hourly tick. That is also
+when resuming is wanted — the maintainer has just come back to the machine.
+`scripts/register-resume-task.ps1 -Status` now prints the missed-run counter and
+points at event 332, because that number is what would have shown this in
+seconds.
+
+**2. The one launch that did happen was frozen 90 seconds in.** The 2026-07-28
+21:45 run started a 30-minute background `go test`, said *"I'll continue once it
+reports back"*, and its transcript ends mid-sentence at 21:46:43. The machine
+had entered Modern Standby. Nothing was committed, stdout was 0 bytes, and the
+runner's log still said `launched` and nothing else — a dead run and a working
+one were indistinguishable.
+
+So the agent is no longer started bare. `.claude/hooks/unattended-run.ps1`
+wraps it and:
+
+- holds `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` for the
+  life of the run, so idle standby cannot freeze it. Not
+  `ES_DISPLAY_REQUIRED` — the screen should still go dark — and closing the lid
+  still sleeps the machine, which is correct.
+- waits, then writes **what the run achieved**: exit code, wall clock, bytes of
+  output, commits gained. A run that exits clean in under two minutes having
+  written nothing is labelled `run-died-early`, because that is the signature of
+  this incident and not of a quick success.
+
+And because holding a laptop awake on battery is worse than the problem it
+solves, the runner now **refuses to launch unless on mains**. A missed hour on
+battery costs nothing; the next tick after it is plugged in picks the work up.
+
+**3. It also launched into a tree someone was working in.** The heartbeat gate
+only sees sessions opened *in this repo* — the blind spot at the top of this
+document. On 2026-07-29 a session opened in the home directory was editing these
+very hooks when the tick fired; it saw no heartbeat and launched an agent that
+committed twice alongside uncommitted human edits. The runner now also skips
+when the **worktree was modified in the last 30 minutes**, which needs no hooks
+in the other session at all. The age window is the design, not a detail: a bare
+dirty check would wedge the runner shut forever the first time a run died
+leaving half an edit behind.
+
 ## 3. Staying inside 5h / 7d limits
 
 The single most useful thing learned while measuring this repo:

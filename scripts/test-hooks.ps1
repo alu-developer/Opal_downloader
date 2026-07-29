@@ -90,6 +90,23 @@ function Invoke-Hook {
     return ($out -join "`n")
 }
 
+function Invoke-HookRaw {
+    <#  Same, for the tests that need to hand a hook a literal JSON string
+        (including deliberately malformed ones) rather than a hashtable.
+
+        THE `-join` IS THE POINT, not tidiness. A bare `$json | powershell.exe`
+        hands back an ARRAY when the hook prints more than one line, and
+        `$array -match 'x'` returns the matching ELEMENTS, not a boolean - so
+        `Assert-That` threw "cannot convert System.Object[] to Boolean" and
+        aborted the whole suite mid-run on 2026-07-28. Every assertion after
+        that point silently stopped being checked. Single-line output happened
+        to convert cleanly, which is why 13 call sites did this for weeks and
+        only the one that grew a second output line ever complained. #>
+    param([string]$Hook, [string]$Json)
+    $out = $Json | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Hook
+    return ($out -join "`n")
+}
+
 try {
     # =========================================================================
     Write-Host "`nbudget-lib: Get-BudgetFloor" -ForegroundColor Cyan
@@ -453,6 +470,65 @@ try {
     #
     # A stub keep-warm stands in for the real one so this costs nothing: the
     # real one launches `claude`, and a test suite must not spend money.
+    # --- gate 2c: a worktree someone is actively editing ---------------------
+    # The 2026-07-29 collision: a session opened outside this repo has no
+    # heartbeat hook, so gate 2b saw nothing and an unattended agent was
+    # launched into a tree a human was editing. It committed twice on top.
+    #
+    # A real git repo, because the gate asks git. The fake repo used elsewhere
+    # in this section is not one - which is itself worth pinning: on a
+    # non-repo, this gate must stay out of the way rather than block forever.
+    $dirtyRepo = Join-Path $sandbox "dirty-repo"
+    New-Item -ItemType Directory -Path $dirtyRepo -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $dirtyRepo "docs") -Force | Out-Null
+    # 2>$null, never 2>&1: redirecting a native exe's stderr into the success
+    # stream wraps each line in an ErrorRecord (NativeCommandError) and trips
+    # $ErrorActionPreference, so git's harmless "CRLF will be replaced by LF"
+    # warning aborted the whole suite on the first run of these tests.
+    & git -C $dirtyRepo init --quiet 2>$null | Out-Null
+    & git -C $dirtyRepo config core.autocrlf false 2>$null | Out-Null
+    & git -C $dirtyRepo config user.email "test@example.invalid" 2>$null | Out-Null
+    & git -C $dirtyRepo config user.name "hook tests" 2>$null | Out-Null
+    "# Resume note`n`n_Nothing in flight._" | Set-Content (Join-Path $dirtyRepo "docs\RESUME.md") -Encoding utf8
+    "# Backlog`n`n## Now`n`n### a real pending item`n`n## Done recently" | Set-Content (Join-Path $dirtyRepo "docs\BACKLOG.md") -Encoding utf8
+    & git -C $dirtyRepo add -A 2>$null | Out-Null
+    & git -C $dirtyRepo commit -m "base" --quiet 2>$null | Out-Null
+
+    $savedRepoRoot = $env:OPAL_RESUME_REPO_ROOT
+    $env:OPAL_RESUME_REPO_ROOT = $dirtyRepo
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 10 -SevenPct 10
+
+    $out = Invoke-Runner
+    Assert-That "a clean tree is not mistaken for someone working" ($out -match "would-launch") "got: $out"
+
+    # Edited just now: exactly the state the collision happened in.
+    "scratch" | Set-Content (Join-Path $dirtyRepo "work-in-progress.txt") -Encoding utf8
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    $out = Invoke-Runner
+    Assert-That "a freshly edited worktree holds the launch back" ($out -match "worktree was edited") "got: $out"
+    Assert-That "and holding back is not a launch" ($out -notmatch "would-launch") "got: $out"
+
+    # THE ANTI-WEDGE PROPERTY, and the reason this is an age window rather than
+    # a dirty check. An unattended run that died leaving half an edit behind
+    # must not silence the runner permanently - that is the failure mode this
+    # whole file was written against.
+    $stale = (Get-Date).AddHours(-3)
+    Set-ItemProperty -LiteralPath (Join-Path $dirtyRepo "work-in-progress.txt") -Name LastWriteTime -Value $stale
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    $out = Invoke-Runner
+    Assert-That "stale leftovers age out instead of wedging the runner shut" ($out -match "would-launch") "got: $out"
+
+    # -Force is the maintainer saying "I know, do it anyway".
+    $recent = Join-Path $dirtyRepo "work-in-progress.txt"
+    Set-ItemProperty -LiteralPath $recent -Name LastWriteTime -Value (Get-Date)
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    $out = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -DryRun -Force 2>$null) -join "`n"
+    Assert-That "-Force overrides the worktree check like every other gate" ($out -match "would-launch") "got: $out"
+
+    $env:OPAL_RESUME_REPO_ROOT = $savedRepoRoot
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+
     $stubKeepwarm = Join-Path $sandbox "stub-keepwarm.ps1"
     $env:OPAL_KEEPWARM_CMD = $stubKeepwarm
     $healthyStatus = @{
@@ -595,9 +671,22 @@ try {
     ) -join "`r`n" | Set-Content $stubCmd -Encoding ascii
 
     $env:OPAL_RESUME_CLAUDE_CMD = $stubCmd
+    # The suite must not pin the developer's laptop awake for the life of a
+    # test run. The wake lock gets its own assertions further down.
+    $env:OPAL_RESUME_NO_WAKELOCK = '1'
     Remove-Item $runnerState, $stubOut -Force -ErrorAction SilentlyContinue
     Set-FakeWork
     Set-Status -FivePct 10 -SevenPct 10
+
+    # MAINS-ONLY, added 2026-07-29. Both branches, because a gate that is stuck
+    # closed looks exactly like a quiet night. Overridden rather than read from
+    # the real machine so this passes on a laptop running off its battery.
+    $env:OPAL_RESUME_POWER_OVERRIDE = 'battery'
+    $onBattery = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner 2>$null) -join "`n"
+    Assert-That "an unattended run is refused on battery" ($onBattery -match "on battery") "got: $onBattery"
+    Assert-That "and refusing costs no launch" ($onBattery -notmatch "launched") "got: $onBattery"
+    $env:OPAL_RESUME_POWER_OVERRIDE = 'ac'
+
     $launchOut = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner 2>$null) -join "`n"
     Assert-That "the real launch path actually launches" ($launchOut -match "launched\s+pid \d+") "got: $launchOut"
 
@@ -686,6 +775,67 @@ try {
 
     Remove-Item Env:\OPAL_RESUME_REPO_ROOT -ErrorAction SilentlyContinue
 
+    # =========================================================================
+    Write-Host "`nunattended-run (wake lock + outcome reporting)" -ForegroundColor Cyan
+    # =========================================================================
+    # The 2026-07-28 death: a run launched at 21:45, was frozen by Modern
+    # Standby at 21:46:43 mid-sentence, committed nothing, wrote a 0-byte log,
+    # and the runner's own log still said "launched" and nothing else. Both
+    # halves of that are tested here - the machine is held awake, and what the
+    # run achieved is written down whatever happens.
+    $wrapper = Join-Path $hooksDir "unattended-run.ps1"
+    Assert-That "unattended-run.ps1 exists" (Test-Path $wrapper)
+
+    $wrapQueue = Join-Path $sandbox "wrap-queue"
+    New-Item -ItemType Directory -Path $wrapQueue -Force | Out-Null
+    $wrapLog = Join-Path $wrapQueue "resume-runner.log"
+    $wrapPrompt = Join-Path $wrapQueue "prompt.txt"
+    Set-Content $wrapPrompt "hello" -Encoding utf8
+
+    # A stub that produces output, i.e. the healthy case.
+    $talkerCmd = Join-Path $sandbox "stub-talker.cmd"
+    @('@echo off', 'echo did some work') -join "`r`n" | Set-Content $talkerCmd -Encoding ascii
+    $runOut = Join-Path $wrapQueue "run-ok.log"
+    # No -NoWakeLock here on purpose: this is the one place the real
+    # SetThreadExecutionState path runs. It is held for about a second, which is
+    # the whole point - a failure to acquire must be visible, not assumed.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
+        -ClaudeCmd $talkerCmd -PromptFile $wrapPrompt -RunLog $runOut -QueueDir $wrapQueue -RepoRoot $repoRoot 2>&1 | Out-Null
+    $wrapText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
+    Assert-That "a finished run is written to the decision log" ($wrapText -match "finished") "log: $wrapText"
+    Assert-That "the outcome says how long, how much output, and how many commits" `
+        (($wrapText -match "exit 0") -and ($wrapText -match "\dB stdout") -and ($wrapText -match "commit")) "log: $wrapText"
+    Assert-That "the wake lock was acquired, not silently skipped" ($wrapText -notmatch "wake-lock-failed") "log: $wrapText"
+    Assert-That "the agent actually ran under the wrapper" `
+        ((Get-Content $runOut -Raw -ErrorAction SilentlyContinue) -match "did some work") "run log: $(Get-Content $runOut -Raw -ErrorAction SilentlyContinue)"
+
+    # THE 2026-07-28 SIGNATURE ITSELF: exits clean, instantly, having written
+    # nothing. Indistinguishable from success in the old log format, which is
+    # why that death went unnoticed for a day.
+    Set-Content $wrapLog "" -Encoding utf8
+    $mimeCmd = Join-Path $sandbox "stub-mute.cmd"
+    @('@echo off', 'exit /b 0') -join "`r`n" | Set-Content $mimeCmd -Encoding ascii
+    $runMute = Join-Path $wrapQueue "run-mute.log"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
+        -ClaudeCmd $mimeCmd -PromptFile $wrapPrompt -RunLog $runMute -QueueDir $wrapQueue -RepoRoot $repoRoot -NoWakeLock 2>&1 | Out-Null
+    $muteText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
+    Assert-That "a run that dies early is named as such, not reported as finished" `
+        (($muteText -match "run-died-early") -and ($muteText -notmatch "`tfinished")) "log: $muteText"
+
+    # A launcher that cannot run at all must say so rather than vanish - the
+    # same class of bug as the "%1 is not a valid Win32 application" fortnight.
+    Set-Content $wrapLog "" -Encoding utf8
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
+        -ClaudeCmd (Join-Path $sandbox "does-not-exist.cmd") -PromptFile $wrapPrompt `
+        -RunLog (Join-Path $wrapQueue "run-missing.log") -QueueDir $wrapQueue -RepoRoot $repoRoot -NoWakeLock 2>&1 | Out-Null
+    $missText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
+    Assert-That "an unlaunchable agent is reported, not swallowed" ($missText -match "run-failed") "log: $missText"
+
+    # And the runner must be wired to the wrapper, not to claude directly -
+    # otherwise every assertion above tests a script nothing calls.
+    Assert-That "resume-runner launches through the wrapper" `
+        ((Get-Content $runner -Raw) -match "unattended-run\.ps1") "the runner no longer references unattended-run.ps1"
+
     # An unattended run must be bounded, since nobody is watching it.
     Set-Status -FivePct 5 -SevenPct 5
     Remove-Item $marker -Force -ErrorAction SilentlyContinue
@@ -733,26 +883,26 @@ try {
     # Never armed here: must stay a complete no-op, or every ordinary
     # conversation in a fresh clone gets nagged.
     $env:OPAL_AUTOPILOT_QUEUE_DIR = $vanishDir
-    $fresh = $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    $fresh = Invoke-HookRaw $gateHook $vanishPayload
     Assert-That "a repo that never armed autopilot is untouched" ([string]::IsNullOrWhiteSpace($fresh)) "got: $fresh"
 
     # Armed at some point (the state file proves it), no marker, no recorded
     # ending: the failure itself.
     Set-Content (Join-Path $vanishDir ".autopilot-state.json") '{"vanish-probe":3}' -Encoding utf8
-    $reported = $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    $reported = Invoke-HookRaw $gateHook $vanishPayload
     Assert-That "a vanished autopilot is reported" ($reported -match '"decision":"block"') "got: $reported"
     Assert-That "the report says how to re-arm" ($reported -match "expires_at") "got: $reported"
 
     # Once only. A gate that keeps blocking on a confused state traps the user
     # in a loop, which is worse than the silence it replaces.
-    $again = $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    $again = Invoke-HookRaw $gateHook $vanishPayload
     Assert-That "it reports once and then stays quiet" ([string]::IsNullOrWhiteSpace($again)) "got: $again"
 
     # Expiry must leave its reason behind, so a future disappearance is
     # attributable instead of guessed at - which is what cost an hour here.
     Remove-Item (Join-Path $vanishDir ".autopilot-ended.json") -Force -ErrorAction SilentlyContinue
     Set-Content (Join-Path $vanishDir "AUTOPILOT") '{"expires_at":1,"max_iterations":20}' -Encoding utf8
-    $vanishPayload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook | Out-Null
+    Invoke-HookRaw $gateHook $vanishPayload | Out-Null
     $endedRaw = Get-Content (Join-Path $vanishDir ".autopilot-ended.json") -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
     Assert-That "an expired autopilot records why it ended" ($endedRaw -match "expired") "got: $endedRaw"
     $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
@@ -787,9 +937,17 @@ try {
 
     # The wiring, not just the parser - the gap that shipped the stall watchdog
     # connected to nothing.
+    #
+    # Busy check off from here on: these assertions are about backlog logic, and
+    # the gate's "is a long job running?" check reads the whole machine's
+    # process table. It failed these three exactly once on 2026-07-29 and then
+    # passed four consecutive runs - some process with the repo path on its
+    # command line was briefly alive. The check itself gets its own tests below,
+    # with a process started on purpose to trip it.
+    $env:OPAL_AUTOPILOT_SKIP_BUSY_CHECK = '1'
     $env:OPAL_AUTOPILOT_QUEUE_DIR = $nbQueue
     $env:OPAL_AUTOPILOT_BACKLOG = $blockedBacklog
-    $fellBack = '{"session_id":"noticed-fallback"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    $fellBack = Invoke-HookRaw $gateHook '{"session_id":"noticed-fallback"}'
     Assert-That "an all-blocked Now falls back to Noticed instead of stopping" ($fellBack -match '"decision":"block"') "got: $fellBack"
     Assert-That "the fallback says the work came from Noticed" ($fellBack -match "Noticed") "got: $fellBack"
 
@@ -807,7 +965,7 @@ Not blocked at all.
 - old
 "@ -Encoding utf8
     $env:OPAL_AUTOPILOT_BACKLOG = $liveBacklog
-    $normal = '{"session_id":"noticed-normal"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    $normal = Invoke-HookRaw $gateHook '{"session_id":"noticed-normal"}'
     Assert-That "real Now work still outranks Noticed" ($normal -match "Real actionable work") "got: $normal"
     Assert-That "and is not labelled as coming from Noticed" ($normal -notmatch "rough edges rather than commitments") "got: $normal"
 
@@ -824,8 +982,64 @@ Not blocked at all.
 - old
 "@ -Encoding utf8
     $env:OPAL_AUTOPILOT_BACKLOG = $emptyBacklog
-    $nothing = '{"session_id":"noticed-empty"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gateHook
+    $nothing = Invoke-HookRaw $gateHook '{"session_id":"noticed-empty"}'
     Assert-That "an all-blocked backlog with no notes still ends the run" ([string]::IsNullOrWhiteSpace($nothing)) "got: $nothing"
+
+    # --- the busy check itself, with the switch back on ----------------------
+    # Untested until 2026-07-29, and it is the branch that silently swallowed
+    # three other assertions. It exists so a turn is not wasted blocking while a
+    # long job runs: the harness re-invokes the assistant when a background
+    # command finishes, so ending the turn is the cheap move.
+    #
+    # The fixture is cmd.exe with the repo root on its command line - the last
+    # and broadest of the gate's four patterns, and the only one that can be
+    # tripped without building a Go test binary. powershell.exe would prove
+    # nothing: the gate deliberately excludes it, or every hook invocation would
+    # look like a busy repo.
+    Remove-Item Env:\OPAL_AUTOPILOT_SKIP_BUSY_CHECK -ErrorAction SilentlyContinue
+    $env:OPAL_AUTOPILOT_BACKLOG = $liveBacklog
+    $busyProc = Start-Process -FilePath 'cmd.exe' `
+        -ArgumentList '/c', "ping -n 120 127.0.0.1 >nul & rem $repoRoot" `
+        -WindowStyle Hidden -PassThru
+    try {
+        # Win32_Process must actually be able to see it, or the assertion below
+        # passes for the wrong reason.
+        $seen = $false
+        $deadline = (Get-Date).AddSeconds(15)
+        while (-not $seen -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 300
+            $seen = [bool](Get-CimInstance Win32_Process -Filter "ProcessId=$($busyProc.Id)" -ErrorAction SilentlyContinue |
+                           Where-Object { $_.CommandLine -like "*$repoRoot*" })
+        }
+        Assert-That "the busy-check fixture is visible to Win32_Process" $seen "pid $($busyProc.Id) has no command line the gate could match - this test proves nothing without one"
+
+        $whileBusy = Invoke-HookRaw $gateHook '{"session_id":"busy-yes"}'
+        Assert-That "a long job in this repo ends the turn instead of burning it" ([string]::IsNullOrWhiteSpace($whileBusy)) "got: $whileBusy"
+    } finally {
+        & taskkill.exe /PID $busyProc.Id /T /F 2>&1 | Out-Null
+    }
+
+    # And the other half: once it is gone, the same call must block again.
+    # Without this the check could be stuck on and nothing would notice.
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-CimInstance Win32_Process -Filter "ProcessId=$($busyProc.Id)" -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 300
+    }
+    # Name the ambient condition rather than letting it masquerade as a gate
+    # bug. This is the precondition whose absence produced an unexplained
+    # one-off failure on 2026-07-29.
+    $stillMatching = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        ($_.Name -eq 'go.exe' -and $_.CommandLine -and $_.CommandLine -match '\s(test|run)\s') -or
+        ($_.Name -like '*.test.exe') -or
+        ($_.Name -in @('opal-dl.exe', 'opal-downloader.exe')) -or
+        ($_.CommandLine -and $_.CommandLine -like "*$repoRoot*" -and $_.Name -ne 'powershell.exe')
+    })
+    Assert-That "nothing else in this repo is running (precondition for the next assertion)" `
+        ($stillMatching.Count -eq 0) `
+        "these would legitimately make the gate stop: $(($stillMatching | ForEach-Object { "$($_.Name)($($_.ProcessId))" }) -join ', ')"
+
+    $whenIdle = Invoke-HookRaw $gateHook '{"session_id":"busy-no"}'
+    Assert-That "and with nothing running it continues normally" ($whenIdle -match '"decision":"block"') "got: $whenIdle"
 
     Remove-Item Env:\OPAL_AUTOPILOT_BACKLOG -ErrorAction SilentlyContinue
     $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
@@ -845,27 +1059,27 @@ Not blocked at all.
     Assert-That "noticed-gate is registered as a Stop hook" `
         ((Get-Content (Join-Path $repoRoot ".claude\settings.json") -Raw) -match "noticed-gate")
 
-    $first = '{"session_id":"probe-a"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    $first = Invoke-HookRaw $noticedHook '{"session_id":"probe-a"}'
     Assert-That "it asks on the first stop of a session" ($first -match '"decision":"block"') "got: $first"
     Assert-That "the ask is for something noticed, not a summary of the work" ($first -match 'noticed but did not do')
 
-    $second = '{"session_id":"probe-a"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    $second = Invoke-HookRaw $noticedHook '{"session_id":"probe-a"}'
     Assert-That "it does not ask twice in one session" ([string]::IsNullOrWhiteSpace($second)) "repeated: $second"
 
-    $other = '{"session_id":"probe-b"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    $other = Invoke-HookRaw $noticedHook '{"session_id":"probe-b"}'
     Assert-That "a new session is asked again" ($other -match '"decision":"block"') "got: $other"
 
     # Another hook is already blocking, so the turn is not ending anyway.
-    $active = '{"session_id":"probe-c","stop_hook_active":true}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    $active = Invoke-HookRaw $noticedHook '{"session_id":"probe-c","stop_hook_active":true}'
     Assert-That "it stays quiet when another hook already blocked the stop" ([string]::IsNullOrWhiteSpace($active)) "got: $active"
 
-    $garbage = 'not json at all' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    $garbage = Invoke-HookRaw $noticedHook 'not json at all'
     Assert-That "unreadable input fails open" ([string]::IsNullOrWhiteSpace($garbage)) "blocked on garbage: $garbage"
 
     # The maintainer's off switch has to silence this too, or turning autopilot
     # off would still leave a hook holding the turn open.
     New-Item -ItemType File -Path (Join-Path $noticedDir "AUTOPILOT.OFF") -Force | Out-Null
-    $offed = '{"session_id":"probe-d"}' | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $noticedHook
+    $offed = Invoke-HookRaw $noticedHook '{"session_id":"probe-d"}'
     Assert-That "AUTOPILOT.OFF silences it" ([string]::IsNullOrWhiteSpace($offed)) "got: $offed"
     Remove-Item (Join-Path $noticedDir "AUTOPILOT.OFF") -Force -ErrorAction SilentlyContinue
 
@@ -880,6 +1094,18 @@ finally {
     Remove-Item Env:\OPAL_AUTOPILOT_QUEUE_DIR -ErrorAction SilentlyContinue
     Remove-Item Env:\OPAL_RATE_LIMIT_STATUS -ErrorAction SilentlyContinue
     Remove-Item Env:\OPAL_NOTICED_QUEUE_DIR -ErrorAction SilentlyContinue
+    # Leaking any of these would be worse than an ordinary stray variable: each
+    # one DISABLES a guard. A leaked OPAL_RESUME_POWER_OVERRIDE=ac would let a
+    # real unattended run start on battery, and a leaked
+    # OPAL_AUTOPILOT_SKIP_BUSY_CHECK would have autopilot talking over a live
+    # test run.
+    Remove-Item Env:\OPAL_AUTOPILOT_SKIP_BUSY_CHECK -ErrorAction SilentlyContinue
+    Remove-Item Env:\OPAL_RESUME_POWER_OVERRIDE -ErrorAction SilentlyContinue
+    Remove-Item Env:\OPAL_RESUME_NO_WAKELOCK -ErrorAction SilentlyContinue
+    Remove-Item Env:\OPAL_RESUME_CLAUDE_CMD -ErrorAction SilentlyContinue
+    Remove-Item Env:\OPAL_RESUME_REPO_ROOT -ErrorAction SilentlyContinue
+    Remove-Item Env:\OPAL_KEEPWARM_CMD -ErrorAction SilentlyContinue
+    Remove-Item Env:\OPAL_UNATTENDED_RESUME -ErrorAction SilentlyContinue
 }
 
 Write-Host ""

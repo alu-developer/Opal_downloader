@@ -166,6 +166,53 @@ if (-not $Force) {
     }
 }
 
+# --- gate 2c: is someone mid-edit in this tree? -------------------------------
+# Gate 2b only sees sessions that write the heartbeat, and only sessions OPENED
+# in this repo do - the project settings that install that hook are fixed to the
+# directory the session started in. A session started elsewhere and pointed here
+# by path is invisible to it.
+#
+# That is not theoretical. On 2026-07-29, while a session opened in the home
+# directory was editing these very hooks, the hourly tick fired, saw no
+# heartbeat, and launched an unattended agent into the same worktree. It made
+# two commits alongside a human's uncommitted edits. Nothing detected it; the
+# collision was noticed by hand.
+#
+# A recently-touched dirty tree is the signal the heartbeat misses, because it
+# does not depend on the other session having any hooks at all.
+#
+# THE AGE WINDOW IS THE WHOLE DESIGN. "Dirty" alone would wedge this shut
+# forever the first time an unattended run died leaving half an edit behind -
+# the permanent-silence failure this file's header exists to prevent. Stale
+# changes age out of the window within the hour and stop blocking anything;
+# only active editing does.
+if (-not $Force) {
+    try {
+        $porcelain = @(& git -C $repoRoot status --porcelain 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $porcelain.Count -gt 0) {
+            $newest = 0
+            foreach ($line in $porcelain) {
+                if ($line.Length -lt 4) { continue }
+                $p = $line.Substring(3)
+                # Renames arrive as "old -> new"; the new path is the one on disk.
+                if ($p -match ' -> ') { $p = ($p -split ' -> ')[-1] }
+                $p = $p.Trim('"')
+                $full = Join-Path $repoRoot $p
+                try {
+                    $t = (Get-Item -LiteralPath $full -Force -ErrorAction Stop).LastWriteTimeUtc
+                    $secs = [DateTimeOffset]::new($t, [TimeSpan]::Zero).ToUnixTimeSeconds()
+                    if ($secs -gt $newest) { $newest = $secs }
+                } catch { }   # deleted files have no mtime, and that is fine
+            }
+            $editAge = $now - $newest
+            if ($newest -gt 0 -and $editAge -ge 0 -and $editAge -lt 1800) {
+                Say "skip" "the worktree was edited $([math]::Round($editAge / 60))m ago - something is working here that gate 2b cannot see"
+                exit 0
+            }
+        }
+    } catch { }   # not a git repo, no git on PATH: fail toward launching
+}
+
 # --- gate 3: cooldown ---------------------------------------------------------
 # A run that dies immediately must not turn into a relaunch loop that drains
 # the budget faster than working would have.
@@ -177,6 +224,35 @@ if (-not $Force) {
         Say "skip" "cooldown, ${mins}m remaining"
         exit 0
     }
+}
+
+# --- gate 3b: mains power ------------------------------------------------------
+# An unattended run on battery is a run that will be frozen by Modern Standby
+# within minutes and lose everything it had not committed - see
+# unattended-run.ps1's header for the 2026-07-28 post-mortem. The wake lock this
+# runner now holds keeps the machine up, which is exactly what must NOT happen
+# to a laptop running on its battery in a bag. So: mains only. A missed hour on
+# battery costs nothing; the next tick after it is plugged in picks the work up.
+#
+# The override exists so the test suite can exercise both branches on whatever
+# power state the developer's machine happens to be in - the same reason
+# OPAL_RESUME_CLAUDE_CMD exists.
+function Test-OnACPower {
+    switch ($env:OPAL_RESUME_POWER_OVERRIDE) {
+        'ac'      { return $true }
+        'battery' { return $false }
+    }
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        $status = [System.Windows.Forms.SystemInformation]::PowerStatus.PowerLineStatus
+        # Unknown means no battery was found, i.e. a desktop. Treat that as
+        # mains: refusing to run on every desktop would be a worse failure than
+        # the one this gate prevents.
+        return ($status -ne [System.Windows.Forms.PowerLineStatus]::Offline)
+    } catch { return $true }
+}
+if (-not $Force) {
+    if (-not (Test-OnACPower)) { Say "skip" "on battery - an unattended run would be frozen by standby, and holding the machine awake on battery is worse"; exit 0 }
 }
 
 # --- gate 4: budget -----------------------------------------------------------
@@ -291,19 +367,35 @@ $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $runLog = Join-Path $queueDir "resume-run-$stamp.log"
 $promptFile = Join-Path $queueDir "resume-prompt-$stamp.txt"
 $launched = $null
+
+# NOT `claude` directly, as it was until 2026-07-29. The agent is started by
+# unattended-run.ps1, which holds a wake lock for the life of the run and then
+# writes what the run actually achieved into this same log. Launching the agent
+# bare meant Modern Standby froze it ~90 seconds in and nothing ever said so;
+# the whole post-mortem is in that script's header.
+#
+# The recorded pid is now this wrapper. -Stop already kills the whole tree
+# (taskkill /T, added after the 2026-07-26 orphan incident), so the extra layer
+# costs nothing there, and gate 2's process-name check already accepts a
+# powershell wrapper.
+$wrapper = Join-Path $PSScriptRoot "unattended-run.ps1"
+if (-not (Test-Path $wrapper)) { Say "launch-failed" "unattended-run.ps1 missing next to the runner"; exit 0 }
+
 try {
     Set-Content -Path $promptFile -Value $prompt -Encoding utf8 -ErrorAction Stop
     $env:OPAL_UNATTENDED_RESUME = "1"
-    # --model sonnet: the documented default. An unattended run does not get to
-    # escalate to Opus - that is the maintainer's call, made in person.
-    # --dangerously-skip-permissions: required for any unattended launch, same
-    # reasoning as rate-limit-keepwarm.ps1 (it skips the startup trust dialog).
-    $launched = Start-Process -FilePath $claudeCmd `
-        -ArgumentList @('-p', '--model', 'sonnet', '--dangerously-skip-permissions') `
+    $wrapperArgs = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$wrapper`"",
+        '-ClaudeCmd', "`"$claudeCmd`"",
+        '-PromptFile', "`"$promptFile`"",
+        '-RunLog', "`"$runLog`"",
+        '-QueueDir', "`"$queueDir`"",
+        '-RepoRoot', "`"$repoRoot`""
+    )
+    if ($env:OPAL_RESUME_NO_WAKELOCK -eq '1') { $wrapperArgs += '-NoWakeLock' }
+    $launched = Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList $wrapperArgs `
         -WorkingDirectory $repoRoot `
-        -RedirectStandardInput $promptFile `
-        -RedirectStandardOutput $runLog `
-        -RedirectStandardError "$runLog.err" `
         -WindowStyle Hidden -PassThru -ErrorAction Stop
 } catch {
     Say "launch-failed" $_.Exception.Message

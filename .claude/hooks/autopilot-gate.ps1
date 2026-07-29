@@ -178,17 +178,29 @@ if (-not $rateKnown -and $count -ge 8) {
 # command line. Match the shapes of long job this repo actually starts
 # instead. A false positive only ends the turn early (autopilot resumes on the
 # next user message), which is the harmless direction.
+#
+# OPAL_AUTOPILOT_SKIP_BUSY_CHECK exists because this gate reads the machine's
+# whole process table, which no test controls. Three assertions in
+# scripts/test-hooks.ps1 depend on reaching the backlog logic below, and on
+# 2026-07-29 they failed once and then passed four runs in a row - something
+# with the repo path on its command line happened to be alive for one run. A
+# suite that fails on a coin flip trains you to re-run it instead of reading
+# it, which is how the last silent breakage survived a week. Tests that are
+# not about this check switch it off; the two that ARE about it (same file)
+# leave it on and start a real process to trip it.
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-try {
-    $procs = Get-CimInstance Win32_Process -ErrorAction Stop
-    $busy = $procs | Where-Object {
-        ($_.Name -eq 'go.exe' -and $_.CommandLine -and $_.CommandLine -match '\s(test|run)\s') -or
-        ($_.Name -like '*.test.exe') -or
-        ($_.Name -in @('opal-dl.exe', 'opal-downloader.exe')) -or
-        ($_.CommandLine -and $_.CommandLine -like "*$repoRoot*" -and $_.Name -ne 'powershell.exe')
-    }
-    if ($busy) { Allow-Stop }
-} catch { }
+if ($env:OPAL_AUTOPILOT_SKIP_BUSY_CHECK -ne '1') {
+    try {
+        $procs = Get-CimInstance Win32_Process -ErrorAction Stop
+        $busy = $procs | Where-Object {
+            ($_.Name -eq 'go.exe' -and $_.CommandLine -and $_.CommandLine -match '\s(test|run)\s') -or
+            ($_.Name -like '*.test.exe') -or
+            ($_.Name -in @('opal-dl.exe', 'opal-downloader.exe')) -or
+            ($_.CommandLine -and $_.CommandLine -like "*$repoRoot*" -and $_.Name -ne 'powershell.exe')
+        }
+        if ($busy) { Allow-Stop }
+    } catch { }
+}
 
 # --- is there actually work left? --------------------------------------------
 # Reads docs/BACKLOG.md, which replaced .claude/queue/todo/ on 2026-07-22.

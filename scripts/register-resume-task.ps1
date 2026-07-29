@@ -20,6 +20,12 @@
 # storing the account password in Task Scheduler. Not worth it for a
 # convenience feature on a personal machine.
 #
+# The price of that choice, found on 2026-07-29 and now paid for with the
+# unlock/logon triggers below: on a Modern Standby laptop "logged on" is false
+# most of the time, so an hourly trigger on its own can be refused 19 times in
+# a row without a word. `-Status` prints the missed-run counter for that
+# reason - it is the number that would have shown this in seconds.
+#
 # Usage:
 #   scripts/register-resume-task.ps1            # register (or update)
 #   scripts/register-resume-task.ps1 -Remove    # unregister
@@ -50,6 +56,14 @@ if ($Status) {
     Write-Host "state    : $($t.State)"
     Write-Host "last run : $($info.LastRunTime)  (result $($info.LastTaskResult))"
     Write-Host "next run : $($info.NextRunTime)"
+    Write-Host "triggers : $(($t.Triggers | ForEach-Object { $_.CimClass.CimClassName -replace '^MSFT_Task','' -replace 'Trigger$','' }) -join ', ')"
+    # A climbing missed-run count with a healthy "state: Ready" is what a task
+    # that is refusing to launch looks like. Without this line it looks fine.
+    Write-Host "missed   : $($info.NumberOfMissedRuns)"
+    if ([int]$info.NumberOfMissedRuns -gt 3) {
+        Write-Host "           ^ ticks refused, not deferred. Check Event Viewer ->" -ForegroundColor Yellow
+        Write-Host "             Microsoft-Windows-TaskScheduler/Operational for event 332." -ForegroundColor Yellow
+    }
     $log = Join-Path $repoRoot ".claude\queue\resume-runner.log"
     if (Test-Path $log) {
         Write-Host "`nlast 10 decisions:"
@@ -104,6 +118,34 @@ $xml = @"
       <StartBoundary>$startBoundary</StartBoundary>
       <Enabled>true</Enabled>
     </TimeTrigger>
+    <!-- THE HOURLY TRIGGER ALONE DOES NOT FIRE ON THIS MACHINE, 2026-07-29.
+         From 2026-07-28 21:52 to 2026-07-29 16:52 every single tick was
+         refused with Task Scheduler event 332, "did not launch because user
+         was not logged on when the launching conditions were met": this laptop
+         idles in Modern Standby, and to InteractiveToken that reads as nobody
+         being logged on. 19 consecutive missed runs, silently, while the
+         backlog had work in it.
+
+         Worse, a refused tick is a DECISION, not a deferral - StartWhenAvailable
+         did not replay them, and the machine leaving standby four times that
+         night changed nothing. The feature was not slow, it was off.
+
+         So trigger on the moments an interactive token demonstrably exists:
+         unlocking the workstation and logging on. That is also exactly when
+         resuming is wanted - the maintainer has just come back to the machine.
+         The delay keeps it from racing the desktop coming up, and the runner's
+         own heartbeat gate stops it colliding with a session they open. -->
+    <SessionStateChangeTrigger>
+      <Enabled>true</Enabled>
+      <StateChange>SessionUnlock</StateChange>
+      <UserId>$(& $esc "$env:USERDOMAIN\$env:USERNAME")</UserId>
+      <Delay>PT1M</Delay>
+    </SessionStateChangeTrigger>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>$(& $esc "$env:USERDOMAIN\$env:USERNAME")</UserId>
+      <Delay>PT2M</Delay>
+    </LogonTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">

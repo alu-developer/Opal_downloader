@@ -163,34 +163,42 @@ func TestMutationMarkerAtSectionSettle(t *testing.T) {
 		t.Log(line)
 	}
 
-	// Only the root section, deliberately: this is a feasibility check for
-	// whether a marker exists at all, not a survey of how many sections show
-	// it. One section's full render-to-stable mutation timeline is enough to
-	// answer that, and keeps this probe's cost to a single section navigation
-	// rather than a course crawl.
-	newPage, visit := sc.visitSection(page, course.URL, course.Title)
-	page = newPage
-	if visit.failed {
-		t.Fatalf("visitSection failed for the root section - nothing to analyse")
-	}
-
-	raw, err := page.Evaluate(`() => JSON.stringify(window.__mlog || [])`)
-	if err != nil {
-		t.Fatalf("reading mutation log: %v", err)
-	}
-	rawStr, _ := raw.(string)
-	var mutations []mutationRecord
-	if rawStr != "" {
-		if err := json.Unmarshal([]byte(rawStr), &mutations); err != nil {
-			t.Fatalf("unmarshal mutation log (%d bytes): %v", len(rawStr), err)
+	// analyse visits one section, reads back the mutation log AddInitScript
+	// resets on every navigation, and reports its tail. Shared between the
+	// root section and (below) one real subfolder section, so the same
+	// question - is the tail content-shaped or bookkeeping-shaped - gets
+	// asked identically for both kinds of section. Returns the visit so the
+	// caller can reuse its candidates (finding a subfolder URL) without a
+	// second navigation to the same section.
+	analyse := func(label, url, title string) sectionVisit {
+		newPage, visit := sc.visitSection(page, url, title)
+		page = newPage
+		if visit.failed {
+			say("%s: visitSection FAILED for %s - nothing to analyse", label, url)
+			return visit
 		}
-	}
 
-	say("section %q (%s): %d files/candidates extracted, %d mutations recorded", course.Title, course.URL, len(visit.candidates), len(mutations))
+		raw, err := page.Evaluate(`() => JSON.stringify(window.__mlog || [])`)
+		if err != nil {
+			say("%s: reading mutation log failed: %v", label, err)
+			return visit
+		}
+		rawStr, _ := raw.(string)
+		var mutations []mutationRecord
+		if rawStr != "" {
+			if err := json.Unmarshal([]byte(rawStr), &mutations); err != nil {
+				say("%s: unmarshal mutation log (%d bytes) failed: %v", label, len(rawStr), err)
+				return visit
+			}
+		}
 
-	if len(mutations) == 0 {
-		say("RESULT: no mutations recorded at all - either the section rendered with zero DOM changes after DOMContentLoaded (unlikely given the settle wait exists for a reason) or the observer failed to attach in time. Treat as inconclusive, not as 'no marker exists'.")
-	} else {
+		say("%s %q (%s): %d files/candidates extracted, %d mutations recorded", label, title, url, len(visit.candidates), len(mutations))
+
+		if len(mutations) == 0 {
+			say("RESULT: no mutations recorded at all - either the section rendered with zero DOM changes after DOMContentLoaded (unlikely given the settle wait exists for a reason) or the observer failed to attach in time. Treat as inconclusive, not as 'no marker exists'.")
+			return visit
+		}
+
 		first, last := mutations[0], mutations[len(mutations)-1]
 		say("first mutation at t=%.2fms: %s", first.T, first.label())
 		say("last  mutation at t=%.2fms: %s", last.T, last.label())
@@ -215,6 +223,29 @@ func TestMutationMarkerAtSectionSettle(t *testing.T) {
 		// if Wicket always touches the same non-content element last, that
 		// touch could be the positive signal.
 		say("RESULT: recorded %d mutations spanning t=%.2fms to t=%.2fms. Read the tail above by hand - this probe reports the data, it does not itself judge whether a stable non-content marker exists, since that needs the section's actual markup for context (which element ids/classes mean 'file table' vs 'Wicket chrome' is not something this probe knows).", len(mutations), first.T, last.T)
+		return visit
+	}
+
+	rootVisit := analyse("ROOT section", course.URL, course.Title)
+
+	// Whether the jsTree completion signal (found 2026-07-30 on 4 course
+	// roots) also fires on a non-root section is the first open question
+	// docs/RESUME.md records for this lead. Reusing appendSectionFolderTargets
+	// - the exact function the real crawl uses to turn the root section's own
+	// candidates into its BFS queue - finds a real subfolder URL from the
+	// root visit already done above, with no second navigation needed just to
+	// re-derive it.
+	say("--- looking for a non-root section to test the same question ---")
+	if !rootVisit.failed && len(rootVisit.candidates) > 0 {
+		queue, _ := appendSectionFolderTargets(nil, map[string]struct{}{}, map[string]struct{}{sectionKey(course.URL, course.RepoID): {}},
+			rootVisit.candidates, sc.opalURL, course.RepoID, course.URL, course.URL, course.Title, map[string]string{}, false)
+		if len(queue) > 0 {
+			analyse("NON-ROOT section", queue[0], "(subfolder, title unknown to this probe)")
+		} else {
+			say("no subfolder URL found from the root section's own candidates - this course may be flat (no subfolders), which this probe cannot help with")
+		}
+	} else {
+		say("root section failed or had no candidates - cannot derive a subfolder queue")
 	}
 
 	outDir := filepath.Join("..", "..", "tmp")

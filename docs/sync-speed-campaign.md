@@ -1008,3 +1008,50 @@ has math content, and does that matter), and any implementation needs the
 same byte-for-byte ground-truth comparison every other change here has been
 held to. That is real follow-up work, not a next-session one-liner - flagged
 in `docs/BACKLOG.md` rather than started here.
+
+#### Same session, same evening — both open questions above now answered
+
+The probe (`internal/scraper/mutationmarker_probe_test.go`) was extended to
+also visit one real subfolder section per course: `appendSectionFolderTargets`
+— the exact function the production BFS crawl uses to turn a section's own
+candidates into its next queue entries — turns the root visit's candidates
+into a real non-root URL with no extra navigation needed to find one.
+
+**Question 1, non-root sections: yes, the same signal fires.** Two
+subfolders tested (Softwaretechnologie, Analysis), both non-math and math
+courses respectively. Both show the identical `.jstree[aria-busy="false"]`
++ `[aria-activedescendant=...]` pair as the section's last or
+near-last mutation — same shape as every root section. This was not a
+root-only artifact.
+
+**Question 2, MathJax ordering: genuinely inconsistent, confirming the
+risk.** Six sections now sampled total (4 roots + 2 non-root):
+
+| section | jsTree vs MathJax |
+|---|---|
+| Algorithmen und Datenstrukturen (root) | MathJax finishes **after** jsTree |
+| Softwaretechnologie (root) | no MathJax on this course |
+| Analysis (root) | MathJax finishes **after** jsTree |
+| 2026 LA20 (root) | MathJax finishes **after** jsTree |
+| Softwaretechnologie (non-root) | MathJax finishes **before** jsTree |
+| Analysis (non-root) | no MathJax visible on this particular section |
+
+Both orderings occur — sometimes on the very same course (Softwaretechnologie
+and Analysis each show one ordering on one section and the other/none on a
+different section within the same course). **A jsTree-only wait is therefore
+not safe as a drop-in replacement for the debounce**, exactly the risk named
+above: on a section where MathJax finishes after jsTree, stopping at jsTree's
+signal would read the page before its math content has actually rendered —
+the file table itself is unaffected either way (jsTree and MathJax both sit
+outside it), but this project has no evidence yet that nothing *else*
+finishes after jsTree on some section this sampling didn't happen to catch.
+
+**Where this leaves the lead: real, generalizes across root/non-root, and
+still needs a MathJax-aware wait condition, not a jsTree-only one.** The
+shape such a condition would need: wait for jsTree's `aria-busy="false"`
+AND, only on pages where `typeof MathJax !== 'undefined'` is true, MathJax's
+own completion (it exposes queueable "done" callbacks in the versions OPAL
+appears to use). Building and byte-for-byte A/B testing that combined
+condition against the 345-file ground truth is the next concrete step, and
+is exactly the kind of change to this file that needs care rather than
+speed — not started this session.

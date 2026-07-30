@@ -358,26 +358,32 @@ would attack the cause instead of the symptom. Item 1 (HTTP-first discovery)
 tried the closest thing and was rejected for concrete measured reasons; read
 that entry before reaching for it again.
 
-**2026-07-30: the DOM half of that lead found a real candidate signal, across
-4 courses, not yet built into anything.** `internal/scraper/
-mutationmarker_probe_test.go` (`OPAL_MUTATION_MARKER_TRACE=1`) records a
-section's full mutation timeline. Run live against 4 different courses' root
-sections (after a login hiccup - full account, and why it wasn't TU-Fast
-regressing, in `docs/sync-speed-campaign.md`): all four show the course's
-**jsTree navigation widget** setting `aria-busy="false"` as its own completion
-signal, in 2 of 4 as the literal last mutation on the page. That is a real,
-identifiable, cross-course-consistent signal — the first one this whole
-campaign has found.
+**2026-07-30: the DOM half of that lead found a real candidate signal, and
+both follow-up questions are now answered — still not built into anything.**
+`internal/scraper/mutationmarker_probe_test.go`
+(`OPAL_MUTATION_MARKER_TRACE=1`) records a section's full mutation timeline
+and (as of the same evening) also visits one real subfolder per course, via
+`appendSectionFolderTargets` — the exact function the production crawl uses.
+Run live against 6 sections across 4 courses (after a login hiccup that
+turned out not to be TU-Fast regressing — full account in
+`docs/sync-speed-campaign.md`): all six show the course's **jsTree
+navigation widget** setting `aria-busy="false"` as its own completion signal,
+on root *and* non-root sections alike. That is a real, identifiable,
+cross-course, cross-section-kind signal — the first one this whole campaign
+has found.
 
-**Not a fix yet, on purpose.** Two open questions before anything gets built:
-whether this signal fires on non-root sections too (all 4 samples were course
-roots), and how it orders against MathJax on courses that use it (MathJax
-finished after jsTree in 2 samples, before it in 1 - watching jsTree alone
-could mean reading before a math-heavy section's content has actually
-rendered). Answering those and then building/A-B-testing the replacement wait
-condition is real follow-up work in the correctness-sensitive settle-wait/
-stability-poll code, with this project's usual bar (byte-for-byte ground-truth
-comparison) - not a quick continuation of this session.
+**Confirmed, not a fix yet.** Answered: (1) yes, the signal fires on
+non-root sections too, not just course roots. (2) its ordering against
+MathJax (on courses that use it) is genuinely inconsistent — sometimes
+MathJax finishes first, sometimes jsTree does, even across different
+sections of the *same* course — so **a jsTree-only wait is not safe as a
+drop-in replacement for the debounce**. The real next step: a combined
+condition (jsTree's signal, plus MathJax's own completion when
+`typeof MathJax !== 'undefined'`), built and byte-for-byte A/B tested against
+the 345-file ground truth. That is real implementation work in the
+correctness-sensitive settle-wait/stability-poll code
+(`navigation.go`'s `waitForInteractiveLinks`/`waitForContentSettled`) - not a
+quick continuation, and not started here.
 
 ### Dogfood the whole first-run journey
 **Blocked:** all four decisions below shipped on 2026-07-26 (first-run

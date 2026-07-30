@@ -19,40 +19,45 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-## In flight: the jsTree completion-signal lead (sync speed)
+## In flight: implementing the jsTree completion signal (sync speed)
 
-`docs/BACKLOG.md`'s "Sync speed" entry / `docs/sync-speed-campaign.md`'s
-2026-07-30 entry found a real candidate: the course-navigation jsTree widget
-sets `aria-busy="false"` as its own completion signal, confirmed across 4
-courses' root sections via `internal/scraper/mutationmarker_probe_test.go`
-(`OPAL_MUTATION_MARKER_TRACE=1`, `OPAL_MUTATION_MARKER_COURSE=<name>`). First
-signal this whole campaign has found after three rejected attempts at others.
+`docs/sync-speed-campaign.md`'s 2026-07-30 entries found a real candidate and
+answered both follow-up questions this session:
 
-**Not implemented. Two open questions before anything is built**, both
-answerable with the same probe, cheaply (a few seconds per section, reuses
-the saved session):
+- The course-navigation **jsTree** widget sets `aria-busy="false"` (+
+  `aria-activedescendant`) as its own completion signal.
+- Confirmed on **6 sections across 4 courses, root and non-root alike** -
+  generalizes, not a root-only artifact.
+- Its ordering against **MathJax** (on courses that use it) is genuinely
+  inconsistent - sometimes MathJax finishes first, sometimes jsTree does,
+  even across different sections of the same course. **A jsTree-only wait is
+  not safe** as a drop-in replacement for the debounce.
 
-1. **Does the signal fire on non-root sections too?** All 4 samples so far
-   are course *root* sections. The probe currently only visits `course.URL`
-   (see `visitSection(page, course.URL, course.Title)` in the test) - it
-   would need a real subfolder section URL to test this, which means either
-   extending the probe to accept a URL directly, or discovering one section
-   URL cheaply first (e.g. querying the root page's own section links rather
-   than running a full course crawl).
-2. **How does it order against MathJax on courses that use it?** MathJax
-   finished after jsTree in 2 of 4 samples, before it in 1 - a jsTree-only
-   wait could read a math-heavy section before its content has actually
-   rendered. Needs a few more samples specifically on math-content sections,
-   ideally ones where MathJax has real formulas to typeset (not just the
-   library loaded but idle).
+`internal/scraper/mutationmarker_probe_test.go`
+(`OPAL_MUTATION_MARKER_TRACE=1`, `OPAL_MUTATION_MARKER_COURSE=<name>`) is the
+reusable probe; re-run it any time for more samples.
 
-**After those:** building the actual replacement wait condition is real work
-in `navigation.go`'s `waitForInteractiveLinks`/`waitForContentSettled`, the
-most correctness-sensitive part of this codebase (documented history of
-*silent* file loss from changes here). It needs the same byte-for-byte
-ground-truth comparison every prior change in this campaign has been held
-to (`scripts/compare-visit-runs.ps1` + the 345-file full-account baseline
-already exist for this) - not a quick continuation.
+**Not implemented yet. The next step is a real implementation task**, not
+more probing:
+
+1. Build a combined wait condition in `navigation.go`
+   (`waitForInteractiveLinks`/`waitForContentSettled`): wait for jsTree's
+   `aria-busy="false"`, AND, only when `typeof MathJax !== 'undefined'` on
+   the page, also wait for MathJax's own completion (it exposes queueable
+   "done" callbacks in the version OPAL loads - confirm the exact API before
+   relying on it).
+2. Gate it behind an env flag the same way every other experimental wait
+   condition in this codebase is (`OPAL_SKIP_SETTLE_WAIT` etc.), so it can be
+   A/B tested without risking a real sync.
+3. **Byte-for-byte ground truth is non-negotiable here** -
+   `scripts/compare-visit-runs.ps1` + the 345-file full-account baseline
+   already exist for exactly this. A file *count* is not acceptable evidence
+   (this project has been burned by that twice); the sorted file list must be
+   identical.
+4. This is the most correctness-sensitive code in the repo (documented
+   history of *silent* file loss from changes here) - if in doubt about
+   whether an ordering edge case is safe, that doubt is itself a reason to
+   test more before shipping, not a reason to skip the test.
 
 **Do not lose:** the two "needs your eyes" GUI-review backlog items are
 still unanswered by the maintainer - unrelated to this, just still true.

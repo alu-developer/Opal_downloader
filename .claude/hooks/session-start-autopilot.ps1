@@ -199,6 +199,59 @@ if ($armed) {
     }
 }
 
+# --- too many tokens for too little: budget floor vs. commits since last start -
+# The second of the three symptoms in the maintainer's 2026-07-30 request
+# ("hier zu viele tokens... usw"), and the harder one: there is no per-session
+# token count available to a hook, but the budget floor (see budget-lib.ps1)
+# is already trusted elsewhere in this repo as a usage proxy. Comparing it
+# across sessions, against how many commits landed in between, operationalizes
+# "spent a lot, shipped nothing" without needing a number hooks cannot get.
+#
+# Deliberately conservative, matching Get-BudgetRung's own philosophy: only
+# flags a *rise* within the SAME window (a window reset - usage only climbs
+# within a window, so Now < Prev means it rolled over - is not a signal and is
+# skipped), gated behind both a real threshold (15 points - a meaningful
+# fraction of a whole rung) and zero commits, and only compared against a
+# previous state whose commit is a real ancestor of HEAD (a rebase, an amend,
+# or a first-ever run all fall back to "no baseline yet" rather than guessing).
+try {
+    $auditState = Join-Path $queueDir ".session-budget-audit.json"
+    $nowHead = (& git -C $repoRoot rev-parse HEAD 2>$null)
+    if ($budget -and $budget.Known -and $nowHead) {
+        $prev = $null
+        if (Test-Path $auditState) {
+            try { $prev = Get-Content $auditState -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { $prev = $null }
+        }
+        if ($prev -and $prev.commit) {
+            & git -C $repoRoot merge-base --is-ancestor $prev.commit $nowHead 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $commitsSince = $null
+                $commitsRaw = (& git -C $repoRoot rev-list --count "$($prev.commit)..$nowHead" 2>$null)
+                if ($commitsRaw -match '^\d+$') { $commitsSince = [int]$commitsRaw }
+
+                if ($null -ne $commitsSince -and $commitsSince -eq 0) {
+                    foreach ($w in @(
+                            @{ Name = "5h"; Prev = $prev.five_hour; Now = $budget.FiveHour }
+                            @{ Name = "7d"; Prev = $prev.seven_day; Now = $budget.SevenDay })) {
+                        if ($null -eq $w.Prev -or $null -eq $w.Now) { continue }
+                        if ($w.Now -lt $w.Prev) { continue }  # window reset, not a signal
+                        $rise = $w.Now - $w.Prev
+                        if ($rise -ge 15) {
+                            $notes += "SELF-AUDIT: the $($w.Name) budget floor rose from $($w.Prev)% to $($w.Now)% since the last session started, but 0 commits landed in between. That is the 'too many tokens for too little' pattern the maintainer flagged 2026-07-30 - worth asking what the previous session actually spent that turn on."
+                        }
+                    }
+                }
+            }
+        }
+        @{
+            commit     = $nowHead
+            five_hour  = $budget.FiveHour
+            seven_day  = $budget.SevenDay
+            recorded_at = (Get-Date).ToString('o')
+        } | ConvertTo-Json -Compress | Set-Content $auditState -Encoding utf8 -ErrorAction SilentlyContinue
+    }
+} catch { }
+
 $context = @($budgetNote) + $notes + @(
     "Read docs/BACKLOG.md and start on the top unblocked item without waiting to be asked. Do not stop at the end of a task to ask whether to continue; the Stop hook will push back on that. Stop only for a genuine human decision (see the operating model doc's 'what still needs a human' section).",
     "Keep docs/RESUME.md current as you work - it is what survives a turn being killed mid-run."

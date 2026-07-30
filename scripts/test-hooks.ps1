@@ -541,6 +541,65 @@ try {
     Assert-That "fresh beats for all three produce no self-audit finding" ($out -notmatch "has never recorded a beat" -and $out -notmatch "older than the newest commit") "got: $out"
     Remove-Item $beatsDirT -Recurse -Force -ErrorAction SilentlyContinue
 
+    # SELF-AUDIT: budget floor vs. commits since the last session start ("too
+    # many tokens for too little"). Runs against the real repo's real HEAD
+    # (session-start-autopilot.ps1 doesn't take a repo-root override), so
+    # these tests hold HEAD constant and drive the comparison through the
+    # sandboxed state file instead.
+    #
+    # The match string below is "budget floor rose from", not the more
+    # readable "too many tokens for too little" - the SAME collision that
+    # broke the dead-hook tests earlier hit this one too: docs/RESUME.md's own
+    # prose ended up quoting that exact phrase while documenting the feature,
+    # and -notmatch is case-insensitive, so every "should NOT fire" assertion
+    # below started failing for a reason that had nothing to do with this
+    # code. The numeric-anchored phrase is what the code actually generates
+    # and prose describing the feature is far less likely to reproduce
+    # verbatim - not a permanent fix, just a less fragile discriminator.
+    $auditStateT = Join-Path $queueDir ".session-budget-audit.json"
+    Remove-Item $auditStateT -Force -ErrorAction SilentlyContinue
+    $realHead = (& git -C $repoRoot rev-parse HEAD 2>$null)
+
+    Set-Status -FivePct 20 -SevenPct 10
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "ba1"; source = "startup" }
+    Assert-That "first-ever run has no baseline to compare against, so no finding" ($out -notmatch "budget floor rose from") "got: $out"
+    Assert-That "...and it writes one for next time" (Test-Path $auditStateT)
+
+    # Same HEAD (0 commits since), floor risen well past the 15-point
+    # threshold on the 5h window.
+    Set-Status -FivePct 40 -SevenPct 10
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "ba2"; source = "startup" }
+    Assert-That "floor +20 with 0 commits IS flagged" ($out -match "budget floor rose from") "got: $out"
+    Assert-That "names the window and both numbers" ($out -match "5h budget floor rose from 20% to 40%") "got: $out"
+
+    # A rise under the threshold must not fire - this is meant to be
+    # conservative, not a tripwire on every normal hour of work.
+    @{ commit = $realHead; five_hour = 40; seven_day = 10; recorded_at = (Get-Date).ToString('o') } |
+        ConvertTo-Json -Compress | Set-Content $auditStateT -Encoding utf8
+    Set-Status -FivePct 48 -SevenPct 10
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "ba3"; source = "startup" }
+    Assert-That "a rise below the 15-point threshold is not flagged" ($out -notmatch "budget floor rose from") "got: $out"
+
+    # A window ROLLING OVER (now < prev) must never read as "few commits" -
+    # usage only climbs within a window, so a drop means the window reset,
+    # not that work somehow un-spent budget.
+    @{ commit = $realHead; five_hour = 90; seven_day = 10; recorded_at = (Get-Date).ToString('o') } |
+        ConvertTo-Json -Compress | Set-Content $auditStateT -Encoding utf8
+    Set-Status -FivePct 15 -SevenPct 10
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "ba4"; source = "startup" }
+    Assert-That "a window reset (floor drops) is never flagged" ($out -notmatch "budget floor rose from") "got: $out"
+
+    # A real commit landing between two starts must suppress the finding even
+    # if the floor rose a lot - the whole point is distinguishing "spent a lot,
+    # shipped nothing" from "spent a lot, shipped something".
+    @{ commit = "0000000000000000000000000000000000000000"; five_hour = 5; seven_day = 5; recorded_at = (Get-Date).ToString('o') } |
+        ConvertTo-Json -Compress | Set-Content $auditStateT -Encoding utf8
+    Set-Status -FivePct 50 -SevenPct 5
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "ba5"; source = "startup" }
+    Assert-That "an unknown/non-ancestor previous commit falls back to no baseline, not a false alarm" ($out -notmatch "budget floor rose from") "got: $out"
+
+    Remove-Item $auditStateT -Force -ErrorAction SilentlyContinue
+
     # A failing scheduled resume runner has no human to tell. Its launch path was
     # broken for two days and six attempts, and the only trace was a log line
     # nobody reads - so the next interactive session has to be told, once.

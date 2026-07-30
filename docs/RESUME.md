@@ -65,19 +65,37 @@ only ever caught by the maintainer, never by the machinery.
   polluted real beat files were deleted so they reflect reality again
   (self-heals on the next real hook firing, i.e. immediately).
 
-**What's still missing:**
-1. Volume/commit-hygiene rollup ("too little worked on", "too many tokens
-   for too little"). `unattended-run.ps1` already computes commits/mins/
-   bytes/dirty/unpushed per unattended run and logs a verdict - that only
-   covers autopilot runs, not the maintainer's own interactive sessions,
-   which is where they actually reported these symptoms. Possible next step:
-   at SessionStart, read the previous session's budget-floor + HEAD commit
-   from a small state file, compare to now, and flag "budget floor rose a
-   lot, few/no commits landed" - operationalizes "too many tokens" without
-   needing per-session token counts (which aren't exposed to hooks at all).
-2. Write the verdict somewhere durable beyond the SessionStart
-   `additionalContext` (a file under `.claude/queue/`?) so it survives past
-   one session's transcript.
+**All three named symptoms now have a detector.** The second one landed this
+session too: `session-start-autopilot.ps1` persists the budget floor + HEAD
+commit to `.claude/queue/.session-budget-audit.json` on every session start,
+and on the next one compares - if a window's floor rose >=15 points since
+then with 0 commits in between (same-window only, window resets excluded,
+previous commit must be a real ancestor of HEAD or it falls back to "no
+baseline"), it surfaces `SELF-AUDIT: ... 'too many tokens for too little'`.
+7 new tests (fresh baseline, real rise+flag, below-threshold, window-reset,
+non-ancestor-commit fallback). `dev.ps1 all` green (209 hook assertions).
+
+**Not done, and worth being honest about:** none of this has been observed
+firing against real production sessions yet - both self-audits (dead-hook,
+budget-vs-commits) are unit/integration-tested against synthetic state, not
+watched catching an actual live incident. That's the same gap every hook in
+this family started with (`docs/agent-operating-model.md` names it), so it
+is not a special weakness of this feature, but don't oversell it as proven
+in the field.
+
+**Still open, lower priority than the above:**
+1. "Too little actually worked on" is currently only detected for unattended
+   runs (`unattended-run.ps1`'s existing verdict), not interactive sessions.
+   Extending it there would need a definition of "too little" for a session
+   the maintainer is actively driving, which is a fuzzier bar than an
+   autopilot run's commits-vs-minutes - possibly not worth building; the
+   maintainer noticing is arguably fine for this one specifically, since it's
+   the most product-judgment-shaped of the three.
+2. Write the verdicts somewhere more durable than SessionStart
+   `additionalContext` (which only lives in that one transcript) - e.g.
+   append one line per finding to a small log under `.claude/queue/`, so a
+   pattern across many sessions ("this keeps happening") becomes visible
+   without anyone having to remember individual transcripts.
 
 **Do not build:** anything that grades whether the *code* is good - that is
 the one thing `docs/work-quality.md` explicitly rules out (an agent auditing

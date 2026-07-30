@@ -589,37 +589,22 @@ enough to justify keeping a known-hazardous test around.
 ## Next
 
 ### The 2026-07-27 evening batch
-**Blocked:** the one remaining item needs an `.ico` file from the maintainer;
-there is no code change left to make. Marked blocked so the autopilot gate
-stops counting it as work an agent can do - the mechanical failure that cost
-2026-07-27 was a backlog whose blocked/unblocked flags did not match reality.
+**Done (2026-07-30).** All five items are now shipped (see "Done recently").
+The one holdout - the Windows binary having no icon - was recorded blocked on
+"needs an SVG renderer", and that premise was wrong: WPF's
+`Geometry.Parse` already speaks the SVG path mini-language, so
+`scripts/build-icon.ps1` rasterises `logoSVG` directly with nothing added to
+`go.mod`. `internal/gui/assets/icon.ico` is checked in and wired into the
+running window via `WM_SETICON` (`window_windows.go`'s `setWindowIcon`),
+verified live by screenshotting the real window.
 
-Reported by the maintainer after running the GUI. **Four of five are done**
-(see "Done recently"); one is left, and it is the one that needs a real
-artefact rather than a code change.
-
-**Left: the Windows binary has no icon — and it needs an asset, not code.**
-Investigated 2026-07-27 rather than assumed. The maintainer's condition was
-"add it if it does not cause problems, otherwise not that relevant", and this
-lands on the wrong side of that line for a reason worth writing down:
-
-- `go-webview2`'s `WindowOptions.IconId` loads an icon **by resource ID from
-  the executable**, so it needs an embedded `.syso` resource. Producing one
-  needs a build-time tool (`rsrc`/`goversioninfo`) or a hand-built COFF object.
-- The alternative avoids that: `w.Window()` exposes the HWND, so the icon could
-  be set at runtime with `WM_SETICON` and `CreateIconFromResourceEx` using
-  stdlib `syscall` only — no new dependency, no build tooling. But it only
-  fixes the *running window*; the `.exe`'s own icon in Explorer still needs the
-  resource.
-- **Both paths need a rasterised multi-size `.ico`, and that is the actual
-  blocker.** The app's mark is `logoSVG` (a gradient rounded rect plus a
-  two-part path); rasterising it faithfully needs an SVG renderer. Hand-drawing
-  an approximation would ship an icon that does not match the logo, which is a
-  worse outcome than the default icon.
-
-So: **not doing it, by the maintainer's own condition.** If they want it, the
-cheap path is checking in an `.ico` exported from `logoSVG` by any tool that
-can do it once; the wiring after that is small and either path above works.
+**Left as a follow-up, not a blocker:** the `.exe`'s own Explorer/taskbar
+icon (before the program is even running) still shows the Go default. Fixing
+that needs a build-time-embedded `.syso` resource, which needs a
+resource-compiling tool (`rsrc`/`goversioninfo`, or a hand-built COFF
+object) - a new build dependency, which is the kind of call this file's
+"three direct Go deps total" framing treats as worth a maintainer's eyes
+rather than an agent's default yes. Not decided here.
 
 ---
 
@@ -784,6 +769,21 @@ matter.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **The Windows binary's running window now shows opal-downloader's own
+  icon, not the Go default.** `scripts/build-icon.ps1` rasterises `logoSVG`
+  into `internal/gui/assets/icon.ico` (16-256px) via WPF - `Geometry.Parse`
+  already speaks the SVG path mini-language, so the "needs an SVG renderer"
+  blocker recorded 2026-07-27 didn't need a new dependency to clear.
+  `window_windows.go` embeds the file and `WM_SETICON`s it onto the window
+  right after creation. Live-verified by screenshotting the real running
+  window. The `.exe`'s own Explorer icon is a separate, not-yet-decided
+  follow-up (see "Next").
+- **Every wired hook now has a liveness heartbeat.** `.claude/hooks/hookbeat.ps1`
+  is dot-sourced by all six hooks and writes one JSON file per hook under
+  `.claude/queue/.hookbeats/` on every fire. First half of the maintainer's
+  2026-07-30 self-monitoring request; `Get-HookBeats` (the read side) has no
+  caller yet - the periodic/end-of-session reader that turns beats + git log
+  into a verdict is still to build. See `docs/work-quality.md`.
 - **The "Noticed" section has a consumer now.** The maintainer asked what
   happens to the notes ("was passiert eigentlich mit den notizen?") and the
   honest answer was: nothing, unless somebody happened to read them. That is

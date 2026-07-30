@@ -221,6 +221,56 @@ try {
     Assert-That "null budget => rung 0, no throw" ((Get-BudgetRung $null) -eq 0)
 
     # =========================================================================
+    Write-Host "`nhookbeat: Write-HookBeat / Get-HookBeats / Test-HookLiveness" -ForegroundColor Cyan
+    # =========================================================================
+    . (Join-Path $hooksDir "hookbeat.ps1")
+    $beatsDir = Join-Path $queueDir ".hookbeats"
+    Remove-Item $beatsDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    # The isolation bug found while building this: without honouring
+    # OPAL_AUTOPILOT_QUEUE_DIR, every beat write landed in the REAL repo's
+    # .claude/queue/.hookbeats regardless of the sandbox, so running this very
+    # test suite kept "healing" the real liveness data with test-invocation
+    # timestamps - which would make Test-HookLiveness unable to ever see a
+    # truly dead hook, since the suite's own runs kept refreshing it.
+    Write-HookBeat -Name "probe-hook"
+    Assert-That "a beat is written under the sandboxed queue dir, not the real repo" `
+        (Test-Path (Join-Path $beatsDir "probe-hook.json")) `
+        "expected $beatsDir/probe-hook.json"
+    $beats = Get-HookBeats
+    Assert-That "the beat reads back with a parseable timestamp" `
+        ($beats.ContainsKey("probe-hook") -and $beats["probe-hook"] -is [datetime]) `
+        "got: $($beats["probe-hook"])"
+
+    "not json" | Set-Content (Join-Path $beatsDir "corrupt.json") -Encoding utf8
+    $beats2 = Get-HookBeats
+    Assert-That "a corrupt beat file is skipped, not thrown on" ($beats2.ContainsKey("probe-hook")) "Get-HookBeats threw or dropped the good beat too"
+    Remove-Item (Join-Path $beatsDir "corrupt.json") -Force -ErrorAction SilentlyContinue
+
+    Remove-Item $beatsDir -Recurse -Force -ErrorAction SilentlyContinue
+    $now = Get-Date
+    $old = $now.AddDays(-1)
+    foreach ($name in @('autopilot-gate', 'noticed-gate', 'budget-guard')) {
+        Write-HookBeat -Name $name
+    }
+    $dead = @(Test-HookLiveness -LatestCommitAt $old)
+    Assert-That "fresh beats after the newest commit are not flagged dead" ($dead.Count -eq 0) "got: $($dead -join '; ')"
+
+    $dead2 = @(Test-HookLiveness -LatestCommitAt $now.AddDays(1))
+    Assert-That "a beat older than the newest commit IS flagged dead" ($dead2.Count -eq 3) "got: $($dead2 -join '; ')"
+    Assert-That "the dead-hook message names the hook" ($dead2 -join ';' -match 'autopilot-gate') "got: $($dead2 -join '; ')"
+
+    Remove-Item $beatsDir -Recurse -Force -ErrorAction SilentlyContinue
+    $dead3 = @(Test-HookLiveness -LatestCommitAt $now)
+    Assert-That "no beats at all, but commits exist, is also flagged dead" ($dead3.Count -eq 3) "got: $($dead3 -join '; ')"
+
+    Assert-That "a hook outside the high-frequency set is never flagged" `
+        (($dead3 -join ';') -notmatch 'session-start-autopilot|turn-failure-checkpoint|pre-push-gate') `
+        "got: $($dead3 -join '; ')"
+
+    Remove-Item $beatsDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    # =========================================================================
     Write-Host "`nbudget-guard (PreToolUse)" -ForegroundColor Cyan
     # =========================================================================
     $guardState = Join-Path $queueDir ".budget-guard-state.json"
@@ -458,6 +508,38 @@ try {
     $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "n5"; source = "startup" }
     Assert-That "AUTOPILOT.OFF prevents arming" (-not (Test-Path $marker)) "armed over the off switch"
     Remove-Item $offSwitch -Force -ErrorAction SilentlyContinue
+
+    # SELF-AUDIT: the hook-liveness check added alongside hookbeat.ps1. This
+    # runs against the REAL repo's git log (session-start-autopilot.ps1
+    # resolves its own repo root, not the sandbox), so the newest commit is
+    # always "recent" here - the only thing under test is whether the beats
+    # directory (which IS sandboxed, via OPAL_AUTOPILOT_QUEUE_DIR) is missing
+    # or stale relative to that.
+    # Matching a phrase this hook emits is not enough on its own: this very
+    # file (docs/RESUME.md, surfaced verbatim by this hook whenever it is
+    # non-placeholder) is allowed to quote or describe that phrase in prose -
+    # it did exactly that while this feature was being written, and broke
+    # this assertion via a false pass/fail neither one caused by the code
+    # under test. "has never recorded a beat, but commits already exist" is
+    # Test-HookLiveness's per-hook detail sentence (the "no beat found at
+    # all" branch), not the outer wrapper - much less likely to be echoed in
+    # prose describing the feature, but still not immune, which is exactly
+    # why the case below also asserts the negative with the docs' true
+    # content restored, not with it emptied out.
+    $beatsDirT = Join-Path $queueDir ".hookbeats"
+    Remove-Item $beatsDirT -Recurse -Force -ErrorAction SilentlyContinue
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "hb1"; source = "startup" }
+    Assert-That "no beats at all is reported as a self-audit finding" ($out -match "has never recorded a beat, but commits already exist") "got: $out"
+    Assert-That "names at least one of the high-frequency hooks" ($out -match "autopilot-gate|noticed-gate|budget-guard") "got: $out"
+
+    New-Item -ItemType Directory -Path $beatsDirT -Force | Out-Null
+    foreach ($name in @('autopilot-gate', 'noticed-gate', 'budget-guard')) {
+        [pscustomobject]@{ hook = $name; at = (Get-Date).ToString('o'); pid = $PID } |
+            ConvertTo-Json -Compress | Set-Content (Join-Path $beatsDirT "$name.json") -Encoding utf8
+    }
+    $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "hb2"; source = "startup" }
+    Assert-That "fresh beats for all three produce no self-audit finding" ($out -notmatch "has never recorded a beat" -and $out -notmatch "older than the newest commit") "got: $out"
+    Remove-Item $beatsDirT -Recurse -Force -ErrorAction SilentlyContinue
 
     # A failing scheduled resume runner has no human to tell. Its launch path was
     # broken for two days and six attempts, and the only trace was a log line

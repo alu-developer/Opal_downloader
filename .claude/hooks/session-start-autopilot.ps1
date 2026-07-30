@@ -109,8 +109,31 @@ if (Test-Path $resumeLog) {
     } catch { }
 }
 
-# --- where was the last session up to? ----------------------------------------
+# --- has a high-frequency hook gone silent? ------------------------------------
+# The self-monitoring half of hookbeat.ps1: a hook that stops firing produces
+# no error and no log line, so the only way to notice is comparing its last
+# beat against something that could only have happened if it were still
+# running - here, the newest commit (see Test-HookLiveness for why that's a
+# safe comparison). This is exactly the class of failure that cost
+# 2026-07-27: the autopilot gate had been dead all session and only the
+# maintainer, hours later, noticed.
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+try {
+    $beatLib = Join-Path $PSScriptRoot "hookbeat.ps1"
+    if (Test-Path $beatLib) {
+        . $beatLib
+        $latestCommitUnix = & git -C $repoRoot log -1 --format=%ct 2>$null
+        if ($latestCommitUnix -match '^\d+$') {
+            $latestCommitAt = [DateTimeOffset]::FromUnixTimeSeconds([int64]$latestCommitUnix).UtcDateTime
+            $deadHooks = @(Test-HookLiveness -RepoRoot $repoRoot -LatestCommitAt $latestCommitAt)
+            if ($deadHooks.Count -gt 0) {
+                $notes += "SELF-AUDIT: possible dead hook(s) - " + ($deadHooks -join '; ') + ". A hook that silently stops firing looks identical to nothing-to-report; treat this as a bug to fix (see docs/work-quality.md), not a log line to skim past."
+            }
+        }
+    }
+} catch { }
+
+# --- where was the last session up to? ----------------------------------------
 $resumePath = Join-Path $repoRoot "docs\RESUME.md"
 if (Test-Path $resumePath) {
     try {

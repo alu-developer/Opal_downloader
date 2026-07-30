@@ -42,23 +42,42 @@ only ever caught by the maintainer, never by the machinery.
   drafts a definition of done (5 rules, rule 5 - budget was never the
   deciding factor, or the work is paused and RESUME says so - is the one
   with teeth).
-- `.claude/hooks/hookbeat.ps1` (a22156b): every wired hook writes a liveness
-  beat to `.claude/queue/.hookbeats/<hook>.json` on each fire. `Get-HookBeats`
-  reads them back but **has no caller yet**.
+- `.claude/hooks/hookbeat.ps1`: every wired hook writes a liveness beat.
+  **Dead-hook detection now has a caller.** `Test-HookLiveness` (new this
+  session) flags `autopilot-gate`/`noticed-gate`/`budget-guard` - the three
+  hooks that fire on (almost) every turn - as dead if their last beat
+  predates the newest commit (a commit can only land inside a turn that hit
+  Stop and made a tool call, so that's a safe, false-positive-free
+  comparison). `session-start-autopilot.ps1` calls it and surfaces
+  `SELF-AUDIT: possible dead hook(s) - ...` as `additionalContext` at the
+  start of every new session. 8 new tests in `scripts/test-hooks.ps1` (pure
+  function + the SessionStart integration); `dev.ps1 all` green (202 hook
+  assertions).
+- **Real bug found and fixed while wiring this up:** `hookbeat.ps1` ignored
+  `$env:OPAL_AUTOPILOT_QUEUE_DIR` entirely and always wrote to the real
+  repo's `.claude/queue/.hookbeats`, unlike every sibling piece of hook state
+  (the AUTOPILOT marker, `.session-heartbeat.json`, `resume-runner.log`).
+  Every `scripts/test-hooks.ps1` run (including the ones earlier this
+  session) was overwriting the real beats with test-invocation timestamps -
+  which would have made the dead-hook check above permanently blind, since
+  running the test suite kept "healing" the very thing it's supposed to
+  catch. Fixed (`Get-HookBeatsDir` now checks the env var first); the
+  polluted real beat files were deleted so they reflect reality again
+  (self-heals on the next real hook firing, i.e. immediately).
 
-**What's still missing, in order:**
-1. A reader that turns hookbeats + git log into an actual verdict: which
-   hooks haven't fired recently (dead-hook detection, the 2026-07-27
-   failure), commits per session/turn, whether a turn ended with everything
-   committed (`unattended-run.ps1` already has half of this - see BACKLOG's
-   Noticed section on `run-left-uncommitted` - reuse rather than
-   re-invent).
-2. Where it runs: a hook (which one - Stop? SessionStart?) or a scheduled
-   script alongside `resume-runner.ps1`. Decide by what it needs to see -
-   if it's per-turn, a hook; if it's a rollup, scheduled.
-3. Wire it, test it (mutation-test the same way every other hook here is:
-   removing the check should fail an assertion), and write the verdict
-   somewhere durable (a file under `.claude/queue/`, not just stdout).
+**What's still missing:**
+1. Volume/commit-hygiene rollup ("too little worked on", "too many tokens
+   for too little"). `unattended-run.ps1` already computes commits/mins/
+   bytes/dirty/unpushed per unattended run and logs a verdict - that only
+   covers autopilot runs, not the maintainer's own interactive sessions,
+   which is where they actually reported these symptoms. Possible next step:
+   at SessionStart, read the previous session's budget-floor + HEAD commit
+   from a small state file, compare to now, and flag "budget floor rose a
+   lot, few/no commits landed" - operationalizes "too many tokens" without
+   needing per-session token counts (which aren't exposed to hooks at all).
+2. Write the verdict somewhere durable beyond the SessionStart
+   `additionalContext` (a file under `.claude/queue/`?) so it survives past
+   one session's transcript.
 
 **Do not build:** anything that grades whether the *code* is good - that is
 the one thing `docs/work-quality.md` explicitly rules out (an agent auditing

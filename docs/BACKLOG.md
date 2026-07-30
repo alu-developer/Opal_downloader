@@ -222,17 +222,6 @@ waiting for the OPAL course list after login`) was an unattended run against
 an expired session with nobody present, exactly the case `CLAUDE.md`
 describes. The A/B repeat can now be run.
 
-Also unexplored, and now second in line: a DOM-level completion marker Wicket
-sets itself, or an OPAL view that serves the file listing without the staged
-client-side render.
-
-of the crawl's concurrency model in the most correctness-sensitive part of
-this codebase, with a documented history of *silent* file loss from past
-concurrency changes - it needs the maintainer's explicit sign-off before being
-built (see the last entry in `docs/sync-speed-campaign.md`). Nothing else
-here is unblocked without new evidence; re-measuring or re-arguing already-
-rejected approaches wastes a round trip.
-
 **The last unasked question is now asked, and the answer is no.** Every attempt
 in this campaign tried to make the settle wait shorter or cheaper. None had
 ever asked whether it is needed — and there was a measured reason to think it
@@ -614,31 +603,6 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
-- **The sync-speed entry under "Now" still has the orphaned sentence fragment
-  named in a Noticed entry lower in this file** ("Also unexplored, and now
-  second in line: a DOM-level completion marker Wicket sets itself... / of the
-  crawl's concurrency model in the most correctness-sensitive part of this
-  codebase..." - the second half reads as a continuation of a sentence that
-  was never written). Confirmed still present while reading that section this
-  session; not fixed, since the entry below already correctly diagnoses that
-  the real fix is moving closed measurement logs out to
-  `docs/sync-speed-campaign.md` rather than patching one sentence.
-
-- **A hook test that pattern-matches its own SessionStart output can be broken
-  by prose describing the feature, not just by the feature breaking
-  (2026-07-30).** `session-start-autopilot.ps1` echoes `docs/RESUME.md`
-  verbatim into its output whenever that file is non-placeholder. A test
-  asserting the new dead-hook self-audit fired by matching `"SELF-AUDIT"` in
-  the hook's stdout passed for the wrong reason - and then failed for the
-  wrong reason - purely because RESUME.md's own prose happened to contain
-  that word (`-match` is case-insensitive) while describing the very feature
-  under test. Fixed by matching a specific per-hook detail sentence instead
-  of the generic wrapper phrase, but the general shape is worth knowing:
-  any test of a hook that surfaces file content verbatim can be
-  contaminated by that content's prose, in either direction (false pass or
-  false fail), and the fix is specificity, not avoidance - there is no way
-  to stop RESUME.md from describing the features that touch it.
-
 - **The resume runner's new unlock/logon triggers have not been seen firing
   yet (2026-07-29).** They are registered and Task Scheduler accepted them
   (`SessionStateChange` with `StateChange 8`, `Logon` with a 2m delay), and the
@@ -650,38 +614,6 @@ matter.
   with `scripts/register-resume-task.ps1 -Status`: a `missed` count climbing
   again while work sits in `docs/RESUME.md` means the triggers did not take and
   event 332 is back.
-
-- **Both unbounded accumulators are fixed (2026-07-30); `tmp/` is the one
-  left.** `.claude/queue/` had 42 `resume-run-*.log` / `.log.err` /
-  `resume-prompt-*.txt` files with no expiry. `resume-runner.ps1` now prunes them
-  on each invocation, on the same two rails: older than 14 days, never below the
-  newest 10 *launches* (counted by launch, not by file, or three files per run
-  would make "keep 10" mean "keep 3 runs"). `resume-runner.log` is deliberately
-  out of scope — it is the append-only decision log and the only continuous
-  record of what the runner decided, and there is an assertion that it keeps its
-  history. The floor needed its own test case: with recent launches present it is
-  indistinguishable from the age cutoff, so only "everything old, nothing
-  recent" can tell them apart. Removing the floor fails exactly those two
-  assertions.
-
-  The `refs/wip-checkpoints/` half was fixed the same day: it had
-  reached 322 refs over seven days, ~46/day, each pinning a tree git could then
-  never collect. `turn-failure-checkpoint.ps1` now prunes on write — older than
-  14 days, but never below the newest 20, and never a ref whose name is not a
-  timestamp. Bounded by construction rather than by a script someone has to
-  remember. Both safety rails are mutation-tested: deleting the floor fails the
-  "a quiet fortnight does not wipe every recovery point" assertion, and dropping
-  the timestamp guard fails the one about not guessing at unknown refs. The
-  count is recorded in `LAST_FAILURE.json` rather than pruned silently.
-
-- **`tmp/` is the same unpruned-accumulator shape as the two entries above,
-  just gitignored instead of git-tracked.** It's carrying probe outputs from
-  weeks of past A/Bs (`filelist-earlyread.txt`, `filelist-noSettle*.txt`,
-  `network-trace-*.txt`, a stray `uicheck-opal.exe`, `dump-links.*`) next to
-  the ones still actively in use for the section-cache A/B. Harmless today,
-  but nothing ever tells old probe output from the current run apart, and a
-  human trying to reconstruct "what does the section-cache A/B's output even
-  look like" would have to guess which `filelist-*.txt` is current.
 
 - **A background `go test -v ... > log 2>&1` run that gets killed mid-flight
   (e.g. by the usage-limit/budget guard) leaves a log with no marker that
@@ -780,11 +712,11 @@ matter.
   pays a large token cost just to learn what to work on — and reads it in
   pages, which is exactly how a session burns budget before doing any product
   work. The symptom that it is no longer edited as prose: the sync-speed entry
-  under "Now" contains an orphaned sentence fragment starting "of the crawl's
-  concurrency model…" where surrounding text was deleted, and nobody noticed.
-  The fix is not trimming "Done recently" once; it is that closed measurement
-  logs belong in `docs/sync-speed-campaign.md` and the backlog should say what
-  to do next.
+  under "Now" had an orphaned sentence fragment (fixed 2026-07-30 - it read as
+  a continuation of a sentence whose beginning had been deleted, and nobody
+  noticed for days). One fragment fixed is not the fix: closed measurement
+  logs belong in `docs/sync-speed-campaign.md`, and the backlog should say
+  what to do next, not carry the full history inline.
 
 ---
 
@@ -793,6 +725,19 @@ matter.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **All three unbounded local accumulators this project had are now pruned;
+  `tmp/` was the last.** `.claude/queue/`'s resume-run logs and
+  `refs/wip-checkpoints/` were fixed earlier 2026-07-30 (age + count-floor
+  pruning on each invocation of the process that writes them).
+  `scripts/dev.ps1 all` now also prunes `tmp/` of files older than 14 days on
+  every run - no count floor needed there, unlike the other two, since `tmp/`
+  is written by hand and sporadically rather than by an automated process
+  that could plausibly race a burst of writes into deleting something recent.
+  Verified live: pruned exactly the 10 files from 27-day-old abandoned
+  research (`dump-links.*`, `opal-course-1-*.json`,
+  `opal-resource-courses-*.json`), left everything from the last two weeks
+  (including the section-cache A/B's own recent output) untouched, and a
+  second run found nothing left to prune.
 - **The section-detection cache is deleted (2026-07-30), for the second time
   it was rejected on the same measurement.** `internal/sectioncache`,
   `internal/sectionhash`, `internal/scraper/sectioncachewiring.go`,

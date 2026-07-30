@@ -94,6 +94,29 @@ try {
             Write-Host "hook tests..."
             & (Join-Path $PSScriptRoot "test-hooks.ps1")
             if ($LASTEXITCODE -ne 0) { throw "hook tests failed" }
+
+            # tmp/ is gitignored scratch space for manual probe/debug runs and
+            # has no automated writer of its own - unlike .claude/queue/ and
+            # refs/wip-checkpoints/ (see docs/BACKLOG.md's "Noticed" section,
+            # 2026-07-30), which are pruned on every invocation of the
+            # scheduled process that writes them, nothing ever ran on a
+            # schedule here, so nothing ever pruned it either. Same fix, same
+            # shape: age-based, and "all" is the closest thing tmp/ has to a
+            # recurring invocation, since pre-push-gate.ps1 runs it before
+            # every push. No count floor is needed the way the other two
+            # entries have one: those get written automatically and often
+            # enough that a pure age cutoff could plausibly race a burst of
+            # writes; tmp/ is written by hand, sporadically, so 14 days is
+            # just distance from "clearly abandoned", not a safety rail.
+            $tmpDir = Join-Path (Split-Path $PSScriptRoot -Parent) "tmp"
+            if (Test-Path $tmpDir) {
+                $cutoff = (Get-Date).AddDays(-14)
+                $stale = @(Get-ChildItem $tmpDir -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $cutoff })
+                if ($stale.Count -gt 0) {
+                    Write-Host "pruning $($stale.Count) stale file(s) from tmp/ (older than 14 days)..."
+                    $stale | Remove-Item -Force
+                }
+            }
         }
     }
 }

@@ -358,39 +358,6 @@ would attack the cause instead of the symptom. Item 1 (HTTP-first discovery)
 tried the closest thing and was rejected for concrete measured reasons; read
 that entry before reaching for it again.
 
-### The section cache: deleted (2026-07-30)
-**Done, nothing owed here.** Both open questions were answered by the
-maintainer the same evening and both answers were "stop".
-
-The change-detection cache is gone from the tree: `internal/sectioncache`,
-`internal/sectionhash`, `internal/scraper/sectioncachewiring.go`,
-`sectionpayload.go`, the `crawl.go` probe loop, the `syncer.go` load/save, the
-`OPAL_SECTION_CACHE` flag and `FileRef.SectionURL`. The code budget went back
-down with it (11902 -> 11577), which is the part that makes it a deletion
-rather than a disabling — see `codebudget_test.go`'s note.
-
-**Why, in one line each.** It was rejected twice on measurements: warm 273.3s
-against a 241.0s control, hit rate 3.9%, which is the 2026-07-21 rejection
-reached a second time by a rebuild that never measured the hit rate until the
-end. The *evidence* is kept in `docs/sync-speed-campaign.md`, including the
-correctness bug found along the way (the probe's synthetic User-Agent, which
-silently reduced 5 of 6 courses to a stub page) and the reasoning error that
-justified the rebuild (a 92% match measured between two HTTP fetches of the
-same URL, when the condition that matters is a hash stored across a full
-browser-interleaved crawl, already reported at 1/276 nine days earlier).
-
-**The volatility diagnostic is not being run** — the maintainer left it to me
-("mir wurscht") and the answer is no. It would be a third round on an approach
-rejected twice, and `docs/server-load.md` prices every attempt at a full crawl
-of someone else's server. Recorded as a decision so nobody reopens it looking
-for one that was never made. Reversible in one `git show`: the deletion commit
-holds the whole implementation.
-
-**What did survive, and is worth more than the feature was:** `ctx.Route`
-costs ~30% of a run on this workload just by existing, the settle wait is
-load-bearing and is itself the cheap completion signal, and a probe that does
-not look like a browser gets served stubs. All three are in the campaign doc.
-
 ### Dogfood the whole first-run journey
 **Blocked:** all four decisions below shipped on 2026-07-26 (first-run
 introduction, "List courses" renamed, scheduling walked, picker explained),
@@ -588,23 +555,17 @@ enough to justify keeping a known-hazardous test around.
 
 ## Next
 
-### The 2026-07-27 evening batch
-**Done (2026-07-30).** All five items are now shipped (see "Done recently").
-The one holdout - the Windows binary having no icon - was recorded blocked on
-"needs an SVG renderer", and that premise was wrong: WPF's
-`Geometry.Parse` already speaks the SVG path mini-language, so
-`scripts/build-icon.ps1` rasterises `logoSVG` directly with nothing added to
-`go.mod`. `internal/gui/assets/icon.ico` is checked in and wired into the
-running window via `WM_SETICON` (`window_windows.go`'s `setWindowIcon`),
-verified live by screenshotting the real window.
-
-**Left as a follow-up, not a blocker:** the `.exe`'s own Explorer/taskbar
-icon (before the program is even running) still shows the Go default. Fixing
-that needs a build-time-embedded `.syso` resource, which needs a
-resource-compiling tool (`rsrc`/`goversioninfo`, or a hand-built COFF
-object) - a new build dependency, which is the kind of call this file's
-"three direct Go deps total" framing treats as worth a maintainer's eyes
-rather than an agent's default yes. Not decided here.
+### The .exe's own Explorer icon still shows the Go default
+**Blocked:** needs the maintainer's OK to add a build-time resource-compiling
+tool. The running window itself now shows the real icon (2026-07-30, see
+"Done recently") - this is only the file's icon as seen in Explorer/the
+taskbar/Alt-Tab *before the program runs*, which needs a build-time-embedded
+`.syso` resource. Producing one needs `rsrc`/`goversioninfo` (a new build-time
+dependency) or a hand-built COFF object; this repo's "three direct Go deps
+total" framing treats adding a dependency as worth a maintainer's eyes rather
+than an agent's default yes, unlike the WPF icon-rasterisation path, which
+added nothing to `go.mod`. Open question for the maintainer: is the Explorer
+icon worth a new build dependency, and if so, `rsrc` or a hand-built object?
 
 ---
 
@@ -614,6 +575,16 @@ Things seen while working on something else and passed over. Not commitments —
 a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
+
+- **The sync-speed entry under "Now" still has the orphaned sentence fragment
+  named in a Noticed entry lower in this file** ("Also unexplored, and now
+  second in line: a DOM-level completion marker Wicket sets itself... / of the
+  crawl's concurrency model in the most correctness-sensitive part of this
+  codebase..." - the second half reads as a continuation of a sentence that
+  was never written). Confirmed still present while reading that section this
+  session; not fixed, since the entry below already correctly diagnoses that
+  the real fix is moving closed measurement logs out to
+  `docs/sync-speed-campaign.md` rather than patching one sentence.
 
 - **A hook test that pattern-matches its own SessionStart output can be broken
   by prose describing the feature, not just by the feature breaking
@@ -784,6 +755,20 @@ matter.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **The section-detection cache is deleted (2026-07-30), for the second time
+  it was rejected on the same measurement.** `internal/sectioncache`,
+  `internal/sectionhash`, `internal/scraper/sectioncachewiring.go`,
+  `sectionpayload.go`, the `crawl.go` probe loop, the `syncer.go` load/save,
+  `OPAL_SECTION_CACHE`, and `FileRef.SectionURL` are gone; code budget back
+  down 11902 -> 11577. Warm 273.3s against a 241.0s control, 3.9% hit rate -
+  the same rejection the 2026-07-21 attempt already earned, reached again by
+  a rebuild that didn't measure the hit rate until the end. The maintainer
+  also declined a third-round volatility diagnostic ("mir wurscht") -
+  recorded so nobody reopens it looking for a decision that was never made.
+  Evidence lives in `docs/sync-speed-campaign.md`; reversible in one
+  `git show` if anyone wants to re-measure. What survived and matters more
+  than the feature did: `ctx.Route` costs ~30% of a run just by existing,
+  and the settle wait is the cheap completion signal, not overhead to cut.
 - **The Windows binary's running window now shows opal-downloader's own
   icon, not the Go default.** `scripts/build-icon.ps1` rasterises `logoSVG`
   into `internal/gui/assets/icon.ico` (16-256px) via WPF - `Geometry.Parse`

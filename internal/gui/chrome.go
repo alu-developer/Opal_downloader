@@ -259,9 +259,10 @@ const unsavedChangesGuard = `<div id="unsaved-bar" role="status" style="display:
 
 // logoSVG is the app mark: a "D" (for downloader) whose counter is knocked
 // out as a downward triangle, on a tile filled with an opal-ish iridescent
-// gradient. Kept as a plain const rather than an embedded asset file so the
-// GUI stays what it is today - a package with no static-asset directory and
-// no go:embed - and served from handleLogo below.
+// gradient. Kept as a plain const (not read from internal/gui/assets/, which
+// exists only for the rasterised icon.ico window_windows.go embeds) so this
+// SVG stays servable as a literal string from handleLogo below with no file
+// read on the request path.
 //
 // Deliberately simple geometry (one rect, one even-odd path): it has to stay
 // readable at 16px in a browser tab, where facet lines or a thin arrow shaft

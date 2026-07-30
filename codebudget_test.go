@@ -139,7 +139,15 @@ import (
 // deletion that leaves the ceiling high quietly hands the next feature 325
 // free lines it never had to argue for. Giving them back is what makes this a
 // deletion instead of a disabling.
-const codeLineBudget = 11577
+//
+// Raised to 11632 on 2026-07-30 (was 11577) for window_windows.go's
+// setWindowIcon: the WM_SETICON wiring that replaces go-webview2's default
+// IDI_APPLICATION fallback with opal-downloader's own mark on the title bar,
+// taskbar and Alt-Tab, plus its two tests. Bought a real, maintainer-reported
+// gap (BACKLOG's "the Windows binary has no icon") that had been blocked on
+// an SVG renderer nobody actually needed - scripts/build-icon.ps1 uses WPF's
+// own path-mini-language parser instead, so this cost nothing in go.mod.
+const codeLineBudget = 11632
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

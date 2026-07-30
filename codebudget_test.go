@@ -190,7 +190,13 @@ import (
 // any browser method is called, so a regression that crawls a cache hit
 // anyway fails loudly instead of merely losing the speedup. Confirmed to
 // actually panic on the intended mutation before being trusted.
-const codeLineBudget = 11901
+//
+// Raised 2026-07-30 (was 11901) by exactly one line: the section-cache probe's
+// User-Agent moved from an inline literal to a named const so the reasoning
+// behind the string has somewhere to live. Bought: the probe stops announcing
+// itself as "...opal-downloader" to OPAL, the prime suspect for the 2026-07-29
+// bug where 5 of 6 courses crawled to a stub page.
+const codeLineBudget = 11902
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

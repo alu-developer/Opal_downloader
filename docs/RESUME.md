@@ -8,7 +8,7 @@ to be messy: it is the thought that would otherwise only exist in a context
 window, and a context window does not survive the usage limit being hit
 mid-turn.
 
-**Keep it current while working**, not at the end — the end is exactly the part
+**Keep it current while working**, not at the end - the end is exactly the part
 that does not always arrive. Update it whenever the answer to "what am I doing
 and what's next" changes materially. When the work lands, clear it back to the
 placeholder line below.
@@ -19,86 +19,77 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-**2026-07-29 unattended resume run — REAL correctness bug found, not the
-budget theory.** The previous session's cold run (`tmp/cache_cold_run.log`,
-220 bytes, no EXIT line) was indeed just the resume-runner-was-dead casualty,
-not a test failure — confirmed by rerunning it clean.
+**2026-07-30 unattended resume run - control run confirmed the bug is
+isolated to section-cache piece 3, and a fix is in and awaiting live
+verification.**
 
-**The rerun completed (`EXIT:0`, 61.62s) but is WRONG**: only 39 files found
-against a 345-file ground truth (`tmp/filelist-cache_ground_truth.txt`), and
-all 39 are a single course (`2026 LA20`, byte-identical to ground truth for
-that course — confirmed via `diff`). The other 5 configured courses produced
-**zero files each**, with **no visible error or warning in the console
-log** — `logging.Warn`/`Error` calls in `crawl.go`/`orchestrator.go` are
-diagnostic-level and the test never calls `logging.Setup`, so a per-course
-crawl failure (`newCourseFileCollector`'s `logging.Warn("Course crawl error:
-%v", ...)`, or the "crawled successfully but found 0 files" line) is
-completely silent on stdout. This silence is itself worth fixing
-independently of the cache bug (see step 4 below) — a probe test with no
-visibility into per-course failure is not trustworthy.
+Control run (`OPAL_SECTION_CACHE` unset, `tmp/cache_cold_run_control.log`)
+completed clean: 345 files, byte-identical (`diff` empty) against
+`tmp/filelist-cache_ground_truth.txt`. So the 2026-07-29
+5-courses-return-0-files bug is **not** an OPAL-side/pre-existing issue - it
+is caused by the section-cache feature (piece 3), as suspected.
 
-**Diagnostic evidence so far**: `tmp/.opal-sync.sections.json` (written by
-this run) has 39 sections cached total — 34 for `2026 LA20` (matches its
-full crawl) and **exactly 1 section each** for the other 5 course repo IDs.
-That 1-section-then-stop pattern for every other course means the root
-section was reached and "succeeded" (no Goto/extraction error, so not the
-`sectionsFailed` path) but produced zero file/subfolder candidates — not a
-Goto failure. Something about the root section's *content* differed from
-what real crawls have found before on these same courses (ground truth was
-captured just yesterday, 2026-07-28, with full content for all 6).
+**Root cause, read from the data rather than guessed:** `tmp/.opal-sync.
+sections.json.broken-uafix-baseline` (the cache written by the broken run,
+kept as evidence, not loaded by anything) shows the failing courses' root
+sections were not fetch failures - each got a real 200 with a non-empty hash,
+and the BROWSER's own extracted `root_text` for those roots was a short
+generic-chrome stub (765-2769 bytes: nav/help boilerplate, no course menu)
+against course 1's real, full root (4155 bytes, matches ground truth exactly).
+So the *browser's own render* came back stubbed for 5 of 6 courses - not a
+probe-response content problem, since `root_text`/candidates are always
+populated from the browser's visit, not the HTTP probe, whenever a section is
+a cache miss (which every section was, this being a cold cache).
 
-**Isolation in progress**: running the exact same probe with
-`OPAL_SECTION_CACHE` unset entirely (`tmp/cache_cold_run_control.log`,
-`OPAL_FILELIST=cache_control`, backgrounded via `nohup`, being watched by a
-Monitor task) to determine whether this is a regression introduced by the
-section-cache feature (piece 3) or a pre-existing/unrelated issue (e.g. an
-OPAL-side change now that it's a few days into looking like next-semester
-course pages — note the course names literally say "2026" and "SoSe 26").
-**Do not conclude anything about the cache feature until this control result
-is in** — if the control run (cache fully off) also produces only ~39
-files, the bug is unrelated to this campaign's changes and section-cache
-piece 3 is not at fault.
+Course 1 crawled 39 sections start to finish with the same probe-then-visit
+interleaving used for every course, so "probe right before a browser Goto to
+the same URL" is not unsafe in general - it only broke on the **first**
+section of every course after the first. The other distinguishing fact:
+`course_concurrency: 1`, `section_concurrency: 1` in the config actually used
+- fully serial, so this is not a concurrency race repeat.
 
-A second interactive TU-Fast login happened during today's runs (session
-expired again between the cache run and starting the control run) — that's
-normal per CLAUDE.md's login automation and not itself suspicious, but it
-does mean the two runs are on two different fresh sessions, which is
-actually useful: if both show the same 1-course-only pattern, a
-session-specific fluke is ruled out too.
+**Leading theory, matches `docs/BACKLOG.md`'s own "Noticed" entry:** the
+probe's HTTP client sent `User-Agent: "...opal-downloader"` (no
+AppleWebKit/Chrome/Safari tokens - an obvious non-browser fingerprint) on
+every probe fetch. ~33 such requests fired during course 1's own crawl before
+course 2 was ever reached. A WAF/bot-heuristic tripping on that fingerprint
+partway through, and then downgrading responses for the rest of that
+*session* (not just that client) regardless of which local component
+(browser vs. our HTTP client) sends the next request, would explain exactly
+this shape: first course unaffected (already mostly rendered before any flag
+could trip), every course after it stubbed.
 
-**Next, once the control run's `EXIT:` line lands** (check
-`tmp/cache_cold_run_control.log`):
+**Fix applied and committed-pending:** `internal/scraper/sectioncachewiring.go`
+now sends a realistic Chrome-on-Windows `User-Agent` (matching the Chromium
+build `playwright-go v0.6100.0` bundles) instead of the giveaway string. Unit
+tests (`go test ./internal/scraper/...`) pass; `go build ./...` and `go vet
+./...` clean.
 
-1. Diff `tmp/filelist-cache_control.txt` against
-   `tmp/filelist-cache_ground_truth.txt`.
-2. If the control run is ALSO broken (only ~39 files): this is not a
-   section-cache regression. Write it up in `docs/BACKLOG.md` as a fresh,
-   serious finding (something outside this campaign broke course crawling
-   for 5/6 courses) and stop touching the section-cache work until that's
-   understood — don't let an unrelated fire block on this campaign's
-   acceptance criterion, but don't paper over it either.
-3. If the control run is clean (345 files, matches ground truth): the bug is
-   isolated to section-cache piece 3. Read `crawl.go`'s BFS-level loop
-   (`s.checkSectionCache` called before `pool.visitAll`) and
-   `sectioncachewiring.go`'s HTTP probe path for why a plain-HTTP GET of a
-   section (using only cookies, no JS, a synthetic User-Agent) immediately
-   before the real browser Goto might cause the *browser's own* subsequent
-   navigation to come back content-less for every course after the first —
-   candidate theories to check: the probe fetch tripping an OPAL-side
-   session/CSRF check that invalidates the session for the *browser*
-   context too (would explain why only the first course, probed before
-   anything could go wrong, came back complete); or the probe consuming a
-   one-time-use redirect/token the real page load also needed. Do not
-   guess — instrument or read the actual request path.
-4. Either way, also add to `docs/BACKLOG.md`: the probe test's silence on
-   per-course crawl failures (finding above) is a real gap — `logging.Warn`
-   for course-level errors should not be invisible to a diagnostic test
-   whose entire job is catching exactly this. Consider having
-   `filelist_probe_test.go` call `logging.Setup` with `Verbose: true`
-   pointed at a test-local file, or otherwise surface `wr.err` counts.
+**Not yet verified live** - that is the next step, in progress or about to be:
+1. Old broken cache moved aside as `tmp/.opal-sync.sections.json.broken-
+   uafix-baseline` (evidence, not deleted) so the next `OPAL_SECTION_CACHE`
+   run starts cold again rather than replaying the bad cached hashes as false
+   hits.
+2. Rerun: `OPAL_SECTION_CACHE=1 OPAL_FILELIST=cache_uafix go test
+   ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m`, capturing
+   to `tmp/cache_uafix_run.log` with an `EXIT:<code>` sentinel appended (the
+   truncated-log gap from 2026-07-28 is still real, so always append that
+   sentinel on any backgrounded run of this test).
+3. `diff tmp/filelist-cache_uafix.txt tmp/filelist-cache_ground_truth.txt` -
+   empty diff and 345 files is the pass condition.
+4. If it passes: commit the fix, update `docs/BACKLOG.md` (remove/resolve the
+   "Noticed" entry about the synthetic UA, record the live result), and the
+   section-cache campaign's correctness bug is closed. The separate open
+   questions (flip the feature's default on; raise the request rate toward
+   the ceiling) stay the maintainer's call, already flagged as such.
+5. If it does NOT pass (still stubbed courses): the UA theory is wrong or
+   incomplete. Do not guess further - next would be instrumenting the actual
+   HTTP response status/headers/body length per probe request (temporary
+   logging in `fetchSectionHTMLPolitely`) to see directly what's coming back,
+   rather than inferring from the cache file again.
 
-**Not this session's decision, and already flagged in `docs/BACKLOG.md`:**
-whether to actually flip the default on, and whether to let the effective
-request rate rise toward `docs/server-load.md`'s ceiling to reach the ~70s
-floor rather than ~93s — both are the maintainer's call once the live number
-exists.
+Also still open, independent of this bug (already in `docs/BACKLOG.md`'s "Now"
+sync-speed entry's orbit, not re-litigating it): the probe test's silence on
+per-course crawl failures - `filelist_probe_test.go` never calls
+`logging.Setup`, so `logging.Warn`/`Error` lines are invisible in its output.
+Worth fixing but not blocking this bug fix.

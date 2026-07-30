@@ -643,14 +643,20 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
-- **`sectioncachewiring.go`'s probe fetch sends a synthetic User-Agent**
-  (`"Mozilla/5.0 (Windows NT 10.0; Win64; x64) opal-downloader"`) that looks
-  nothing like a real Chromium UA string (no `AppleWebKit`/`Chrome`/`Safari`
-  tokens) — noticed while reading it as a candidate cause for the 2026-07-29
-  5-courses-return-0-files bug, but not pursued yet since isolating whether
-  the section-cache feature is even the cause (control run in flight) comes
-  first. If a WAF/bot-detection layer or a UA-bound session on OPAL's side
-  is involved, this string is the first thing to change.
+- **The synthetic-UA theory above is now acted on, pending live confirmation
+  (2026-07-30).** `sectioncachewiring.go`'s probe fetch now sends a
+  Chrome-shaped User-Agent instead of the giveaway `"...opal-downloader"`
+  string; see `docs/RESUME.md` for the live verification in progress. The new
+  string is a **hardcoded literal**, not read from the real browser context —
+  noticed while writing it but not fixed, since the fix needed to stay small
+  enough to verify same-session. It will silently drift out of sync the next
+  time `playwright-go`'s bundled Chromium version changes, quietly
+  reintroducing a mismatched fingerprint with nothing to flag it. Reading it
+  from the live page (`page.Evaluate("() => navigator.userAgent")`, cached
+  once per scraper instance) instead of hardcoding it would remove the drift
+  risk entirely, but needs `checkSectionCache`'s callers to thread a page
+  reference through, which the current HTTP-only-probe design deliberately
+  avoids.
 
 ---
 

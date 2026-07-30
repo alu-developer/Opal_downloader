@@ -79,9 +79,20 @@ type sectionCacheCookieTransport struct {
 
 func (t *sectionCacheCookieTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r.Header.Set("Cookie", t.header)
-	r.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) opal-downloader")
+	r.Header.Set("User-Agent", sectionCacheUserAgent)
 	return t.base.RoundTrip(r)
 }
+
+// sectionCacheUserAgent mimics a real Chromium install rather than
+// identifying itself as this tool. The previous string
+// ("...opal-downloader", no AppleWebKit/Chrome/Safari tokens) was the prime
+// suspect for the 2026-07-29 bug where 5 of 6 courses crawled to a stub page
+// once the cache probe ran ahead of the browser: a session-scoped bot/WAF
+// flag on that fingerprint, tripped mid-way through the first course, would
+// explain why the first course (probed before anything could go wrong) came
+// back complete while every course after it did not. Matches the Chromium
+// build playwright-go v0.6100.0 bundles.
+const sectionCacheUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
 // cookieHeaderForOpal reads Playwright's storage-state JSON at stateFile and
 // returns a "name=value; ..." Cookie header carrying only the cookies scoped

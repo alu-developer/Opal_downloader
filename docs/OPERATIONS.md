@@ -614,7 +614,31 @@ section's show-all expansion: the same run logged 349 clicks for 48 missing
 files across only ~5 distinct sections. Expanding a section once and taking
 all of its beyond-page-1 files while the browser is still sitting on the
 expanded page is where the time actually is. Filed as
-`todo/batch-browser-fallback-per-section.md`.
+a queue task — which **shipped as PR #115 on 2026-07-21**, and did not survive
+into any tracked file until this was written down on 2026-07-30. The pointer
+said `todo/`, implying pending work, and pointed into the gitignored
+`.claude/queue/`, so the result below existed only on one machine.
+
+It landed *differently from the framing above*: not batching, but **remembering
+what the shared page currently shows and skipping the navigation, settle wait
+and re-expansion when the next file wants the same listing.** A download click
+fires a download without navigating, so the page is still there.
+
+That also answers the open question the task carried — *does the expanded page
+survive sequential downloads, or does each download navigate it away?* **It
+survives**, which is what makes the memo work at all.
+
+| single course, 4 runs per variant, all 38 files, `errors=0` every run | total clicks | fallback files | clicks per file |
+|---|---|---|---|
+| before | 65 | 15 | **4.33** |
+| after | 24 | 12 | **2.00** |
+
+**Wall clock is deliberately not claimed.** The first pair measured 78.4s
+against 31.5s and looked like a 60% win; repeating refuted it, with the baseline
+finishing in 28.9s. The dominant variable is how many files miss the HTTP fast
+path at all, which swung between 1 and 8 per run independently of this change.
+Clicks per fallback file is the only metric that isolates it, so it is the only
+one claimed.
 
 If this symptom recurs, read the *specific* propagated error first — it names
 every page tried and the real reason — rather than re-deriving anything from

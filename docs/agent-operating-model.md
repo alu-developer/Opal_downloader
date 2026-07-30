@@ -108,7 +108,7 @@ stopping too early.
 | `max_iterations` reached (per session) | Stops. Default 20. |
 | Rate limit 5h ≥ 75% or 7d ≥ 80% (when known) | Stops. |
 | Rate-limit data stale (>30 min) | Treated as *unknown*, which tightens the cap to 8 continuations rather than being ignored. |
-| `.claude/queue/todo/` empty | Stops - there is nothing to do. |
+| No unblocked item in `docs/BACKLOG.md` | Stops - there is nothing to do. Note the failure mode: a backlog whose every "Now" item is marked **Blocked:** makes the gate correctly conclude there is no work, which looks exactly like autopilot being broken. This row said `.claude/queue/todo/` empty until 2026-07-30; the gate stopped reading that directory on 2026-07-22 (`autopilot-gate.ps1` says so in its own comment). |
 | Any error, unreadable JSON, unexpected state | Stops. |
 
 ### The budget signal: keep the real file fresh
@@ -509,9 +509,15 @@ context. Concretely:
 
 ## 4. What still needs a human
 
-Autopilot does not mean "decide everything". Move a task to
-`.claude/queue/blocked/` with the open question written down, and continue
-with the next one, when:
+Autopilot does not mean "decide everything". Mark the item **Blocked:** in
+`docs/BACKLOG.md` with the open question written down, and continue with the
+next one, when:
+
+(This used to say "move a task to `.claude/queue/blocked/`". That workflow was
+retired for this repo on 2026-07-22 and the directory is gitignored, so an open
+question filed there survives neither a fresh clone nor the loss of one
+machine's `.claude/` — which is the whole reason the queue was retired. The
+backlog is the tracked place. Corrected 2026-07-30.)
 
 - The change would delete or overwrite the maintainer's real files.
 - A stated project decision or principle would have to change.

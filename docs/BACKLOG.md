@@ -716,13 +716,6 @@ matter.
   again while work sits in `docs/RESUME.md` means the triggers did not take and
   event 332 is back.
 
-- **`docs/sync-speed-campaign.md` (2026-07-26 entry) references
-  `docs/BACKLOG.md`'s "Concurrency SOLVED" entry** as the thing its
-  measurements contradict — that heading no longer exists under that name
-  (the backlog is trimmed periodically and the item has since moved to
-  "Done recently" under different wording), so a reader following the
-  cross-reference today would search and not find it.
-
 - **Nothing ever prunes `refs/wip-checkpoints/`.**
   `turn-failure-checkpoint.ps1` writes two or three refs every time it fires
   and there is no expiry, so the repo now carries ~200 of them going back to

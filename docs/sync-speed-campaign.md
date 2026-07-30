@@ -747,12 +747,20 @@ Two things follow.
    runs"). And it is not even faster: 228.2s against 227.9s, inside noise on a
    6-course account.
 
-That second point contradicts `docs/BACKLOG.md`'s "Concurrency SOLVED"
-entry and the `DefaultCourseConcurrency = 2` decision it justified, and it
-matters beyond this campaign: the maintainer's live `config.yaml` is set to 2,
-so real syncs have been quietly missing files. One run is not enough to change
-a default on, but it reproduces a previously documented result rather than
-standing alone.
+That second point contradicted the `DefaultCourseConcurrency = 2` decision of
+the time, and it mattered beyond this campaign: the maintainer's live
+`config.yaml` was set to 2, so real syncs had been quietly missing files. One
+run was not enough to change a default on, but it reproduced a previously
+documented result rather than standing alone.
+
+**Resolved since — do not read the paragraph above as a live warning
+(re-checked 2026-07-30).** `config.DefaultCourseConcurrency` is **1** and
+`DefaultSectionConcurrency` is **1**, and the maintainer's `config.yaml` reads
+`course_concurrency: 1` / `section_concurrency: 1`. Nothing is losing files to
+concurrency today. The `docs/BACKLOG.md` entry this used to cite by the name
+"Concurrency SOLVED" no longer exists under that heading; the current state of
+the question lives in that file's sync-speed entry, under the section-level
+concurrency table.
 
 **Why course concurrency being useless here is not surprising in hindsight:**
 this account has 6 content-bearing courses and one of them (Softwaretechnologie,

@@ -242,6 +242,7 @@ Ranked by expected gain, to be confirmed by measurement not by argument:
 | 2026-07-21 | Research: is there a change signal at all? | **One lead survives.** REST API 403 at the proxy, RSS absent, no `*Site` URLs — but a personal notifications page exists at a stable URL. Blocked on a maintainer decision. |
 | 2026-07-21 | OPAL notification signal | **REJECTED — no course-level subscription.** Folder-only subscriptions cannot report a folder that did not exist yet, and new weekly folders are exactly where new files appear. Account restored. |
 | 2026-07-21 | Reuse the fallback page across downloads | **SHIPPED** (#115). Clicks per fallback file 4.33 → 2.00. Wall-clock deliberately not claimed — swamped by fast-path-miss variance. |
+| 2026-07-28..30 | Section cache (the same change detector, rebuilt) | **REJECTED again — never hits, for the same reason.** Warm **273.3s** vs **241.0s** cache-off control, i.e. 13% *slower*; hit rate **11/280 = 3.9%** measured by diffing two back-to-back runs' cache files. `internal/sectionhash` normalises 8 volatile patterns against the first attempt's 4 — that lifted the hit rate from ~0.4% to 3.9% and no further. Correctness held (345 files, `diff` empty, all three runs). En route it produced a silent-loss bug that returned files for 1 of 6 courses; see below. |
 
 ### 2026-07-21 — HTTP-first section discovery (probe, not yet implemented)
 
@@ -806,3 +807,73 @@ returns to this; it is not something more patience can fix.
 explored and rejected on measurement, joining items 1 and 4. The machinery and
 `--section-concurrency` stay in the tree so a future attempt can re-measure in
 one command, but the feature is off.
+
+### 2026-07-30 — the section cache is REJECTED a second time, and the 92% was measured in the one condition that always worked
+
+The 2026-07-27 reopening above was right that the instability is Wicket
+bookkeeping, right that normalising it works, and right to say it had not
+established that a cache is fast. It was built (pieces 1-3), and the warm run
+has now been measured against a cache-off control on the same account:
+
+| run | wall clock | files | diff vs ground truth |
+|---|---|---|---|
+| control, cache off | **241.0s** | 345 | — |
+| cold cache | 283.9s | 345 | empty (includes an interactive login) |
+| **warm cache** | **273.3s** | 345 | **empty** |
+
+**13% slower than no cache at all**, because the hit rate in a real run is
+**11 of 280 = 3.9%**, measured by diffing the cache file the first run wrote
+against the one the second wrote (two back-to-back runs, unchanged account,
+same `schema_version` and `PatternsVersion`). 269 sections paid for an HTTP
+probe and then got crawled by the browser anyway.
+
+**Correctness held throughout** — 345 files and an empty diff in all three
+runs, including the cold one. The risk that mattered (a false match silently
+skipping a changed section) did not materialise; `TestNormalisationDoesNotHide
+RealChanges` appears to have been doing its job.
+
+**Where the reasoning broke, precisely.** The reopening measured 11 of 12
+sections matching and read it as the hit rate the design would get. But those
+12 were compared as two HTTP fetches of the same URL; the cache's actual
+comparison is a hash *stored during a full browser-interleaved crawl* against a
+hash from the next crawl. The 2026-07-21 table above had already separated
+those conditions, and had already reported the answer for the one that matters:
+
+| comparison | hashes matching | which condition is this? |
+|---|---|---|
+| same URL fetched twice back to back | matches | what the 2026-07-27 probe re-measured |
+| two pure-HTTP passes, identical fetch order | 13 / 276 | |
+| two pure-HTTP passes, one minute apart | 0 / 276 | |
+| **stored (from a crawl) vs. a later run** | **1 / 276** | **what a cache actually does** |
+
+The 8 patterns lifted that last row from 1/276 (0.4%) to 11/280 (3.9%). Real,
+and two orders of magnitude short of useful. This is the third time this
+campaign has recorded the same lesson, now with the sharpest instance of it: a
+stability result measured in one condition says nothing about the condition the
+feature runs in. The doc even wrote *"a stability result measured on one
+section in one condition says nothing about 276 sections in a real run"* nine
+days before repeating the mistake at 12 sections.
+
+**The bug it produced on the way, worth its own line.** Wiring the probe into
+the crawl made a cold run return files for 1 of 6 courses. The probe's HTTP
+client identified itself as `User-Agent: "...opal-downloader"` (no
+`AppleWebKit`/`Chrome`/`Safari` tokens); the five failing courses each rendered
+one page of generic nav chrome and never got past their own front page. A
+Chrome-shaped UA fixed it (`cd1282c`), verified live. Anything in this repo
+that fetches OPAL over plain HTTP alongside the browser should send a
+browser-shaped UA — that is the transferable part, and it outlives this
+rejection.
+
+**What is still not known, and it is no longer cheap.** Which fragments make up
+the remaining 96% has never been isolated *in the crawl-stored condition* —
+every diagnostic so far ran in the back-to-back condition, which is exactly the
+substitution described above. Isolating it properly means instrumenting a real
+crawl rather than a probe, and `docs/server-load.md` means each attempt costs
+OPAL a full pass. Whether that is worth a third round is a maintainer call, not
+a plumbing one.
+
+**Do not rebuild this from the 2026-07-27 entry alone.** That entry is accurate
+and its conclusion ("reproducible enough to hash") is true of the condition it
+measured. It is the second time this design has been built on a promising
+narrow measurement; a third attempt needs a hit rate from the crawl-stored
+condition *before* anything is built.

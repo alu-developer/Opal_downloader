@@ -358,9 +358,10 @@ would attack the cause instead of the symptom. Item 1 (HTTP-first discovery)
 tried the closest thing and was rejected for concrete measured reasons; read
 that entry before reaching for it again.
 
-### The section cache: correct now, and its payoff is still unmeasured
-**Two decisions are yours** (below). The correctness bug that was blocking
-everything is fixed and verified live.
+### The section cache: correct now, and measured — it is 13% slower
+**Two decisions are yours** (at the end). The correctness bug is fixed and
+verified live; the feature it was blocking then turned out not to work, for the
+same measured reason it was rejected for on 2026-07-21.
 
 This work had no entry in this file until 2026-07-30 — it existed only in
 `docs/RESUME.md` and in a `codebudget_test.go` comment, which is why a
@@ -399,29 +400,70 @@ absence of warnings would have caught it — `filelist_probe_test.go` never
 calls `logging.Setup`, so per-course crawl failures print nothing. Five
 courses failed in total silence.
 
-**What is not known: whether the cache is actually faster.** Every number so
-far is from a *cold* cache, which can only cost (a probe per section, zero
-hits) and never save:
+**And then the warm run measured it, and the feature does not work. This is
+the same rejection as 2026-07-21, reached a second time.** Correctness is
+fine; the speedup does not exist, because the cache essentially never hits:
 
-| run | wall clock | note |
-|---|---|---|
-| control, cache off | 241.0s | saved session |
-| cold cache, after the fix | 283.9s | includes an interactive login |
+| run | wall clock | files | diff |
+|---|---|---|---|
+| control, cache off | **241.0s** | 345 | — |
+| cold cache | 283.9s | 345 | empty (incl. an interactive login) |
+| **warm cache** | **273.3s** | 345 | **empty** |
 
-Not a fair comparison in either direction, and neither is the measurement
-that matters. The cache's entire premise is the **second** run against an
-unchanged account, and no warm-cache run has ever been recorded. That is the
-next measurement here, and it needs no decision from anyone: run the same
-probe twice in a row with `OPAL_SECTION_CACHE=1` and keep
-`tmp/.opal-sync.sections.json` between them.
+**Warm is 13% slower than no cache at all.** Hit rate, measured directly by
+diffing the cache file the first run wrote against the one the second wrote —
+two back-to-back runs, unchanged account, same schema and patterns version:
 
-**Yours to decide, once a warm number exists:**
-1. Whether the feature's default flips from off to on. It touches the most
-   correctness-sensitive path in this codebase and has already produced one
-   silent-loss bug, so it should not flip on a hunch.
-2. Whether the request rate moves toward the ceiling in `docs/server-load.md`.
-   That trades directly against a standing project constraint and is not a
-   plumbing call.
+| | sections |
+|---|---|
+| hash unchanged (a hit) | **11** |
+| hash changed (forces a browser visit anyway) | **269** |
+| **hit rate** | **3.9%** |
+
+So 96% of sections pay for an extra HTTP probe and then get crawled by the
+browser regardless. That is precisely the 2026-07-21 result — *"HTTP hash as a
+change detector: REJECTED — never hits. Section HTML is not reproducible
+across runs: 0/276 hashes matched"* (`docs/sync-speed-campaign.md`, warm 317.6s
+vs 318.9s baseline). The approach was rebuilt in full without the hit rate
+being measured until now.
+
+**What the second attempt did differently, and it was not enough.** It is not
+a naive repeat: `internal/sectionhash` normalises **8** volatile patterns
+against the first attempt's 4, which is exactly the fix the earlier rejection
+implied. It moved the hit rate from ~0.4% to 3.9%. Real progress, two orders of
+magnitude short of useful.
+
+**Where the reasoning broke, and it is the useful part of this whole episode.**
+The 2026-07-27 reopening measured 11 of 12 sections matching — 92% — and that
+number is what justified rebuilding. But those 12 were two *HTTP fetches of the
+same URL*, while a cache compares a hash stored during a full browser-
+interleaved crawl against the next crawl's. The 2026-07-21 table had already
+separated those conditions and already reported the one that matters at
+**1/276**. The reopening re-measured the condition that had always worked.
+Full breakdown in `docs/sync-speed-campaign.md` — and the campaign had written
+down this exact lesson nine days before repeating it.
+
+**So the remaining diagnostic is no longer cheap.** What makes up the other 96%
+has never been isolated *in the crawl-stored condition*; every probe so far ran
+in the back-to-back one. Doing it properly means instrumenting a real crawl,
+and `docs/server-load.md` means each attempt costs OPAL a full pass. "Add more
+patterns" without that is guessing: 4→8 bought 3.5 percentage points.
+
+**Yours to decide, and both questions changed shape:**
+1. **Keep the code or delete it?** Flipping the default on is off the table —
+   it is slower, so there is nothing to weigh. The real question is whether
+   ~79 lines plus a cache file format stay in the tree, off by default, for a
+   third attempt. Deleting is defensible; so is keeping it as the scaffolding
+   the diagnostic above would need.
+2. **Is the volatility diagnostic worth one more session?** It is cheap and it
+   is the only thing that would turn this from "rejected twice on symptoms"
+   into "understood". But it is the third round on an approach already
+   rejected twice, and `docs/server-load.md` means every attempt costs OPAL a
+   full crawl.
+
+Raising the request rate toward the `docs/server-load.md` ceiling — listed
+here as your call while this looked promising — is now unrelated to this entry
+and should be judged on its own if anyone wants it.
 
 ### Dogfood the whole first-run journey
 **Blocked:** all four decisions below shipped on 2026-07-26 (first-run

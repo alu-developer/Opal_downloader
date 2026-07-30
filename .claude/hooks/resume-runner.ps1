@@ -385,6 +385,8 @@ Read docs/RESUME.md first, then docs/BACKLOG.md, and continue that work. Do not 
 
 This run is bounded and unsupervised. That means:
 - Commit each piece as it becomes correct, and keep docs/RESUME.md current as you go. Anything not written down when this run ends is lost.
+- Commit BEFORE verifying, not after. On 2026-07-30 a run of this kind wrote a correct fix, planned to commit once a live test confirmed it, and ended with the fix uncommitted in the working tree while docs/RESUME.md claimed otherwise. A commit survives; a working tree on an unattended machine survives by luck. If verification then fails, amend or revert - that is cheap, and losing the work is not.
+- Do not start anything that outlives this turn. A background job launched with run_in_background dies with this process: the same run lost a live verification that way, and its log stopped mid-login with no exit marker. If a check takes longer than the work, commit first and leave the check as the next action in docs/RESUME.md.
 - Run scripts/dev.ps1 all before pushing.
 - Do NOT make decisions reserved for the maintainer (see docs/agent-operating-model.md, "What still needs a human"). If the top item needs one, write the open question into docs/BACKLOG.md and move to the next item instead.
 - If docs/RESUME.md says the work is finished, clear it back to its placeholder line and pick the top unblocked backlog item.

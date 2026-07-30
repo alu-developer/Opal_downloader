@@ -801,6 +801,25 @@ try {
         (($survivors -contains "resume-run-$($allOld[3]).log") -and ($survivors -contains "resume-run-$($allOld[2]).log")) `
         "kept: $($survivors -join ', ')"
 
+    # --- the prompt an unattended run is handed --------------------------------
+    # Asserted against the runner's SOURCE, not a captured run: the prompt file is
+    # written after -DryRun returns, and the prompt is a here-string with no
+    # interpolation, so the prose is the whole risk. Nothing checked it before
+    # 2026-07-30 - the same untested-prose gap that let the autopilot gate spend
+    # eight days telling every turn to use a retired directory.
+    $runnerSrc = Get-Content $runner -Raw
+    Assert-That "the unattended prompt points at RESUME.md and BACKLOG.md, not the retired queue" `
+        (($runnerSrc -match 'Read docs/RESUME\.md first, then docs/BACKLOG\.md') -and ($runnerSrc -notmatch 'queue/todo|queue/blocked')) `
+        "the prompt no longer names both files, or has grown a retired-queue reference"
+    Assert-That "it requires the local gate before pushing" ($runnerSrc -match 'dev\.ps1 all before pushing') "prompt no longer names the gate"
+    # The two lessons from the 2026-07-30 run that produced nothing durable. Both
+    # are one sentence in the prompt and both cost a day when absent.
+    Assert-That "it says to commit BEFORE verifying" ($runnerSrc -match 'Commit BEFORE verifying') `
+        "the prompt lost the commit-first instruction - a run that verifies first can end with the fix only in the working tree"
+    Assert-That "it forbids work that outlives the turn" ($runnerSrc -match 'outlives this turn') `
+        "the prompt lost the background-job warning - a run_in_background job dies with the run and reports nothing"
+    Assert-That "it still reserves maintainer decisions" ($runnerSrc -match 'reserved for the maintainer') "prompt no longer defers maintainer decisions"
+
     # One off switch for the whole family, not two.
     Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
     New-Item $offSwitch -ItemType File -Force | Out-Null

@@ -38,7 +38,7 @@ big files from growing while touching them. Two byte-identical splits landed
 this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
 
 ### Sync speed: measured for the first time, and the lead is real
-**Blocked (2026-07-30):** the investigation is done and conclusive (see the
+**Blocked:** (2026-07-30) the investigation is done and conclusive (see the
 end of this entry and `docs/sync-speed-campaign.md`'s newest entries), but
 what's left is *implementing* a change to `waitForInteractiveLinks`/
 `waitForContentSettled` — the settle-wait/stability-poll pair, the most

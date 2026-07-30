@@ -90,3 +90,30 @@ func containsByte(s string, b byte) bool {
 	}
 	return false
 }
+
+// TestAppIconICOIsAValidMultiSizeIcon guards the one link between
+// scripts/build-icon.ps1's output and the running program: go:embed just
+// copies bytes, so nothing else here would notice if internal/gui/assets/
+// icon.ico were replaced with an unrelated or truncated file.
+func TestAppIconICOIsAValidMultiSizeIcon(t *testing.T) {
+	if len(appIconICO) == 0 {
+		t.Fatal("appIconICO is empty - internal/gui/assets/icon.ico did not embed")
+	}
+	// ICONDIR header: reserved=0, type=1 (icon), count>=1.
+	if len(appIconICO) < 6 || appIconICO[0] != 0 || appIconICO[1] != 0 || appIconICO[2] != 1 || appIconICO[3] != 0 {
+		t.Fatalf("appIconICO does not start with an ICONDIR header (icon type 1): %v", appIconICO[:min(6, len(appIconICO))])
+	}
+	count := int(appIconICO[4]) | int(appIconICO[5])<<8
+	if count < 6 {
+		t.Errorf("appIconICO reports %d frames, want at least the 6 build-icon.ps1 renders", count)
+	}
+}
+
+// TestSetWindowIconDoesNotPanicOnAZeroHandle documents and locks in the
+// guard clause setWindowIcon needs precisely because it is called from
+// openNativeWindow with no way to test the real window-creation path
+// unattended (WebView2 pops a real, visible window). A nil/zero HWND is the
+// one input this function can be exercised with outside of a live window.
+func TestSetWindowIconDoesNotPanicOnAZeroHandle(t *testing.T) {
+	setWindowIcon(nil)
+}

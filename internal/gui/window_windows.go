@@ -4,15 +4,21 @@ package gui
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
 	"strings"
+	"unsafe"
 
 	webview2 "github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
 )
+
+//go:embed assets/icon.ico
+var appIconICO []byte
 
 // hasNativeWindow is true on Windows: opal-downloader ships a native
 // WebView2-backed window on this platform (a dedicated app window, not the
@@ -56,6 +62,8 @@ func openNativeWindow(url string) error {
 		return fmt.Errorf("failed to open the native GUI window - this usually means the Microsoft Edge WebView2 Runtime is not installed; see https://developer.microsoft.com/microsoft-edge/webview2/")
 	}
 	defer w.Destroy()
+
+	setWindowIcon(w.Window())
 
 	// Let Ctrl-C in the terminal (if any) close the window too, so the HTTP
 	// server shutdown path in gui.Run() still runs the same way it did
@@ -122,4 +130,80 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 		return "", fmt.Errorf("opening folder picker: %w (%s)", err, strings.TrimSpace(out.String()))
 	}
 	return strings.TrimSpace(out.String()), nil
+}
+
+var (
+	moduser32            = windows.NewLazySystemDLL("user32.dll")
+	procLoadImageW       = moduser32.NewProc("LoadImageW")
+	procSendMessageW     = moduser32.NewProc("SendMessageW")
+	procGetSystemMetrics = moduser32.NewProc("GetSystemMetrics")
+)
+
+const (
+	imageIcon      = 1
+	lrLoadFromFile = 0x00000010
+	wmSetIcon      = 0x0080
+	iconSmall      = 0
+	iconBig        = 1
+	smCxIcon       = 11
+	smCyIcon       = 12
+	smCxSmIcon     = 49
+	smCySmIcon     = 50
+)
+
+// setWindowIcon overrides the window's default icon (go-webview2's own
+// fallback - see CreateWithOptions in the webview2 module, which loads
+// Windows' generic IDI_APPLICATION when WindowOptions.IconId is unset, as it
+// always is here) with opal-downloader's own mark, via WM_SETICON. That
+// covers every place a live HICON is shown - the title bar, the taskbar,
+// Alt-Tab - because all of them read the window's icon, not the window
+// class's.
+//
+// It does not touch the .exe file's own icon as seen in Explorer before the
+// program runs; that is a build-time-embedded resource (a .syso, which needs
+// a resource-compiling tool) and is a separate decision - see
+// docs/BACKLOG.md.
+//
+// LoadImageW only reads from a file (or a module's own embedded resources,
+// which this program has none of), not from a byte slice, so the embedded
+// appIconICO is written to a temp file first. The file is safe to remove as
+// soon as LoadImageW returns: Windows copies the icon's pixel data into the
+// returned HICON at load time and keeps no reference to the source file
+// afterwards.
+func setWindowIcon(hwnd unsafe.Pointer) {
+	h := uintptr(hwnd)
+	if h == 0 || len(appIconICO) == 0 {
+		return
+	}
+
+	tmp, err := os.CreateTemp("", "opal-downloader-icon-*.ico")
+	if err != nil {
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(appIconICO); err != nil {
+		tmp.Close()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		return
+	}
+
+	pathPtr, err := windows.UTF16PtrFromString(tmpPath)
+	if err != nil {
+		return
+	}
+
+	cxBig, _, _ := procGetSystemMetrics.Call(smCxIcon)
+	cyBig, _, _ := procGetSystemMetrics.Call(smCyIcon)
+	if hIconBig, _, _ := procLoadImageW.Call(0, uintptr(unsafe.Pointer(pathPtr)), imageIcon, cxBig, cyBig, lrLoadFromFile); hIconBig != 0 {
+		_, _, _ = procSendMessageW.Call(h, wmSetIcon, iconBig, hIconBig)
+	}
+
+	cxSmall, _, _ := procGetSystemMetrics.Call(smCxSmIcon)
+	cySmall, _, _ := procGetSystemMetrics.Call(smCySmIcon)
+	if hIconSmall, _, _ := procLoadImageW.Call(0, uintptr(unsafe.Pointer(pathPtr)), imageIcon, cxSmall, cySmall, lrLoadFromFile); hIconSmall != 0 {
+		_, _, _ = procSendMessageW.Call(h, wmSetIcon, iconSmall, hIconSmall)
+	}
 }

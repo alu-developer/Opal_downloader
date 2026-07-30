@@ -118,11 +118,28 @@ the mark is correct, not noise). So: PNG-in-ICO is fine for the real load
 path, just not for that one GDI+ convenience method - don't reuse
 `System.Drawing.Icon.ToBitmap` as a verification shortcut for this file again.
 
-**Not done yet: the runtime wiring itself** - `window_windows.go` doesn't
-call `WM_SETICON` yet, and the `.exe`'s own Explorer-icon (`.syso` resource,
-needs a build-time tool - a new decision, unlike the WPF path) is
-deliberately out of scope for this pass; note it in BACKLOG as a follow-up
-rather than deciding it here.
+**Runtime wiring done and visually verified.** `window_windows.go` now embeds
+`assets/icon.ico` (`//go:embed`) and calls a new `setWindowIcon` right after
+window creation: writes the embedded bytes to a temp file, `LoadImageW` +
+`LR_LOADFROMFILE` at both `SM_CXICON`/`SM_CYICON` and the small-icon metrics,
+`WM_SETICON` for `ICON_BIG`/`ICON_SMALL`. Two new tests
+(`window_windows_test.go`): the embedded bytes are a valid multi-frame
+ICONDIR, and `setWindowIcon(nil)` doesn't panic (the only path testable
+without a live window).
+
+Live smoke test this session: built a throwaway binary, launched the real
+GUI window in the background, brought it to the foreground, and
+screenshotted just that window. **Title bar and in-page mark both show the
+correct gradient "D" icon** - screenshot deleted after viewing (it also
+briefly captured other desktop windows via the first full-screen attempt,
+which was discarded unsaved). Process killed and the throwaway binary
+removed afterward; nothing left running.
+
+**Still out of scope, by design:** the `.exe`'s own Explorer/taskbar-preview
+icon before the program is running needs a build-time-embedded resource
+(`.syso`, needs a resource-compiling tool - a new decision, unlike the WPF
+path which added nothing to go.mod). Follow-up, not decided here - add to
+BACKLOG.
 
 ### Do not lose
 

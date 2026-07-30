@@ -750,32 +750,39 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
-- **The hook suite fails about half its runs, and it is the suite's own
-  fixture, not the thing it is testing (measured 2026-07-30, 5 runs).**
-  `test-hooks.ps1:1001` spawns `cmd.exe /c ping -n 120 ... & rem <repoRoot>`
-  as a fixture so the autopilot gate sees a busy repo, then tears it down with
-  `taskkill /PID .. /T /F`. That kill intermittently reports *"The process with
-  PID N (child process of PID M) could not be terminated"* — the `ping` child
-  outliving the tree kill. The leftover process still carries the repo root in
-  its command line, so the precondition assertion at line 1037 ("nothing else
-  in this repo is running") then fails on the suite's own garbage. Perfect
-  correlation across 5 runs: taskkill error present ⟺ suite fails, 3 of 5. The
-  comment at line 1029 already records "an unexplained one-off failure on
-  2026-07-29" and added that assertion to name the ambient condition — but the
-  ambient condition is partly self-inflicted, which the comment does not know.
-  A retry loop around the kill, or a fixture that exits on its own instead of
-  needing to be killed, would fix it.
+- **`scripts/dev.ps1 all` cannot pass while a live probe run is in this tree,
+  and that is by design rather than a flake.** The hook suite asserts at
+  `test-hooks.ps1` ("nothing else in this repo is running") that no `go test`,
+  `*.test.exe` or repo-path-bearing process is live, because the autopilot
+  gate's busy-check test would otherwise pass for the wrong reason. Since
+  `pre-push-gate.ps1` runs the whole suite, a ~5-minute `TestFileListSnapshot`
+  blocks even a docs-only push for its duration. Not obviously wrong — the
+  assertion is right to exist — but nothing tells the reader that waiting is
+  the answer. The gate's refusal message now says so (2026-07-30); a cheaper
+  fix would be for the suite to skip just that one assertion when it detects a
+  live run instead of failing the whole thing.
 
-  Two consequences beyond the flake. **`scripts/dev.ps1 all` is a coin flip,
-  and it gates every push** — `pre-push-gate.ps1` runs the whole suite and
-  reports `scripts/dev.ps1 all failed (exit 1) - push blocked. Fix it, then
-  push again.`, sending the reader after a bug that does not exist. And the
-  same line-1037 precondition means a push is *legitimately* impossible while
-  any live probe run is in the tree, so a ~10-minute crawl blocks even a
-  docs-only commit. Separately: the gate matches the **command string**, not
-  the git operation, so a plain `git commit` whose message text merely
-  contained the word "push" tripped it too; writing the message to a file was
-  the workaround.
+  **Correction worth more than the entry: an earlier version of this note
+  blamed the suite's own `taskkill` fixture, and that was wrong.** It claimed
+  "perfect correlation across 5 runs, 3 of 5 failed". Then 9 consecutive clean
+  runs (6 standalone `test-hooks.ps1`, 3 full `dev.ps1 all`) with an idle tree
+  refuted it, and the reasoning was bad anyway: the surviving `ping` child
+  carries no repo path in its command line, so it *cannot* trip the assertion
+  it was accused of tripping. The `taskkill` warning is noise that happens to
+  print near a failure. I asserted a cause from a correlation without ever
+  reading the assertion's own message, which names the offending processes —
+  exactly what this project's `CLAUDE.md` says not to do, done twice in one
+  session while writing the entry that says not to do it.
+
+- **Nothing routes a probe run's diagnostic warnings anywhere — fixed for
+  `TestFileListSnapshot` on 2026-07-30, still true of the other probe tests.**
+  `internal/scraper/probelogging_test.go` now installs a verbose logger for that
+  one test. The same silence applies to every other live probe in the package
+  (`htmlstability_probe_test.go`, the network trace, the concurrency probes):
+  each prints its own totals and drops anything the crawl reported at
+  Warn/diagnostic. Adding `captureProbeLogs(t)` to them is a one-line change
+  each; it was left out because none of them is being run right now and an
+  untested change to a test is still an untested change.
 
 - **An unattended resume run cannot wait for a background job, and reports
   success anyway (hit 2026-07-30).** The 11:12 run wrote the UA fix, launched

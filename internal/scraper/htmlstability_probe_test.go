@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -193,9 +194,21 @@ type cookieTransport struct {
 	base   http.RoundTripper
 }
 
+// RoundTrip sends the same browser-shaped User-Agent the real section-cache
+// probe does, from the same const, so there is one source of truth for it.
+//
+// This used to send "...opal-downloader-probe" - no AppleWebKit/Chrome/Safari
+// tokens. On 2026-07-30 that exact fingerprint was shown to make OPAL serve
+// generic nav/help stubs instead of real course pages, for 5 of 6 courses, in a
+// live run. Every measurement this probe produced before then was taken over
+// that fingerprint, including the "11 of 12 sections match" result the
+// change-detection cache was rebuilt on. Two fetches of the same stub match
+// each other trivially - a stub has no per-session Wicket bookkeeping to differ
+// in - so the failure mode inflates exactly the number this probe exists to
+// report.
 func (t *cookieTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r.Header.Set("Cookie", t.header)
-	r.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) opal-downloader-probe")
+	r.Header.Set("User-Agent", sectionCacheUserAgent)
 	return t.base.RoundTrip(r)
 }
 
@@ -310,8 +323,24 @@ func TestSectionHTMLStabilityAcrossManySections(t *testing.T) {
 
 	t.Logf("RESULT over %d sections: whole page raw %d, whole page normalised %d, content region raw %d (located %d), content region normalised %d",
 		len(urls), rawMatches, rawNormMatches, contentMatches, contentFound, contentNormMatches)
+
+	// Sizes, because a high match rate is ambiguous on its own and that
+	// ambiguity already cost this project a rebuilt feature. If OPAL is serving
+	// stubs, two fetches match trivially and the probe reports success. A stub
+	// measured at 765-2801 bytes on 2026-07-30 against real course pages of
+	// 4155-21149, so the distribution tells the two apart at a glance.
+	sizes := make([]int, 0, len(first))
+	for _, body := range first {
+		sizes = append(sizes, len(body))
+	}
+	sort.Ints(sizes)
+	if len(sizes) > 0 {
+		t.Logf("BODY SIZES over %d sections: min %d, median %d, max %d bytes - a median in the low thousands means OPAL served stubs and every match count above is meaningless",
+			len(sizes), sizes[0], sizes[len(sizes)/2], sizes[len(sizes)-1])
+	}
+
 	if contentFound > 0 && contentNormMatches == contentFound {
-		t.Logf("EVERY content region matched after normalisation - the change-detection cache is viable")
+		t.Logf("EVERY content region matched after normalisation - but read the body sizes above before concluding anything from that")
 	}
 }
 

@@ -793,24 +793,38 @@ record.
   right after creation. Live-verified by screenshotting the real running
   window. The `.exe`'s own Explorer icon is a separate, not-yet-decided
   follow-up (see "Next").
-- **Dead hooks are now self-detected, not maintainer-detected.** Every wired
-  hook writes a liveness beat (`.claude/hooks/hookbeat.ps1`); `Test-HookLiveness`
-  now reads them back and flags `autopilot-gate`/`noticed-gate`/`budget-guard`
-  (the three that fire on almost every turn) as dead if their last beat
-  predates the newest commit - a comparison that can't false-positive, since a
-  commit only lands inside a turn that made a tool call and then hit Stop.
-  `session-start-autopilot.ps1` surfaces `SELF-AUDIT: possible dead hook(s)`
-  at the start of every session. Directly answers one of the three symptoms
-  in the maintainer's 2026-07-30 self-monitoring request (see
-  `docs/work-quality.md`); the other two (too many tokens for too little,
-  too little worked on) are still open - see `docs/RESUME.md`.
-
-  **Found and fixed along the way:** `hookbeat.ps1` ignored
-  `$env:OPAL_AUTOPILOT_QUEUE_DIR`, so every `scripts/test-hooks.ps1` run was
-  overwriting the *real* liveness beats with test timestamps - which would
-  have made the dead-hook check permanently blind, since the test suite kept
-  "healing" the exact thing it exists to catch. Fixed before it ever shipped
-  broken.
+- **Self-monitoring (2026-07-30 maintainer request): 2 of 3 named symptoms now
+  have a real detector, both wired into `session-start-autopilot.ps1` and
+  tested in `scripts/test-hooks.ps1` (209 hook assertions, up from 191).**
+  - **A silently dead hook.** `.claude/hooks/hookbeat.ps1`: every wired hook
+    writes a liveness beat; `Test-HookLiveness` flags `autopilot-gate`/
+    `noticed-gate`/`budget-guard` (the three that fire on almost every turn)
+    as dead if their last beat predates the newest commit - a comparison
+    that can't false-positive, since a commit only lands inside a turn that
+    made a tool call and then hit Stop. Surfaced as `SELF-AUDIT: possible
+    dead hook(s)`.
+    **Found and fixed along the way:** `hookbeat.ps1` ignored
+    `$env:OPAL_AUTOPILOT_QUEUE_DIR`, so every test run was overwriting the
+    *real* liveness beats with test timestamps - which would have made the
+    check permanently blind, since the test suite kept "healing" the exact
+    thing it exists to catch.
+  - **Budget spent with nothing to show for it.** `session-start-autopilot.ps1`
+    persists the budget floor + HEAD commit each session start; the next one
+    compares, and flags a same-window floor rise of 15+ points against 0
+    commits in between as `SELF-AUDIT: ... 'too many tokens for too little'`.
+  - **Not built:** a detector for "too little actually worked on" in
+    *interactive* sessions specifically (unattended runs already get this
+    from `unattended-run.ps1`'s existing verdict). Judged fuzzier than the
+    other two - "too little" has no clean definition for a session the
+    maintainer is actively driving - and lower priority; see `docs/RESUME.md`
+    if picking this back up.
+  - Neither detector has been observed catching a real incident yet, only
+    tested against synthetic state - same starting position every hook in
+    this family began from.
+  - `docs/work-quality.md` (separate, same request): names why "no
+    acceptance authority" and "half-changes by default" happen, and drafts a
+    definition of done. Explicitly does NOT include any hook that grades
+    code quality - self-grading was ruled out on purpose (see that file).
 - **The "Noticed" section has a consumer now.** The maintainer asked what
   happens to the notes ("was passiert eigentlich mit den notizen?") and the
   honest answer was: nothing, unless somebody happened to read them. That is

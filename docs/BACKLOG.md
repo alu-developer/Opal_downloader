@@ -716,12 +716,18 @@ matter.
   again while work sits in `docs/RESUME.md` means the triggers did not take and
   event 332 is back.
 
-- **Nothing ever prunes `refs/wip-checkpoints/`.**
-  `turn-failure-checkpoint.ps1` writes two or three refs every time it fires
-  and there is no expiry, so the repo now carries ~200 of them going back to
-  2026-07-23 — each pinning a whole tree, none ever looked at again.
-  `.claude/queue/` likewise accumulates a `resume-run-*.log`/`.err` pair per
-  launch, mostly empty. Neither hurts anything today; both grow forever.
+- **`.claude/queue/` accumulates a `resume-run-*.log`/`.err` pair per launch,**
+  mostly empty, with no expiry. Harmless today, grows forever.
+
+  The `refs/wip-checkpoints/` half of this is **fixed (2026-07-30)**: it had
+  reached 322 refs over seven days, ~46/day, each pinning a tree git could then
+  never collect. `turn-failure-checkpoint.ps1` now prunes on write — older than
+  14 days, but never below the newest 20, and never a ref whose name is not a
+  timestamp. Bounded by construction rather than by a script someone has to
+  remember. Both safety rails are mutation-tested: deleting the floor fails the
+  "a quiet fortnight does not wipe every recovery point" assertion, and dropping
+  the timestamp guard fails the one about not guessing at unknown refs. The
+  count is recorded in `LAST_FAILURE.json` rather than pruned silently.
 
 - **`tmp/` is the same unpruned-accumulator shape as the two entries above,
   just gitignored instead of git-tracked.** It's carrying probe outputs from

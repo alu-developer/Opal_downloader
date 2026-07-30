@@ -55,6 +55,11 @@ try {
     }
 
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+    # Test seam. Without it the suite would have to exercise ref pruning against
+    # the real repo, and a suite that runs on every push must not be able to
+    # delete the maintainer's actual recovery points to prove it can delete
+    # things.
+    if ($env:OPAL_CHECKPOINT_REPO_ROOT) { $repoRoot = $env:OPAL_CHECKPOINT_REPO_ROOT }
 
     # --- capture WIP without disturbing anything ------------------------------
     $wipRef = $null
@@ -78,6 +83,42 @@ try {
     $nowUnix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $nowIso = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
+    # --- keep the checkpoint set bounded --------------------------------------
+    # 322 refs had piled up over seven days by 2026-07-30 (~46/day), each
+    # pinning a whole tree so git can never collect it, and none had ever been
+    # read after the day it was written. Pruned here by the writer rather than by
+    # a script somebody has to remember, so the set is bounded by construction.
+    #
+    # Age AND a floor, not age alone: a quiet fortnight would otherwise delete
+    # every recovery point the repo has, which is precisely when the oldest
+    # surviving checkpoint is the only one left to matter. The ref name is the
+    # creation timestamp, so age needs no extra git call.
+    $prunedCount = 0
+    $keepDays = 14
+    $keepAtLeast = 20
+    if ($env:OPAL_CHECKPOINT_KEEP_DAYS) { $keepDays = [int]$env:OPAL_CHECKPOINT_KEEP_DAYS }
+    if ($env:OPAL_CHECKPOINT_KEEP_AT_LEAST) { $keepAtLeast = [int]$env:OPAL_CHECKPOINT_KEEP_AT_LEAST }
+    try {
+        Push-Location $repoRoot
+        $allRefs = @(& git for-each-ref --format='%(refname)' refs/wip-checkpoints/ 2>$null | Where-Object { $_ })
+        if ($allRefs.Count -gt $keepAtLeast) {
+            $cutoff = $nowUnix - ([long]$keepDays * 86400)
+            $stamped = $allRefs | ForEach-Object {
+                $stamp = 0L
+                if ($_ -match 'refs/wip-checkpoints/(\d+)$') { $stamp = [long]$Matches[1] }
+                [pscustomobject]@{ Ref = $_; Stamp = $stamp }
+            } | Sort-Object -Property Stamp -Descending
+            # Stamp -gt 0 skips any ref whose name is not a timestamp: unknown
+            # provenance is a reason to leave it alone, not to guess its age.
+            $doomed = @($stamped | Select-Object -Skip $keepAtLeast |
+                        Where-Object { $_.Stamp -gt 0 -and $_.Stamp -lt $cutoff })
+            foreach ($d in $doomed) {
+                & git update-ref -d $d.Ref 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0) { $prunedCount++ }
+            }
+        }
+    } catch { } finally { Pop-Location }
+
     # Was this a usage limit, as opposed to any other API error? Matched loosely
     # on purpose: the exact wording is not contractual, and a false positive
     # only produces a slightly wrong sentence in a note.
@@ -94,6 +135,7 @@ try {
         dirty_file_count   = $dirty.Count
         wip_commit         = $wipSha
         wip_ref            = $wipRef
+        checkpoints_pruned = $prunedCount
     }
 
     # Budget floor at the moment of death - the single most useful number for

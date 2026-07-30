@@ -323,6 +323,90 @@ try {
     Pop-Location
     Assert-That "capturing WIP does not modify the working tree" ($before -eq $after) "before=[$before] after=[$after]"
 
+    # --- ref pruning --------------------------------------------------------
+    # 322 checkpoint refs over seven days by 2026-07-30, each pinning a tree
+    # git can then never collect, none ever read after the day it was written.
+    # Against a SANDBOX repo, never the real one: this suite runs on every push
+    # and must not be able to delete the maintainer's own recovery points.
+    $ckRepo = Join-Path $sandbox "checkpoint-repo"
+    New-Item -ItemType Directory -Path $ckRepo -Force | Out-Null
+    & git -C $ckRepo init --quiet 2>$null | Out-Null
+    & git -C $ckRepo config core.autocrlf false 2>$null | Out-Null
+    & git -C $ckRepo config user.email "test@example.invalid" 2>$null | Out-Null
+    & git -C $ckRepo config user.name "hook tests" 2>$null | Out-Null
+    Set-Content (Join-Path $ckRepo "f.txt") "base" -Encoding utf8
+    & git -C $ckRepo add -A 2>$null | Out-Null
+    & git -C $ckRepo commit -m "base" --quiet 2>$null | Out-Null
+    $ckHead = (& git -C $ckRepo rev-parse HEAD 2>$null)
+
+    $nowStamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $ancient = @()
+    foreach ($age in 60, 50, 40, 30, 25) {
+        $ref = "refs/wip-checkpoints/$($nowStamp - ($age * 86400))"
+        & git -C $ckRepo update-ref $ref $ckHead 2>$null | Out-Null
+        $ancient += $ref
+    }
+    $fresh = @()
+    foreach ($age in 0, 1, 2) {
+        $ref = "refs/wip-checkpoints/$($nowStamp - ($age * 3600))"
+        & git -C $ckRepo update-ref $ref $ckHead 2>$null | Out-Null
+        $fresh += $ref
+    }
+    # A ref whose name is not a timestamp: unknown provenance must be left alone
+    # rather than have an age guessed for it.
+    & git -C $ckRepo update-ref "refs/wip-checkpoints/manual-keepme" $ckHead 2>$null | Out-Null
+
+    $env:OPAL_CHECKPOINT_REPO_ROOT = $ckRepo
+    $env:OPAL_CHECKPOINT_KEEP_DAYS = "14"
+    $env:OPAL_CHECKPOINT_KEEP_AT_LEAST = "3"
+    Invoke-Hook "turn-failure-checkpoint.ps1" @{ session_id = "prune"; error_type = "x"; error_message = "y" } | Out-Null
+    $remaining = @(& git -C $ckRepo for-each-ref --format='%(refname)' refs/wip-checkpoints/ 2>$null | Where-Object { $_ })
+    Remove-Item Env:\OPAL_CHECKPOINT_REPO_ROOT, Env:\OPAL_CHECKPOINT_KEEP_DAYS, Env:\OPAL_CHECKPOINT_KEEP_AT_LEAST -ErrorAction SilentlyContinue
+
+    Assert-That "checkpoints older than the cutoff are pruned" `
+        (($ancient | Where-Object { $remaining -contains $_ }).Count -eq 0) `
+        "still present: $(($ancient | Where-Object { $remaining -contains $_ }) -join ', ')"
+    Assert-That "recent checkpoints survive" `
+        (($fresh | Where-Object { $remaining -notcontains $_ }).Count -eq 0) `
+        "missing: $(($fresh | Where-Object { $remaining -notcontains $_ }) -join ', ')"
+    Assert-That "a ref that is not a timestamp is never guessed at" `
+        ($remaining -contains "refs/wip-checkpoints/manual-keepme") "remaining: $($remaining -join ', ')"
+    $prunedRec = Get-Content $failureFile -Raw | ConvertFrom-Json
+    Assert-That "the prune is recorded rather than done silently" `
+        ($prunedRec.checkpoints_pruned -eq 5) "got $($prunedRec.checkpoints_pruned)"
+
+    # The floor, which is the half that keeps this safe: with everything old and
+    # nothing recent, the newest few must still survive rather than the repo
+    # being left with no recovery point at all.
+    $ckRepo2 = Join-Path $sandbox "checkpoint-repo-2"
+    New-Item -ItemType Directory -Path $ckRepo2 -Force | Out-Null
+    & git -C $ckRepo2 init --quiet 2>$null | Out-Null
+    # Not optional - see the note above the first sandbox repo in this file. Its
+    # absence here aborted the whole suite on the first run of these assertions.
+    & git -C $ckRepo2 config core.autocrlf false 2>$null | Out-Null
+    & git -C $ckRepo2 config user.email "test@example.invalid" 2>$null | Out-Null
+    & git -C $ckRepo2 config user.name "hook tests" 2>$null | Out-Null
+    Set-Content (Join-Path $ckRepo2 "f.txt") "base" -Encoding utf8
+    & git -C $ckRepo2 add -A 2>$null | Out-Null
+    & git -C $ckRepo2 commit -m "base" --quiet 2>$null | Out-Null
+    $ckHead2 = (& git -C $ckRepo2 rev-parse HEAD 2>$null)
+    $oldest = @()
+    foreach ($age in 90, 80, 70, 60, 50) {
+        $ref = "refs/wip-checkpoints/$($nowStamp - ($age * 86400))"
+        & git -C $ckRepo2 update-ref $ref $ckHead2 2>$null | Out-Null
+        $oldest += $ref
+    }
+    $env:OPAL_CHECKPOINT_REPO_ROOT = $ckRepo2
+    $env:OPAL_CHECKPOINT_KEEP_DAYS = "14"
+    $env:OPAL_CHECKPOINT_KEEP_AT_LEAST = "2"
+    Invoke-Hook "turn-failure-checkpoint.ps1" @{ session_id = "floor"; error_type = "x"; error_message = "y" } | Out-Null
+    $left = @(& git -C $ckRepo2 for-each-ref --format='%(refname)' refs/wip-checkpoints/ 2>$null | Where-Object { $_ })
+    Remove-Item Env:\OPAL_CHECKPOINT_REPO_ROOT, Env:\OPAL_CHECKPOINT_KEEP_DAYS, Env:\OPAL_CHECKPOINT_KEEP_AT_LEAST -ErrorAction SilentlyContinue
+    Assert-That "a quiet fortnight does not wipe every recovery point" ($left.Count -eq 2) "got $($left.Count): $($left -join ', ')"
+    Assert-That "and the ones kept are the newest, not an arbitrary two" `
+        (($left -contains "refs/wip-checkpoints/$($nowStamp - (50 * 86400))") -and ($left -contains "refs/wip-checkpoints/$($nowStamp - (60 * 86400))")) `
+        "kept: $($left -join ', ')"
+
     # =========================================================================
     Write-Host "`nsession-start-autopilot (SessionStart)" -ForegroundColor Cyan
     # =========================================================================

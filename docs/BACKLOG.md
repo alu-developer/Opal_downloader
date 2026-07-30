@@ -38,352 +38,53 @@ big files from growing while touching them. Two byte-identical splits landed
 this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
 
 ### Sync speed: measured for the first time, and the lead is real
-**Blocked:** (2026-07-30) the investigation is done and conclusive (see the
-end of this entry and `docs/sync-speed-campaign.md`'s newest entries), but
-what's left is *implementing* a change to `waitForInteractiveLinks`/
+**Blocked:** the investigation (2026-07-30) is done and conclusive, but what's
+left is *implementing* a change to `waitForInteractiveLinks`/
 `waitForContentSettled` — the settle-wait/stability-poll pair, the most
 correctness-sensitive code in this repo, with a documented history of
 *silent* file loss from exactly this kind of change. The section-level
 concurrency rewrite earlier in this same campaign needed the maintainer's
 explicit sign-off before being built for the identical reason; this should
 get the same treatment rather than an agent deciding alone to start editing
-this specific code path unattended. Open question for the maintainer: is the
-jsTree+MathJax completion-signal approach (see "Done recently" and the
-campaign doc for what was found) worth attempting, given the risk profile?
+this specific code path unattended. **Open question for the maintainer: is
+the jsTree+MathJax completion-signal approach below worth attempting, given
+the risk profile?**
 
-(Below this line is the campaign's history up to and including
-2026-07-30's investigation - kept for context; "Not blocked" language earlier
-in this entry describes an *older*, now-superseded state from 2026-07-27.)
+Standing goal (maintainer, 2026-07-21): a routine no-op sync should feel
+instant, ~30 seconds, not the 5+ minutes it took at the start of this
+campaign. `docs/sync-speed-campaign.md` is the full decision log — every
+measurement, every rejected approach, and why — kept there rather than here
+so this file states current status and what's next, not the history.
+Re-litigating a rejected approach without new evidence wastes a round trip;
+read that file before reaching for one.
 
-Four live measurements ran against it that evening. What is actionable now
-comes out of them rather than out of this file's older speculation, and is
-stated at the end of this entry.
+**Where the campaign landed, in three points:**
 
-**2026-07-27, live run, 280 sections, 216.6s:** settle wait 94.2s (63% of
-in-section time), stability poll 49.5s (33%), actual extraction 4.3s (**2%**).
+1. **The dominant cost is a debounce that pays for itself.** A 210s run spends
+   94.2s (63% of in-section time) on a 300ms MutationObserver settle-wait.
+   Three independent attempts to shorten, skip, or replace it (an AJAX-based
+   signal, reading before it settles, skipping it outright) were all measured
+   and all lost files or got slower with nothing saved — the debounce is the
+   *cheapest* way to wait for a page that itself takes that long to render,
+   not overhead sitting in front of the real work.
+2. **Section-level concurrency was tried (with sign-off) and rejected.**
+   Every added tab makes a run faster and loses more files - 2 tabs: 345→257
+   files, 145s faster; 4 tabs: 345→214 files, 117s faster. Off by default;
+   `--section-concurrency` stays for a future re-measure.
+3. **2026-07-30: a real, replicated completion-signal candidate was found.**
+   The course-navigation **jsTree** widget sets `aria-busy="false"` as its own
+   render-complete signal — confirmed on 6 sections across 4 courses, root and
+   non-root alike. Its ordering against MathJax (on courses that use it) is
+   genuinely inconsistent, so a jsTree-only wait is not safe as a drop-in
+   debounce replacement. `internal/scraper/mutationmarker_probe_test.go`
+   (`OPAL_MUTATION_MARKER_TRACE=1`) is the reusable probe that found this.
 
-The dominant cost is a debounce, and a debounce always costs its own duration.
-`mutationObserverDebounceMs` is 300ms; the measured average settle wait is
-336ms. The page finishes rendering in ~36ms and then we spend 300ms proving
-nothing more is coming — ~84s per run, ~39% of the total, as a fixed toll for
-silence.
-
-**Do not just lower it.** Same class of mistake as lowering
-`sectionContentRequiredStableReads` from 4 to 1, which was live A/B tested and
-lost files byte-for-byte like the unfixed code. The debounce exists because
-Wicket renders in stages.
-
-The real question, in `docs/sync-speed-campaign.md`: both mechanisms *infer*
-completion from absence of change, which costs the same 300ms whether the page
-took 20ms or 2s. Is there a positive signal instead?
-
-**The network-layer answer is no, measured 2026-07-27 and now closed.** The
-proposed signal — "`AJAX_CALL_DONE` fired *and* the response carried the
-file-table markup" — assumed the file table arrives in an AJAX response. It
-does not. A live network trace of two courses (5 sections / 38 files, and the
-160-section / 207-file Softwaretechnologie) recorded 263 and 8154 responses, of
-which **2 and 3 were xhr, and every one of them was the already-handled
-`showAllLink` expansion**. An ordinary section's initial render fires no AJAX
-at all, confirming `navigation.go`'s existing claim over the campaign entry's
-premise. There is no event to key off, so the 300ms toll stands.
-
-Re-checkable in one command: `OPAL_NETWORK_TRACE=1 go test ./internal/scraper/
--run TestNetworkTraceDuringSectionCrawl -v` (add
-`OPAL_NETWORK_TRACE_COURSE="<exact configured name>"`; results are written to
-`tmp/`).
-
-**But the trace found a bigger thing on the way, and this is the live lead.**
-Discovery downloads ~29 MB of the course's own files that nothing ever reads.
-Same run, one course, listing filenames only:
-
-| document responses | count | in the main frame | bytes |
-|---|---|---|---|
-| section pages (`/opal/auth/…`) | 324 | **324** | — |
-| the files themselves (`/opal/FolderResource/…`) | **72** | **0** | **30.6 MB** |
-| other | 12 | 0 | 0.1 MB |
-
-OPAL course nodes that show their file inline make the browser fetch the whole
-file to render a preview, in a subframe — and this codebase has *no iframe
-handling at all*, so nothing reads it. `crawl.go:1147` already keeps file links
-out of the crawl queue, so this is the page doing it, not us following links.
-
-Why it is worth doing next: it asks OPAL for **less** rather than for the same
-things faster — the one direction `docs/server-load.md` encourages — and it may
-attack the 94.2s settle wait at its cause, since a multi-megabyte PDF loading
-into an iframe keeps generating the very mutations that debounce waits to stop.
-
-**Approved, built, verified — and it is not a speed fix. Confirmed twice.**
-Off by default; `OPAL_BLOCK_FILE_PREVIEWS=1` enables it. Two paired
-full-account A/Bs, both 2026-07-27:
-
-| pair | previews kept | previews blocked | files | delta |
-|---|---|---|---|---|
-| 1 (morning) | 248.3s | 324.3s | 345 / 345 | +30.6% |
-| 2 (evening) | **210.3s** | **265.0s** | **345 / 345** | **+26.0%** |
-
-Pair 2 settles what pair 1 could not. Its baseline (210.3s) is the fastest run
-this account has ever recorded, so the first pair was not a slow day — and the
-slowdown reproduced at a similar magnitude. This is a real cost, not noise.
-
-**Safety: settled, twice.** The `diff` of the two sorted file lists — course,
-section, name and URL for every file — was **empty in both pairs**. Nothing is
-lost. A file count would not have been acceptable evidence here and both of
-this project's known losses would have passed one.
-
-**Speed: came back the wrong way, and stayed there.** ~26–31% slower across
-two independent pairs. Opt-in, and now on measured grounds rather than on one
-unreplicated comparison.
-
-**What it still buys regardless: ~30 MB per course per pass that OPAL does not
-have to serve.** That is a `docs/server-load.md` win on its own terms, and may
-justify enabling it even if it is slower — a judgement call, not an assumption
-to bake into a default.
-
-**The one recorded guess for the slowdown is now dead, measured.** It was that
-an aborted subframe leaves the parent churning over an error state — precisely
-what the 300ms settle-wait debounce watches for — so `route.Fulfill` with an
-empty body might behave differently from `route.Abort`. Same session, same
-evening, 345 files, list byte-identical:
-
-| refusal | wall clock |
-|---|---|
-| `route.Abort("blockedbyclient")` | 265.0s |
-| `route.Fulfill` empty 200 `text/html` | **272.0s** |
-
-**How the request is refused does not matter.** `previews.go` argued the
-opposite in a comment; the argument was reasoned, never measured, and wrong in
-both directions. Recorded in that file so nobody spends a fourth run on it.
-
-**And that follow-up answered it. The slowdown was never the blocking — it is
-`ctx.Route` itself.** Same session, same evening, 345 files every run, every
-list byte-identical against the no-route ground truth:
-
-| condition | wall clock |
-|---|---|
-| no route installed at all | **210.3s** |
-| route + `Abort` | 265.0s |
-| route + `Fulfill` (empty 200) | 272.0s |
-| **route installed, always `Continue`** | **274.6s** |
-
-The last row is the finding: install the route, block **nothing**, and the run
-still costs ~64s more. Every explanation this campaign had written down for the
-slowdown was about the blocking, and all of them were wrong.
-
-**Two things follow, and the second is bigger than this item.**
-
-1. The ~30 MB saving is real and its price tag belongs to something else. The
-   blocker is not a speed/traffic trade-off; it is a free saving sitting behind
-   an expensive delivery mechanism.
-2. **`ctx.Route` costs ~30% of a run on this workload**, which is a fact about
-   this codebase's tooling and not about previews. Anything else that reaches
-   for request interception — the network trace probe already does — is paying
-   it, and any past measurement taken with a route installed is suspect.
-
-**Answered, and the tax is fixed.** The same route registered under
-`**/no-such-path-xyz/**` — a pattern that matches nothing, so the handler never
-fires once — came back at **272.2s**. Full picture, one session, one evening,
-345 files and a byte-identical list every single time:
-
-| condition | wall clock |
-|---|---|
-| no route installed at all | **210.3s** |
-| route + `Abort` | 265.0s |
-| route + `Fulfill` (empty 200) | 272.0s |
-| route installed, always `Continue` | 274.6s |
-| route under a pattern matching **nothing** | **272.2s** |
-
-**`ctx.Route` costs ~30% of a run just by existing.** Not the pattern, not the
-handler, not the blocking. A narrower pattern cannot rescue the saving; that
-was exactly the hypothesis this row was run to test.
-
-**Where that leaves the preview blocker:** the ~30 MB per course per pass is
-real, otherwise-free, and stuck behind a delivery mechanism costing ~64s.
-Shipping it means dropping request interception for something browser-level
-that stops the fetch without a route. Nobody has looked for that yet — it is
-the one open thread here, and it is a genuinely new direction rather than a
-re-run of a rejected one.
-
-**Checked immediately, because it would have been the bigger prize:** nothing
-in the normal code path installs a route. `previews.go` is the only
-`ctx.Route` in the repo and it is off by default, so a routine sync pays none
-of this. No free 30% was sitting there.
-
-**But this does invalidate measurements taken with a route installed** —
-including the network trace that discovered the 30 MB in the first place. Its
-*finding* stands (the bytes are really fetched; that is a count, not a
-timing), but any timing from a traced run is inflated by roughly a third and
-should not be compared against untraced numbers.
-
-**No longer blocked: the session is fresh again (2026-07-27 18:31).** The
-maintainer ran the GUI by hand and TU-Fast completed Shibboleth on its own in
-**5 seconds** (18:31:05 opened OPAL → 18:31:10 saved state), so TU-Fast is
-*not* broken — the earlier 13:53–14:00 failure (`timed out after 300000ms
-waiting for the OPAL course list after login`) was an unattended run against
-an expired session with nobody present, exactly the case `CLAUDE.md`
-describes. The A/B repeat can now be run.
-
-**The last unasked question is now asked, and the answer is no.** Every attempt
-in this campaign tried to make the settle wait shorter or cheaper. None had
-ever asked whether it is needed — and there was a measured reason to think it
-might not be, since the network trace showed an ordinary section's initial
-render fires no AJAX at all, implying the file table is already in the initial
-document.
-
-It is not. Measured 2026-07-27 by reading every section immediately, before any
-settling, and diffing that byte-for-byte against what the full wait returns —
-same run, same page load, so no run-to-run variance:
-
-| | sections |
-|---|---|
-| total | 278 |
-| **identical with no settle wait** | **3** |
-| early read was empty | 0 |
-| early read was **incomplete** (fewer rows) | **274** |
-| early read had more | 0 |
-| **same row count, different rows** | **1** |
-
-**The wait is load-bearing.** No AJAX does not mean no client-side rendering:
-OPAL builds the file table progressively from the document it already has, and
-an immediate read essentially always catches it mid-render.
-
-Two things worth keeping from this:
-
-- **Content only ever grows.** Never empty at the start, never larger than the
-  final reading, not once in 278 sections. So "wait until it stops growing" is
-  the right shape, and the stability poll is doing real work rather than
-  guarding a case that never happens.
-- **One section changed rows without changing their count.** That is exactly
-  the failure a count cannot see, in a single run, on a real account — the
-  reason this project refuses file counts as evidence, now with an instance
-  attached to it rather than only a principle.
-
-The probe was deleted again after reporting (see `codebudget_test.go`); it was
-written with an expiry and the expiry was honoured. `git show 76a71fa` restores
-it if anyone wants to re-measure.
-
-**So the ~30s target needs the debounce itself to get cheaper, not skipped.**
-The 300ms is spent proving silence on a page that finishes in ~36ms, and that
-remains the single largest line item — but nothing here has yet found a
-positive completion signal to replace it, and the two candidates that looked
-most promising (an AJAX event, and the content already being present) are both
-now measured dead.
-
-**Then: can the settle wait simply go? Measured, and no — it pays for itself.**
-It costs 94.2s of a 210s run, and the stability poll after it re-reads until
-extraction stops changing anyway, so it looked like two mechanisms inferring the
-same fact. Skipping it entirely (`OPAL_SKIP_SETTLE_WAIT`):
-
-| | files | diff vs ground truth | wall clock |
-|---|---|---|---|
-| settle wait kept | 345 | — | **210.3s** |
-| settle wait skipped | 345 | **empty** | **317.1s** |
-
-**Nothing is lost — and it is 51% slower.** The wait is not overhead sitting in
-front of the poll; it *produces* the `sectionCalm` signal that lets the poll
-open impatient. Remove the wait and every section pays the poll's full patience
-streak instead, which costs far more than the 336ms it saved.
-
-That reframes the whole line of attack. This project has spent the campaign
-looking for a positive completion signal to replace the debounce — and the
-debounce **is** that signal, already built, already paying for itself. It is
-not the tax; it is what keeps the tax down.
-
-**And the sharper question is answered too: it is the time, not the verdict.**
-Skipping the wait while *asserting* the calm verdict it would have produced —
-the optimistic case, the one that could have lost files:
-
-| | files | diff vs ground truth | wall clock |
-|---|---|---|---|
-| settle wait kept (ground truth) | 345 | — | **210.3s** |
-| skipped, verdict `false` | 345 | empty | 317.1s |
-| skipped, verdict asserted | 345 | **empty** | **293.5s** |
-
-The verdict recovers only 24s of the 107s penalty. **So the 94.2s is not
-signalling overhead that a cleverer signal could remove — it is time the page
-genuinely needs**, and the MutationObserver is simply the cheap way to spend it.
-The stability poll is the expensive way: every iteration is a full DOM
-extraction, against an observer that costs nothing until something moves.
-
-Nothing was lost in either direction, which is worth saying plainly given the
-`4->1` history — the risk was real, the diff was the test, and the test passed
-both times. The result is still a clear no.
-
-**This closes the largest line item in the campaign.** The 300ms debounce is
-not removable, not short-circuitable, and not replaceable by a better signal,
-because it is already the cheapest available way to wait for something that
-takes that long. Three independent attempts on it now, all measured, all
-negative. Anyone reaching for it again needs a genuinely new mechanism, not a
-new argument.
-
-Standing goal (2026-07-21, `docs/sync-speed-campaign.md`): a routine no-op
-sync should feel instant, target ~30s. That file is the full decision log -
-read it before touching this, several plausible-looking approaches (HTTP-fast-
-path discovery, hash-based change caching, an OPAL notification signal) were
-already built and live-tested against the real account, and are rejected for
-concrete, measured reasons. Re-litigating those without new evidence wastes a
-round trip.
-
-Re-measured 2026-07-23 against the real account: 334.1s no-op sync, of which
-discovery/crawling is ~322s (96.5%) and one course alone
-(Softwaretechnologie, 160 of the account's 284 total sections) is 168s of
-that. One free fix already applied: the live config still had
-`course_concurrency: 1`, a stale value from before the campaign raised the
-default to `2` - bumped to match.
-
-**The last unexplored axis is now explored, and it is dead (2026-07-26).**
-Section-level concurrency — parallelising *within* a course's BFS crawl — was
-built with the maintainer's sign-off and rejected on measurement:
-
-| section concurrency | files | wall clock |
-|---|---|---|
-| **1 (ground truth)** | **345** | 227.9s |
-| 2 | 257 | 147.2s |
-| 4 | 214 | 110.7s |
-
-Every tab added makes it faster and loses more. Off by default; the machinery
-and `--section-concurrency` stay so a future attempt can re-measure in one
-command. Full evidence in `docs/sync-speed-campaign.md`, including why this is
-structural (several tabs inside the *same* Wicket-stateful course tree) rather
-than a wait being too short — the lossy runs produced **zero** warnings and
-perfect structure, losing only file rows.
-
-So every item on the campaign's leverage list has now been tried. **The ~30s
-target is not reachable by any approach identified so far**, and the honest
-position is that this needs a genuinely new idea rather than another attempt at
-the existing ones. The one lead nobody has pulled on: the file table arriving
-via Wicket AJAX *after* the document is what makes every section cost ~1s and
-what makes concurrency unsafe — anything that gets the file list without
-waiting for that render (a server-side listing endpoint, a different OPAL view)
-would attack the cause instead of the symptom. Item 1 (HTTP-first discovery)
-tried the closest thing and was rejected for concrete measured reasons; read
-that entry before reaching for it again.
-
-**2026-07-30: the DOM half of that lead found a real candidate signal, and
-both follow-up questions are now answered — still not built into anything.**
-`internal/scraper/mutationmarker_probe_test.go`
-(`OPAL_MUTATION_MARKER_TRACE=1`) records a section's full mutation timeline
-and (as of the same evening) also visits one real subfolder per course, via
-`appendSectionFolderTargets` — the exact function the production crawl uses.
-Run live against 6 sections across 4 courses (after a login hiccup that
-turned out not to be TU-Fast regressing — full account in
-`docs/sync-speed-campaign.md`): all six show the course's **jsTree
-navigation widget** setting `aria-busy="false"` as its own completion signal,
-on root *and* non-root sections alike. That is a real, identifiable,
-cross-course, cross-section-kind signal — the first one this whole campaign
-has found.
-
-**Confirmed, not a fix yet.** Answered: (1) yes, the signal fires on
-non-root sections too, not just course roots. (2) its ordering against
-MathJax (on courses that use it) is genuinely inconsistent — sometimes
-MathJax finishes first, sometimes jsTree does, even across different
-sections of the *same* course — so **a jsTree-only wait is not safe as a
-drop-in replacement for the debounce**. The real next step: a combined
+**The concrete next step, once sign-off is given:** build a combined wait
 condition (jsTree's signal, plus MathJax's own completion when
-`typeof MathJax !== 'undefined'`), built and byte-for-byte A/B tested against
-the 345-file ground truth. That is real implementation work in the
-correctness-sensitive settle-wait/stability-poll code
-(`navigation.go`'s `waitForInteractiveLinks`/`waitForContentSettled`) - not a
-quick continuation, and not started here.
+`typeof MathJax !== 'undefined'` on the page), gated behind an env flag, and
+byte-for-byte A/B tested against the 345-file ground truth
+(`scripts/compare-visit-runs.ps1`). A file *count* is not acceptable evidence
+here — this project has been burned by that twice.
 
 ### Dogfood the whole first-run journey
 **Blocked:** all four decisions below shipped on 2026-07-26 (first-run
@@ -673,23 +374,24 @@ matter.
   next to; `internal/scraper/htmlstability_probe_test.go` keeps the only
   surviving copy of the string.
 
-- **This file is now too big to read in one go, and it has stopped being
-  proofread.** At ~1500 lines it exceeds a single file read, so every session
-  pays a large token cost just to learn what to work on — and reads it in
-  pages, which is exactly how a session burns budget before doing any product
-  work. The symptom that it is no longer edited as prose: the sync-speed entry
-  under "Now" had an orphaned sentence fragment (fixed 2026-07-30 - it read as
-  a continuation of a sentence whose beginning had been deleted, and nobody
-  noticed for days). One fragment fixed is not the fix: closed measurement
-  logs belong in `docs/sync-speed-campaign.md`, and the backlog should say
-  what to do next, not carry the full history inline.
-
 ---
 
 ## Done recently
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **This file was too big to read in one go (~1500 lines) because closed
+  sync-speed measurements were accumulating here instead of in
+  `docs/sync-speed-campaign.md`.** The "Sync speed" entry carried ~270 lines
+  of A/B tables and blow-by-blow history (the `ctx.Route` tax investigation,
+  the file-preview-blocking A/Bs, the skip-settle-wait experiment) that had
+  never actually been migrated to the campaign doc despite this file saying
+  in multiple places that closed measurements belong there. Moved all of it
+  (verbatim, nothing lost - verified every table survived) into
+  `docs/sync-speed-campaign.md` as dated entries continuing its existing
+  2026-07-27 narrative, and rewrote the BACKLOG entry down to current status
+  + a 3-point summary + a pointer to the log. 1429 → 1130 lines overall.
 
 - **Every live probe test in `internal/scraper` now routes its diagnostic
   Warn/Detail logs somewhere visible, not just `TestFileListSnapshot`.**

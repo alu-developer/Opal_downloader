@@ -157,6 +157,212 @@ different direction — a DOM-level completion marker Wicket itself sets, if one
 exists, or a different OPAL view that serves the listing without the staged
 client-side render. Neither has been looked for.
 
+### 2026-07-27 — the preview-blocking fix: built, verified, and it is not a speed win
+
+Following up on the ~30 MB finding above. Off by default;
+`OPAL_BLOCK_FILE_PREVIEWS=1` enables it (Playwright request interception,
+aborting `document` requests that are not in the main frame and are under
+`/opal/FolderResource/`). Two paired full-account A/Bs, both 2026-07-27:
+
+| pair | previews kept | previews blocked | files | delta |
+|---|---|---|---|---|
+| 1 (morning) | 248.3s | 324.3s | 345 / 345 | +30.6% |
+| 2 (evening) | **210.3s** | **265.0s** | **345 / 345** | **+26.0%** |
+
+Pair 2 settles what pair 1 could not. Its baseline (210.3s) is the fastest run
+this account has ever recorded, so the first pair was not a slow day — and the
+slowdown reproduced at a similar magnitude. This is a real cost, not noise.
+
+**Safety: settled, twice.** The `diff` of the two sorted file lists — course,
+section, name and URL for every file — was **empty in both pairs**. Nothing is
+lost. A file count would not have been acceptable evidence here and both of
+this project's known losses would have passed one.
+
+**Speed: came back the wrong way, and stayed there.** ~26–31% slower across
+two independent pairs. Opt-in, and now on measured grounds rather than on one
+unreplicated comparison.
+
+**What it still buys regardless: ~30 MB per course per pass that OPAL does not
+have to serve.** That is a `docs/server-load.md` win on its own terms, and may
+justify enabling it even if it is slower — a judgement call, not an assumption
+to bake into a default.
+
+**The one recorded guess for the slowdown is now dead, measured.** It was that
+an aborted subframe leaves the parent churning over an error state — precisely
+what the 300ms settle-wait debounce watches for — so `route.Fulfill` with an
+empty body might behave differently from `route.Abort`. Same session, same
+evening, 345 files, list byte-identical:
+
+| refusal | wall clock |
+|---|---|
+| `route.Abort("blockedbyclient")` | 265.0s |
+| `route.Fulfill` empty 200 `text/html` | **272.0s** |
+
+**How the request is refused does not matter.** `previews.go` argued the
+opposite in a comment; the argument was reasoned, never measured, and wrong in
+both directions. Recorded here so nobody spends a fourth run on it.
+
+**And that follow-up answered a bigger question. The slowdown was never the
+blocking — it is `ctx.Route` itself.** Same session, same evening, 345 files
+every run, every list byte-identical against the no-route ground truth:
+
+| condition | wall clock |
+|---|---|
+| no route installed at all | **210.3s** |
+| route + `Abort` | 265.0s |
+| route + `Fulfill` (empty 200) | 272.0s |
+| **route installed, always `Continue`** | **274.6s** |
+
+The last row is the finding: install the route, block **nothing**, and the run
+still costs ~64s more. Every explanation this campaign had written down for the
+slowdown was about the blocking, and all of them were wrong.
+
+**Two things follow, and the second is bigger than the preview lead itself.**
+
+1. The ~30 MB saving is real and its price tag belongs to something else. The
+   blocker is not a speed/traffic trade-off; it is a free saving sitting behind
+   an expensive delivery mechanism.
+2. **`ctx.Route` costs ~30% of a run on this workload**, which is a fact about
+   this codebase's tooling and not about previews. Anything else that reaches
+   for request interception — the network trace probe already does — is paying
+   it, and any past measurement taken with a route installed is suspect.
+
+**Answered, and the tax is fixed (not the pattern).** The same route registered
+under `**/no-such-path-xyz/**` — a pattern that matches nothing, so the handler
+never fires once — came back at **272.2s**. Full picture, one session, one
+evening, 345 files and a byte-identical list every single time:
+
+| condition | wall clock |
+|---|---|
+| no route installed at all | **210.3s** |
+| route + `Abort` | 265.0s |
+| route + `Fulfill` (empty 200) | 272.0s |
+| route installed, always `Continue` | 274.6s |
+| route under a pattern matching **nothing** | **272.2s** |
+
+**`ctx.Route` costs ~30% of a run just by existing.** Not the pattern, not the
+handler, not the blocking. A narrower pattern cannot rescue the saving; that
+was exactly the hypothesis this row was run to test.
+
+**Where that leaves the preview blocker:** the ~30 MB per course per pass is
+real, otherwise-free, and stuck behind a delivery mechanism costing ~64s.
+Shipping it means dropping request interception for something browser-level
+that stops the fetch without a route. Nobody has looked for that yet — it is
+a genuinely new direction rather than a re-run of a rejected one.
+
+**Checked immediately, because it would have been the bigger prize:** nothing
+in the normal code path installs a route. `previews.go` is the only
+`ctx.Route` in the repo and it is off by default, so a routine sync pays none
+of this tax. No free 30% was sitting there.
+
+**But this does invalidate measurements taken with a route installed** —
+including the network trace that discovered the 30 MB in the first place. Its
+*finding* stands (the bytes are really fetched; that is a count, not a
+timing), but any timing from a traced run is inflated by roughly a third and
+should not be compared against untraced numbers.
+
+**No longer blocked: the session is fresh again (2026-07-27 18:31).** The
+maintainer ran the GUI by hand and TU-Fast completed Shibboleth on its own in
+**5 seconds** (18:31:05 opened OPAL → 18:31:10 saved state), so TU-Fast is
+*not* broken — the earlier 13:53–14:00 failure (`timed out after 300000ms
+waiting for the OPAL course list after login`) was an unattended run against
+an expired session with nobody present, exactly the case `CLAUDE.md`
+describes.
+
+### 2026-07-27 — the last unasked question: is the settle wait even needed? Answered, and it is a clear no
+
+Every attempt in this campaign so far tried to make the settle wait shorter or
+cheaper. None had ever asked whether it is needed — and there was a measured
+reason to think it might not be, since the network trace above showed an
+ordinary section's initial render fires no AJAX at all, implying the file
+table might already be in the initial document.
+
+**It is not.** Measured by reading every section immediately, before any
+settling, and diffing that byte-for-byte against what the full wait returns —
+same run, same page load, so no run-to-run variance:
+
+| | sections |
+|---|---|
+| total | 278 |
+| **identical with no settle wait** | **3** |
+| early read was empty | 0 |
+| early read was **incomplete** (fewer rows) | **274** |
+| early read had more | 0 |
+| **same row count, different rows** | **1** |
+
+**The wait is load-bearing.** No AJAX does not mean no client-side rendering:
+OPAL builds the file table progressively from the document it already has, and
+an immediate read essentially always catches it mid-render.
+
+Two things worth keeping from this:
+
+- **Content only ever grows.** Never empty at the start, never larger than the
+  final reading, not once in 278 sections. So "wait until it stops growing" is
+  the right shape, and the stability poll is doing real work rather than
+  guarding a case that never happens.
+- **One section changed rows without changing their count.** That is exactly
+  the failure a count cannot see, in a single run, on a real account — the
+  reason this project refuses file counts as evidence, now with an instance
+  attached to it rather than only a principle.
+
+The probe was deleted again after reporting (see `codebudget_test.go`); it was
+written with an expiry and the expiry was honoured. `git show 76a71fa` restores
+it if anyone wants to re-measure.
+
+**So the ~30s target needs the debounce itself to get cheaper, not skipped.**
+The 300ms is spent proving silence on a page that finishes in ~36ms, and that
+remains the single largest line item — but nothing here has yet found a
+positive completion signal to replace it, and the two candidates that looked
+most promising (an AJAX event, and the content already being present) are both
+now measured dead.
+
+**Then: can the settle wait simply go? Measured, and no — it pays for itself.**
+It costs 94.2s of a 210s run, and the stability poll after it re-reads until
+extraction stops changing anyway, so it looked like two mechanisms inferring the
+same fact. Skipping it entirely (`OPAL_SKIP_SETTLE_WAIT`):
+
+| | files | diff vs ground truth | wall clock |
+|---|---|---|---|
+| settle wait kept | 345 | — | **210.3s** |
+| settle wait skipped | 345 | **empty** | **317.1s** |
+
+**Nothing is lost — and it is 51% slower.** The wait is not overhead sitting in
+front of the poll; it *produces* the `sectionCalm` signal that lets the poll
+open impatient. Remove the wait and every section pays the poll's full patience
+streak instead, which costs far more than the 336ms it saved.
+
+That reframes the whole line of attack. This project has spent the campaign
+looking for a positive completion signal to replace the debounce — and the
+debounce **is** that signal, already built, already paying for itself. It is
+not the tax; it is what keeps the tax down.
+
+**And the sharper question is answered too: it is the time, not the verdict.**
+Skipping the wait while *asserting* the calm verdict it would have produced —
+the optimistic case, the one that could have lost files:
+
+| | files | diff vs ground truth | wall clock |
+|---|---|---|---|
+| settle wait kept (ground truth) | 345 | — | **210.3s** |
+| skipped, verdict `false` | 345 | empty | 317.1s |
+| skipped, verdict asserted | 345 | **empty** | **293.5s** |
+
+The verdict recovers only 24s of the 107s penalty. **So the 94.2s is not
+signalling overhead that a cleverer signal could remove — it is time the page
+genuinely needs**, and the MutationObserver is simply the cheap way to spend it.
+The stability poll is the expensive way: every iteration is a full DOM
+extraction, against an observer that costs nothing until something moves.
+
+Nothing was lost in either direction, which is worth saying plainly given the
+`4->1` history — the risk was real, the diff was the test, and the test passed
+both times. The result is still a clear no.
+
+**This closes the largest line item in the campaign.** The 300ms debounce is
+not removable, not short-circuitable, and not replaceable by a better signal,
+because it is already the cheapest available way to wait for something that
+takes that long. Three independent attempts on it now, all measured, all
+negative. Anyone reaching for it again needs a genuinely new mechanism, not a
+new argument. (The DOM-marker lead found 2026-07-30, below, is exactly that
+new mechanism.)
 
 Standing goal set by the maintainer on 2026-07-21:
 

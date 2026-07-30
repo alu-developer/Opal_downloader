@@ -626,16 +626,6 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
-- **Nothing routes a probe run's diagnostic warnings anywhere — fixed for
-  `TestFileListSnapshot` on 2026-07-30, still true of the other probe tests.**
-  `internal/scraper/probelogging_test.go` now installs a verbose logger for that
-  one test. The same silence applies to every other live probe in the package
-  (`htmlstability_probe_test.go`, the network trace, the concurrency probes):
-  each prints its own totals and drops anything the crawl reported at
-  Warn/diagnostic. Adding `captureProbeLogs(t)` to them is a one-line change
-  each; it was left out because none of them is being run right now and an
-  untested change to a test is still an untested change.
-
 - **An unattended resume run cannot wait for a background job, and reports
   success anyway (hit 2026-07-30).** The 11:12 run wrote the UA fix, launched
   the live verification with `run_in_background`, and ended its turn saying it
@@ -700,6 +690,18 @@ matter.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **Every live probe test in `internal/scraper` now routes its diagnostic
+  Warn/Detail logs somewhere visible, not just `TestFileListSnapshot`.**
+  `captureProbeLogs(t)` added to the three `htmlstability_probe_test.go`
+  functions, `network_trace_probe_test.go`, `httpdiscovery_probe_test.go`, and
+  `mutationmarker_probe_test.go` - a one-line addition each, matching the
+  pattern `TestFileListSnapshot` already used. Live-verified, not just
+  compiled: running the mutation-marker probe with the fix in place surfaced
+  a real, previously-silent diagnostic ("show all" control expansion capped a
+  section at 17 rows, later files missing) that the probe's own summary line
+  never mentioned - exactly the class of information the 2026-07-29 incident
+  (`probelogging_test.go`) was about.
 
 - **`scripts/dev.ps1 all` no longer fails outright when a live probe (or the
   test harness's own parent process) is running in this tree — it skips just

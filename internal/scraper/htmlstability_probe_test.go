@@ -63,6 +63,7 @@ func TestSectionHTMLStabilityAcrossRuns(t *testing.T) {
 	if os.Getenv("OPAL_HTML_STABILITY") == "" {
 		t.Skip("set OPAL_HTML_STABILITY=1 to run the live section-HTML stability probe")
 	}
+	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
 
 	// A node that actually HOLDS FILES. This matters more than it looks: an
 	// enrolment node's HTML contains no file references at all, and probing one
@@ -254,6 +255,7 @@ func TestSectionHTMLStabilityAcrossManySections(t *testing.T) {
 	if os.Getenv("OPAL_HTML_STABILITY") == "" {
 		t.Skip("set OPAL_HTML_STABILITY=1 to run the live multi-section stability probe")
 	}
+	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
 
 	client, err := newSessionClient()
 	if err != nil {
@@ -399,6 +401,7 @@ func TestNormalisationDoesNotHideRealChanges(t *testing.T) {
 	if os.Getenv("OPAL_HTML_STABILITY") == "" {
 		t.Skip("set OPAL_HTML_STABILITY=1 to run against a real section")
 	}
+	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
 	client, err := newSessionClient()
 	if err != nil {
 		t.Skipf("no usable saved session (%v)", err)

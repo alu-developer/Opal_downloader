@@ -358,6 +358,71 @@ would attack the cause instead of the symptom. Item 1 (HTTP-first discovery)
 tried the closest thing and was rejected for concrete measured reasons; read
 that entry before reaching for it again.
 
+### The section cache: correct now, and its payoff is still unmeasured
+**Two decisions are yours** (below). The correctness bug that was blocking
+everything is fixed and verified live.
+
+This work had no entry in this file until 2026-07-30 — it existed only in
+`docs/RESUME.md` and in a `codebudget_test.go` comment, which is why a
+correctness bug in it went a day without a home to be tracked in. Off by
+default; `OPAL_SECTION_CACHE=1` enables it. It hashes a section's page over
+plain HTTP (through the same `polite.Limiter` every browser navigation uses)
+and skips the browser entirely on an unchanged hash.
+
+**The 2026-07-29 bug, and what it actually was.** A cold run returned files
+for 1 of 6 courses. The probe's HTTP client had been identifying itself as
+`User-Agent: "...opal-downloader"` — no `AppleWebKit`/`Chrome`/`Safari`
+tokens. Sending a Chrome-shaped UA instead fixed it. Verified live
+2026-07-30 (`cd1282c`), by outcome **and** by mechanism:
+
+| | course 50696421377 | the other 5 courses |
+|---|---|---|
+| broken run | 34 sections, root 8920 chars | **1 section each**, root 765–2801 |
+| after the fix | 34 sections, 8920 — unchanged | 5–163 sections, root 5865–21149 |
+
+345 files, `diff` against `tmp/filelist-cache_ground_truth.txt` **empty**. The
+five failing courses had never got past their own front page: each cached
+exactly one section whose captured text was generic nav/help chrome with no
+course menu. Course 1 was unaffected before and is byte-identical after, which
+is what rules out "the fix just changed everything a bit".
+
+Consistent with a session-scoped bot heuristic tripping partway through
+course 1 (~33 probe requests fired during its crawl before course 2 was
+reached) and then downgrading responses for the rest of the session
+regardless of which local component sent the next request. That is the
+mechanism the shape implies; nobody has confirmed it from OPAL's side, and
+nothing depends on the confirmation.
+
+Worth keeping separately from the fix: the control run (cache off, clean at
+345) is what made this diagnosable at all. Neither the file count nor the
+absence of warnings would have caught it — `filelist_probe_test.go` never
+calls `logging.Setup`, so per-course crawl failures print nothing. Five
+courses failed in total silence.
+
+**What is not known: whether the cache is actually faster.** Every number so
+far is from a *cold* cache, which can only cost (a probe per section, zero
+hits) and never save:
+
+| run | wall clock | note |
+|---|---|---|
+| control, cache off | 241.0s | saved session |
+| cold cache, after the fix | 283.9s | includes an interactive login |
+
+Not a fair comparison in either direction, and neither is the measurement
+that matters. The cache's entire premise is the **second** run against an
+unchanged account, and no warm-cache run has ever been recorded. That is the
+next measurement here, and it needs no decision from anyone: run the same
+probe twice in a row with `OPAL_SECTION_CACHE=1` and keep
+`tmp/.opal-sync.sections.json` between them.
+
+**Yours to decide, once a warm number exists:**
+1. Whether the feature's default flips from off to on. It touches the most
+   correctness-sensitive path in this codebase and has already produced one
+   silent-loss bug, so it should not flip on a hunch.
+2. Whether the request rate moves toward the ceiling in `docs/server-load.md`.
+   That trades directly against a standing project constraint and is not a
+   plumbing call.
+
 ### Dogfood the whole first-run journey
 **Blocked:** all four decisions below shipped on 2026-07-26 (first-run
 introduction, "List courses" renamed, scheduling walked, picker explained),
@@ -643,18 +708,31 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
-- **The pre-push gate is unpushable while any long live test is running, and
-  blames the wrong thing (hit 2026-07-30).** `pre-push-gate.ps1` runs the full
-  `scripts/dev.ps1 all`, whose hook tests spawn and kill processes and check
-  "is a session active in this tree" — with a `TestFileListSnapshot` probe run
-  in flight they failed, and the gate said `scripts/dev.ps1 all failed (exit
-  1) - push blocked. Fix it, then push again.` Nothing was broken; the two
-  runs simply cannot share the tree. The gate blocked a docs-only commit for
-  the duration of a ~10-minute live crawl, and a reader taking its message at
-  face value would go hunting for a bug that does not exist. Worse, it does
-  not only gate pushes: a plain `git commit` whose *message text* happened to
-  contain the word "push" tripped it too, so the gate matches the command
-  string rather than the operation. Writing the message to a file first was
+- **The hook suite fails about half its runs, and it is the suite's own
+  fixture, not the thing it is testing (measured 2026-07-30, 5 runs).**
+  `test-hooks.ps1:1001` spawns `cmd.exe /c ping -n 120 ... & rem <repoRoot>`
+  as a fixture so the autopilot gate sees a busy repo, then tears it down with
+  `taskkill /PID .. /T /F`. That kill intermittently reports *"The process with
+  PID N (child process of PID M) could not be terminated"* — the `ping` child
+  outliving the tree kill. The leftover process still carries the repo root in
+  its command line, so the precondition assertion at line 1037 ("nothing else
+  in this repo is running") then fails on the suite's own garbage. Perfect
+  correlation across 5 runs: taskkill error present ⟺ suite fails, 3 of 5. The
+  comment at line 1029 already records "an unexplained one-off failure on
+  2026-07-29" and added that assertion to name the ambient condition — but the
+  ambient condition is partly self-inflicted, which the comment does not know.
+  A retry loop around the kill, or a fixture that exits on its own instead of
+  needing to be killed, would fix it.
+
+  Two consequences beyond the flake. **`scripts/dev.ps1 all` is a coin flip,
+  and it gates every push** — `pre-push-gate.ps1` runs the whole suite and
+  reports `scripts/dev.ps1 all failed (exit 1) - push blocked. Fix it, then
+  push again.`, sending the reader after a bug that does not exist. And the
+  same line-1037 precondition means a push is *legitimately* impossible while
+  any live probe run is in the tree, so a ~10-minute crawl blocks even a
+  docs-only commit. Separately: the gate matches the **command string**, not
+  the git operation, so a plain `git commit` whose message text merely
+  contained the word "push" tripped it too; writing the message to a file was
   the workaround.
 
 - **An unattended resume run cannot wait for a background job, and reports
@@ -675,13 +753,11 @@ matter.
   never pushed, sitting local for a day until the maintainer happened to spot
   them.
 
-- **The synthetic-UA theory above is now acted on, pending live confirmation
-  (2026-07-30).** `sectioncachewiring.go`'s probe fetch now sends a
-  Chrome-shaped User-Agent instead of the giveaway `"...opal-downloader"`
-  string; see `docs/RESUME.md` for the live verification in progress. The new
-  string is a **hardcoded literal**, not read from the real browser context —
-  noticed while writing it but not fixed, since the fix needed to stay small
-  enough to verify same-session. It will silently drift out of sync the next
+- **The section-cache probe's User-Agent is a hardcoded literal**, not read
+  from the real browser context. The synthetic-UA theory itself is settled —
+  fixed and verified live on 2026-07-30, see the section-cache entry under
+  "Now" — but the replacement string was written by hand to keep the fix small
+  enough to verify in one session. It will silently drift out of sync the next
   time `playwright-go`'s bundled Chromium version changes, quietly
   reintroducing a mismatched fingerprint with nothing to flag it. Reading it
   from the live page (`page.Evaluate("() => navigator.userAgent")`, cached

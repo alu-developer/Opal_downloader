@@ -626,30 +626,6 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
-- **`scripts/dev.ps1 all` cannot pass while a live probe run is in this tree,
-  and that is by design rather than a flake.** The hook suite asserts at
-  `test-hooks.ps1` ("nothing else in this repo is running") that no `go test`,
-  `*.test.exe` or repo-path-bearing process is live, because the autopilot
-  gate's busy-check test would otherwise pass for the wrong reason. Since
-  `pre-push-gate.ps1` runs the whole suite, a ~5-minute `TestFileListSnapshot`
-  blocks even a docs-only push for its duration. Not obviously wrong — the
-  assertion is right to exist — but nothing tells the reader that waiting is
-  the answer. The gate's refusal message now says so (2026-07-30); a cheaper
-  fix would be for the suite to skip just that one assertion when it detects a
-  live run instead of failing the whole thing.
-
-  **Correction worth more than the entry: an earlier version of this note
-  blamed the suite's own `taskkill` fixture, and that was wrong.** It claimed
-  "perfect correlation across 5 runs, 3 of 5 failed". Then 9 consecutive clean
-  runs (6 standalone `test-hooks.ps1`, 3 full `dev.ps1 all`) with an idle tree
-  refuted it, and the reasoning was bad anyway: the surviving `ping` child
-  carries no repo path in its command line, so it *cannot* trip the assertion
-  it was accused of tripping. The `taskkill` warning is noise that happens to
-  print near a failure. I asserted a cause from a correlation without ever
-  reading the assertion's own message, which names the offending processes —
-  exactly what this project's `CLAUDE.md` says not to do, done twice in one
-  session while writing the entry that says not to do it.
-
 - **Nothing routes a probe run's diagnostic warnings anywhere — fixed for
   `TestFileListSnapshot` on 2026-07-30, still true of the other probe tests.**
   `internal/scraper/probelogging_test.go` now installs a verbose logger for that
@@ -724,6 +700,28 @@ matter.
 
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
+
+- **`scripts/dev.ps1 all` no longer fails outright when a live probe (or the
+  test harness's own parent process) is running in this tree — it skips just
+  the two assertions that cannot be evaluated, and says so.** The busy-check
+  precondition in `test-hooks.ps1` used to `Assert-That` (i.e. FAIL) when it
+  found a live `go test`/`.test.exe`/repo-path-bearing process, which blocked
+  even a docs-only push for however long that process ran, with no action for
+  the reader beyond "wait and retry". A new `Skip-Assertion` helper (separate
+  pass/fail/skip counters) marks it `SKIP` instead, and the final summary line
+  now reports a skip count. Verified live both ways: a normal run shows
+  `209 passed`; forcing a busy fixture mid-run (a backgrounded `cmd.exe` with
+  the repo path on its command line, held alive for the whole run) shows
+  `207 passed, 2 skipped` and still exits 0.
+
+  **Worth remembering independent of the fix:** an earlier version of this
+  entry blamed the suite's own `taskkill` fixture for an unrelated flake,
+  based on "perfect correlation across 5 runs, 3 of 5 failed" - reasoning
+  that was wrong twice over (9 later clean runs refuted the correlation, and
+  the accused `ping` child carries no repo path so could never have tripped
+  this assertion anyway). A cause was asserted from a correlation without
+  reading the assertion's own message, which already named the real
+  offending processes - exactly what `CLAUDE.md` says not to do.
 
 - **All three unbounded local accumulators this project had are now pruned;
   `tmp/` was the last.** `.claude/queue/`'s resume-run logs and

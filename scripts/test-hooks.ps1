@@ -30,6 +30,7 @@ $hooksDir = Join-Path $repoRoot ".claude\hooks"
 
 $script:passed = 0
 $script:failed = 0
+$script:skipped = 0
 $script:failures = @()
 
 function Assert-That {
@@ -43,6 +44,22 @@ function Assert-That {
         Write-Host "  FAIL  $Name" -ForegroundColor Red
         if ($Detail) { Write-Host "        $Detail" -ForegroundColor DarkRed }
     }
+}
+
+function Skip-Assertion {
+    <#  Records an assertion as skipped rather than failed, for a precondition
+        that cannot be evaluated right now (see the busy-check block below) -
+        as opposed to Assert-That, which always means "this was checked and
+        the answer was no". Deliberately a separate bucket from both passed
+        and failed: counting a skip as a pass would hide that nothing was
+        actually verified, and counting it as a failure is the exact friction
+        docs/BACKLOG.md's "Noticed" section named (2026-07-30) - a docs-only
+        push blocked on a precondition the reader has no action for beyond
+        "wait and retry". #>
+    param([string]$Name, [string]$Reason)
+    $script:skipped++
+    Write-Host "  SKIP  $Name" -ForegroundColor Yellow
+    if ($Reason) { Write-Host "        $Reason" -ForegroundColor DarkYellow }
 }
 
 # --- sandbox ------------------------------------------------------------------
@@ -1419,12 +1436,25 @@ Not blocked at all.
         ($_.Name -in @('opal-dl.exe', 'opal-downloader.exe')) -or
         ($_.CommandLine -and $_.CommandLine -like "*$repoRoot*" -and $_.Name -ne 'powershell.exe')
     })
-    Assert-That "nothing else in this repo is running (precondition for the next assertion)" `
-        ($stillMatching.Count -eq 0) `
-        "these would legitimately make the gate stop: $(($stillMatching | ForEach-Object { "$($_.Name)($($_.ProcessId))" }) -join ', ')"
-
-    $whenIdle = Invoke-HookRaw $gateHook '{"session_id":"busy-no"}'
-    Assert-That "and with nothing running it continues normally" ($whenIdle -match '"decision":"block"') "got: $whenIdle"
+    if ($stillMatching.Count -gt 0) {
+        # A live probe run - or, just as commonly, this very test harness's
+        # own parent process (an agent/Bash shell with the repo path on its
+        # command line) - can legitimately match the same patterns the gate
+        # itself watches for. Failing the whole suite over that is exactly
+        # the friction docs/BACKLOG.md's "Noticed" section named (2026-07-30):
+        # a docs-only push blocked for however long an unrelated live process
+        # happens to run, with a FAIL that gives the reader no action beyond
+        # "wait and retry". Skip these two assertions instead - they cannot be
+        # evaluated meaningfully while something real is genuinely running -
+        # rather than reporting a failure for a working-as-designed busy gate.
+        $detail = "detected: $(($stillMatching | ForEach-Object { "$($_.Name)($($_.ProcessId))" }) -join ', ') - this is scripts/test-hooks.ps1's OWN busy-check working correctly, not a bug; wait for these to finish and re-run"
+        Skip-Assertion "nothing else in this repo is running (precondition for the next assertion)" $detail
+        Skip-Assertion "and with nothing running it continues normally" "depends on the assertion above"
+    } else {
+        Assert-That "nothing else in this repo is running (precondition for the next assertion)" $true
+        $whenIdle = Invoke-HookRaw $gateHook '{"session_id":"busy-no"}'
+        Assert-That "and with nothing running it continues normally" ($whenIdle -match '"decision":"block"') "got: $whenIdle"
+    }
 
     Remove-Item Env:\OPAL_AUTOPILOT_BACKLOG -ErrorAction SilentlyContinue
     $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
@@ -1608,11 +1638,12 @@ finally {
 }
 
 Write-Host ""
+$skippedSuffix = if ($script:skipped -gt 0) { ", $($script:skipped) skipped" } else { "" }
 if ($script:failed -eq 0) {
-    Write-Host "hooks: $($script:passed) passed" -ForegroundColor Green
+    Write-Host "hooks: $($script:passed) passed$skippedSuffix" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "hooks: $($script:passed) passed, $($script:failed) FAILED" -ForegroundColor Red
+    Write-Host "hooks: $($script:passed) passed, $($script:failed) FAILED$skippedSuffix" -ForegroundColor Red
     $script:failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
     exit 1
 }

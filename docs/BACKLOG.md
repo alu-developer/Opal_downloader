@@ -852,6 +852,17 @@ matter.
   reference through, which the current HTTP-only-probe design deliberately
   avoids.
 
+- **This file is now too big to read in one go, and it has stopped being
+  proofread.** At ~1500 lines it exceeds a single file read, so every session
+  pays a large token cost just to learn what to work on — and reads it in
+  pages, which is exactly how a session burns budget before doing any product
+  work. The symptom that it is no longer edited as prose: the sync-speed entry
+  under "Now" contains an orphaned sentence fragment starting "of the crawl's
+  concurrency model…" where surrounding text was deleted, and nobody noticed.
+  The fix is not trimming "Done recently" once; it is that closed measurement
+  logs belong in `docs/sync-speed-campaign.md` and the backlog should say what
+  to do next.
+
 ---
 
 ## Done recently

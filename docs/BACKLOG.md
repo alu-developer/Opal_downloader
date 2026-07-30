@@ -38,11 +38,22 @@ big files from growing while touching them. Two byte-identical splits landed
 this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
 
 ### Sync speed: measured for the first time, and the lead is real
-**Not blocked.** It was marked blocked this morning ("needs a hand-run
-`login`"), the maintainer ran that login the same evening, and the heading was
-never updated — so the autopilot gate, which reads only this first line, kept
-concluding there was no work here. That is the mechanical reason the maintainer
-had to prompt for every continuation on 2026-07-27; see "Done recently".
+**Blocked (2026-07-30):** the investigation is done and conclusive (see the
+end of this entry and `docs/sync-speed-campaign.md`'s newest entries), but
+what's left is *implementing* a change to `waitForInteractiveLinks`/
+`waitForContentSettled` — the settle-wait/stability-poll pair, the most
+correctness-sensitive code in this repo, with a documented history of
+*silent* file loss from exactly this kind of change. The section-level
+concurrency rewrite earlier in this same campaign needed the maintainer's
+explicit sign-off before being built for the identical reason; this should
+get the same treatment rather than an agent deciding alone to start editing
+this specific code path unattended. Open question for the maintainer: is the
+jsTree+MathJax completion-signal approach (see "Done recently" and the
+campaign doc for what was found) worth attempting, given the risk profile?
+
+(Below this line is the campaign's history up to and including
+2026-07-30's investigation - kept for context; "Not blocked" language earlier
+in this entry describes an *older*, now-superseded state from 2026-07-27.)
 
 Four live measurements ran against it that evening. What is actionable now
 comes out of them rather than out of this file's older speculation, and is

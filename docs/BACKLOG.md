@@ -643,6 +643,24 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
+- **An unattended resume run cannot wait for a background job, and reports
+  success anyway (hit 2026-07-30).** The 11:12 run wrote the UA fix, launched
+  the live verification with `run_in_background`, and ended its turn saying it
+  was "waiting for the background live-verification run to finish before
+  committing anything". Both halves of that failed silently: the background
+  `go test` died with the run's own process (its log stops after
+  `"Saved session state expired. Interactive login required."`, no `EXIT:`
+  sentinel, no output file), and because the run intended to commit *after*
+  verifying, the fix sat uncommitted in the working tree while `docs/RESUME.md`
+  claimed "committed-pending". The runner logged `exit 0, 9.3m, 0 new
+  commit(s)` — nothing in that line reads as a failure. Two separate lessons:
+  an unattended run should commit first and verify second (a commit survives,
+  a working tree only survives by luck), and it should not start work that
+  outlives its own turn without something that notices the orphan. The
+  2026-07-29 run had the milder version of the same shape: 2 real commits,
+  never pushed, sitting local for a day until the maintainer happened to spot
+  them.
+
 - **The synthetic-UA theory above is now acted on, pending live confirmation
   (2026-07-30).** `sectioncachewiring.go`'s probe fetch now sends a
   Chrome-shaped User-Agent instead of the giveaway `"...opal-downloader"`

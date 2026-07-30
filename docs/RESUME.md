@@ -59,30 +59,32 @@ partway through, and then downgrading responses for the rest of that
 this shape: first course unaffected (already mostly rendered before any flag
 could trip), every course after it stubbed.
 
-**Fix applied and committed-pending:** `internal/scraper/sectioncachewiring.go`
-now sends a realistic Chrome-on-Windows `User-Agent` (matching the Chromium
-build `playwright-go v0.6100.0` bundles) instead of the giveaway string. Unit
-tests (`go test ./internal/scraper/...`) pass; `go build ./...` and `go vet
-./...` clean.
+**Fix committed** as `cd1282c` and pushed (2026-07-30, interactive session).
+`internal/scraper/sectioncachewiring.go` now sends a realistic
+Chrome-on-Windows `User-Agent` (matching the Chromium build `playwright-go
+v0.6100.0` bundles) instead of the giveaway string. `scripts/dev.ps1 all`
+green: all Go tests, `vet` clean, 148 hook tests. `codeLineBudget` raised by
+one line in the same commit for the new named const.
 
-**Not yet verified live** - that is the next step, in progress or about to be:
-1. Old broken cache moved aside as `tmp/.opal-sync.sections.json.broken-
-   uafix-baseline` (evidence, not deleted) so the next `OPAL_SECTION_CACHE`
-   run starts cold again rather than replaying the bad cached hashes as false
-   hits.
-2. Rerun: `OPAL_SECTION_CACHE=1 OPAL_FILELIST=cache_uafix go test
-   ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m`, capturing
-   to `tmp/cache_uafix_run.log` with an `EXIT:<code>` sentinel appended (the
-   truncated-log gap from 2026-07-28 is still real, so always append that
-   sentinel on any backgrounded run of this test).
-3. `diff tmp/filelist-cache_uafix.txt tmp/filelist-cache_ground_truth.txt` -
-   empty diff and 345 files is the pass condition.
-4. If it passes: commit the fix, update `docs/BACKLOG.md` (remove/resolve the
-   "Noticed" entry about the synthetic UA, record the live result), and the
-   section-cache campaign's correctness bug is closed. The separate open
-   questions (flip the feature's default on; raise the request rate toward
-   the ceiling) stay the maintainer's call, already flagged as such.
-5. If it does NOT pass (still stubbed courses): the UA theory is wrong or
+**What went wrong on 2026-07-29/30, worth knowing:** the previous unattended
+resume run left the fix *uncommitted* in the working tree while claiming
+"committed-pending" here, and launched the live verification as a background
+job that died with the run's own process - `tmp/cache_uafix_run.log` stopped
+after `"Saved session state expired. Interactive login required."` with no
+`EXIT:` sentinel and no output file. The runner logged `exit 0, 0 new
+commit(s)` and looked fine. See the Noticed entry in `docs/BACKLOG.md`.
+
+**Live verification relaunched** in the interactive session of 2026-07-30
+(cache starts cold - only `tmp/.opal-sync.sections.json.broken-uafix-baseline`
+exists, kept as evidence, loaded by nothing). Pass condition:
+1. `diff tmp/filelist-cache_uafix.txt tmp/filelist-cache_ground_truth.txt` -
+   empty diff and 345 files.
+2. If it passes: update `docs/BACKLOG.md` (resolve the synthetic-UA Noticed
+   entry, record the live result), and the section-cache campaign's
+   correctness bug is closed. The separate open questions (flip the feature's
+   default on; raise the request rate toward the ceiling) stay the
+   maintainer's call, already flagged as such.
+3. If it does NOT pass (still stubbed courses): the UA theory is wrong or
    incomplete. Do not guess further - next would be instrumenting the actual
    HTTP response status/headers/body length per probe request (temporary
    logging in `fetchSectionHTMLPolitely`) to see directly what's coming back,

@@ -104,6 +104,43 @@ $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 # --- gate 1: the maintainer's off switch --------------------------------------
 if (Test-Path $offSwitch) { Say "skip" "AUTOPILOT.OFF present"; exit 0 }
 
+# --- housekeeping: keep the per-launch files bounded --------------------------
+# Every launch leaves a resume-run-<stamp>.log, a .log.err (usually empty) and a
+# resume-prompt-<stamp>.txt. 42 of them had accumulated with no expiry. Same
+# shape and the same two rails as the checkpoint-ref prune in
+# turn-failure-checkpoint.ps1: an age cutoff, plus a floor so a quiet fortnight
+# cannot leave zero diagnostics behind, and a strict name match so nothing
+# without a timestamp in it is ever a candidate.
+#
+# resume-runner.log itself is deliberately NOT in scope: it is the append-only
+# decision log and the only continuous record of what this runner decided.
+$keepDays = 14
+$keepAtLeast = 10
+if ($env:OPAL_RESUME_KEEP_DAYS) { $keepDays = [int]$env:OPAL_RESUME_KEEP_DAYS }
+if ($env:OPAL_RESUME_KEEP_AT_LEAST) { $keepAtLeast = [int]$env:OPAL_RESUME_KEEP_AT_LEAST }
+try {
+    $cutoff = $now - ([long]$keepDays * 86400)
+    $stamped = @(Get-ChildItem -Path $queueDir -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            if ($_.Name -match '^resume-(?:run|prompt)-(\d+)\.(?:log|log\.err|txt)$') {
+                [pscustomobject]@{ File = $_.FullName; Stamp = [long]$Matches[1] }
+            }
+        } | Where-Object { $_ })
+    # Group by launch so the floor counts launches, not files - three files per
+    # launch would otherwise make "keep 10" mean "keep 3 runs".
+    $launches = @($stamped | Select-Object -ExpandProperty Stamp -Unique | Sort-Object -Descending)
+    if ($launches.Count -gt $keepAtLeast) {
+        $doomedStamps = @($launches | Select-Object -Skip $keepAtLeast | Where-Object { $_ -lt $cutoff })
+        $removed = 0
+        foreach ($s in $doomedStamps) {
+            foreach ($f in @($stamped | Where-Object { $_.Stamp -eq $s })) {
+                try { Remove-Item $f.File -Force -ErrorAction Stop; $removed++ } catch { }
+            }
+        }
+        if ($removed -gt 0) { Say "pruned" "$removed per-launch file(s) from $($doomedStamps.Count) run(s) older than ${keepDays}d" }
+    }
+} catch { }
+
 # --- load state ---------------------------------------------------------------
 $state = $null
 if (Test-Path $statePath) {

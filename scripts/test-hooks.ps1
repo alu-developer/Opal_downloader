@@ -725,6 +725,82 @@ try {
     Assert-That "budget-guard stamps the heartbeat even on a healthy budget" (Test-Path $heartbeat) "no heartbeat written"
     Remove-Item $heartbeat -Force -ErrorAction SilentlyContinue
 
+    # --- per-launch file housekeeping ---------------------------------------
+    # 42 resume-run-*.log / .err / resume-prompt-*.txt files had accumulated
+    # with no expiry. Same two rails as the checkpoint-ref prune: age plus a
+    # floor counted in launches rather than files.
+    Remove-Item $heartbeat -Force -ErrorAction SilentlyContinue
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    Set-Status -FivePct 5 -SevenPct 5
+    Set-FakeWork
+    $nowSec = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $oldStamps = @()
+    foreach ($age in 60, 50, 40, 30) {
+        $s = $nowSec - ($age * 86400)
+        $oldStamps += $s
+        Set-Content (Join-Path $queueDir "resume-run-$s.log") "old" -Encoding utf8
+        Set-Content (Join-Path $queueDir "resume-run-$s.log.err") "" -Encoding utf8
+        Set-Content (Join-Path $queueDir "resume-prompt-$s.txt") "old prompt" -Encoding utf8
+    }
+    $newStamps = @()
+    foreach ($age in 0, 1) {
+        $s = $nowSec - ($age * 3600)
+        $newStamps += $s
+        Set-Content (Join-Path $queueDir "resume-run-$s.log") "new" -Encoding utf8
+        Set-Content (Join-Path $queueDir "resume-prompt-$s.txt") "new prompt" -Encoding utf8
+    }
+    # Must survive: the append-only decision log, and anything without a
+    # timestamp to judge.
+    Set-Content (Join-Path $queueDir "resume-run-keepme.log") "not a stamp" -Encoding utf8
+    $decisionLogBefore = "sentinel line"
+    Add-Content (Join-Path $queueDir "resume-runner.log") $decisionLogBefore -Encoding utf8
+
+    $env:OPAL_RESUME_KEEP_DAYS = "14"
+    $env:OPAL_RESUME_KEEP_AT_LEAST = "2"
+    Invoke-Runner | Out-Null
+    Remove-Item Env:\OPAL_RESUME_KEEP_DAYS, Env:\OPAL_RESUME_KEEP_AT_LEAST -ErrorAction SilentlyContinue
+
+    $stillThere = @(Get-ChildItem $queueDir -File | Select-Object -ExpandProperty Name)
+    Assert-That "per-launch files older than the cutoff are pruned" `
+        (($oldStamps | Where-Object { $stillThere -contains "resume-run-$_.log" }).Count -eq 0) `
+        "left: $(($oldStamps | Where-Object { $stillThere -contains "resume-run-$_.log" }) -join ', ')"
+    Assert-That "the empty .err files go with their run, not separately" `
+        (($oldStamps | Where-Object { $stillThere -contains "resume-run-$_.log.err" }).Count -eq 0) "err files left behind"
+    Assert-That "and so do the prompt files" `
+        (($oldStamps | Where-Object { $stillThere -contains "resume-prompt-$_.txt" }).Count -eq 0) "prompt files left behind"
+    Assert-That "recent launches survive" `
+        (($newStamps | Where-Object { $stillThere -notcontains "resume-run-$_.log" }).Count -eq 0) "recent files were deleted"
+    Assert-That "a file with no timestamp is never a candidate" `
+        ($stillThere -contains "resume-run-keepme.log") "keepme was deleted"
+    Assert-That "the append-only decision log is never pruned" `
+        ((Get-Content (Join-Path $queueDir "resume-runner.log") -Raw) -match "sentinel line") "decision log lost its history"
+
+    # The floor needs its own case: with recent launches present it is
+    # indistinguishable from the age cutoff, because the newest are inside the
+    # cutoff anyway. Everything old and nothing recent is the only arrangement
+    # that can tell them apart - and it is the arrangement that matters, since a
+    # quiet fortnight must not leave zero diagnostics behind.
+    Get-ChildItem $queueDir -File -Filter "resume-*" | Where-Object { $_.Name -match '^resume-(?:run|prompt)-\d+\.' } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    $allOld = @()
+    foreach ($age in 90, 80, 70, 60) {
+        $s = $nowSec - ($age * 86400)
+        $allOld += $s
+        Set-Content (Join-Path $queueDir "resume-run-$s.log") "old" -Encoding utf8
+    }
+    Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
+    $env:OPAL_RESUME_KEEP_DAYS = "14"
+    $env:OPAL_RESUME_KEEP_AT_LEAST = "2"
+    Invoke-Runner | Out-Null
+    Remove-Item Env:\OPAL_RESUME_KEEP_DAYS, Env:\OPAL_RESUME_KEEP_AT_LEAST -ErrorAction SilentlyContinue
+    $survivors = @(Get-ChildItem $queueDir -File | Where-Object { $_.Name -match '^resume-run-\d+\.log$' } |
+                   Select-Object -ExpandProperty Name)
+    Assert-That "a quiet fortnight still leaves the floor of diagnostics" ($survivors.Count -eq 2) `
+        "got $($survivors.Count): $($survivors -join ', ')"
+    Assert-That "and the floor keeps the newest, not an arbitrary two" `
+        (($survivors -contains "resume-run-$($allOld[3]).log") -and ($survivors -contains "resume-run-$($allOld[2]).log")) `
+        "kept: $($survivors -join ', ')"
+
     # One off switch for the whole family, not two.
     Remove-Item $runnerState -Force -ErrorAction SilentlyContinue
     New-Item $offSwitch -ItemType File -Force | Out-Null

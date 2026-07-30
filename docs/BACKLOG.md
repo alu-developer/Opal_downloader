@@ -724,10 +724,20 @@ matter.
   again while work sits in `docs/RESUME.md` means the triggers did not take and
   event 332 is back.
 
-- **`.claude/queue/` accumulates a `resume-run-*.log`/`.err` pair per launch,**
-  mostly empty, with no expiry. Harmless today, grows forever.
+- **Both unbounded accumulators are fixed (2026-07-30); `tmp/` is the one
+  left.** `.claude/queue/` had 42 `resume-run-*.log` / `.log.err` /
+  `resume-prompt-*.txt` files with no expiry. `resume-runner.ps1` now prunes them
+  on each invocation, on the same two rails: older than 14 days, never below the
+  newest 10 *launches* (counted by launch, not by file, or three files per run
+  would make "keep 10" mean "keep 3 runs"). `resume-runner.log` is deliberately
+  out of scope — it is the append-only decision log and the only continuous
+  record of what the runner decided, and there is an assertion that it keeps its
+  history. The floor needed its own test case: with recent launches present it is
+  indistinguishable from the age cutoff, so only "everything old, nothing
+  recent" can tell them apart. Removing the floor fails exactly those two
+  assertions.
 
-  The `refs/wip-checkpoints/` half of this is **fixed (2026-07-30)**: it had
+  The `refs/wip-checkpoints/` half was fixed the same day: it had
   reached 322 refs over seven days, ~46/day, each pinning a tree git could then
   never collect. `turn-failure-checkpoint.ps1` now prunes on write — older than
   14 days, but never below the newest 20, and never a ref whose name is not a

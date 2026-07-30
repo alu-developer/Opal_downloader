@@ -29,6 +29,11 @@
 # written straight to stderr and paired with an explicit `exit 2` instead.
 $ErrorActionPreference = 'Continue'
 
+# Record that this hook ran at all, so a hook that silently stops firing can be
+# attributed instead of looking like "nothing to report" (see hookbeat.ps1).
+# try/catch because diagnostics must never be able to break the gate itself.
+try { . (Join-Path $PSScriptRoot 'hookbeat.ps1'); Write-HookBeat -Name 'pre-push-gate' } catch { }
+
 function Deny($message) {
     [Console]::Error.WriteLine($message)
     exit 2

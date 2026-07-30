@@ -33,6 +33,11 @@
 $ErrorActionPreference = 'SilentlyContinue'
 Set-StrictMode -Off
 
+# Record that this hook ran at all, so a hook that silently stops firing can be
+# attributed instead of looking like "nothing to report" (see hookbeat.ps1).
+# try/catch because diagnostics must never be able to break the gate itself.
+try { . (Join-Path $PSScriptRoot 'hookbeat.ps1'); Write-HookBeat -Name 'turn-failure-checkpoint' } catch { }
+
 try {
     $errorType = "unknown"
     $errorMessage = ""

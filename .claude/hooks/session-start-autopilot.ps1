@@ -28,6 +28,11 @@
 $ErrorActionPreference = 'SilentlyContinue'
 Set-StrictMode -Off
 
+# Record that this hook ran at all, so a hook that silently stops firing can be
+# attributed instead of looking like "nothing to report" (see hookbeat.ps1).
+# try/catch because diagnostics must never be able to break the gate itself.
+try { . (Join-Path $PSScriptRoot 'hookbeat.ps1'); Write-HookBeat -Name 'session-start-autopilot' } catch { }
+
 $queueDir = $env:OPAL_AUTOPILOT_QUEUE_DIR
 if (-not $queueDir) { $queueDir = Join-Path $PSScriptRoot "..\queue" }
 $marker = Join-Path $queueDir "AUTOPILOT"

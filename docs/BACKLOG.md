@@ -643,6 +643,20 @@ matter.
   a partial fix (added ad hoc for the rerun) but doesn't help if the kill
   happens before that line is ever reached.
 
+- **The pre-push gate is unpushable while any long live test is running, and
+  blames the wrong thing (hit 2026-07-30).** `pre-push-gate.ps1` runs the full
+  `scripts/dev.ps1 all`, whose hook tests spawn and kill processes and check
+  "is a session active in this tree" — with a `TestFileListSnapshot` probe run
+  in flight they failed, and the gate said `scripts/dev.ps1 all failed (exit
+  1) - push blocked. Fix it, then push again.` Nothing was broken; the two
+  runs simply cannot share the tree. The gate blocked a docs-only commit for
+  the duration of a ~10-minute live crawl, and a reader taking its message at
+  face value would go hunting for a bug that does not exist. Worse, it does
+  not only gate pushes: a plain `git commit` whose *message text* happened to
+  contain the word "push" tripped it too, so the gate matches the command
+  string rather than the operation. Writing the message to a file first was
+  the workaround.
+
 - **An unattended resume run cannot wait for a background job, and reports
   success anyway (hit 2026-07-30).** The 11:12 run wrote the UA fix, launched
   the live verification with `run_in_background`, and ended its turn saying it

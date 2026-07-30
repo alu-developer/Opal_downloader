@@ -615,6 +615,21 @@ a list of rough edges that would otherwise only ever exist in one session's
 context window. Delete an entry when it is done, or when it turns out not to
 matter.
 
+- **A hook test that pattern-matches its own SessionStart output can be broken
+  by prose describing the feature, not just by the feature breaking
+  (2026-07-30).** `session-start-autopilot.ps1` echoes `docs/RESUME.md`
+  verbatim into its output whenever that file is non-placeholder. A test
+  asserting the new dead-hook self-audit fired by matching `"SELF-AUDIT"` in
+  the hook's stdout passed for the wrong reason - and then failed for the
+  wrong reason - purely because RESUME.md's own prose happened to contain
+  that word (`-match` is case-insensitive) while describing the very feature
+  under test. Fixed by matching a specific per-hook detail sentence instead
+  of the generic wrapper phrase, but the general shape is worth knowing:
+  any test of a hook that surfaces file content verbatim can be
+  contaminated by that content's prose, in either direction (false pass or
+  false fail), and the fix is specificity, not avoidance - there is no way
+  to stop RESUME.md from describing the features that touch it.
+
 - **The resume runner's new unlock/logon triggers have not been seen firing
   yet (2026-07-29).** They are registered and Task Scheduler accepted them
   (`SessionStateChange` with `StateChange 8`, `Logon` with a 2m delay), and the
@@ -778,12 +793,24 @@ record.
   right after creation. Live-verified by screenshotting the real running
   window. The `.exe`'s own Explorer icon is a separate, not-yet-decided
   follow-up (see "Next").
-- **Every wired hook now has a liveness heartbeat.** `.claude/hooks/hookbeat.ps1`
-  is dot-sourced by all six hooks and writes one JSON file per hook under
-  `.claude/queue/.hookbeats/` on every fire. First half of the maintainer's
-  2026-07-30 self-monitoring request; `Get-HookBeats` (the read side) has no
-  caller yet - the periodic/end-of-session reader that turns beats + git log
-  into a verdict is still to build. See `docs/work-quality.md`.
+- **Dead hooks are now self-detected, not maintainer-detected.** Every wired
+  hook writes a liveness beat (`.claude/hooks/hookbeat.ps1`); `Test-HookLiveness`
+  now reads them back and flags `autopilot-gate`/`noticed-gate`/`budget-guard`
+  (the three that fire on almost every turn) as dead if their last beat
+  predates the newest commit - a comparison that can't false-positive, since a
+  commit only lands inside a turn that made a tool call and then hit Stop.
+  `session-start-autopilot.ps1` surfaces `SELF-AUDIT: possible dead hook(s)`
+  at the start of every session. Directly answers one of the three symptoms
+  in the maintainer's 2026-07-30 self-monitoring request (see
+  `docs/work-quality.md`); the other two (too many tokens for too little,
+  too little worked on) are still open - see `docs/RESUME.md`.
+
+  **Found and fixed along the way:** `hookbeat.ps1` ignored
+  `$env:OPAL_AUTOPILOT_QUEUE_DIR`, so every `scripts/test-hooks.ps1` run was
+  overwriting the *real* liveness beats with test timestamps - which would
+  have made the dead-hook check permanently blind, since the test suite kept
+  "healing" the exact thing it exists to catch. Fixed before it ever shipped
+  broken.
 - **The "Noticed" section has a consumer now.** The maintainer asked what
   happens to the notes ("was passiert eigentlich mit den notizen?") and the
   honest answer was: nothing, unless somebody happened to read them. That is

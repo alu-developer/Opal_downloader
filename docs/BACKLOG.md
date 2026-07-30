@@ -358,120 +358,38 @@ would attack the cause instead of the symptom. Item 1 (HTTP-first discovery)
 tried the closest thing and was rejected for concrete measured reasons; read
 that entry before reaching for it again.
 
-### The section cache: correct now, and measured — it is 13% slower
-**Two decisions are yours** (at the end). The correctness bug is fixed and
-verified live; the feature it was blocking then turned out not to work, for the
-same measured reason it was rejected for on 2026-07-21.
+### The section cache: deleted (2026-07-30)
+**Done, nothing owed here.** Both open questions were answered by the
+maintainer the same evening and both answers were "stop".
 
-This work had no entry in this file until 2026-07-30 — it existed only in
-`docs/RESUME.md` and in a `codebudget_test.go` comment, which is why a
-correctness bug in it went a day without a home to be tracked in. Off by
-default; `OPAL_SECTION_CACHE=1` enables it. It hashes a section's page over
-plain HTTP (through the same `polite.Limiter` every browser navigation uses)
-and skips the browser entirely on an unchanged hash.
+The change-detection cache is gone from the tree: `internal/sectioncache`,
+`internal/sectionhash`, `internal/scraper/sectioncachewiring.go`,
+`sectionpayload.go`, the `crawl.go` probe loop, the `syncer.go` load/save, the
+`OPAL_SECTION_CACHE` flag and `FileRef.SectionURL`. The code budget went back
+down with it (11902 -> 11577), which is the part that makes it a deletion
+rather than a disabling — see `codebudget_test.go`'s note.
 
-**The 2026-07-29 bug, and what it actually was.** A cold run returned files
-for 1 of 6 courses. The probe's HTTP client had been identifying itself as
-`User-Agent: "...opal-downloader"` — no `AppleWebKit`/`Chrome`/`Safari`
-tokens. Sending a Chrome-shaped UA instead fixed it. Verified live
-2026-07-30 (`cd1282c`), by outcome **and** by mechanism:
+**Why, in one line each.** It was rejected twice on measurements: warm 273.3s
+against a 241.0s control, hit rate 3.9%, which is the 2026-07-21 rejection
+reached a second time by a rebuild that never measured the hit rate until the
+end. The *evidence* is kept in `docs/sync-speed-campaign.md`, including the
+correctness bug found along the way (the probe's synthetic User-Agent, which
+silently reduced 5 of 6 courses to a stub page) and the reasoning error that
+justified the rebuild (a 92% match measured between two HTTP fetches of the
+same URL, when the condition that matters is a hash stored across a full
+browser-interleaved crawl, already reported at 1/276 nine days earlier).
 
-| | course 50696421377 | the other 5 courses |
-|---|---|---|
-| broken run | 34 sections, root 8920 chars | **1 section each**, root 765–2801 |
-| after the fix | 34 sections, 8920 — unchanged | 5–163 sections, root 5865–21149 |
+**The volatility diagnostic is not being run** — the maintainer left it to me
+("mir wurscht") and the answer is no. It would be a third round on an approach
+rejected twice, and `docs/server-load.md` prices every attempt at a full crawl
+of someone else's server. Recorded as a decision so nobody reopens it looking
+for one that was never made. Reversible in one `git show`: the deletion commit
+holds the whole implementation.
 
-345 files, `diff` against `tmp/filelist-cache_ground_truth.txt` **empty**. The
-five failing courses had never got past their own front page: each cached
-exactly one section whose captured text was generic nav/help chrome with no
-course menu. Course 1 was unaffected before and is byte-identical after, which
-is what rules out "the fix just changed everything a bit".
-
-Consistent with a session-scoped bot heuristic tripping partway through
-course 1 (~33 probe requests fired during its crawl before course 2 was
-reached) and then downgrading responses for the rest of the session
-regardless of which local component sent the next request. That is the
-mechanism the shape implies; nobody has confirmed it from OPAL's side, and
-nothing depends on the confirmation.
-
-Worth keeping separately from the fix: the control run (cache off, clean at
-345) is what made this diagnosable at all. Neither the file count nor the
-absence of warnings would have caught it — `filelist_probe_test.go` never
-calls `logging.Setup`, so per-course crawl failures print nothing. Five
-courses failed in total silence.
-
-**And then the warm run measured it, and the feature does not work. This is
-the same rejection as 2026-07-21, reached a second time.** Correctness is
-fine; the speedup does not exist, because the cache essentially never hits:
-
-| run | wall clock | files | diff |
-|---|---|---|---|
-| control, cache off | **241.0s** | 345 | — |
-| cold cache | 283.9s | 345 | empty (incl. an interactive login) |
-| **warm cache** | **273.3s** | 345 | **empty** |
-
-**Warm is 13% slower than no cache at all.** Hit rate, measured directly by
-diffing the cache file the first run wrote against the one the second wrote —
-two back-to-back runs, unchanged account, same schema and patterns version:
-
-| | sections |
-|---|---|
-| hash unchanged (a hit) | **11** |
-| hash changed (forces a browser visit anyway) | **269** |
-| **hit rate** | **3.9%** |
-
-So 96% of sections pay for an extra HTTP probe and then get crawled by the
-browser regardless. That is precisely the 2026-07-21 result — *"HTTP hash as a
-change detector: REJECTED — never hits. Section HTML is not reproducible
-across runs: 0/276 hashes matched"* (`docs/sync-speed-campaign.md`, warm 317.6s
-vs 318.9s baseline). The approach was rebuilt in full without the hit rate
-being measured until now.
-
-**What the second attempt did differently, and it was not enough.** It is not
-a naive repeat: `internal/sectionhash` normalises **8** volatile patterns
-against the first attempt's 4, which is exactly the fix the earlier rejection
-implied. It moved the hit rate from ~0.4% to 3.9%. Real progress, two orders of
-magnitude short of useful.
-
-**Where the reasoning broke, and it is the useful part of this whole episode.**
-The 2026-07-27 reopening measured 11 of 12 sections matching — 92% — and that
-number is what justified rebuilding. But those 12 were two *HTTP fetches of the
-same URL*, while a cache compares a hash stored during a full browser-
-interleaved crawl against the next crawl's. The 2026-07-21 table had already
-separated those conditions and already reported the one that matters at
-**1/276**. The reopening re-measured the condition that had always worked.
-Full breakdown in `docs/sync-speed-campaign.md` — and the campaign had written
-down this exact lesson nine days before repeating it.
-
-**So the remaining diagnostic is no longer cheap.** What makes up the other 96%
-has never been isolated *in the crawl-stored condition*; every probe so far ran
-in the back-to-back one. Doing it properly means instrumenting a real crawl,
-and `docs/server-load.md` means each attempt costs OPAL a full pass. "Add more
-patterns" without that is guessing: 4→8 bought 3.5 percentage points.
-
-**One shortcut was tried and it failed (2026-07-30).** The stability probe had
-been sending a synthetic User-Agent too, so the 92% might have been two
-identical *stub* pages matching trivially — which would have explained the gap
-by mechanism instead of by condition. Re-run with a browser-shaped UA: still
-11/12, and body sizes of 78–172 KB, i.e. real course pages throughout. The
-hypothesis is dead and the condition explanation stands unaided. Detail in
-`docs/sync-speed-campaign.md`.
-
-**Yours to decide, and both questions changed shape:**
-1. **Keep the code or delete it?** Flipping the default on is off the table —
-   it is slower, so there is nothing to weigh. The real question is whether
-   ~79 lines plus a cache file format stay in the tree, off by default, for a
-   third attempt. Deleting is defensible; so is keeping it as the scaffolding
-   the diagnostic above would need.
-2. **Is the volatility diagnostic worth one more session?** It is cheap and it
-   is the only thing that would turn this from "rejected twice on symptoms"
-   into "understood". But it is the third round on an approach already
-   rejected twice, and `docs/server-load.md` means every attempt costs OPAL a
-   full crawl.
-
-Raising the request rate toward the `docs/server-load.md` ceiling — listed
-here as your call while this looked promising — is now unrelated to this entry
-and should be judged on its own if anyone wants it.
+**What did survive, and is worth more than the feature was:** `ctx.Route`
+costs ~30% of a run on this workload just by existing, the settle wait is
+load-bearing and is itself the cheap completion signal, and a probe that does
+not look like a browser gets served stubs. All three are in the campaign doc.
 
 ### Dogfood the whole first-run journey
 **Blocked:** all four decisions below shipped on 2026-07-26 (first-run
@@ -839,18 +757,14 @@ matter.
   nobody has isolated it. Do not cite the mechanism as established; cite the
   result.
 
-- **The section-cache probe's User-Agent is a hardcoded literal**, not read
-  from the real browser context. The synthetic-UA theory itself is settled —
-  fixed and verified live on 2026-07-30, see the section-cache entry under
-  "Now" — but the replacement string was written by hand to keep the fix small
-  enough to verify in one session. It will silently drift out of sync the next
-  time `playwright-go`'s bundled Chromium version changes, quietly
-  reintroducing a mismatched fingerprint with nothing to flag it. Reading it
-  from the live page (`page.Evaluate("() => navigator.userAgent")`, cached
-  once per scraper instance) instead of hardcoding it would remove the drift
-  risk entirely, but needs `checkSectionCache`'s callers to thread a page
-  reference through, which the current HTTP-only-probe design deliberately
-  avoids.
+- **The section-cache probe's User-Agent lesson outlived the probe.** The probe
+  itself was deleted with the feature (2026-07-30), so the drift risk went with
+  it. What is still true and still unexplained: a synthetic User-Agent got 5 of
+  6 courses served stub pages *during a crawl*, while the same string at low
+  volume standalone was served full 78-172 KB pages. Anything this project adds
+  that talks to OPAL over plain HTTP should look like the browser it is running
+  next to; `internal/scraper/htmlstability_probe_test.go` keeps the only
+  surviving copy of the string.
 
 - **This file is now too big to read in one go, and it has stopped being
   proofread.** At ~1500 lines it exceeds a single file read, so every session

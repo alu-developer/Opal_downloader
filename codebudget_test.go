@@ -124,79 +124,22 @@ import (
 // future "temporary" raise cheaper to argue for.
 //
 // Re-adding it is one `git show` away if a future attempt wants to re-measure.
-// Raised 2026-07-27 (was 11534) for internal/sectionhash. Bought: the first
-// piece of the change-detection cache, which is the only approach measured
-// capable of a large sync-speed win (210.3s -> ~93s projected). Pure, no
-// integration, and useless on its own until the cache is built on it - added
-// separately because it is the piece the whole design's SAFETY rests on, and
-// it deserves to be reviewable without a crawl attached.
+// Lowered to 11577 on 2026-07-30 (was 11902), giving back every line the
+// change-detection cache had cost across five raises between 2026-07-27 and
+// 2026-07-28 (internal/sectionhash, internal/sectioncache, sectionpayload.go,
+// sectioncachewiring.go, and the crawl/syncer wiring). Each of those raises
+// argued for itself with a projection - 210.3s -> ~93s - and the projection
+// did not survive being measured: warm 273.3s against a 241.0s control, a
+// 3.9% hit rate, which is the same rejection the 2026-07-21 attempt earned.
+// Deleted with the maintainer's approval; the measurements are kept in
+// docs/sync-speed-campaign.md, which is the part worth keeping.
 //
-// Most of the file is the pattern list and the argument for each pattern being
-// narrow. That is proportionate: a pattern one character too wide turns a
-// changed section into an unchanged one, which stops downloads silently.
-// Raised 2026-07-27 (was 11563) for internal/sectioncache, piece 2 of the
-// change-detection cache. Bought: the file that lets an unchanged section be
-// skipped instead of crawled - the mechanism behind the measured 210.3s ->
-// ~93s projection, which is the largest win this campaign has produced.
-//
-// It stores only sectionURL -> hash. The 2026-07-21 attempt stored extractor
-// output and produced a 52 MB file for 276 sections; on a hit the files are
-// already known from the previous run, so none of that is needed.
-//
-// A third of the cost is the degrade-to-crawl paths - missing file, bad JSON,
-// bumped schema, different pattern version, empty hash. They look like
-// defensive padding and are the opposite: each is a route by which a cache
-// could answer "unchanged" for something it cannot vouch for, and that answer
-// stops downloads silently.
-// Raised 2026-07-27 (was 11628) by two lines: FileRef.SectionURL and its
-// assignment. A file has to know which section produced it before anything can
-// be cached per section, and the title cannot stand in - it is sanitised for
-// the filesystem and two sections can share one.
-// Raised 2026-07-27 (was 11630): sectioncache entries now carry the file rows
-// a hit has to return, not just a hash. Rows are opaque JSON rather than a
-// parallel copy of scraper.FileRef, because a copy has to be kept in step by
-// hand and a field silently missing from it is exactly the quiet loss this
-// cache must not introduce.
-//
-// One of the added lines is a bug the tests caught: a nil RawMessage marshals
-// to `null` and returns as four non-nil bytes, so "has rows" needed a length
-// check. Without it an entry carrying no rows was a hit that returned nothing,
-// dropping that section's files.
-// Raised 2026-07-27 (was 11645) for internal/scraper/sectionpayload.go: what
-// the change-detection cache stores per section, and the pack/unpack around it.
-//
-// It holds the extractor's candidates rather than a digested form, which is the
-// whole correctness argument - crawl.go feeds the same candidates to
-// appendSectionFolderTargets, so a cache hit returning only files would leave
-// that section's subfolders permanently unqueued and the course would come back
-// short with no warning. Replaying the real functions against the real
-// candidates means the cached path IS the crawled path.
-//
-// Only rootText is lifted out, and that is the 31 MB of the 52 MB file the
-// 2026-07-21 attempt produced. Every other key is kept rather than whitelisted:
-// a whitelist would silently drop a key the moment someone adds a use for it.
-// Raised 2026-07-28 (was 11678) for piece 3: wiring the cache into the actual
-// crawl. Bought: an HTTP probe (sectioncachewiring.go) that fetches a section's
-// page over plain HTTP - through the same polite.Limiter every browser Goto
-// uses - hashes it, and only then decides whether to skip the browser
-// entirely; the crawl.go loop change that makes a cache hit replay through the
-// real appendSectionFiles/appendSectionFolderTargets instead of a parallel
-// path (the whole point of piece 1/2's design); and the syncer.go load/save
-// around a sync, gated on the same off-by-default flag so a caller who never
-// sets it never touches the cache file at all.
-//
-// A collectCourseFiles-level test proves the wiring rather than just the
-// pieces: it runs a two-level cache-hit course with a fakePage that panics if
-// any browser method is called, so a regression that crawls a cache hit
-// anyway fails loudly instead of merely losing the speedup. Confirmed to
-// actually panic on the intended mutation before being trusted.
-//
-// Raised 2026-07-30 (was 11901) by exactly one line: the section-cache probe's
-// User-Agent moved from an inline literal to a named const so the reasoning
-// behind the string has somewhere to live. Bought: the probe stops announcing
-// itself as "...opal-downloader" to OPAL, the prime suspect for the 2026-07-29
-// bug where 5 of 6 courses crawled to a stub page.
-const codeLineBudget = 11902
+// The budget was lowered rather than left where it was, on purpose. Nothing
+// fails when the total merely drops - the assertion is a ceiling - so a
+// deletion that leaves the ceiling high quietly hands the next feature 325
+// free lines it never had to argue for. Giving them back is what makes this a
+// deletion instead of a disabling.
+const codeLineBudget = 11577
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

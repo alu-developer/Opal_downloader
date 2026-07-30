@@ -15,9 +15,7 @@ import (
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
-	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
-	"github.com/alu-developer/opal-downloader/internal/sectioncache"
 	"github.com/alu-developer/opal-downloader/internal/synclock"
 	"github.com/alu-developer/opal-downloader/internal/timing"
 )
@@ -42,13 +40,6 @@ var acquireSyncLock = synclock.AcquireDefault
 // separate from Downloader rather than folded into it.
 type discoveryProgressReporter interface {
 	SetDiscoveryProgress(func(scraper.DiscoveryProgress))
-}
-
-// sectionCacheSetter is the optional half of Downloader that can be handed
-// the change-detection cache (internal/sectioncache) before a scrape.
-// *scraper.OpalScraper implements it; test fakes generally do not.
-type sectionCacheSetter interface {
-	SetSectionCache(*sectioncache.Cache)
 }
 
 // formatDiscoveryProgress renders one crawl event as a single display line,
@@ -460,32 +451,6 @@ func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App,
 		// Discovery is over by the time this returns; leaving the callback
 		// installed would let a later call publish into a stale closure.
 		defer reporter.SetDiscoveryProgress(nil)
-	}
-
-	// The change-detection cache (internal/sectioncache, docs/sync-speed-
-	// campaign.md) is off by default; only touch the filesystem for it at all
-	// when scraper.SectionCacheEnv is set. Doing Load/Save unconditionally
-	// would be its own hazard: Load always returns a cache (empty if nothing
-	// is enabled), and Save always writes it - so a caller that once ran with
-	// the flag on, built up a real cache, and later ran without it (a
-	// scheduled task missing the env var, say) would silently overwrite that
-	// cache with an empty one on every such run, for a feature that is
-	// supposed to do nothing when off.
-	if os.Getenv(scraper.SectionCacheEnv) != "" {
-		if setter, ok := sc.(sectionCacheSetter); ok {
-			sectionCache := sectioncache.Load(cfg.DownloadPath)
-			setter.SetSectionCache(sectionCache)
-			defer func() {
-				if err := sectionCache.Save(cfg.DownloadPath); err != nil {
-					// Not fatal: every consumer of this cache already
-					// degrades to "crawl it" when a read fails (see
-					// sectioncache's package doc), so a failed write just
-					// means the next sync gets no head start rather than a
-					// broken one.
-					logging.Detail("could not save the section change-detection cache: %v", err)
-				}
-			}()
-		}
 	}
 
 	remoteFiles, err := sc.ScrapeWithSavedSession(ctx, cfg.Courses)

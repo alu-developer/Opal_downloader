@@ -206,9 +206,15 @@ type cookieTransport struct {
 // each other trivially - a stub has no per-session Wicket bookkeeping to differ
 // in - so the failure mode inflates exactly the number this probe exists to
 // report.
+// probeUserAgent is browser-shaped for the reason the comment above gives.
+// It used to live next to the section-cache probe; that feature was deleted
+// (rejected twice on measurements, see docs/sync-speed-campaign.md) and this
+// probe kept its own copy rather than inherit a dependency on a dead one.
+const probeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+
 func (t *cookieTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r.Header.Set("Cookie", t.header)
-	r.Header.Set("User-Agent", sectionCacheUserAgent)
+	r.Header.Set("User-Agent", probeUserAgent)
 	return t.base.RoundTrip(r)
 }
 

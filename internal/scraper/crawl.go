@@ -152,38 +152,7 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 			levelTitles[i] = sectionTitles[key]
 		}
 
-		// Probe the change-detection cache before dispatching anything to the
-		// tab pool, so a section that comes back unchanged never opens a
-		// browser tab at all. Serial and up front on purpose: it is a plain
-		// HTTP fetch per section (through the same politeness limiter every
-		// Goto uses), and every hit or miss is decided independently of the
-		// others, so nothing about a level's own concurrency needs to know
-		// this happened. See sectioncachewiring.go's doc comment for the
-		// off-by-default gate and the safety argument.
-		hashes := make([]string, len(level))
-		visits := make([]sectionVisit, len(level))
-		hits := make([]bool, len(level))
-		needsVisit := make([]int, 0, len(level))
-		for i, currentURL := range level {
-			probe := s.checkSectionCache(currentURL)
-			hashes[i] = probe.hash
-			if probe.hit {
-				visits[i] = probe.visit
-				hits[i] = true
-				continue
-			}
-			needsVisit = append(needsVisit, i)
-		}
-		if len(needsVisit) > 0 {
-			subLevel := make([]string, len(needsVisit))
-			for j, idx := range needsVisit {
-				subLevel[j] = level[idx]
-			}
-			subVisits := pool.visitAll(subLevel, func(j int) string { return levelTitles[needsVisit[j]] })
-			for j, idx := range needsVisit {
-				visits[idx] = subVisits[j]
-			}
-		}
+		visits := pool.visitAll(level, func(i int) string { return levelTitles[i] })
 
 		for i, visit := range visits {
 			currentURL := level[i]
@@ -197,9 +166,8 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 			// Reaching here means this section's Goto and extraction both
 			// succeeded (candidates may still legitimately be empty - the
 			// empty-content warning lives in visitSection and does not mark
-			// the visit failed), or the change-detection cache replayed a
-			// previous success (hits[i]). See sectionsVisited's doc comment
-			// above for what this distinction is for.
+			// the visit failed). See sectionsVisited's doc comment above for
+			// what this distinction is for.
 			sectionsVisited++
 			s.publishProgress(DiscoveryProgress{
 				Phase:        PhaseSection,
@@ -227,31 +195,13 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				expandedPageURL = ""
 			}
 			files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, visit.showAllURL, expandedPageURL, showAllViaClick, s.opalURL, downloadCandidates)
-			// recordSectionCache stores this section's freshly-crawled result
-			// (or, on a hit, simply re-affirms what was already there) so it
-			// stays in the cache for next time - see sectioncache.Cache.Save's
-			// doc comment for why a section not recorded this run is dropped
-			// rather than carried over. No-ops entirely when the feature is
-			// off or hashes[i] is empty (probe failed/unavailable).
-			s.recordSectionCache(currentURL, hashes[i], candidates, visit.showAllURL, visit.expandedPageURL, visit.expandedShowAll)
-			if hits[i] {
-				// Deliberately not s.recordSectionVisit: that call is reserved
-				// for sections whose page was actually navigated to and
-				// extracted this run (see its own doc comment), which a cache
-				// hit's page was not - only fetched over plain HTTP to compare
-				// its hash. Recording it there would misrepresent the
-				// persistent cross-run visit-effectiveness log as having
-				// visited a page it never rendered.
-				logging.Detail("Section %q (%s): unchanged since last sync, reused cached listing (%d file(s))", sectionTitle, currentURL, len(files)-filesBeforeSection)
-			} else {
-				// Record this visit for the persistent cross-run visit-effectiveness
-				// log (internal/visitlog) - one entry per section actually reached
-				// (Goto+extraction succeeded, past the `continue`s above), noting how
-				// many *new* files this visit contributed. This is purely
-				// observational (see visitlog's package doc): it does not change
-				// what gets crawled, just records it for later human review.
-				s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection)
-			}
+			// Record this visit for the persistent cross-run visit-effectiveness
+			// log (internal/visitlog) - one entry per section actually reached
+			// (Goto+extraction succeeded, past the `continue`s above), noting how
+			// many *new* files this visit contributed. This is purely
+			// observational (see visitlog's package doc): it does not change
+			// what gets crawled, just records it for later human review.
+			s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection)
 			var skipped []skippedSection
 			queue, skipped = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles, s.skipEnrollmentSections)
 			for _, sk := range skipped {

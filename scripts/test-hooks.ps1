@@ -792,6 +792,21 @@ try {
     $wrapPrompt = Join-Path $wrapQueue "prompt.txt"
     Set-Content $wrapPrompt "hello" -Encoding utf8
 
+    # A clean throwaway repo, NOT $repoRoot. These assertions used to run
+    # against the real working tree, which was harmless only for as long as the
+    # wrapper ignored whether that tree was dirty. It does not any more (see
+    # run-left-uncommitted below), so pointing them at the live repo would make
+    # them pass or fail on whatever happened to be uncommitted at the time.
+    $wrapRepo = Join-Path $sandbox "wrap-repo"
+    New-Item -ItemType Directory -Path $wrapRepo -Force | Out-Null
+    & git -C $wrapRepo init --quiet 2>$null | Out-Null
+    & git -C $wrapRepo config core.autocrlf false 2>$null | Out-Null
+    & git -C $wrapRepo config user.email "test@example.invalid" 2>$null | Out-Null
+    & git -C $wrapRepo config user.name "hook tests" 2>$null | Out-Null
+    Set-Content (Join-Path $wrapRepo "file.txt") "base" -Encoding utf8
+    & git -C $wrapRepo add -A 2>$null | Out-Null
+    & git -C $wrapRepo commit -m "base" --quiet 2>$null | Out-Null
+
     # A stub that produces output, i.e. the healthy case.
     $talkerCmd = Join-Path $sandbox "stub-talker.cmd"
     @('@echo off', 'echo did some work') -join "`r`n" | Set-Content $talkerCmd -Encoding ascii
@@ -800,7 +815,7 @@ try {
     # SetThreadExecutionState path runs. It is held for about a second, which is
     # the whole point - a failure to acquire must be visible, not assumed.
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
-        -ClaudeCmd $talkerCmd -PromptFile $wrapPrompt -RunLog $runOut -QueueDir $wrapQueue -RepoRoot $repoRoot 2>&1 | Out-Null
+        -ClaudeCmd $talkerCmd -PromptFile $wrapPrompt -RunLog $runOut -QueueDir $wrapQueue -RepoRoot $wrapRepo 2>&1 | Out-Null
     $wrapText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
     Assert-That "a finished run is written to the decision log" ($wrapText -match "finished") "log: $wrapText"
     Assert-That "the outcome says how long, how much output, and how many commits" `
@@ -817,17 +832,46 @@ try {
     @('@echo off', 'exit /b 0') -join "`r`n" | Set-Content $mimeCmd -Encoding ascii
     $runMute = Join-Path $wrapQueue "run-mute.log"
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
-        -ClaudeCmd $mimeCmd -PromptFile $wrapPrompt -RunLog $runMute -QueueDir $wrapQueue -RepoRoot $repoRoot -NoWakeLock 2>&1 | Out-Null
+        -ClaudeCmd $mimeCmd -PromptFile $wrapPrompt -RunLog $runMute -QueueDir $wrapQueue -RepoRoot $wrapRepo -NoWakeLock 2>&1 | Out-Null
     $muteText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
     Assert-That "a run that dies early is named as such, not reported as finished" `
         (($muteText -match "run-died-early") -and ($muteText -notmatch "`tfinished")) "log: $muteText"
+
+    # THE 2026-07-30 SIGNATURE: 9.3 minutes, exit 0, output written, and the
+    # only thing it produced was an uncommitted working tree. Logged as
+    # "finished" with "0 new commit(s)" sitting in plain sight.
+    Set-Content $wrapLog "" -Encoding utf8
+    $runDirty = Join-Path $wrapQueue "run-dirty.log"
+    $dirtyCmd = Join-Path $sandbox "stub-dirty.cmd"
+    # The stub is the unattended run: it edits a tracked file and commits
+    # nothing, exactly as the real one did.
+    @('@echo off', 'echo worked on something', "echo edited > `"$wrapRepo\file.txt`"") -join "`r`n" |
+        Set-Content $dirtyCmd -Encoding ascii
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
+        -ClaudeCmd $dirtyCmd -PromptFile $wrapPrompt -RunLog $runDirty -QueueDir $wrapQueue -RepoRoot $wrapRepo -NoWakeLock 2>&1 | Out-Null
+    $dirtyText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
+    Assert-That "a run that changes files and commits nothing is not reported as finished" `
+        (($dirtyText -match "run-left-uncommitted") -and ($dirtyText -notmatch "`tfinished")) "log: $dirtyText"
+    Assert-That "the outcome line says whether commits ever left the machine" `
+        ($dirtyText -match "unpushed") "log: $dirtyText"
+
+    # The other direction, which is what stops the verdict being useless noise:
+    # the same stub with nothing left behind must still read as finished.
+    & git -C $wrapRepo checkout -- . 2>$null | Out-Null
+    Set-Content $wrapLog "" -Encoding utf8
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
+        -ClaudeCmd $talkerCmd -PromptFile $wrapPrompt -RunLog (Join-Path $wrapQueue "run-clean.log") `
+        -QueueDir $wrapQueue -RepoRoot $wrapRepo -NoWakeLock 2>&1 | Out-Null
+    $cleanText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
+    Assert-That "a run over a clean tree is still just finished" `
+        (($cleanText -match "finished") -and ($cleanText -notmatch "run-left-uncommitted")) "log: $cleanText"
 
     # A launcher that cannot run at all must say so rather than vanish - the
     # same class of bug as the "%1 is not a valid Win32 application" fortnight.
     Set-Content $wrapLog "" -Encoding utf8
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $wrapper `
         -ClaudeCmd (Join-Path $sandbox "does-not-exist.cmd") -PromptFile $wrapPrompt `
-        -RunLog (Join-Path $wrapQueue "run-missing.log") -QueueDir $wrapQueue -RepoRoot $repoRoot -NoWakeLock 2>&1 | Out-Null
+        -RunLog (Join-Path $wrapQueue "run-missing.log") -QueueDir $wrapQueue -RepoRoot $wrapRepo -NoWakeLock 2>&1 | Out-Null
     $missText = (Get-Content $wrapLog -Raw -ErrorAction SilentlyContinue)
     Assert-That "an unlaunchable agent is reported, not swallowed" ($missText -match "run-failed") "log: $missText"
 

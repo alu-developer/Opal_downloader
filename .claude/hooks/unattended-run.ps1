@@ -136,12 +136,33 @@ if ($RepoRoot -and $headCommit) {
     }
 }
 
+# Whether the run left anything behind that only exists in the working tree,
+# and whether what it did commit ever left the machine. 2>$null, never 2>&1:
+# see the note in scripts/test-hooks.ps1 about NativeCommandError.
+$dirty = $false
+$unpushed = "?"
+if ($RepoRoot) {
+    $porcelain = @(& git -C $RepoRoot status --porcelain 2>$null | Where-Object { $_ })
+    $dirty = ($porcelain.Count -gt 0)
+    $ahead = (& git -C $RepoRoot rev-list --count '@{u}..HEAD' 2>$null)
+    if ($ahead -match '^\d+$') { $unpushed = $ahead }
+}
+
 # A run that ends in under two minutes having written nothing is the signature
 # of the 2026-07-28 death, not of a quick success. Name it, so the next person
 # reading this log does not have to reconstruct it from transcripts again.
+#
+# run-left-uncommitted is the 2026-07-30 signature, and it cost a day. That run
+# went 9.3 minutes, wrote 122 bytes, exited 0 and was logged as "finished" -
+# while the fix it had written sat uncommitted in the working tree and the
+# verification it launched died with the run's own process. "0 new commit(s)"
+# was right there in the outcome line and read as unremarkable. An unattended
+# run that changes files and commits nothing has produced nothing durable: the
+# machine is unattended, so a working tree is not a place work survives.
 $verdict = "finished"
 if ($exitCode -ne 0) { $verdict = "run-error" }
 elseif ($mins -lt 2 -and $bytes -eq 0) { $verdict = "run-died-early" }
-Say $verdict "exit $exitCode, ${mins}m, ${bytes}B stdout, $commits new commit(s)"
+elseif ($commits -eq "0" -and $dirty) { $verdict = "run-left-uncommitted" }
+Say $verdict "exit $exitCode, ${mins}m, ${bytes}B stdout, $commits new commit(s), $unpushed unpushed"
 
 exit $exitCode

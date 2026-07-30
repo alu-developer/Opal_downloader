@@ -795,6 +795,16 @@ matter.
   never pushed, sitting local for a day until the maintainer happened to spot
   them.
 
+  **Half of this is now detected (2026-07-30).** `unattended-run.ps1` scores a
+  run that exits clean, changes tracked files and commits nothing as
+  `run-left-uncommitted` rather than `finished`, and the outcome line now
+  carries an unpushed count so the 2026-07-29 variant is visible too. Removing
+  the verdict fails exactly one assertion, so the test is known to bite. **Not**
+  fixed: nothing notices an orphaned background job. Detection also is not
+  prevention — the run still has to be the thing that commits. A wrapper cannot
+  make the agent commit first; it can only make the omission impossible to read
+  as success.
+
 - **The section-cache probe's User-Agent is a hardcoded literal**, not read
   from the real browser context. The synthetic-UA theory itself is settled —
   fixed and verified live on 2026-07-30, see the section-cache entry under

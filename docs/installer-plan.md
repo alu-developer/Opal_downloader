@@ -1,8 +1,27 @@
 # Windows `setup.exe` Installer — Design Plan
 
-Status: planning only. No installer code, `.iss`/`.wxs`/`.nsi` scripts, or CI
-changes exist yet. This document is the deliverable for that planning task;
-implementation is intentionally deferred to follow-up tasks (see Section 8).
+**Status: built and shipping. This plan is history, not a to-do list**
+(re-checked item by item on 2026-07-30). The line that stood here until then —
+*"planning only. No installer code, `.iss`/`.wxs`/`.nsi` scripts, or CI changes
+exist yet"* — was contradicted by the repo three sections further down its own
+page, and by these files:
+
+| The plan said it did not exist | What is actually in the repo |
+|---|---|
+| no `.iss` script | `installer/opal-downloader.iss`, bundling a staged Chromium cache into `%LOCALAPPDATA%\ms-playwright` |
+| no CI changes | `.github/workflows/release.yml`, tag-triggered, builds the exe and runs `iscc` |
+| implementation deferred | `README.md`'s "Download & Install (Windows installer)" section tells users to download `opal-downloader-setup.exe` |
+
+Every row of Section 9's table is now done or deliberately obsolete — see the
+status column there. Two items (3 and 8, Brave/Chrome detection and profile-path
+prefill) were **removed rather than built**, because the real-browser-profile
+option they served was deleted in full on 2026-07-14. The `.iss` documents that
+removal in place, so the installer is consistent with the code; only this header
+was not.
+
+Read the design sections below as the reasoning behind what shipped. They are
+preserved as written, and they are still the answer to "why Inno Setup, why
+bundle Chromium" — but do not read any of it as work outstanding.
 
 ## 1. Problem statement
 
@@ -303,7 +322,22 @@ update *to* — flagged in Section 8, not designed further here.
 
 ## 9. Effort/complexity estimate and suggested follow-up order
 
-Rough sizing, assuming Inno Setup and the decisions above:
+**All eight rows are settled — verified against the code 2026-07-30.** The
+original sizing and dependency columns are kept below as the record of how this
+was planned; this table is what actually happened.
+
+| # | Status, and how it was checked |
+|---|---|
+| 1 | **Done.** `runSetup` calls `playwright.Install(&playwright.RunOptions{...})` directly (`cmd/opal-downloader/root.go:287`), not `exec.Command("go", "run", ...)`, so the target machine needs no Go toolchain. |
+| 2 | **Done.** `installer/opal-downloader.iss` exists and bundles the staged Chromium cache. |
+| 3 | **Obsolete, not pending.** The Brave/Chrome detection page served the real-browser-profile option, deleted in full on 2026-07-14. `BrowserDetected`/`GetSuggestedBrowserProfileArg` and the "Browser Requirement" wizard page were removed with it; the `.iss` documents this at its post-install section. Building it now would re-add a page for a capability that no longer exists. |
+| 4, 4b | **Done.** `.github/workflows/release.yml`, tag-triggered, fetches the Chromium build matching the pinned `playwright-go` version and runs `iscc`. |
+| 5 | **Done.** Landed via PR #31 (`5fcccd0`); was never a gate after that. |
+| 6 | **Done.** `README.md`'s "Download & Install" section plus `docs/release-notes-template.md`, both present. |
+| 7 | **Done.** `internal/updater` exists and is wired into both front ends — `updaterCheckLatest` in `cmd/opal-downloader/root.go:59` and `updaterClient`/`checkLatest` in `internal/gui/gui.go`. Listed here as "later, optional"; it shipped. |
+| 8 | **Obsolete**, same removal as row 3. |
+
+Original planning table, kept for the reasoning in its dependency column:
 
 | Task | Effort | Depends on |
 |---|---|---|

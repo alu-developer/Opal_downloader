@@ -19,4 +19,16 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-_Nothing in flight._
+**2026-07-30: auditing the other docs `CLAUDE.md` cites as "current state".**
+
+`docs/setup-friction.md` turned out to list 8 shipped items as open suggestions
+(fixed, `8ce2894`). `CLAUDE.md`'s philosophy section names two more files the
+same way - `docs/installer-plan.md` and `docs/browser-profile-strategy.md` - so
+the same rot is likely, and it has a real cost: I nearly re-implemented a
+README fix that had been in place for weeks.
+
+Method, same as last time: every status claim checked against the code before
+the doc is touched, and each corrected row records how it was verified. No
+claim goes in that I have not read the implementation for.
+
+Nothing committed yet this iteration.

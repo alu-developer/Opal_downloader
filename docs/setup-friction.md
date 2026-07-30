@@ -209,15 +209,28 @@ accidentally regressed:
 - `--help` output is accurate and lists every real subcommand and flag
   (aside from the `dump-links` README gap above).
 
-## Summary of concrete suggestions
+## Summary of concrete suggestions — all eight shipped
 
-| # | Suggestion | Effort |
+**Audited against the code on 2026-07-30, item by item. Everything in this table
+is done.** It had been left reading as an open to-do list, which is how a later
+session ends up either redoing finished work or believing the tool still has
+traps it does not. The prose above the table is the *original* dry-run report and
+is deliberately preserved as written — read it as a record of what the first-run
+experience was like then, not as a description of the tool now.
+
+| # | Suggestion | Status, and how it was checked |
 |---|---|---|
-| 1 | Fix README clone URL casing (`Opal_downloader`) or rename the repo | trivial |
-| 2 | Document `go build -o opal-downloader.exe .` for Windows | trivial |
-| 3 | Add a fast, offline `status`/`--check` command that reports auth/session state without opening a browser | small-medium |
-| 4 | Wrap raw Playwright navigation errors with a friendlier one-line hint | small |
-| 5 | Print a confirmation line after Playwright install succeeds | trivial |
-| 6 | Reorder `init`'s "Next steps" so editing config.yaml comes before `login` | trivial |
-| 7 | Add a `./opal-downloader setup` (or `scripts/setup.ps1`) meta-command | medium |
-| 8 | Document `dump-links` in the README Commands table | trivial |
+| 1 | Fix README clone URL casing (`Opal_downloader`) | **Done.** `README.md:47`, and `scripts/test-fresh-install.ps1` clones from it successfully every run. |
+| 2 | Document `go build -o opal-downloader.exe .` for Windows | **Done.** `README.md:55-63` gives separate Linux/macOS and Windows build blocks plus a note naming the extensionless-file trap. |
+| 3 | Fast, offline `status` that reports auth state without opening a browser | **Done.** `runStatus` (`cmd/opal-downloader/root.go:321`) reads `os.Stat` on the session-state file and prints "Not logged in yet. Run: opal-downloader login". No Playwright, no network. |
+| 4 | Wrap raw Playwright navigation errors with a friendlier hint | **Done.** A live run against an unreachable URL prints `could not reach OPAL at <url> - check your internet connection and opal_url in config.yaml` first; the raw Playwright text still follows it as detail. |
+| 5 | Print a confirmation line after Playwright install succeeds | **Done** for the path users are pointed at: `setup` prints "Installing Playwright browser binaries..." then "Playwright browsers ready." The silence in the table above belongs to upstream's `go run ... playwright install` CLI, which `setup` no longer shells out to (it calls `playwright.Install` directly). |
+| 6 | Reorder `init`'s "Next steps" so editing config.yaml comes first | **Done.** Live `init` output starts at "1. Edit config.yaml with your download path and course patterns". |
+| 7 | Add a `setup` meta-command | **Done.** `case "setup"` → `runSetup`, which installs browsers and creates the config in one step. |
+| 8 | Document `dump-links` in the README Commands table | **Done.** `README.md:149`. |
+
+**What is still genuinely rough is not in this table**, because it needs
+credentials to see: with a valid `opal_url` and no saved session, `list`/`sync`
+still open a real browser and wait for an interactive login rather than failing
+fast — `status` answers the question offline now, but only if the user thinks to
+ask it. `docs/manual-setup-checklist.md` covers that tier.

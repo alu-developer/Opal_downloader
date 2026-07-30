@@ -267,13 +267,13 @@ if ($rateKnown) { $budgetNote = "budget ok (5h $five%, 7d $seven%)" }
 $reason = @"
 AUTOPILOT is on ($($count + 1)/$maxIterations this session, $budgetNote), and $($todo.Count) $($listLabel): $names
 
-Do not stop to ask whether to continue. Pick the highest-value remaining task yourself and work it end to end: implement, run scripts/dev.ps1 all, verify against the task's own acceptance criteria, open a PR, and merge it once checks pass and every criterion is genuinely met.
+Do not stop to ask whether to continue. Pick the highest-value remaining task yourself and work it end to end: implement, run scripts/dev.ps1 all, verify against the task's own acceptance criteria, then commit and push. CI runs on every push to master, and the pre-push gate runs the full local suite first. A PR is fine when the change genuinely wants review, but it is not required - the last 25 commits went straight to master, and demanding one for a doc fix is the ceremony the queue was retired for.
 
 Keep docs/RESUME.md pointing at what you are actually doing right now, and commit each piece as it becomes correct. A turn killed by the usage limit never reaches this hook, so anything not written down by then is gone.
 
-Rules that still apply: never report a criterion as verified without exercising it; label anything unverified explicitly; a negative result is a valid outcome to report and file. Stop early only if a task genuinely needs a human decision - if so, move it to .claude/queue/blocked/ with the open question written down, then continue with the next task.
+Rules that still apply: never report a criterion as verified without exercising it; label anything unverified explicitly; a negative result is a valid outcome to report and file. Stop early only if a task genuinely needs a human decision - if so, mark that item **Blocked:** in docs/BACKLOG.md with the open question written down, then continue with the next task.
 
-Ending this run is NOT your call. Deleting .claude/queue/AUTOPILOT does not work - the hook restores it. The guards above end the run (expiry, iteration cap, rate limits, empty queue), or the maintainer does by creating .claude/queue/AUTOPILOT.OFF. If you believe it should stop early, say so in your reply and keep working; do not act on it yourself.
+Ending this run is NOT your call. Deleting .claude/queue/AUTOPILOT does not work - the hook restores it. The guards above end the run (expiry, iteration cap, rate limits, or no unblocked item left in docs/BACKLOG.md), or the maintainer does by creating .claude/queue/AUTOPILOT.OFF. If you believe it should stop early, say so in your reply and keep working; do not act on it yourself.
 
 "Budget", "this session is long", and "the next task deserves a fresh start" are not stop conditions. They are the rationalisations used to end three earlier runs.
 "@

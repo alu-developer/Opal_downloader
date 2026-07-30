@@ -1155,6 +1155,27 @@ try {
     Assert-That "an all-blocked Now falls back to Noticed instead of stopping" ($fellBack -match '"decision":"block"') "got: $fellBack"
     Assert-That "the fallback says the work came from Noticed" ($fellBack -match "Noticed") "got: $fellBack"
 
+    # --- the instructions the message itself carries -------------------------
+    # This block exists because the message rotted unnoticed for eight days. It
+    # was telling every autopilot turn to file blocked work in
+    # .claude/queue/blocked/ - retired 2026-07-22 and gitignored, so anything
+    # filed there survives neither a clone nor the loss of one machine. Nothing
+    # asserted on the message's content, so nothing caught it. These are cheap
+    # and they pin the parts that go stale: where work is tracked, and how the
+    # run is allowed to end.
+    Assert-That "the message does not send blocked work to the retired queue" `
+        ($fellBack -notmatch 'queue/blocked') "the gate is still citing .claude/queue/blocked/: $fellBack"
+    Assert-That "it does not cite the retired todo directory either" `
+        ($fellBack -notmatch 'queue/todo') "the gate is still citing .claude/queue/todo/: $fellBack"
+    Assert-That "it names docs/BACKLOG.md as where a blocked item goes" `
+        ($fellBack -match 'BACKLOG\.md') "got: $fellBack"
+    Assert-That "it still names the local gate as the check to run" `
+        ($fellBack -match 'dev\.ps1 all') "got: $fellBack"
+    # AUTOPILOT and AUTOPILOT.OFF are live files the hooks really use, so those
+    # two references must NOT be scrubbed along with the retired directories.
+    Assert-That "the off switch is still named, since that is the maintainer's way out" `
+        ($fellBack -match 'AUTOPILOT\.OFF') "got: $fellBack"
+
     # Second-class, not promoted: with real work under "Now" the gate must cite
     # BACKLOG, never the rough-edge list.
     $liveBacklog = Join-Path $noticedRepo "live.md"

@@ -449,6 +449,14 @@ in the back-to-back one. Doing it properly means instrumenting a real crawl,
 and `docs/server-load.md` means each attempt costs OPAL a full pass. "Add more
 patterns" without that is guessing: 4→8 bought 3.5 percentage points.
 
+**One shortcut was tried and it failed (2026-07-30).** The stability probe had
+been sending a synthetic User-Agent too, so the 92% might have been two
+identical *stub* pages matching trivially — which would have explained the gap
+by mechanism instead of by condition. Re-run with a browser-shaped UA: still
+11/12, and body sizes of 78–172 KB, i.e. real course pages throughout. The
+hypothesis is dead and the condition explanation stands unaided. Detail in
+`docs/sync-speed-campaign.md`.
+
 **Yours to decide, and both questions changed shape:**
 1. **Keep the code or delete it?** Flipping the default on is off the table —
    it is slower, so there is nothing to weigh. The real question is whether
@@ -810,6 +818,16 @@ matter.
   prevention — the run still has to be the thing that commits. A wrapper cannot
   make the agent commit first; it can only make the omission impossible to read
   as success.
+
+- **Why the User-Agent fix works is still a theory, though the fix itself is
+  verified.** `cd1282c` demonstrably restores all 6 courses (345 files,
+  byte-identical, per-course section counts confirmed). But on 2026-07-30 a
+  *standalone* probe sending the same synthetic UA at low volume was served full
+  78–172 KB pages, not stubs — so "OPAL flags that fingerprint" cannot be the
+  whole story. The distinguishing factor is probably volume or interleaving with
+  a live browser crawl (~33 probe requests fired during one course's crawl), but
+  nobody has isolated it. Do not cite the mechanism as established; cite the
+  result.
 
 - **The section-cache probe's User-Agent is a hardcoded literal**, not read
   from the real browser context. The synthetic-UA theory itself is settled —

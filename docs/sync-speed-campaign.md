@@ -885,3 +885,40 @@ and its conclusion ("reproducible enough to hash") is true of the condition it
 measured. It is the second time this design has been built on a promising
 narrow measurement; a third attempt needs a hit rate from the crawl-stored
 condition *before* anything is built.
+
+#### The obvious explanation for the 92%, tested and wrong
+
+Worth recording because it was a good hypothesis and it is dead. The stability
+probe sent a synthetic `User-Agent` (`"...opal-downloader-probe"`), the same
+class of fingerprint that had just been shown to make OPAL serve stubs. If it
+had been getting stubs, two fetches would match each other trivially — a stub
+carries none of the per-session Wicket bookkeeping the probe normalises away —
+so the failure would have inflated the exact number the probe reports. That
+would have explained the 92%-vs-3.9% gap by mechanism rather than by condition.
+
+Re-run 2026-07-30 with a browser-shaped UA, same 12 sections:
+
+| | 2026-07-27 (synthetic UA) | 2026-07-30 (browser UA) |
+|---|---|---|
+| whole page normalised | 11 / 12 | **11 / 12** |
+| content region normalised | 11 / 12 | **11 / 12** |
+| body sizes | not measured | **min 78,158 / median 78,204 / max 171,515 bytes** |
+
+**Unchanged, and the pages were never stubs** — 78 KB of HTML is a full course
+page. The probe has been measuring real pages all along, so the condition
+substitution described above stands on its own as the explanation and needs no
+help from the UA.
+
+The probe now reports its body-size distribution alongside the match counts
+regardless, since a match count cannot by itself distinguish "reproducible" from
+"identically empty", and that ambiguity is what made this hypothesis worth an
+hour in the first place.
+
+**A loose end this exposes, and it is about the fix rather than the cache.** A
+synthetic UA on a *standalone* low-volume probe did not get stubbed here, while
+the section-cache probe did — the difference being that the latter fired ~33
+requests interleaved with a live browser crawl. So the `cd1282c` fix is verified
+to *work* (345 files, byte-identical, per-course mechanism confirmed) but the
+*reason* it works is still a theory, and this run is mild evidence against the
+simplest version of it. Nothing depends on resolving that today; it is written
+down so nobody cites the UA mechanism as established.

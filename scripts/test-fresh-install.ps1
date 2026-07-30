@@ -238,7 +238,7 @@ try {
         go run "github.com/mxschmitt/playwright-go/cmd/playwright@$playwrightVersion" install
     }
     Write-Ok "Playwright install command completed (exit 0)"
-    Write-Note "This command prints no output on success even when it does real work. A brand-new user gets no confirmation that browsers were installed (or already present)."
+    Write-Note "Upstream's playwright CLI prints nothing on success even when it downloads ~470 MB. Not a gap in this tool any more: 'setup' calls playwright.Install directly and prints 'Installing Playwright browser binaries...' then 'Playwright browsers ready.' This step exercises the raw README command, so the silence here is upstream's."
 
     # -----------------------------------------------------------------------
     # Step 3: build the binary exactly as documented
@@ -258,7 +258,7 @@ try {
     Write-Ok "Built $binName"
 
     if ($binName -eq "opal-downloader" -and $IsWindowsPlatform) {
-        $noteMsg = 'On Windows, go build -o opal-downloader . (the exact README command) produces an EXTENSIONLESS file, not opal-downloader.exe. We found that invoking this extensionless file directly via the call operator in PowerShell does not reliably execute (returns with no output/exit code), while the same file renamed to .exe runs immediately. This script works around it (see docs/setup-friction.md), but a brand-new Windows user following the README literally could hit a silent hang here.'
+        $noteMsg = 'On Windows, go build -o opal-downloader . produces an EXTENSIONLESS file that PowerShell''s call operator does not reliably execute (returns with no output/exit code), while the same file renamed to .exe runs immediately. This script builds the extensionless form deliberately, to keep proving that the trap is real - README.md already documents the .exe form as the Windows build command and names this trap, so a user following the README is not exposed to it. Do not read this note as an open gap.'
         Write-Note $noteMsg
     }
 
@@ -371,10 +371,17 @@ session_state_file: "$($script:WorkDir -replace '\\','/')/opal_storage_state_tes
         Fail "'list' failed with a CONFIG error even though config.yaml is well-formed: $($listResult.Combined.Trim())"
     }
     Write-Ok "'list' did not fail with a config-parsing error (config.yaml with placeholder values parses fine)"
-    if ($listResult.Combined -match "ERR_UNSAFE_PORT|net::|playwright:") {
-        Write-Note "The failure at this stage is a raw Playwright/Chromium error ('$($Matches[0])...'), not a friendly message. A brand-new user with a real (but wrong) opal_url or no network would see this same raw error - see docs/setup-friction.md."
+    # This used to report the raw Playwright text as the whole story. It is not,
+    # and has not been since the unreachable-URL error got wrapped: check for the
+    # friendly line rather than describing its absence, so the note can never
+    # again contradict the output printed directly above it.
+    $friendly = ($listResult.Combined -match "could not reach OPAL at")
+    if ($friendly) {
+        Write-Ok "the network failure is wrapped in a friendly, actionable line before the raw Playwright detail"
+    } elseif ($listResult.Combined -match "ERR_UNSAFE_PORT|net::|playwright:") {
+        Write-Note "REGRESSION: the failure at this stage is a bare Playwright/Chromium error ('$($Matches[0])...') with no friendly line. That wrapping existed as of 2026-07-30; see docs/setup-friction.md item 4."
     }
-    Write-Note "IMPORTANT: with a valid opal_url but no saved session state file, 'list'/'sync' do NOT fail fast with a clean auth error - they instead open a real interactive browser and wait up to 5 minutes for login. This could not be safely automated here; see docs/setup-friction.md and docs/manual-setup-checklist.md."
+    Write-Note "Still true, and needs credentials to see: with a valid opal_url but no saved session state file, 'list'/'sync' do NOT fail fast - they open a real interactive browser and wait up to 5 minutes for login. 'status' answers the same question offline, but only if the user thinks to ask it. See docs/manual-setup-checklist.md."
 
     Write-Host ""
     Write-Host "All automatable checks passed." -ForegroundColor Green

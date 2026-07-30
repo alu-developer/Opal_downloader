@@ -88,9 +88,41 @@ which is exactly how 2026-07-27 was lost).
 
 ### Order of work
 
-1. Section-cache deletion (mechanical, approved, cheap). ✅ do first
-2. `.ico` (self-contained, no decisions left).
+1. Section-cache deletion (mechanical, approved, cheap). ✅ done (aa53757).
+2. `.ico` (self-contained, no decisions left). **In progress, see below.**
 3. The self-audit / acceptance instance — items 3 + 5 together. The big one.
+   **Started**: `docs/work-quality.md` (775a86b) names the two causes and
+   drafts a definition of done. `hookbeat.ps1` (a22156b) gives every wired
+   hook a liveness beat under `.claude/queue/.hookbeats/*.json` -
+   `Get-HookBeats` reads them back but has no caller yet. **Still missing:
+   the periodic/end-of-session reader that turns those beats (plus git log -
+   commits, tokens-per-commit is not available to a hook, tests-added-vs-
+   lines-added) into the verdict item 5 actually asked for.** That's the
+   next piece once .ico is done.
+
+### `.ico` progress (this session)
+
+`scripts/build-icon.ps1` renders `logoSVG`'s geometry (transcribed by hand -
+rect+radius, 4-stop diagonal gradient, the two-figure evenodd path) via WPF
+(`Geometry.Parse` understands the SVG path mini-language directly, no new
+dependency) at 16/32/48/64/128/256px, PNG-encodes each frame and hand-packs
+a multi-size `.ico` container. Output checked in at
+`internal/gui/assets/icon.ico`.
+
+**Verified, but not the way I first tried.** `System.Drawing.Icon.ToBitmap()`
+produced visual noise for a PNG-frame `.ico` - GDI+'s icon decoder does not
+reliably handle PNG-compressed ICO entries. The actual API the runtime wiring
+will use, `user32!LoadImageW` with `LR_LOADFROMFILE`, decodes all of
+16/32/48/256 correctly (checked by rendering each to a PNG and viewing it -
+the mark is correct, not noise). So: PNG-in-ICO is fine for the real load
+path, just not for that one GDI+ convenience method - don't reuse
+`System.Drawing.Icon.ToBitmap` as a verification shortcut for this file again.
+
+**Not done yet: the runtime wiring itself** - `window_windows.go` doesn't
+call `WM_SETICON` yet, and the `.exe`'s own Explorer-icon (`.syso` resource,
+needs a build-time tool - a new decision, unlike the WPF path) is
+deliberately out of scope for this pass; note it in BACKLOG as a follow-up
+rather than deciding it here.
 
 ### Do not lose
 

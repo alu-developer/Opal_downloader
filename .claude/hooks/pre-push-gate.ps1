@@ -56,12 +56,26 @@ if (-not $command) { exit 0 }
 
 # Strip quoted strings first, so a commit message that happens to contain the
 # word "push" (`git commit -m "push the parser harder"`) is not mistaken for a
-# push. Caught by the matcher tests below - it fails safe (runs dev.ps1
-# needlessly) rather than unsafe, but a gate that cries wolf gets ignored.
+# push. Covered by the matcher tests in scripts/test-hooks.ps1 - it fails safe
+# (runs dev.ps1 needlessly) rather than unsafe, but a gate that cries wolf gets
+# ignored.
 $scan = $command -replace '"[^"]*"', '' -replace "'[^']*'", ''
 
 # Match a real push: `git push`, `git -C ... push`, `git push --force`.
-if ($scan -notmatch '(^|[\s;&|(])git\b[^;&|]*\bpush\b') { exit 0 }
+#
+# `\r\n` is in the excluded set for a reason found the hard way on 2026-07-30.
+# A negated character class matches newlines, so `[^;&|]*` spanned them, and a
+# heredoc commit
+#
+#     git commit -F - <<'EOF'
+#     ... then push again
+#     EOF
+#
+# glued the body's "push" to the `git` on line 1 and gated a plain commit as a
+# push. Quote-stripping does not help: a heredoc body is not quoted. It cost
+# two blocked commits before anyone read the regex, since the gate's message
+# says the build failed rather than that it decided this was a push.
+if ($scan -notmatch '(^|[\s;&|(])git\b[^;&|\r\n]*\bpush\b') { exit 0 }
 
 # A dry run changes nothing on the remote, so gating it is pure cost.
 if ($scan -match '--dry-run') { exit 0 }
@@ -70,6 +84,12 @@ Write-Host "pre-push gate: running scripts/dev.ps1 all before pushing..."
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $devScript = Join-Path $repoRoot "scripts\dev.ps1"
+# Test seam, same shape as the other hooks' OPAL_* overrides. Without it the
+# suite could only ever exercise the "not a push" branch, because the real
+# branch shells out to the very script that runs the suite. This is a local
+# convenience gate, not a security boundary - anyone able to set env vars for
+# this process can already run git directly.
+if ($env:OPAL_PREPUSH_DEV_SCRIPT) { $devScript = $env:OPAL_PREPUSH_DEV_SCRIPT }
 if (-not (Test-Path $devScript)) {
     Deny "pre-push gate: $devScript not found - refusing to push unverified."
 }
@@ -92,7 +112,19 @@ if ($threw) {
     Deny "pre-push gate: dev.ps1 threw: $threw"
 }
 if ($code -ne 0) {
-    Deny "pre-push gate: scripts/dev.ps1 all failed (exit $code) - push blocked. Fix it, then push again."
+    # "Fix it" alone sent a reader hunting for a nonexistent bug twice on
+    # 2026-07-30. The most common cause is ambient, not broken code: the hook
+    # suite asserts that nothing else is running in this tree, so a live probe
+    # run (TestFileListSnapshot and friends, several minutes each) fails it
+    # legitimately. Say so here rather than in a doc nobody reads mid-block.
+    Deny @"
+pre-push gate: scripts/dev.ps1 all failed (exit $code) - push blocked.
+
+Check the output above before assuming the code is broken. If a live test or
+probe run is active in this tree, the hook suite's "nothing else in this repo
+is running" precondition fails by design - wait for it to finish and retry.
+Otherwise fix the failure and push again.
+"@
 }
 
 Write-Host "pre-push gate: dev.ps1 all passed."

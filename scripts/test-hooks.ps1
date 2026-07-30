@@ -1045,6 +1045,120 @@ Not blocked at all.
     $env:OPAL_AUTOPILOT_QUEUE_DIR = $queueDir
 
     # =========================================================================
+    Write-Host "`npre-push-gate (PreToolUse)" -ForegroundColor Cyan
+    # =========================================================================
+    # This hook gates every push in the repo and had no tests at all until
+    # 2026-07-30 - its own comment said "caught by the matcher tests below" and
+    # there were none. What it gets wrong is invisible in the worst direction:
+    # a matcher that under-matches means it silently never fires (which is
+    # exactly what happened for months, see the hook's header), and one that
+    # over-matches blocks ordinary commits.
+    #
+    # The real branch shells out to dev.ps1, which is what runs this suite, so
+    # OPAL_PREPUSH_DEV_SCRIPT points it at a stub. The stub also records that it
+    # ran, so "decided this was not a push" is proved by absence rather than
+    # assumed from an exit code that a skipped run and a passing run share.
+    $prepushHook = Join-Path $hooksDir "pre-push-gate.ps1"
+    $prepushDir = Join-Path $sandbox "prepush"
+    New-Item -ItemType Directory -Path $prepushDir -Force | Out-Null
+    $ranMarker = Join-Path $prepushDir "dev-ran.txt"
+    $stubPass = Join-Path $prepushDir "dev-pass.ps1"
+    $stubFail = Join-Path $prepushDir "dev-fail.ps1"
+    Set-Content $stubPass -Encoding utf8 -Value @"
+"ran: `$args" | Add-Content '$ranMarker'
+exit 0
+"@
+    Set-Content $stubFail -Encoding utf8 -Value @"
+"ran: `$args" | Add-Content '$ranMarker'
+Write-Host 'stub dev.ps1: pretending the suite failed'
+exit 1
+"@
+
+    Assert-That "pre-push-gate.ps1 exists" (Test-Path $prepushHook)
+    Assert-That "pre-push-gate is registered in settings.json" `
+        ((Get-Content (Join-Path $repoRoot ".claude\settings.json") -Raw) -match "pre-push-gate")
+
+    function Invoke-Prepush {
+        <#  Returns the exit code, and whether the stub dev script ran. #>
+        param([string]$Command, [string]$Stub = $stubPass)
+        # Function-scoped, so it shadows the script's 'Stop' only in here. This
+        # gate writes its refusal to stderr *by design*, and under 'Stop' that
+        # comes back as a terminating NativeCommandError which aborted the whole
+        # suite - the blocking test cannot assert on a refusal it is killed by.
+        # 2>$null alone is not enough: the hook writes via [Console]::Error, and
+        # the redirection still leaves PowerShell raising on the native exe.
+        $ErrorActionPreference = 'Continue'
+        Remove-Item $ranMarker -ErrorAction SilentlyContinue
+        $env:OPAL_PREPUSH_DEV_SCRIPT = $Stub
+        $payload = @{ tool_input = @{ command = $Command } } | ConvertTo-Json -Depth 5 -Compress
+        $payload | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $prepushHook 2>$null | Out-Null
+        $code = $LASTEXITCODE
+        Remove-Item Env:\OPAL_PREPUSH_DEV_SCRIPT -ErrorAction SilentlyContinue
+        return @{ Code = $code; Ran = (Test-Path $ranMarker) }
+    }
+
+    # --- the branch that must fire -----------------------------------------
+    $r = Invoke-Prepush 'git push origin master'
+    Assert-That "a plain push runs the check" $r.Ran "dev script did not run"
+    Assert-That "and is allowed through when the check passes" ($r.Code -eq 0) "exit $($r.Code)"
+
+    $r = Invoke-Prepush 'cd "C:\x\Opal_downloader" && git push -u origin some-branch'
+    Assert-That "the compound form that once bypassed this gate for months is caught" $r.Ran "dev script did not run"
+
+    $r = Invoke-Prepush 'git push --force-with-lease origin master'
+    Assert-That "a force-push is gated too" $r.Ran "dev script did not run"
+
+    $r = Invoke-Prepush 'git -C /some/repo push'
+    Assert-That "git -C ... push is caught" $r.Ran "dev script did not run"
+
+    # --- blocking, which is the half that must not fail open ---------------
+    $r = Invoke-Prepush 'git push origin master' $stubFail
+    Assert-That "a failing check blocks with exit 2, not 1" ($r.Code -eq 2) `
+        "exit $($r.Code) - Claude Code only treats 2 as blocking, so any other code lets the push through"
+
+    # --- the branch that must NOT fire -------------------------------------
+    # Each of these ran dev.ps1 (~2 minutes) before this section existed, or
+    # blocked a commit outright.
+    $r = Invoke-Prepush 'git commit -m "push the parser harder"'
+    Assert-That "a quoted commit message mentioning the word is not a push" (-not $r.Ran) "dev script ran"
+
+    $heredoc = "git add docs/BACKLOG.md && git commit -q -F - <<'EOF'`nNote why the gate said push blocked`n`nFix it, then push again.`nEOF"
+    $r = Invoke-Prepush $heredoc
+    Assert-That "a heredoc commit body mentioning the word is not a push" (-not $r.Ran) `
+        "dev script ran - the matcher's negated class is spanning newlines again, so the body glued onto the leading git"
+
+    $r = Invoke-Prepush 'git push --dry-run origin master'
+    Assert-That "a dry run changes nothing on the remote, so it is not gated" (-not $r.Ran) "dev script ran"
+
+    $r = Invoke-Prepush 'git status'
+    Assert-That "an unrelated git command is not a push" (-not $r.Ran) "dev script ran"
+
+    $r = Invoke-Prepush 'npm run push-notifications'
+    Assert-That "a non-git command containing the word is not a push" (-not $r.Ran) "dev script ran"
+
+    # --- fail-open only where it cannot tell -------------------------------
+    # Deliberately NOT routed through Invoke-Prepush: that helper wraps its
+    # argument in a valid JSON payload, so handing it malformed text would test
+    # the matcher against a harmless string and pass for the wrong reason.
+    function Invoke-PrepushRaw {
+        param([string]$Json, [string]$Stub = $stubPass)
+        $ErrorActionPreference = 'Continue'
+        Remove-Item $ranMarker -ErrorAction SilentlyContinue
+        $env:OPAL_PREPUSH_DEV_SCRIPT = $Stub
+        $Json | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $prepushHook 2>$null | Out-Null
+        $code = $LASTEXITCODE
+        Remove-Item Env:\OPAL_PREPUSH_DEV_SCRIPT -ErrorAction SilentlyContinue
+        return @{ Code = $code; Ran = (Test-Path $ranMarker) }
+    }
+
+    $r = Invoke-PrepushRaw '{not json at all' $stubFail
+    Assert-That "unreadable input fails open, so it cannot break every other Bash call" ($r.Code -eq 0) "exit $($r.Code)"
+    Assert-That "and does not run the check on input it could not parse" (-not $r.Ran) "dev script ran"
+
+    $r = Invoke-PrepushRaw '{"tool_input":{}}' $stubFail
+    Assert-That "a payload carrying no command is not treated as a push" ($r.Code -eq 0) "exit $($r.Code)"
+
+    # =========================================================================
     Write-Host "`nnoticed-gate (Stop)" -ForegroundColor Cyan
     # =========================================================================
     # Asks once per session for one thing noticed and not done. Every assertion

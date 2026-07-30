@@ -922,3 +922,89 @@ to *work* (345 files, byte-identical, per-course mechanism confirmed) but the
 *reason* it works is still a theory, and this run is mild evidence against the
 simplest version of it. Nothing depends on resolving that today; it is written
 down so nobody cites the UA mechanism as established.
+
+### 2026-07-30 — the DOM-marker lead: found a real candidate, not yet built
+
+The 2026-07-27 entry above named the one genuinely unexplored lead left after
+the network-layer investigation: "a DOM-level completion marker Wicket itself
+sets, if one exists... Neither has been looked for." This is the DOM half of
+that sentence (the "different OPAL view" half needs a human looking at OPAL's
+own UI, not an automated probe).
+
+**Built:** `internal/scraper/mutationmarker_probe_test.go`
+(`OPAL_MUTATION_MARKER_TRACE=1`, `OPAL_MUTATION_MARKER_COURSE=<name>`).
+Installs a `MutationObserver` via `page.AddInitScript` — so it attaches before
+Wicket's own render starts, the same ordering the production settle-wait
+depends on — and records every mutation's target/type/attribute-value/
+timestamp across one section's full render-to-stable sequence (`visitSection`,
+the same call the real crawl makes). The idea: if the render's last mutation
+(or a small stable set of them) always targets the same non-content element —
+Wicket's own chrome rather than the file table — that touch could be the
+positive signal this campaign has never found.
+
+**First attempt hit a login problem, not a probe problem.** The saved session
+(last refreshed 13:47 that day) had expired by the time this first ran
+(~21:00), so `ensureSession` fell back to interactive login. It did not
+complete within a 5-minute test timeout and `go test` killed the run with a
+panic before the probe ever reached a section. No orphaned browser process was
+left behind — `internal/procguard`'s job-object mechanism killed the child
+Chromium with the panicking parent, confirmed by checking for leftover
+processes afterward. A plain `login` run straight after, with more patience
+(under 8 minutes), completed normally in a few seconds — TU-Fast is not
+broken; the extension is present (`Extensions/aheogihliekaafikeepfjngfegbnimbk/
+8.3.0.0_0`, v8.3.0.0) and worked the very next attempt. One data point either
+way: this was very likely a one-off (a slow 2FA push, or a cold-launch
+first-run cost), not a regression — but worth remembering if it recurs.
+
+**With a fresh session, the probe ran against 4 different courses' root
+sections and found the same signature in all four:**
+
+| course | last-8 tail includes | trailing MathJax? |
+|---|---|---|
+| Algorithmen und Datenstrukturen | `div#id215[aria-activedescendant]`, then MathJax | yes, MathJax finishes last |
+| Softwaretechnologie (SoSe 26) | `div#id798.class="jstree jstree-1 jstree-default"`, `[aria-busy=false]`, `[aria-activedescendant=...]` — **the literal last mutation** | no MathJax in this course |
+| Analysis | same jstree triple, **the literal last mutation**, MathJax fires earlier in the tail | yes, but finishes before jstree |
+| 2026 LA20 | same `aria-activedescendant` mutation, MathJax trails after | yes, MathJax finishes last |
+
+**The element is jsTree — a generic, well-documented jQuery tree widget — and
+its own initialization completion is marked exactly the way this lead hoped
+for.** `class="jstree jstree-1 jstree-default"` identifies it unambiguously
+(that class string is jsTree's own signature, not OPAL/Wicket bookkeeping);
+`aria-busy` flips to `"false"` and `aria-activedescendant` gets set to the
+tree's default-focused node, together, as jsTree's last act of finishing its
+own render. This is almost certainly the course-navigation tree rendered
+alongside every section's content — present regardless of course subject,
+which is why it showed up in all four.
+
+**What this does and does not establish.** It establishes that a real,
+semantically-meaningful, cross-course completion signal exists and is
+identifiable (`.jstree[aria-busy="false"]`, or a MutationObserver scoped to
+that attribute). It does NOT establish that watching for it alone is
+sufficient or faster in practice:
+
+- Courses using MathJax need *its* completion too (MathJax's own async
+  typesetting), which is a separate subsystem with no relationship to Wicket
+  or jsTree - in 2 of the 4 courses here it finished after jsTree, so a
+  jsTree-only signal would fire too early on those and risk exactly the
+  "read before the render is done" failure mode `docs/sync-speed-campaign.md`
+  has lost files to before (the `4->1` history, `AJAX_CALL_DONE`).
+- All four samples here are course *root* sections. Whether every subfolder
+  section re-renders (and re-completes) the same jstree widget, or whether it
+  persists across navigations within a course and only initializes once, is
+  unknown - if it is the latter, this signal would only ever fire on the
+  first section of a crawl and say nothing about the other few hundred.
+- 4 root sections is enough to say "this is not a fluke of one page" but not
+  enough to say "this generalizes to every section this tool visits" - this
+  project's own standard (`docs/sync-speed-campaign.md`'s repeated lesson
+  about single-condition measurements) applies here too.
+
+**Not built, deliberately, same reasoning as every prior lead here:** this
+touches the settle-wait/stability-poll pair directly, in the most
+correctness-sensitive part of this codebase, with a documented history of
+*silent* file loss from exactly this kind of change. Before anything is
+built: confirm the signal fires on non-root sections too, confirm the
+MathJax-ordering question (does it ever fire before MathJax on a page that
+has math content, and does that matter), and any implementation needs the
+same byte-for-byte ground-truth comparison every other change here has been
+held to. That is real follow-up work, not a next-session one-liner - flagged
+in `docs/BACKLOG.md` rather than started here.

@@ -169,7 +169,14 @@ import (
 // first-run finding that choosing specific courses was discoverable only by
 // unticking a box a stranger had no reason to untick (maintainer's call,
 // 2026-07-31). Written smaller twice before raising: +9, then +6.
-const codeLineBudget = 11873
+// Raised to 11879 on 2026-07-31 (was 11873) for `8fe36a1`, which activated
+// mode=1: the HTTP result is returned instead of only compared, guarded by
+// diff=0 against the browser. Six lines in orchestrator.go/scraper.go.
+// Recorded late and separately, which is the point worth keeping: that commit
+// went in over budget, so master was red until this raise. The gate that would
+// have caught it only exists when the session was started in this directory
+// (see CLAUDE.md, "How to organise yourself") - run scripts/dev.ps1 all by hand.
+const codeLineBudget = 11879
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

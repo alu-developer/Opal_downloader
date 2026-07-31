@@ -182,3 +182,52 @@ This is exactly the kind of cause-naming the maintainer asked for instead of
 "it didn't work". The earlier "show-all recovers files" result still holds for
 the leaf-table pagination gap; this finding scopes WHERE HTTP applies (leaf
 file tables) vs where the browser is still needed (tree enumeration).
+
+### Maintainer idea (2026-07-31) — "use cache for fast results, run the slow version in parallel"
+A genuinely better framing than my A-vs-B either/or: run BOTH concurrently.
+Fast HTTP pass over cached section URLs returns most files quickly (~35s);
+the full browser tree-walk runs in PARALLEL and supplies any sections the
+cache didn't know (new folders). Merge when both done. The user gets fast
+visible results AND no silent file loss (browser pass always completes the
+set). This needs feasibility-checking before building, not promising:
+
+UNANSWERED QUESTIONS (must measure, not assume):
+1. Can cache-HTTP and browser results merge without dupes/conflicts? The
+   syncer keys files by path; if both sources report the same file, does the
+   merge dedupe cleanly or double-process?
+2. Is the cache-HTTP pass actually faster than the browser pass STARTING
+   concurrently from zero? If both take ~60s, parallelism buys nothing. The
+   35s HTTP number was for 164 ALREADY-KNOWN urls; the browser must still
+   enumerate them. So the win is: HTTP returns files WHILE browser still walks.
+3. Does running HTTP and browser against the same OPAL session concurrently
+   re-trigger the Wicket session-serialization trap (the documented parallel-
+   ism corruption)? This is the highest-risk unknown.
+
+If (3) is a problem, the parallel idea dies on the same reef the old
+concurrency attempts did. If (3) is fine, it's the best design. MEASURE FIRST.
+
+### MEASURED — the parallel idea is DEAD: concurrent HTTP+browser corrupts the session (2026-07-31)
+Tested the maintainer's "run both in parallel" idea directly: started a
+browser SW crawl, then fired the HTTP probe CONCURRENTLY against the same
+saved session. Result:
+
+| | serial (alone) | concurrent (HTTP + browser at once) |
+|---|---|---|
+| Browser | 200 files | **75 files** (lost 125!) |
+| HTTP | 158 files | 156 files (stable) |
+
+Running HTTP and the browser against the same OPAL session concurrently made
+the BROWSER's "show all" expansion fail ("71 rows before, 71 after, expansion
+added nothing") and drop 125/200 files. HTTP stayed stable (156 vs 158).
+
+**Named cause:** the documented Wicket session-serialization trap. Browser and
+HTTP share session cookies; concurrent requests collide in Wicket's server-side
+per-session page state, corrupting the browser's DOM/AJAX state. This is the
+SAME reef the old concurrency attempts died on, now measured for HTTP-vs-
+browser specifically. **Parallel HTTP+browser discovery is not viable.**
+
+Decision: build the serial HYBRID (option A). The browser owns the session
+during tree-walk; HTTP fetches leaf tables ONLY when the browser is done (or
+never concurrently). This is always-complete (no silent loss) and skips the
+per-section settle wait by bulk-fetching leaf tables. The maintainer's parallel
+idea would have been faster but is impossible against this OPAL session model.

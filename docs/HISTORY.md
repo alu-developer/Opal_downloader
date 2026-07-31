@@ -3,9 +3,9 @@
 This file holds detailed narrative for past design decisions — the "how we
 got here" story, split out from `CLAUDE.md` so that file can stay a current
 current-state-plus-direction reference without needing an edit every time
-more history accumulates. `CLAUDE.md`'s "Login/session automation" section
-keeps a short current-state pointer into this file; read here for the full
-story and PR-by-PR reasoning.
+more history accumulates. `docs/architecture.md`'s "Login/session automation"
+section keeps the short current-state version; read here for the full story
+and PR-by-PR reasoning.
 
 ## Browser profile handling: copy vs. direct-launch vs. dedicated second profile
 

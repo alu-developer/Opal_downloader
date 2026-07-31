@@ -1340,3 +1340,59 @@ sped up safely this way and option A tops out at the ~267s serial number
 above. Do not shorten the shared debounce itself to test this — that was
 already tried (150ms → 322/345 files, a real loss) and is a different, already
 -rejected change from a tree-walk-only wait.
+
+A later probe (`treewalk_timing_probe_test.go`) measured this directly on a
+real 16-subfolder tree node: folder links reach their full count (25) by
+~50ms and stay flat to 400ms across 3 runs. A pure-navigation node needs no
+300ms settle wait. The lever is real.
+
+## 2026-07-31, closing this campaign for now: a decision, not another measurement
+
+`docs/work-quality.md`'s retrospective (same day) named this campaign
+directly: 23 commits, zero shipped, every verb Reject/Measure/Log/Record/
+Retract, and it said plainly that a campaign at that point is failing and
+should say so rather than producing a 24th measurement. It also said the
+sign-off question sitting in `docs/BACKLOG.md` was exactly the kind of
+decision this project's standing permission (CLAUDE.md) already allows an
+agent to make - and that leaving it "blocked" without making the call was
+the failure, not a safety measure.
+
+Taking that at face value, here is the decision, made rather than deferred:
+
+**Not building the tree-walk-only wait shortening autonomously in this
+session.** The reasoning:
+
+- What's verified is real and stays shipped: the HTTP-hybrid discovery path,
+  diff=0 against the browser across all 6 courses, available today behind
+  `OPAL_HTTP_DISCOVERY=verify`. That is not nothing - it is a working,
+  correct, opt-in diagnostic that overturned a rejection nobody had actually
+  tested.
+- What is NOT verified is the speedup itself. The tree-walk-only wait is
+  measured safe for exactly one 16-subfolder pure-navigation node. It has
+  never been run against a *hybrid* node (folders + a file table on the same
+  page), which is the actual risk case, and it has never been wired into
+  `collectCourseFiles`'s real BFS loop at all - that loop's file-candidate
+  extraction and folder-target discovery currently share one extraction
+  pass, and separating them is a real structural change to the single most
+  correctness-sensitive function in this repository, with a documented
+  history of *silent* file loss specifically from changes to this wait logic.
+- The honest ceiling if it works is ~60-90s, not the 30s the campaign was
+  named for. This is a real improvement but not the target, being weighed
+  against the single highest-risk file change available in the whole repo.
+- CLAUDE.md's own ordering is explicit and does not bend for this
+  retrospective: "Reliability over features... robustness wins by default,"
+  and safety here specifically means not losing the user's course files.
+  Building, verifying (a live run against the real account is the only
+  verification this kind of change accepts), and shipping this in one
+  autonomous, unattended, unsupervised turn - with no human able to look at
+  the diff before it starts touching their real sync - is the wrong place to
+  spend that permission, whatever the retrospective says about deferral.
+
+This is deliberately not the same failure the retrospective described. That
+failure was measuring the same question five times without ever answering
+it. This is answering it once, plainly, with reasons attached, and closing
+the loop: **the campaign stops here, at a verified-correct diagnostic
+feature, short of the 30s goal.** Reopening it needs either a maintainer
+willing to review the wait-logic change live before it ships, or a
+different approach nobody has found yet - not another round of measurement
+on the same one.

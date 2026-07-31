@@ -35,38 +35,6 @@ One decision on the record: **`internal/scraper/crawl.go` (1250 lines) stays
 unsplit** — the most correctness-sensitive file here, with a documented history
 of silent file loss from changes to it. Tidying buys nothing worth that risk.
 
-### Sync speed: HTTP-hybrid built and verified, but 30s needs a risky wait-shortening — needs sign-off
-**Blocked:** **open question for the maintainer — is it worth shortening
-`waitForInteractiveLinks`/`waitForContentSettled` (browser only walks the
-section tree, HTTP supplies every leaf file table) to get to an estimated
-~60-90s, given that code's documented silent-file-loss history? Or stop here
-with the verified-correct HTTP-hybrid as a diagnostic-only addition and leave
-production sync as-is?**
-
-The standing goal (2026-07-21): a no-op sync should feel instant, ~30s, not
-5+ minutes. `docs/sync-speed-campaign.md` is the full decision log — every
-measurement and every rejected approach, most recently the 2026-07-31 entry.
-Read it before reaching for one.
-
-Where it stands: a serial HTTP-hybrid discovery path is built and gated
-behind `OPAL_HTTP_DISCOVERY` (off by default, `verify` mode logs a diff
-against the browser). Verified against the real account: **diff = 0 across
-all 6 courses** — the HTTP leaf-fetch reproduces the browser's file set
-exactly. But verify mode runs browser (200s) + HTTP (56s) serially = 267s,
-*slower* than browser alone — HTTP-first only saves time if it *replaces* the
-browser's file-table reading, and the browser still has to walk the section
-tree (confirmed JS-rendered, not reachable over plain HTTP). The remaining
-lever is shortening the settle-wait once the browser only needs to navigate,
-not read a file table — real, but touches the same wait-condition code that
-has silently lost files before, so it needs the same sign-off every prior
-change to this code has required. A file *count* is not acceptable evidence
-here if it is attempted — byte-for-byte against the 345-file ground truth
-(`scripts/compare-visit-runs.ps1`) is the bar.
-
-The separate jsTree+MathJax completion-signal lead (2026-07-30) is still on
-the table as an alternative way to shorten the same wait, also unattempted
-for the same reason.
-
 ### Dogfood the whole first-run journey
 **Blocked:** on the maintainer opening the GUI as a stranger would.
 
@@ -144,9 +112,18 @@ move the rest across.
   turn-failure-checkpoint, noticed-gate, autopilot-gate, pre-push-gate) —
   `scripts/dev.ps1 all` is fully green for the first time this session
   (2026-07-31).
-- Raised the code budget for the verified serial-hybrid HTTP discovery
-  feature; built/measured the tree-walk wait lever (folder links stable by
-  50ms) — still blocked on sign-off before building it (2026-07-31).
+- **Closed the sync-speed campaign's remaining question myself, per
+  `docs/work-quality.md`'s instruction to decide rather than defer:** decided
+  NOT to build the risky wait-shortening change autonomously. Reasoning in
+  `docs/sync-speed-campaign.md`'s closing entry (2026-07-31) — the short
+  version: the verified HTTP-hybrid (diff=0, all 6 courses) ships as an
+  opt-in diagnostic; the only path to an actual speedup needs an unreviewed
+  change to the crawl's highest-risk code, for an estimated (not measured)
+  ~60-90s that still misses the original 30s target. CLAUDE.md ranks
+  reliability over features and over ease-of-use; an autonomous, unattended
+  turn is not the place to gamble with a real user's file sync on an
+  estimate. This is a decision, not a stall - reopen it only with a
+  maintainer watching the diff live, not by re-measuring.
 - Resolved two Noticed items with real evidence, both against my own
   same-session claims: the resume runner's Logon trigger genuinely fires
   (Task Scheduler event 119, "due to user log-on", 2026-07-31 01:04:24 -

@@ -81,15 +81,8 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
-- **Why the User-Agent fix works is still a theory.** `cd1282c` demonstrably
-  restores all 6 courses (345 files, byte-identical). But a standalone probe
-  sending the same synthetic UA at low volume was served full pages, not stubs
-  — so "OPAL flags that fingerprint" is not the whole story. Probably volume or
-  interleaving with a live crawl; nobody has isolated it. Cite the result, not
-  the mechanism. Anything this project adds that talks to OPAL over plain HTTP
-  should look like the browser it runs next to;
-  `internal/scraper/htmlstability_probe_test.go` keeps the only surviving copy
-  of the string.
+Empty right now. That's not nothing left to notice — it means the next thing
+belongs here the moment it's seen, not that the well is dry.
 
 ---
 
@@ -100,6 +93,15 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- Closed the last Noticed item (the User-Agent-fix theory) with a decision
+  instead of another probe: isolating the mechanism further would mean
+  deliberately sending a higher-volume burst at the real OPAL server to try
+  to reproduce the original degradation, which is exactly what
+  `docs/server-load.md` exists to weigh before doing — "read before any
+  change that would make the tool ask OPAL for more, or ask faster" applies
+  to a curiosity probe the same as a shipped feature. The result
+  (`cd1282c`'s fix demonstrably works, 345 files byte-identical) stays cited
+  regardless of the unexplained mechanism; nothing to build here.
 - Closed the "unattended run can't wait for a background job" Noticed item
   without building a detector: `docs/work-quality.md` names building more
   watch-the-process machinery as the exact anti-pattern to stop, and the

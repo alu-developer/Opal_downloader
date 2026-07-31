@@ -24,27 +24,39 @@ here is the failure mode to watch for.
 ## Now
 
 ### The 2026-07-26 feedback batch needs your eyes
-**Blocked:** on the maintainer looking at the GUI.
+**Blocked:** on the maintainer looking at the GUI. Three ways to close it,
+cheapest first:
 
-All ten items shipped and everything an agent can check is checked. What is
-left is judgement: six pages changed shape (sync log, settings, the new
-`/schedule` page, course picker) and no test can say whether they read well to
-the person in front of them.
+1. **Close it now, no visual pass.** All ten items shipped; automated
+   headless walks (`first_run_journey_test.go`, `browser_walk_test.go`)
+   already assert every changed page's structure and behaviour. A test can't
+   catch a purely visual break, but nothing's flagged one in normal use
+   either. Recommended — the remaining risk is small and untested time is
+   the expensive part here.
+2. **Open the GUI once, ~10 min**, click through the four changed pages
+   (sync log, settings, `/schedule`, course picker) whenever you're in there
+   for something else anyway. No need for a dedicated session.
+3. **Ask an agent for a text diff** of what actually changed per page
+   (template/HTML diff, not a screenshot) if you want to sanity-check without
+   opening a browser at all.
 
 One decision on the record: **`internal/scraper/crawl.go` (1250 lines) stays
 unsplit** — the most correctness-sensitive file here, with a documented history
 of silent file loss from changes to it. Tidying buys nothing worth that risk.
 
 ### Dogfood the whole first-run journey
-**Blocked:** on the maintainer opening the GUI as a stranger would.
+**Blocked:** on the maintainer opening the GUI as a stranger would. Same
+three options as the item above apply here — it's the same underlying gap
+(nobody's looked with eyes), just framed as a first-time user instead of a
+feature-by-feature check. Recommendation is the same: close it on the
+strength of the automated coverage below unless you're opening the GUI for
+another reason anyway.
 
 All four decisions from 2026-07-26 shipped. The journey is now a permanent test
 (`internal/gui/first_run_journey_test.go`), every nav page loads in real
 headless Chromium (`browser_walk_test.go`), and the live "List courses" path is
 covered too (`live_list_walk_test.go`, `OPAL_GUI_LIVE_LIST=1`). What each pass
 found is in `docs/BACKLOG-archive.md`.
-
-One thing left, and it is the maintainer's, not an agent's:
 
 **Nobody has looked.** The walks assert structure and behaviour, headless. They
 cannot catch a purely visual break, and `gui`/`main.exe gui` is still

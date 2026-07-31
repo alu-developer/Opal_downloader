@@ -19,6 +19,9 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
+Nothing in flight right now.
+
+<!--RESUME-CONTENT-BELOW-DELETED-->
 ## In flight: sync-speed campaign, 30 s target (maintainer 2026-07-31)
 
 **Goal (maintainer, verbatim):** sync in max 30 s, down from current ~200-300 s.
@@ -309,3 +312,23 @@ This is the real next experiment: does the section TREE (folder nav links) need
 the same settle wait the file table does, or do folder links render early
 enough that a navigation-only wait suffices? Measure, don't assume - this is
 the exact class of change that lost files silently before.
+
+### HANDOVER — clear next-session starting point (2026-07-31)
+State: 9 commits this session on master. Everything builds, full scraper suite
+green, HTTP discovery verified diff=0 against the 345-file contract.
+
+The ONE remaining lever for speed (without the silent-loss cache B): make the
+browser walk the section tree WITHOUT paying the settle wait that exists to
+render file tables, and let HTTP fetch the leaf tables instead. This means a
+navigation-only variant of the visitSection wait, which is the exact code with
+documented silent-file-loss history. Do NOT just shorten the debounce - the
+campaign measured that (150ms -> 322/345 files, real loss). The tree-walk case
+must be measured on its own: do folder-nav links render early enough (the page
+finishes structurally in ~36ms per the campaign) that a short wait finds them
+even when the file table has not settled?
+
+Concrete first experiment for the next session: capture a section with
+subfolders at multiple time points and diff folder-link counts. If folder
+links are present at ~50ms but file tables need 300ms+, a navigation-only
+short wait is viable and the speedup is real. If they appear together, the
+tree-walk cannot be sped up safely and A tops out where it is.

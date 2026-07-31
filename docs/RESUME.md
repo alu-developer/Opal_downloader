@@ -148,3 +148,37 @@ The repo's own `resume-runner.ps1` + scheduled task handle cross-session resume.
 In-session cron job (rescues a still-open session whose turn was killed) AND
 this file (survives reboot / 7-day expiry / fresh clone) are both kept current.
 The repo's own `resume-runner.ps1` + scheduled task handle cross-session resume.
+
+### HONEST OBSTACLE — the section TREE is JS-rendered, not just the files (2026-07-31)
+Building on the verified file-level results above, the next thing measured was
+whether HTTP can enumerate a course's section TREE (the BFS walk the browser
+does: root → nested folder links → recurse). The browser finds 163 SW sections
+this way. Over plain HTTP:
+
+- SW course root (RepositoryEntry/53228666883): 8 CourseNode hrefs, but **7 of
+  8 point at OTHER courses** (dashboard/breadcrumb nav) — only 1 is SW's own.
+- SW content entry node (CourseNode/1615865126719828011): **1 child, 0 files.**
+  The browser finds 163 sections + 207 files from here.
+
+**Diagnosed cause (named, not guessed):** OPAL's course-content navigation
+tree (the left-sidebar folder structure) is rendered client-side via JS. The
+HTTP response contains neither the nested section-folder links nor the leaf
+file tables until the tree is *navigated* (clicked open). This is the OPPOSITE
+split from the campaign doc's claim: it is not "files are JS-rendered" (they
+aren't — leaf file tables are server-rendered, proven above); it is the
+**section-navigation tree** that is JS-driven.
+
+**Implication for the 30 s target:** the pure-HTTP approach (fetch every
+section URL) only works if you ALREADY have the section URLs. The browser's
+value isn't reading files — it's walking the tree to discover which sections
+exist. So the realistic design is NOT "HTTP replaces the browser entirely":
+it is **hybrid** — browser walks the tree once to enumerate section URLs
+(cheap, no per-section settle wait needed for navigation), then HTTP fetches
+each leaf section's file table in bulk (where the 0.67s/section × 280 =
+~190s actually goes). That still attacks the dominant cost (the per-section
+page-load+settle wait), but it does not eliminate the browser.
+
+This is exactly the kind of cause-naming the maintainer asked for instead of
+"it didn't work". The earlier "show-all recovers files" result still holds for
+the leaf-table pagination gap; this finding scopes WHERE HTTP applies (leaf
+file tables) vs where the browser is still needed (tree enumeration).

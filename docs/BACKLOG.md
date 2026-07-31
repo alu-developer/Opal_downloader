@@ -23,30 +23,6 @@ here is the failure mode to watch for.
 
 ## Now
 
-### Sync-speed campaign, reopened: build the tree-walk-only wait, self-verify, iterate
-**Not blocked — run it autonomously, unattended, over as many attempts as it
-takes.** Full recipe in `docs/sync-speed-campaign.md`'s 2026-07-31 REOPENED
-entry (top of that file); short version: shorten the settle wait for
-pure-navigation sections only (folder links stabilise at ~50ms, per
-`treewalk_timing_probe_test.go`), behind a new flag, diagnostic-mode only
-against the real account, byte-for-byte diff against the 345-file ground
-truth (`scripts/compare-visit-runs.ps1`). On a non-empty diff: diagnose the
-cause, fix, retry — don't just retune a number. Needs an empty diff across
-**two independent real runs** before it's done; record the result either way
-(shipped-behind-a-flag-with-a-number, or a diagnosed rejection) in the
-campaign doc.
-
-Confirmed before reopening: `internal/syncer` never deletes local files based
-on discovery results, so a regression here means a file silently isn't
-downloaded this run, not data loss — exactly what the ground-truth diff
-already catches. That's why this doesn't need a maintainer watching live,
-unlike the 2026-07-31 close originally assumed.
-
-**One checkpoint stays for the maintainer, and only this one:** flipping the
-flag to be the production default, once the diff has been empty twice. That's
-a one-line "here's the number, here's two empty diffs, OK to flip?" — not a
-live session.
-
 ### The 2026-07-26 feedback batch needs your eyes
 **Your call, options below** (not blocked — it can be closed without you).
 Three ways, cheapest first:
@@ -145,6 +121,15 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Sync-speed campaign closed for real this time** (2026-07-31): reopened
+  autonomously via the ground-truth diff instead of needing a live human
+  (confirmed `internal/syncer` never deletes files, so a regression here is
+  recoverable and the byte-for-byte diff is a sufficient check); built and
+  ran the tree-walk-only wait against the real account, diagnosed it as a
+  measurement artifact (the content tree is JS-rendered at *every* level, not
+  just the dashboard), then measured the HTTP mode=1 alternative live (47s
+  slower, not faster). 30s stays unreachable loss-free; ~207s is the real
+  ceiling. Full trail in `docs/sync-speed-campaign.md`.
 - **The .exe has its own Explorer icon** (2026-07-31): `rsrc_windows_amd64.syso`
   is generated from `internal/gui/assets/icon.ico` and checked in, so building
   needs no new tool and `go.mod` is untouched — which is what the "needs the

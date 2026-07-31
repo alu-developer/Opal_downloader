@@ -24,8 +24,8 @@ here is the failure mode to watch for.
 ## Now
 
 ### The 2026-07-26 feedback batch needs your eyes
-**Blocked:** on the maintainer looking at the GUI. Three ways to close it,
-cheapest first:
+**Your call, options below** (not blocked — it can be closed without you).
+Three ways, cheapest first:
 
 1. **Close it now, no visual pass.** All ten items shipped; automated
    headless walks (`first_run_journey_test.go`, `browser_walk_test.go`)
@@ -45,8 +45,7 @@ unsplit** — the most correctness-sensitive file here, with a documented histor
 of silent file loss from changes to it. Tidying buys nothing worth that risk.
 
 ### Dogfood the whole first-run journey
-**Blocked:** on the maintainer opening the GUI as a stranger would. Same
-three options as the item above apply here — it's the same underlying gap
+**Your call, options below.** Same three options as the item above apply here — it's the same underlying gap
 (nobody's looked with eyes), just framed as a first-time user instead of a
 feature-by-feature check. Recommendation is the same: close it on the
 strength of the automated coverage below unless you're opening the GUI for
@@ -80,8 +79,26 @@ maintainer's live daily sync is registered under.
 
 ## Next
 
-Nothing queued. The next thing that lands here should come from the Noticed
-list or from the maintainer.
+From the weekly review pass, 2026-07-31, window `4c2347d..9ece956`:
+
+### `pre-push-gate.ps1` cites tests that no longer exist
+Its line 63 says the push matcher is "Covered by the matcher tests in
+scripts/test-hooks.ps1". That file was deleted in `85aea11`. The deletion was
+deliberate and should stand — but this is now the one hook that can block a
+push, with nothing checking that its matcher still recognises a `git push`,
+and a comment claiming otherwise. Fix the comment; do **not** rebuild the
+suite to make it true again.
+
+### Two visibility bugs in the settings course list
+Both from `0d7e0c8`, both one-liners:
+- `#courses-field.muted` (`opacity: 0.55`) stacks on `tr.off input`'s
+  `color: #999`, so while "Sync all courses" is ticked, an unticked course's
+  name renders around `#c9c9c9` on white — effectively unreadable. The two
+  rules landed together and were not considered together.
+- `#courses-inactive-note` has no `display:none` in the markup;
+  `updateCoursesVisibility()` only hides it once the script runs. On a load
+  with the box unticked it briefly shows "Every course is being synced",
+  which is exactly the wrong statement.
 
 ---
 

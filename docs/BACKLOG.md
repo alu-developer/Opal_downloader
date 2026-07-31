@@ -23,6 +23,30 @@ here is the failure mode to watch for.
 
 ## Now
 
+### Sync-speed campaign, reopened: build the tree-walk-only wait, self-verify, iterate
+**Not blocked — run it autonomously, unattended, over as many attempts as it
+takes.** Full recipe in `docs/sync-speed-campaign.md`'s 2026-07-31 REOPENED
+entry (top of that file); short version: shorten the settle wait for
+pure-navigation sections only (folder links stabilise at ~50ms, per
+`treewalk_timing_probe_test.go`), behind a new flag, diagnostic-mode only
+against the real account, byte-for-byte diff against the 345-file ground
+truth (`scripts/compare-visit-runs.ps1`). On a non-empty diff: diagnose the
+cause, fix, retry — don't just retune a number. Needs an empty diff across
+**two independent real runs** before it's done; record the result either way
+(shipped-behind-a-flag-with-a-number, or a diagnosed rejection) in the
+campaign doc.
+
+Confirmed before reopening: `internal/syncer` never deletes local files based
+on discovery results, so a regression here means a file silently isn't
+downloaded this run, not data loss — exactly what the ground-truth diff
+already catches. That's why this doesn't need a maintainer watching live,
+unlike the 2026-07-31 close originally assumed.
+
+**One checkpoint stays for the maintainer, and only this one:** flipping the
+flag to be the production default, once the diff has been empty twice. That's
+a one-line "here's the number, here's two empty diffs, OK to flip?" — not a
+live session.
+
 ### The 2026-07-26 feedback batch needs your eyes
 **Your call, options below** (not blocked — it can be closed without you).
 Three ways, cheapest first:

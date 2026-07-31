@@ -1,5 +1,83 @@
 # Sync speed campaign
 
+## 2026-07-31: REOPENED — the "needs a live human" close was more cautious than the actual risk
+
+The 2026-07-31 closing entry (bottom of this file) declined to build the
+tree-walk-only wait shortening autonomously, reasoning that it is the
+highest-risk file in the repo with a documented history of *silent file
+loss*, and that shipping it in one unattended turn with nobody able to watch
+the diff first was the wrong place to spend that permission.
+
+That framing was never checked against what "loss" actually means in this
+code path, and per this file's own rule ("quote the measurement," not an
+argument) it should have been. Checked now: `internal/syncer/syncer.go` has
+no delete/remove path for course files at all — a sync only ever downloads
+files it found; it never removes a local file because discovery didn't find
+it. So every past "silent file loss" this campaign has documented — the
+HTTP-first rejection, the section-concurrency rejection, the cache false-match
+risk — means **a file that should have been downloaded silently wasn't**, not
+an existing file being destroyed. Recoverable by a later successful run,
+and, critically, **exactly what a byte-for-byte diff against the known
+345-file ground truth already detects** — the same check this campaign has
+used as its acceptance bar in every single entry below.
+
+That changes what "needs a human" actually means here. The byte-for-byte
+ground-truth diff is a machine-checkable completion criterion, not a
+judgment call — the same distinction the general "when does an agent loop
+need a human in it" literature draws (a loop with a scriptable pass/fail
+condition doesn't need one watching; a loop whose result only a human can
+judge does). Running the tree-walk-only wait shortening behind a flag, in a
+diagnostic mode that changes no default, against the real account, and
+diffing the result is exactly the same shape as `OPAL_HTTP_DISCOVERY=verify`,
+`OPAL_BLOCK_FILE_PREVIEWS`, and `OPAL_SKIP_SETTLE_WAIT` above — all of which
+were built and iterated on without a maintainer watching live.
+
+**Where a human still belongs, and only there:** flipping a verified result
+from opt-in flag to production default. That's the point where an
+undetected regression would silently degrade every future sync rather than
+being caught by the next diff. That should be a quick "here's the number,
+here's N empty diffs, OK to flip?" — not a live session.
+
+**The recipe for whoever (or whatever session) picks this up next**, so it
+does not need this conversation's context to execute it:
+
+1. Build the tree-walk-only wait shortening behind a new env flag (same
+   pattern as the existing ones above), in `internal/scraper/crawl.go` /
+   `navigation.go`: a section visit that has no file-bearing content on the
+   page (pure navigation/folder links) waits only for folder-link count to
+   stabilise (~50ms per `treewalk_timing_probe_test.go`), skipping the
+   300ms+ settle debounce that's needed for file tables. A section that
+   *has* a file table still gets the full wait, unchanged.
+2. Run it in **diagnostic/verify mode only** — log what it *would* have
+   returned faster, still return the full-wait result — against the real
+   account (`list` or discovery-only, no downloads). Non-interactive
+   `list`/`sync` already works unattended via the saved TU-Fast session per
+   `CLAUDE.md`; no human needs to be present for the run itself.
+3. Diff byte-for-byte against the 345-file ground truth
+   (`scripts/compare-visit-runs.ps1`, the pattern every prior entry here
+   uses). Empty diff = correct this run.
+4. **On any non-empty diff: diagnose why before trying again.** Read what
+   the fast path actually returned for the section(s) that differ — is a
+   hybrid section (folders + a file table together) being misclassified as
+   pure-navigation? Fix the classification, don't just retune a timing
+   number. This is the "a rejection needs a diagnosed cause" rule from
+   `docs/work-quality.md`, applied on the way in this time rather than
+   ten days later.
+5. Repeat 2-4 until the diff is empty across **at least two independent real
+   runs**. Record the measured wall-clock number here either way — a
+   diagnostic pass that never reaches empty twice is a real result too
+   (append a rejection entry with the diagnosed cause, same as every other
+   row in the decision log below).
+6. Stop there. Do not flip the flag to be the default in the same pass —
+   that's the one step this file still asks the maintainer for, briefly, on
+   the strength of the evidence from steps 1-5.
+
+**This is a backlog/next-session item, not something to run inline in a chat
+turn** — it needs a real, possibly multi-attempt run against the live
+account, and that belongs in the unattended/autopilot workflow
+(`docs/agent-operating-model.md`) or a background agent task, not a
+foreground conversation.
+
 ## 2026-07-27: where the second actually goes — measured, and it is our own debounce
 
 **This is the first time anyone measured it.** Every earlier entry reasons about

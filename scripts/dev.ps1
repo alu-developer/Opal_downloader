@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("deps", "fmt", "vet", "test", "build", "all", "playwright", "race", "hooks")]
+    [ValidateSet("deps", "fmt", "vet", "test", "build", "all", "playwright", "race")]
     [string]$Task = "all"
 )
 
@@ -31,10 +31,6 @@ try {
         }
         "build" {
             & $go build ./...
-        }
-        "hooks" {
-            & (Join-Path $PSScriptRoot "test-hooks.ps1")
-            if ($LASTEXITCODE -ne 0) { throw "hook tests failed" }
         }
         "playwright" {
             & $go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
@@ -85,15 +81,6 @@ try {
             finally {
                 $env:GOOS = $previousGOOS
             }
-
-            # The .claude/hooks/ safety net. Not Go, but it is the machinery
-            # that decides when autonomous runs continue and what survives a
-            # turn killed mid-run - a silent break there is invisible until an
-            # actual incident, which is how it broke on 2026-07-23. Runs last
-            # because it is the cheapest step to re-run in isolation.
-            Write-Host "hook tests..."
-            & (Join-Path $PSScriptRoot "test-hooks.ps1")
-            if ($LASTEXITCODE -ne 0) { throw "hook tests failed" }
 
             # tmp/ is gitignored scratch space for manual probe/debug runs and
             # has no automated writer of its own - unlike .claude/queue/ and

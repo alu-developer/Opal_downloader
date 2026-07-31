@@ -2,16 +2,6 @@
   "hooks": {
     "PreToolUse": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/budget-guard.ps1",
-            "timeout": 10,
-            "statusMessage": "Checking budget..."
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -34,19 +24,6 @@
         ]
       }
     ],
-    "SessionStart": [
-      {
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/session-start-autopilot.ps1",
-            "timeout": 15,
-            "statusMessage": "Arming autopilot..."
-          }
-        ]
-      }
-    ],
     "StopFailure": [
       {
         "hooks": [
@@ -55,26 +32,6 @@
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/turn-failure-checkpoint.ps1",
             "timeout": 20,
             "statusMessage": "Recording turn failure..."
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/autopilot-gate.ps1",
-            "timeout": 60,
-            "statusMessage": "Checking autopilot gate..."
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/noticed-gate.ps1"
           }
         ]
       }

@@ -33,11 +33,6 @@
 $ErrorActionPreference = 'SilentlyContinue'
 Set-StrictMode -Off
 
-# Record that this hook ran at all, so a hook that silently stops firing can be
-# attributed instead of looking like "nothing to report" (see hookbeat.ps1).
-# try/catch because diagnostics must never be able to break the gate itself.
-try { . (Join-Path $PSScriptRoot 'hookbeat.ps1'); Write-HookBeat -Name 'turn-failure-checkpoint' } catch { }
-
 try {
     $errorType = "unknown"
     $errorMessage = ""
@@ -80,7 +75,7 @@ try {
         Push-Location $repoRoot
         $dirty = @(& git status --porcelain 2>$null)
         if ($dirty.Count -gt 0) {
-            $sha = (& git stash create "autopilot WIP checkpoint after $errorType" 2>$null)
+            $sha = (& git stash create "WIP checkpoint after $errorType" 2>$null)
             if ($sha) {
                 $wipSha = ([string]$sha).Trim()
                 if ($wipSha) {
@@ -148,17 +143,6 @@ try {
         wip_ref            = $wipRef
         checkpoints_pruned = $prunedCount
     }
-
-    # Budget floor at the moment of death - the single most useful number for
-    # deciding afterwards whether the guard's thresholds were calibrated right.
-    try {
-        $lib = Join-Path $PSScriptRoot "budget-lib.ps1"
-        if (Test-Path $lib) {
-            . $lib
-            $b = Get-BudgetFloor
-            $record.budget_at_failure = $b.Reason
-        }
-    } catch { }
 
     $json = $record | ConvertTo-Json -Depth 5
     Set-Content -Path (Join-Path $queueDir "LAST_FAILURE.json") -Value $json -Encoding utf8

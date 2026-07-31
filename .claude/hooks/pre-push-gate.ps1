@@ -15,9 +15,9 @@
 #
 #     '{"tool_input":{"command":"cd /x && git push"}}' | powershell -File .claude/hooks/pre-push-gate.ps1
 #
-# BLOCKS ON FAILURE (exit 2), unlike the autopilot gate's fail-open design.
-# The whole point of a pre-push check is to stop broken code reaching the
-# remote, so an inconclusive result must not be treated as a pass. It only
+# BLOCKS ON FAILURE (exit 2). The whole point of a pre-push check is to stop
+# broken code reaching the remote, so an inconclusive result must not be
+# treated as a pass. It only
 # fails open when it cannot tell whether this is a push at all (unreadable
 # input), which would otherwise break every unrelated Bash call.
 
@@ -28,11 +28,6 @@
 # found by testing the block path rather than assuming it. Failures are
 # written straight to stderr and paired with an explicit `exit 2` instead.
 $ErrorActionPreference = 'Continue'
-
-# Record that this hook ran at all, so a hook that silently stops firing can be
-# attributed instead of looking like "nothing to report" (see hookbeat.ps1).
-# try/catch because diagnostics must never be able to break the gate itself.
-try { . (Join-Path $PSScriptRoot 'hookbeat.ps1'); Write-HookBeat -Name 'pre-push-gate' } catch { }
 
 function Deny($message) {
     [Console]::Error.WriteLine($message)

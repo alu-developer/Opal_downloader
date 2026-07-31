@@ -48,7 +48,10 @@ function Allow-Silently { exit 0 }
 $sessionId = "unknown"
 $toolName = ""
 try {
-    $raw = [Console]::In.ReadToEnd()
+    # .TrimStart strips a UTF-8 BOM some PowerShell host paths prepend to
+    # stdin, which otherwise breaks ConvertFrom-Json silently (found
+    # 2026-07-31; same fix applied to every hook with this identical read).
+    $raw = [Console]::In.ReadToEnd().TrimStart([char]0xFEFF)
     if ($raw) {
         $payload = $raw | ConvertFrom-Json -ErrorAction Stop
         if ($payload.session_id) { $sessionId = [string]$payload.session_id }

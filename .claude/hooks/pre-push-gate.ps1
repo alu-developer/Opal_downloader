@@ -40,7 +40,11 @@ function Deny($message) {
 }
 
 try {
-    $raw = [Console]::In.ReadToEnd()
+    # .TrimStart strips a UTF-8 BOM some PowerShell host paths prepend to
+    # stdin, which otherwise breaks ConvertFrom-Json silently below and made
+    # this gate treat every push as "not a push" (found 2026-07-31; same fix
+    # applied to every hook with this identical read).
+    $raw = [Console]::In.ReadToEnd().TrimStart([char]0xFEFF)
 } catch {
     exit 0
 }

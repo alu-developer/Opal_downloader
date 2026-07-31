@@ -44,7 +44,13 @@ try {
     $sessionId = "unknown"
     $raw = ""
     try {
-        $raw = [Console]::In.ReadToEnd()
+        # .TrimStart([char]0xFEFF): found 2026-07-31 running the full hook
+        # suite (not a single hook in isolation) - some PowerShell host paths
+        # pipe a UTF-8 BOM ahead of the JSON on stdin, which is not valid JSON
+        # and made ConvertFrom-Json fail silently, so every field below fell
+        # back to its default ("unknown") with no error surfaced anywhere.
+        # Same fix applied to every other hook with this identical read.
+        $raw = [Console]::In.ReadToEnd().TrimStart([char]0xFEFF)
         if ($raw) {
             $payload = $raw | ConvertFrom-Json -ErrorAction Stop
             if ($payload.error_type) { $errorType = [string]$payload.error_type }

@@ -18,13 +18,4 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-Unattended run 2026-07-31 evening: tree was clean, both Now items in
-BACKLOG.md were blocked on the maintainer looking at the GUI. No display in
-this session (`computer.screenshot` fails — pane can't composite frames), so
-screenshots aren't a way to unblock it either. Turning both entries into
-concrete options + a recommendation instead, per the scheduled task's "every
-item blocked" fallback. Not touching `scheduler.Disable`'s missing-guard note
-— investigated it, it's the intended single-task-per-machine design (CLI
-comment: "there's exactly one underlying Windows Task Scheduler task"), not a
-bug; changing it would fight the documented model, so leaving it as the
-already-recorded FYI it is.
+_Nothing in flight._

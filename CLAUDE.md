@@ -285,6 +285,13 @@ opal-downloader, not the project. If a session's output is another gate,
 another doc about gates, or another entry in a backlog about gates, that is
 the failure mode — not diligence.
 
+**`docs/work-quality.md` is why these rules exist** — the measured
+retrospective of how the workflow drifted, including the three rules that came
+out of it: a rejection with no diagnosed cause is not a rejection; a campaign
+with five investigation commits and nothing shipped is failing; and wanting to
+build a gate is the signal to do the work instead. Read it before proposing any
+new hook, doc, or process here.
+
 ## Task tracking: `docs/BACKLOG.md`, not the old queue
 
 Work is tracked in `docs/BACKLOG.md` (see "Start here" above). Plain prose,

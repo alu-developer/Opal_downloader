@@ -123,3 +123,92 @@ them was skipped for budget reasons:
    work is *paused*, not finished, and `docs/RESUME.md` says so.
 
 Rule 5 is the one with teeth, and it is the direct answer to complaint 2.
+
+---
+
+# The retrospective, 2026-07-31
+
+The maintainer asked what had gone wrong in the *interaction*, not the code:
+"irgendetwas daran, wie wir den workflow designen und miteinander reden ist
+schlecht." What follows is measured from 73 prompts of history, the commit log,
+and the hooks' own timestamps — not from intuition. Kept short on purpose: this
+file describing the bloat problem at length would be the bloat problem.
+
+## The loop we built
+
+Every complaint about the agent stopping produced a mechanism, and the
+mechanism became a new place to stop.
+
+| The maintainer said | What got built | What it added |
+|---|---|---|
+| "why did you stop working?" (07-23) | `autopilot-gate.ps1` | another stopping condition |
+| "why didn't you pay attention to the rate-limit" (07-23) | `budget-guard.ps1` | a standing instruction to work smaller |
+| "du sollst dich selbst neu starten" (07-23) | `resume-runner.ps1` + Windows task | 23 KB of gating; died silently twice |
+| "was passiert mit den notizen?" (07-27) | `noticed-gate.ps1` | another gate |
+| "a hook is silently dead" (07-30) | `hookbeat.ps1` | a hook watching the hooks |
+
+**Nine of 73 prompts (12%) are "why did you stop".** Each produced plumbing
+instead of a behaviour change. **47% of all prompts are about the tooling
+rather than opal-downloader**, and 40% of commits since 2026-07-01 touch only
+`docs/`, `.claude/` or `scripts/`.
+
+## The sync-speed campaign, measured
+
+**23 commits over 10 days. Zero shipped a speed improvement.** The verbs are
+Reject, Measure, Log, Record, Retract, Close, Settle — every one an
+investigation verb.
+
+Worse: commit `#112` on 2026-07-21 16:47 rejected HTTP-first section discovery
+("fast, and it silently loses courses"), two hours into the campaign. On
+2026-07-31 02:26 a different session committed *"Prove HTTP-first discovery is
+viable: **diagnose the rejection that was never diagnosed**"* — verified diff=0
+across all 6 courses. The approach that worked was killed on day one without
+anyone establishing why it had failed, and ten days were spent measuring around
+the hole.
+
+**Rule: a rejection with no diagnosed cause is not a rejection.** And a campaign
+that reaches five investigation commits with nothing shipped is failing — say so
+rather than continuing to measure.
+
+## Questions are decisions
+
+On 2026-07-30 15:33 the maintainer asked: *"Wäre es eventuell schlau lieber für
+den workflow was aus dem internet zu nehmen, da getestet, anstatt von selbst
+hooks und so basteln?"* Twenty-two minutes later five hook files were modified.
+
+He was right, and it is checkable: Anthropic shipped Auto Mode (2026-03) and
+Routines (2026-04) — scheduled unattended runs that execute in the cloud with
+the laptop closed. `resume-runner.ps1`, `unattended-run.ps1`, the Windows task,
+the wake lock and the mains-power check are a worse reimplementation of that,
+and the Modern Standby incident of 2026-07-29 is a failure mode Routines does
+not have. The Ralph Loop plugin is likewise a distributed, tested version of
+`autopilot-gate.ps1`.
+
+His decisions arrive grammatically as questions because he thinks out loud —
+which `CLAUDE.md` explicitly asks for. Treat a question that would change the
+current course as a decision; act, then report.
+
+## What autonomy actually needs
+
+Three things, none of them infrastructure:
+
+1. **A list of unblocked work** — `docs/BACKLOG.md`. When autonomy stalls the
+   cause is almost always its *content* (everything marked **Blocked:**), not
+   the mechanism.
+2. **Permission to decide** — already granted in `CLAUDE.md`. The failure has
+   been not using it: on 2026-07-31 all four backlog items waited on the
+   maintainer.
+3. **A brief that survives session death** — `docs/RESUME.md`. A file.
+
+This matches the external consensus: keep state in markdown, prefer a fresh
+self-contained brief over a resumed context, and **use hooks for enforcement
+(blocking a force-push, running lint), never for behaviour.** `autopilot-gate`
+and `budget-guard` used hooks to make the agent keep working — the wrong tool
+class, which is why they became the thing that stopped it.
+
+Between sessions something external must start the agent; a process cannot
+revive itself. That is the one unavoidable piece, and it should be one
+first-party routine, not eleven PowerShell files.
+
+**The standing rule: wanting to build a gate is the signal to do the work
+instead.**

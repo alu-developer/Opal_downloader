@@ -99,14 +99,26 @@ maintainer's live daily sync is registered under.
 
 ## Next
 
-Empty right now — the weekly review pass's two items (2026-07-31, window
-`4c2347d..9ece956`) both landed: the stale `pre-push-gate.ps1` comment was
-fixed to not claim a deleted test suite covers the matcher, and the settings
-course-list contrast bug (`#courses-field.muted` opacity stacking with
-`tr.off`'s color) plus the `#courses-inactive-note` flash-of-wrong-state were
-both fixed with scoped CSS / a server-rendered initial `display:none`. Real
-Chromium walks (`TestBrowserCoursePickerIsOneList`,
-`TestBrowserFirstRunWalk`) still pass.
+### The installer bundles Chromium into a directory the app never reads
+Found 2026-07-31 while fixing `docs/installer-plan.md` Section 5; not verified
+against a built `setup.exe`, but all three ends read the same in the source.
+`EnsurePlaywrightBrowsersPath` (`internal/scraper/session.go:30`) defaults
+`PLAYWRIGHT_BROWSERS_PATH` to `~/.opal-downloader/ms-playwright` — deliberately
+moved off `%LOCALAPPDATA%` in commit `b352143` to dodge the junction/SxS
+failure in `docs/OPERATIONS.md`. But the installer chain never followed:
+`opal-downloader.iss`'s `[Files]` copies the staged cache to
+`{localappdata}\ms-playwright`, `build-installer.ps1` stages *from* there, and
+`NeedsPlaywrightSetup` probes `{localappdata}\ms-playwright\chromium-*`. So on
+a fresh install the bundled ~680MB lands where nothing looks, and the probe
+finds it and skips the `setup` fallback — the one path that would recover.
+That defeats Section 3's entire bundling decision.
+
+Fix is likely one path constant in three places, but decide first whether the
+installer writes to `~/.opal-downloader/ms-playwright` or sets
+`PLAYWRIGHT_BROWSERS_PATH` for the user. While in there:
+`build-installer.ps1:115`'s warning still says the fallback needs a Go
+toolchain — `runSetup` has called `playwright.Install()` directly since
+Section 9 row 1.
 
 ---
 

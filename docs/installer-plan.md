@@ -56,7 +56,7 @@ Rationale, considered against the alternatives:
 
 | Option | Verdict |
 |---|---|
-| **Inno Setup** | **Chosen.** Purpose-built for exactly this shape of deliverable: one binary + a few support files, a short wizard (welcome → install dir → optional shortcuts → finish), and a post-install hook to run an arbitrary command. Its Pascal-like scripting (`[Code]` sections) is enough to run `opal-downloader.exe setup` after file copy and to detect Brave/Chrome presence (Section 5). Single `.iss` text file, no XML, compiles to one `setup.exe` with no runtime dependency beyond what Windows already has. Large existing user base for "simple app installer" use cases, so tutorials/troubleshooting are easy to find. |
+| **Inno Setup** | **Chosen.** Purpose-built for exactly this shape of deliverable: one binary + a few support files, a short wizard (welcome → install dir → optional shortcuts → finish), and a post-install hook to run an arbitrary command. Its Pascal-like scripting (`[Code]` sections) is enough to run `opal-downloader.exe setup` after file copy and to check whether the bundled Chromium cache landed (`NeedsPlaywrightSetup`). (This originally also cited "detect Brave/Chrome presence" as a requirement; that need disappeared with the real-browser-profile option — see Section 5. The choice of Inno Setup is unaffected.) Single `.iss` text file, no XML, compiles to one `setup.exe` with no runtime dependency beyond what Windows already has. Large existing user base for "simple app installer" use cases, so tutorials/troubleshooting are easy to find. |
 | **WiX Toolset** | Rejected for v1. Produces industry-standard `.msi` packages with strong enterprise/Group Policy/uninstall-tracking support, but that's overkill for a single-maintainer open-source tool with no enterprise deployment story. XML authoring and the WiX build pipeline (candle/light, or the newer WiX v4 CLI) are meaningfully more setup/learning overhead than Inno Setup for the same result. Worth revisiting only if the project later needs MSI-specific features (e.g. SCCM/Intune deployment at TU Dresden IT scale) — not needed now. |
 | **NSIS** | Close second, also viable (also free, also produces a single `.exe`, arguably more flexible/lower-level via its scripting language). Passed over in favor of Inno Setup mainly because Inno's declarative `[Files]`/`[Tasks]`/`[Run]` sections map more directly and readably onto this installer's actual needs (copy binary + assets, optionally run `setup`, optionally launch `gui`) with less boilerplate than NSIS's more macro-heavy scripting style. Either would work; this is a mild preference, not a hard technical requirement. |
 | **Go-based self-extracting wizard** (a custom Go program with an embedded archive that extracts itself and shows a minimal UI) | Rejected. Appealing in the abstract ("stay in the language the rest of the project already uses"), but it means building and maintaining a GUI wizard framework (welcome screen, directory picker, progress bar, uninstall registration, Windows Add/Remove Programs entry, admin-elevation prompts) essentially from scratch — all things Inno Setup already provides out of the box, tested across two decades of Windows versions. Not a good use of effort for a single-maintainer project; would only make sense if the project needed cross-platform installer parity from one codebase, which is not a current goal (this repo is Windows-first per `env`/`CLAUDE.md`). |
@@ -178,9 +178,10 @@ Rationale:
 ## 4. Config bootstrap during install
 
 **Decision: the installer does not collect `download_path`, course patterns,
-`browser_user_data_dir`/`browser_profile_directory`, or any other
-`config.yaml` field. It defers entirely to the GUI's first-run settings
-page.**
+or any other `config.yaml` field. It defers entirely to the GUI's first-run
+settings page.** (This originally also named
+`browser_user_data_dir`/`browser_profile_directory`; those keys no longer
+exist — see Section 5. The decision itself is unaffected.)
 
 Rationale:
 
@@ -191,7 +192,7 @@ Rationale:
   currently-blocked `gui-primary-entrypoint` task, this detection is a
   pre-existing capability of the settings page, not something this plan is
   waiting on).
-- Config fields like `browser_user_data_dir`/course glob patterns require
+- Config fields like `download_path`/course glob patterns require
   path pickers, validation, and explanatory text that are far better suited
   to a web form (already built) than to Inno Setup's limited wizard-page
   scripting. Duplicating that logic in Pascal Script inside the `.iss` file
@@ -209,45 +210,85 @@ Rationale:
   a working GUI," and the GUI's existing onboarding does the rest — no new
   config-writing code needed in the installer itself.
 
-## 5. Real-browser-profile constraint
+## 5. Browser constraint (rewritten 2026-07-31 — the old one no longer exists)
 
-Per `docs/architecture.md`'s "Login/session automation" section,
-`login`/`sync`/`list`
-launch Playwright directly against the user's **real** Brave/Chrome profile
-(`browser_user_data_dir`/`browser_profile_directory`) — there is no working
-copy, because copying breaks Chromium's `Secure Preferences` HMAC integrity
-check and silently strips TU-Fast's permissions (confirmed in PR #20).
+**What this section said until 2026-07-31, and why it was wrong:** it stated
+that `login`/`sync`/`list` launch Playwright against the user's *real*
+Brave/Chrome profile (`browser_user_data_dir`/`browser_profile_directory`), and
+derived a whole installer design from that — a Brave/Chrome detection step, a
+"Browser Requirement" wizard page, an optional profile-path prefill passed to
+the GUI. That option was **removed in full on 2026-07-14** (queue task
+`chromium-only-login-remove-real-browser`, the maintainer's explicit decision;
+see `docs/browser-profile-strategy.md`'s "Chromium-only login: Strategy 1
+removed outright"). The installer was updated at the time; this section was
+not, so it kept describing a constraint the code had stopped having.
 
-**This constraint is untouched by the installer and must stay that way.**
-Concretely:
+### What is actually true
 
-- The installer **must not** attempt to install, configure, or silently
-  modify Brave/Chrome or the TU-Fast browser extension. That's out of scope
-  by design, not an oversight — any attempt to script around the profile
-  constraint (e.g. auto-detecting and pre-filling
-  `browser_user_data_dir`) risks the exact HMAC-breakage class of bug PR #20
-  already fixed once.
-- What the installer **can** reasonably do, as a pure detect-and-inform step
-  (no writes, no assumptions baked into config):
-  - Check for Brave (`%LOCALAPPDATA%\BraveSoftware\Brave-Browser`) and/or
-    Chrome (`%LOCALAPPDATA%\Google\Chrome`) presence on disk during install,
-    purely informationally.
-  - If neither is found, show a plain-text wizard page: "Opal Downloader
-    needs Brave or Chrome installed, with the TU-Fast extension enabled and
-    logged in, before `login`/`sync` will work. This installer does not set
-    that up for you — see [link to a docs page] once you're ready." This is
-    a non-blocking informational page (Next/Skip), not a hard requirement
-    gate, since a user might install now and set up the browser later.
-  - Optionally (nice-to-have, not required for v1): if Brave/Chrome *is*
-    found, pass its default profile directory as a suggested prefill value
-    to the GUI on first launch — but only as a suggestion the user must
-    confirm on the GUI's settings page, never as a silent write to
-    `config.yaml`. This is a candidate for a follow-up task, not this
-    installer's v1.
-- The existing `isUserDataDirLocked` pre-flight check (`internal/scraper/
-  profile.go`) already handles the "Brave is open" case at runtime with a
-  clear error; the installer doesn't need to duplicate that, only avoid
-  interfering with it.
+`login`/`sync`/`list` always launch **Playwright's bundled Chromium**, against
+a **single hardcoded profile** at `~/.opal-downloader/login-profile`
+(`scraper.LoginProfileDir`, `internal/scraper/profile.go:23`). Verified in
+`internal/scraper/session.go`'s `launchBrowser`:
+
+- Interactive login (`!headless && !useSavedState`) opens a persistent context
+  against exactly that directory with extensions enabled (`session.go:68-95`).
+- Headless `sync`/`list` with a saved session launches a fresh anonymous
+  Chromium and loads cookies from `session_state_file` — no profile directory
+  at all (`session.go:145-146`).
+- `ExecutablePath` is never set anywhere. There is no code path that launches
+  an installed browser executable.
+
+The config keys are gone too: `internal/config` ignores
+`browser_executable`/`browser_user_data_dir`/`browser_profile_directory` if an
+old `config.yaml` still carries them (regression test
+`TestLoadCredentialsIgnoresRemovedBrowserFields`, `internal/config/config_test.go:326`).
+
+### What this means for the installer
+
+**The constraint is not "don't touch the user's browser" — it's that the user
+does not need a browser at all.** A machine with no Brave and no Chrome is a
+fully supported install. Concretely:
+
+- **Nothing to detect, so nothing to detect *for*.** The Brave/Chrome
+  detection step, the "Browser Requirement" wizard page, and the
+  `--suggested-browser-user-data-dir` prefill (`BrowserDetected`,
+  `GetSuggestedBrowserProfileArg`) were **deleted, not deferred** —
+  `installer/opal-downloader.iss` documents the removal in its `[Code]`
+  section. Section 9 rows 3 and 8 are marked obsolete for this reason.
+  Re-adding any of them would surface a prerequisite that no longer exists and
+  would mislead the user into thinking their everyday browser is involved.
+- **The installer still must not install, configure, or modify Brave/Chrome or
+  the TU-Fast extension** — but now because it is unnecessary, not because it
+  is dangerous. TU-Fast, if the user wants it, is installed from the Chrome Web
+  Store *into opal-downloader's own dedicated profile*, through the GUI's
+  consent-gated `/tufast-setup` page or during `opal-downloader login`. The
+  post-install `[Run]` step already launches the GUI, which is the right
+  handoff point.
+- **First login works without TU-Fast.** The user types credentials and does
+  2FA by hand once in the dedicated profile. TU-Fast only removes that manual
+  step on subsequent logins. So the installer has no hard prerequisite to gate
+  on and no informational page it owes the user.
+- **The one remaining real-browser touchpoint is in the GUI, not the
+  installer.** `/tufast-setup` may *detect* an existing Brave/Chrome profile
+  root (`detectBrowserUserDataDir`, `internal/gui/tufast_setup.go:93`) and
+  offer to copy TU-Fast's own stored login/2FA data out of it into the
+  dedicated profile (`scraper.TransplantTUFastLoginData`). That is read-only
+  detection behind an explicit consent gate, it is optional, and it happens
+  after install. The installer must not pre-empt, pre-answer, or automate it.
+- **The `Secure Preferences` HMAC finding still stands, and still isn't the
+  installer's problem.** Copying a whole profile (`Preferences`/`Secure
+  Preferences`/`Local State`/`Extensions`) breaks Chromium's integrity check
+  and strips the extension's permissions — the PR #20/#41 finding. The
+  transplant above copies only TU-Fast's `Local Extension Settings/<id>`
+  leveldb folder, which is outside that HMAC chain (live-verified 2026-07-12,
+  `docs/browser-profile-strategy.md` "Transplanting TU-Fast login data"). Both
+  facts live in the GUI's flow; the installer touches neither.
+- **`isUserDataDirLocked` (`internal/scraper/profile.go:64`) still exists**,
+  but it no longer guards against "the user's Brave is open" — it guards
+  against *two opal-downloader processes* opening a persistent context on the
+  same dedicated profile (`session.go:79-85`). Unchanged conclusion: a runtime
+  check, with a clear error, that the installer neither needs to duplicate nor
+  can interfere with.
 
 ## 6. Code signing / SmartScreen
 

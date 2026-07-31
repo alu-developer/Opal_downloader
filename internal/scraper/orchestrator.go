@@ -123,9 +123,10 @@ func (s *OpalScraper) scrapeCoursesHybrid(ctx context.Context, courseFilter []st
 		return nil, err
 	}
 	if mode == "1" {
-		// Future: once verify shows diff=0, return HTTP result. For now, until
-		// verification lands, mode=1 behaves as verify to avoid returning an
-		// unverified faster path. Fall through to verify logging.
+		// mode=1 returns the HTTP result at the end of this method (guarded by
+		// the diff). The browser crawl above still runs because it is the only
+		// thing that can enumerate the JS-rendered section tree; HTTP fetches
+		// the leaf tables afterward. See the return logic at the bottom.
 	}
 
 	// Phase 2: HTTP fetch, serial after the browser. The browser crawl records
@@ -221,9 +222,19 @@ func (s *OpalScraper) scrapeCoursesHybrid(ctx context.Context, courseFilter []st
 	logging.User("OPAL_HTTP_DISCOVERY summary: %d sections, %d HTTP requests, HTTP phase %s; total missing=%d extra=%d",
 		len(sections), httpRequests, httpElapsed.Round(time.Millisecond), missingTotal, extraTotal)
 
-	// verify mode returns the trusted browser result. mode=1 (future) returns
-	// the HTTP result; until verification lands diff=0, keep returning browser.
-	_ = httpFiles
+	// verify mode returns the trusted browser result (so a verification run can
+	// never silently lose files). mode=1 returns the HTTP result instead, since
+	// verify established diff=0 - but with a guard: if HTTP found FEWER distinct
+	// files than the browser in ANY course, fall back to the browser result for
+	// that entire run rather than return an incomplete set. The diff log above
+	// already names exactly what was missing, so the fallback is never silent.
+	if mode == "1" {
+		if missingTotal == 0 {
+			logging.User("OPAL_HTTP_DISCOVERY: returning HTTP result (diff=0 verified)")
+			return convertFileRefsToRemoteFiles(httpFiles), nil
+		}
+		logging.Warn("OPAL_HTTP_DISCOVERY: HTTP missing %d file(s) the browser found; returning trusted browser result (see diff above)", missingTotal)
+	}
 	return browserFiles, nil
 }
 

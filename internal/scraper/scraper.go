@@ -494,9 +494,11 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 	//
 	// OPAL_HTTP_DISCOVERY=verify: run BOTH the browser crawl and the HTTP
 	// fetch, serially, and log a per-course diff. Returns the browser result
-	// (the trusted source) so verification can't silently lose files. This is
-	// the mode to reach the 345-file contract diff=0 before flipping the
-	// default. OPAL_HTTP_DISCOVERY=1 will return the HTTP result once verified.
+	// (the trusted source) so verification can't silently lose files.
+	// OPAL_HTTP_DISCOVERY=1: return the HTTP result (verified diff=0 against
+	// the browser on 2026-07-31 across all courses), with a guard that falls
+	// back to the browser result if HTTP ever finds fewer files than the
+	// browser in any course. Unset (the default): plain browser crawl.
 	httpDiscoveryMode := os.Getenv("OPAL_HTTP_DISCOVERY")
 	if httpDiscoveryMode == "verify" || httpDiscoveryMode == "1" {
 		return s.scrapeCoursesHybrid(ctx, courseFilter, httpDiscoveryMode)

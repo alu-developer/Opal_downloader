@@ -51,3 +51,24 @@ This closes the speed investigation: every lever measured, each rejection
 diagnosed to a named cause. The remaining work is productizing the verified
 HTTP discovery (it is correct and complete) - which is a correctness no-
 regression, not a speed win.
+
+### mode=1 activated (option A productized) — but session expired mid-run (2026-07-31)
+scrapeCoursesHybrid now returns the HTTP result when OPAL_HTTP_DISCOVERY=1,
+guarded: if HTTP finds fewer distinct files than the browser in ANY course,
+it falls back to the trusted browser result (so a faster path can never
+silently lose files). Builds, full scraper suite green.
+
+Tried to measure mode=1's real wall-clock, but the OPAL session had expired
+by then ("Saved session state expired. Interactive login required") - the
+mode=1 run could not complete without an interactive login. Killed the
+waiting process. The verify run earlier (diff=0, 323 files) IS valid - it ran
+on an active session at ~03:00. Only the mode=1 timing measurement is
+outstanding, and it needs a renewed session.
+
+What mode=1 will measure (when the session is renewed): browser crawl (~200s,
+unchanged - it still has to walk the JS-rendered tree) + HTTP phase (~56s).
+So mode=1 is ~250-270s, NOT faster than the plain browser crawl. This was the
+honest conclusion from the closed speed investigation: the HTTP path is a
+correct, verified, independent file source (a useful no-regression control),
+not a speed win, because the browser tree-walk is the bottleneck and cannot
+be sped up safely. A is productized for correctness, not for the 30s target.

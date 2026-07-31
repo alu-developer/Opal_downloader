@@ -113,17 +113,27 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
-- **The resume runner's unlock/logon triggers have not been seen firing
-  (2026-07-29).** Registered and accepted by Task Scheduler; the only honest
-  proof is an event 107 in `Microsoft-Windows-TaskScheduler/Operational` after
-  a real lock/unlock. Check with `scripts/register-resume-task.ps1 -Status` —
-  a climbing `missed` count while work sits in `docs/RESUME.md` means the
-  triggers did not take and event 332 is back.
+- **The resume runner's unlock/logon triggers: now actually checked, still
+  unconfirmed (2026-07-31).** Queried `Microsoft-Windows-TaskScheduler/
+  Operational` directly (event IDs 107/129) instead of trusting
+  `-Status`'s `missed` counter: every launch in the last several hours (00:56
+  through 03:08, 8 events) says **"due to a time trigger condition."** Zero
+  say session-unlock or logon. That's not proof the other triggers are dead —
+  no lock/unlock necessarily happened in this window — but it's the first
+  real look, and it found nothing, which is itself worth recording rather
+  than continuing to guess.
 
-- **A killed background `go test > log 2>&1` leaves a log with no marker that
-  it is incomplete.** Hit 2026-07-28: a truncated log was indistinguishable
-  from a real silent failure. An `EXIT:<code>` sentinel helps only if the kill
-  lands after that line.
+- **Confirmed same-day: overlapping resume-runner launches are real, not
+  theoretical (2026-07-31).** The same event log shows launches at 00:56:37,
+  00:57:42, 01:04:24, then 01:08:30 — four within twelve minutes, well inside
+  a session's own runtime. This session personally collided with another
+  concurrently-running instance: it committed this session's uncommitted
+  `docs/BACKLOG.md`/`docs/sync-speed-campaign.md` edits under its own message
+  before this session could commit them itself (see `33d3f1b` — no work was
+  lost, but only by luck). `register-resume-task.ps1 -Status`'s "previous
+  resume run still active" skip logic exists for exactly this and evidently
+  didn't catch it here. Not investigated further this session — worth a look
+  at why the pid-liveness check missed an active run.
 
 - **An unattended run cannot wait for a background job, and reports success
   anyway (2026-07-30).** The job dies with the run's own process; the fix sat

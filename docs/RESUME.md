@@ -19,9 +19,6 @@ work", so leaving stale content in it will wake an unattended run for nothing.
 
 ---
 
-Nothing in flight right now.
-
-<!--RESUME-CONTENT-BELOW-DELETED-->
 ## In flight: sync-speed campaign, 30 s target (maintainer 2026-07-31)
 
 **Goal (maintainer, verbatim):** sync in max 30 s, down from current ~200-300 s.

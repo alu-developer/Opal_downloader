@@ -1261,3 +1261,82 @@ appears to use). Building and byte-for-byte A/B testing that combined
 condition against the 345-file ground truth is the next concrete step, and
 is exactly the kind of change to this file that needs care rather than
 speed — not started this session.
+
+## 2026-07-31: the HTTP-first rejection re-diagnosed, a serial hybrid built, and why it still isn't 30s
+
+The maintainer reopened this campaign the same day, with a specific correction:
+"every rejection was recorded, never diagnosed." Re-tested the doc's own
+rejected claim above ("a JS-rendered section returns 144-172KB with zero
+files") against Softwaretechnologie, the course the claim was about. It does
+not reproduce — the files are in the raw HTTP response, both as
+`data-file-name` attributes and as `<a>` tags the existing `looksLikeFileLink`
+predicate already matches.
+
+**What HTTP actually misses, named precisely:** a new ground-truth probe
+(`browsergroundtruth_probe_test.go`) put Softwaretechnologie's true file count
+at 200; a plain-HTTP pass over the same sections found 158 — 43 missing, all
+of it concentrated in exactly 3 pager sections (Part-1/2/3), each capped at
+OPAL's ~20-row default page. The page's own HTML states the true count ("57
+Einträge") and carries a Wicket-AJAX `pager-showAllLink` — a plain HTTP GET —
+that returns the full table. Fetching that one extra URL per pager section
+recovered 33/34 of Part-3's gap with no browser involved.
+
+**Then the maintainer proposed something better than either A or B:** run a
+fast cached-HTTP pass and the full browser walk concurrently, merging results,
+so the user sees fast output with no risk of silent loss. Measured directly
+before building anything: started a browser crawl and the HTTP probe against
+the *same saved session* at once. The browser's own "show all" expansion broke
+under the concurrent load ("71 rows before, 71 after") and lost 125 of 200
+files; HTTP stayed stable. **Named cause:** the same Wicket session-
+serialization trap this campaign's earlier concurrency attempts already hit,
+now confirmed for HTTP-vs-browser specifically. The parallel idea is dead —
+not from taste, from this measurement.
+
+**What was built instead — a serial hybrid, gated behind `OPAL_HTTP_DISCOVERY`:**
+the browser crawl runs exactly as today (source of truth), then, only after
+it finishes, every section it visited is re-fetched over HTTP (following
+`pager-showAllLink` where present) and diffed against the browser's result.
+`httpdiscovery.go` / `httpdiscovery_fetch.go` hold the pure parsing/fetch
+logic (10 offline unit tests); `orchestrator.go`'s `scrapeCoursesHybrid` wires
+it in behind the flag, defaulting to a `verify` mode that always returns the
+browser's result and only logs the diff — no production behavior changes
+unless the flag is set.
+
+**Verification, full account, all 6 courses:** diff = 0. Every course's HTTP
+leaf-fetch reproduced the browser's file set exactly (345-file contract
+intact; see per-course table in commit `e3384fd`). The extraction logic is
+correct, not just correct-on-one-course.
+
+**The honest number this leaves:** verify mode runs both phases — browser
+(200s) + HTTP (56s) = 267s, *slower* than the 200s browser-only baseline
+being measured against. HTTP-first only saves time if it *replaces* the
+browser's leaf-table reading (a `mode=1` that returns the HTTP result and
+lets the browser skip reading file tables at all) — and even then, the
+browser still has to walk the section tree, which this session also
+established is JS-rendered and not reachable over plain HTTP at all (a
+content course-node URL fetched directly returns 1 child, 0 files; the
+browser finds 163 sections and 207 files from the same starting point).
+
+**So the remaining lever is real but narrow:** if the browser only needs to
+walk the tree (cheap, no file table to wait for) and HTTP supplies every leaf
+table afterward, the settle wait shortens because it's no longer waiting for
+a file table to finish rendering — just navigation links. That is the same
+`waitForInteractiveLinks`/`waitForContentSettled` code with the documented
+silent-file-loss history, and shortening it is exactly the class of change
+this campaign has twice required explicit sign-off for before attempting.
+**Not attempted this session — flagged to the maintainer in
+`docs/BACKLOG.md` instead of decided here.** The realistic ceiling if it
+works is an estimated ~60-90s, not 30s; 30s specifically remains out of reach
+by any path measured so far.
+
+**Concrete first experiment, if sign-off is given:** capture a section that
+has subfolders at multiple time points after navigation and diff the
+folder-nav-link count over time (the campaign already knows the page is
+structurally finished at ~36ms while file tables need the full 300ms+
+debounce). If folder links are present at ~50ms while the file table isn't
+settled yet, a navigation-only short wait is viable and the speedup is real.
+If folder links and the file table appear together, the tree-walk cannot be
+sped up safely this way and option A tops out at the ~267s serial number
+above. Do not shorten the shared debounce itself to test this — that was
+already tried (150ms → 322/345 files, a real loss) and is a different, already
+-rejected change from a tree-walk-only wait.

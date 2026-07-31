@@ -15,16 +15,16 @@ type fakeHTTPResponse struct {
 	status int
 }
 
-func (f fakeHTTPResponse) Status() int                       { return f.status }
-func (f fakeHTTPResponse) StatusText() string                 { return "" }
-func (f fakeHTTPResponse) Text() (string, error)              { return f.body, nil }
-func (f fakeHTTPResponse) Body() ([]byte, error)              { return []byte(f.body), nil }
-func (f fakeHTTPResponse) Headers() map[string]string         { return nil }
+func (f fakeHTTPResponse) Status() int                          { return f.status }
+func (f fakeHTTPResponse) StatusText() string                   { return "" }
+func (f fakeHTTPResponse) Text() (string, error)                { return f.body, nil }
+func (f fakeHTTPResponse) Body() ([]byte, error)                { return []byte(f.body), nil }
+func (f fakeHTTPResponse) Headers() map[string]string           { return nil }
 func (f fakeHTTPResponse) HeadersArray() []playwright.NameValue { return nil }
-func (f fakeHTTPResponse) Ok() bool                           { return f.status >= 200 && f.status < 300 }
-func (f fakeHTTPResponse) URL() string                        { return "" }
-func (f fakeHTTPResponse) Dispose() error                     { return nil }
-func (f fakeHTTPResponse) JSON(v interface{}) error                            { return nil }
+func (f fakeHTTPResponse) Ok() bool                             { return f.status >= 200 && f.status < 300 }
+func (f fakeHTTPResponse) URL() string                          { return "" }
+func (f fakeHTTPResponse) Dispose() error                       { return nil }
+func (f fakeHTTPResponse) JSON(v interface{}) error             { return nil }
 func (f fakeHTTPResponse) SecurityDetails() (*playwright.ResponseSecurityDetailsResult, error) {
 	return nil, nil
 }
@@ -99,8 +99,8 @@ func TestFetchSectionFilesHTTPPaginatedFollowsShowAll(t *testing.T) {
 	// The resolved show-all URL after resolveURL(opalURL, "/opal/auth/...?...").
 	resolvedShowAll := "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/2/Part-3?1091-pager-showAllLink"
 	fetcher := &fakeHTTPFetcher{responses: map[string]fakeHTTPResponse{
-		section.URL:      {body: firstPage, status: 200},
-		resolvedShowAll:  {body: showAll, status: 200},
+		section.URL:     {body: firstPage, status: 200},
+		resolvedShowAll: {body: showAll, status: 200},
 	}}
 
 	files, reqs, err := fetchSectionFilesHTTP(fetcher, course, section, opalURL)

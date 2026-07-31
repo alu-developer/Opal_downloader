@@ -35,27 +35,37 @@ One decision on the record: **`internal/scraper/crawl.go` (1250 lines) stays
 unsplit** — the most correctness-sensitive file here, with a documented history
 of silent file loss from changes to it. Tidying buys nothing worth that risk.
 
-### Sync speed: the lead is real, implementing it needs sign-off
-**Blocked:** **open question for the maintainer — is the jsTree+MathJax
-completion-signal approach worth attempting, given the risk profile?**
+### Sync speed: HTTP-hybrid built and verified, but 30s needs a risky wait-shortening — needs sign-off
+**Blocked:** **open question for the maintainer — is it worth shortening
+`waitForInteractiveLinks`/`waitForContentSettled` (browser only walks the
+section tree, HTTP supplies every leaf file table) to get to an estimated
+~60-90s, given that code's documented silent-file-loss history? Or stop here
+with the verified-correct HTTP-hybrid as a diagnostic-only addition and leave
+production sync as-is?**
 
 The standing goal (2026-07-21): a no-op sync should feel instant, ~30s, not
 5+ minutes. `docs/sync-speed-campaign.md` is the full decision log — every
-measurement and every rejected approach. Read it before reaching for one.
+measurement and every rejected approach, most recently the 2026-07-31 entry.
+Read it before reaching for one.
 
-Where it stands: the 300ms MutationObserver settle-wait dominates the run
-(94.2s of 210s) and three attempts to shorten it all lost files. Section-level
-concurrency was tried with sign-off and rejected. On 2026-07-30 the course-nav
-jsTree widget's `aria-busy="false"` was confirmed as a genuine render-complete
-signal across 4 courses — but its ordering against MathJax is inconsistent, so
-it is not a safe drop-in.
+Where it stands: a serial HTTP-hybrid discovery path is built and gated
+behind `OPAL_HTTP_DISCOVERY` (off by default, `verify` mode logs a diff
+against the browser). Verified against the real account: **diff = 0 across
+all 6 courses** — the HTTP leaf-fetch reproduces the browser's file set
+exactly. But verify mode runs browser (200s) + HTTP (56s) serially = 267s,
+*slower* than browser alone — HTTP-first only saves time if it *replaces* the
+browser's file-table reading, and the browser still has to walk the section
+tree (confirmed JS-rendered, not reachable over plain HTTP). The remaining
+lever is shortening the settle-wait once the browser only needs to navigate,
+not read a file table — real, but touches the same wait-condition code that
+has silently lost files before, so it needs the same sign-off every prior
+change to this code has required. A file *count* is not acceptable evidence
+here if it is attempted — byte-for-byte against the 345-file ground truth
+(`scripts/compare-visit-runs.ps1`) is the bar.
 
-The block is not the idea, it is the code: `waitForInteractiveLinks` /
-`waitForContentSettled` is where the silent file loss came from, and the
-concurrency rewrite needed explicit sign-off for the identical reason. Next
-step once given: combined wait condition behind an env flag, byte-for-byte A/B
-against the 345-file ground truth (`scripts/compare-visit-runs.ps1`). A file
-*count* is not acceptable evidence here — that has burned this project twice.
+The separate jsTree+MathJax completion-signal lead (2026-07-30) is still on
+the table as an alternative way to shorten the same wait, also unattempted
+for the same reason.
 
 ### Dogfood the whole first-run journey
 **Blocked:** on the maintainer opening the GUI as a stranger would.

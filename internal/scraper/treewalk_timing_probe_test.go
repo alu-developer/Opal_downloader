@@ -121,7 +121,7 @@ func TestTreeWalkTimingProbe(t *testing.T) {
 	const runs = 3
 	delays := []float64{0, 50, 100, 200, 400}
 	type sample struct {
-		delay         float64
+		delay          float64
 		folders, files int
 	}
 	var allSamples []sample

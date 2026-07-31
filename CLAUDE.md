@@ -305,9 +305,46 @@ work couldn't survive a fresh clone; and it needed a skill to be *invoked*
 before anything happened, which made autonomy depend on ceremony rather than
 on simply owning the backlog.
 
+## Branches, commits and PRs
+
+**Default: commit small and push straight to `master`.** No branch, no PR.
+
+That is already what happens, and the numbers say it is right. All 130 PRs this
+repo has ever had were opened and merged by the same person; 121 of them lived
+under three minutes and not one was reviewed by anybody. They stopped on
+2026-07-22 at #130 — not by a decision, but because `.claude/queue/` was retired
+that day and `queue-run` was the thing that opened them. The 227 commits pushed
+straight to master in the nine days since caused no incident. `ci.yml` triggers
+on `push` to master as well as on `pull_request`, so a PR runs no check a push
+does not, and releases fire on a `v*` tag rather than on master — a briefly red
+master ships nothing to any user.
+
+**Branch and open a PR in exactly two cases:**
+
+1. **You could not verify it.** Anything you would label `UNVERIFIED` to the
+   maintainer goes on a branch, with that word in the PR title, instead of onto
+   master. Pushing is still right — the work should survive the session — but
+   master stays the line that has actually been checked.
+2. **The change can silently lose the user's files.** `internal/scraper/crawl.go`,
+   manifest key derivation in `internal/syncer`, and anything that deletes or
+   renames files under the download root. All three have a documented history of
+   silent loss; a PR buys a diff worth reading and one clean revert.
+
+**Do not merge your own PR under either trigger.** Both exist so that somebody
+looks — merging it yourself puts back exactly the ceremony this section removes.
+Leave it open, name it in the turn summary, and go on to the next backlog item.
+This deliberately narrows the maintainer's standing "merge PRs once checks pass"
+autonomy for this repo, and only for these two cases; everything else still goes
+to master without asking.
+
+Anything else — "it feels big", "to be safe", a tidy-looking branch name — is not
+a trigger. A PR nobody reads is a slower push.
+
 ## Maintenance
 
-- `scripts/dev.ps1 all` — local build/vet/test/lint, run before any PR.
+- `scripts/dev.ps1 all` — local build/vet/test/lint, run before every push
+  (the pre-push gate enforces it, but only if the session was started in this
+  directory — see "How to organise yourself").
 - `scripts/test-fresh-install.ps1` — validates the no-credentials setup path
   (clone through `init`); see `docs/setup-friction.md` for known friction.
 - `docs/manual-setup-checklist.md` — manual checklist for the

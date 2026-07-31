@@ -5,7 +5,8 @@ This project is browser-automation heavy and depends on external website structu
 ## Long-term checklist
 
 - Keep Go and module dependencies updated regularly.
-- Run CI checks on every pull request.
+- Run CI checks on every push to master, and on the rare pull request
+  (`ci.yml` triggers on both; see CLAUDE.md for when a PR is used at all).
 - Reinstall Playwright browser binaries after major updates.
 - Keep `config.yaml` and session-state files out of version control.
 - Keep selectors in scraper code reviewed when OPAL UI changes.

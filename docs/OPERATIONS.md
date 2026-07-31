@@ -14,6 +14,23 @@ This project is browser-automation heavy and depends on external website structu
 ## Suggested maintenance cadence
 
 - Weekly: `scripts/dev.ps1 all`
+- Weekly: an automated review pass over the commits since the last one, scoped
+  by `docs/last-review-commit.txt`. It looks for correctness bugs and
+  simplification opportunities in that diff, files findings in
+  `docs/BACKLOG.md`, and pushes those two files. "Nothing to report" is a fine
+  outcome. It runs as a **local** scheduled task
+  (`~/.claude/scheduled-tasks/opal-downloader-weekly-review/`), Mondays.
+  - It used to be a cloud routine (created 2026-07-23, Monday 06:00 UTC). That
+    version never produced a single commit — the cloud sandbox has no push
+    access to this repo, so its only output channel was closed, and
+    `docs/last-review-commit.txt` never appeared in any ref. Giving it push
+    access would not have been enough either: the pre-push gate requires
+    `scripts/dev.ps1 all`, which a Linux sandbox cannot run (PowerShell, Go
+    toolchain, Playwright, Windows build tags), so it would have been pushing
+    past a gate it could never satisfy. Retired and disabled 2026-07-31.
+    **Do not re-create it in the cloud.** The machine-is-off objection is
+    already handled: a missed local scheduled task fires on the next app
+    launch.
 - After touching `internal/scraper/` or `internal/syncer/`: `opal-downloader smoke-check`
   - a local, read-only, on-demand check (reuses the saved session, no
     credentials involved) that catches crawl/sync regressions right away

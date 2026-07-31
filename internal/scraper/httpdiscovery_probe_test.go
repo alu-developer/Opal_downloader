@@ -194,7 +194,11 @@ func TestHTTPDiscoveryProbe(t *testing.T) {
 	withFiles := 0
 	pagerSections := 0
 	var pagerURLs []string
+	// Retain every result so OPAL_HTTPPROBE_DETAIL can write a per-section
+	// breakdown without a second network pass.
+	var all []result
 	for r := range results {
+		all = append(all, r)
 		if r.err != nil {
 			failed++
 			continue
@@ -240,6 +244,39 @@ func TestHTTPDiscoveryProbe(t *testing.T) {
 		sort.Strings(names)
 		if err := os.WriteFile(out, []byte(strings.Join(names, "\n")+"\n"), 0o644); err != nil {
 			t.Fatalf("write out: %v", err)
+		}
+	}
+
+	// OPAL_HTTPPROBE_DETAIL writes one line per section as
+	// "<url>\t<status>\t<pager>\t<n>\t<file1>;...;". It exists for the
+	// diff-against-browser diagnosis the campaign doc never did: it shows
+	// which sections returned files and which came back empty, so the gap
+	// between HTTP and browser discovery can be attributed to a cause
+	// (pager / genuinely empty / JS-rendered shell) instead of only counted.
+	if detail := os.Getenv("OPAL_HTTPPROBE_DETAIL"); detail != "" {
+		sort.Slice(all, func(i, j int) bool { return all[i].url < all[j].url })
+		var b strings.Builder
+		for _, r := range all {
+			sort.Strings(r.files)
+			b.WriteString(r.url)
+			b.WriteString("\t")
+			b.WriteString(strconv.Itoa(r.status))
+			b.WriteString("\t")
+			if r.pager {
+				b.WriteString("pager")
+			}
+			b.WriteString("\t")
+			b.WriteString(strconv.Itoa(len(r.files)))
+			b.WriteString("\t")
+			b.WriteString(strings.Join(r.files, ";"))
+			if r.err != nil {
+				b.WriteString("\terr=")
+				b.WriteString(r.err.Error())
+			}
+			b.WriteString("\n")
+		}
+		if err := os.WriteFile(detail, []byte(b.String()), 0o644); err != nil {
+			t.Fatalf("write detail: %v", err)
 		}
 	}
 }

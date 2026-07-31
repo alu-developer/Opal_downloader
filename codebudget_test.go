@@ -147,7 +147,22 @@ import (
 // gap (BACKLOG's "the Windows binary has no icon") that had been blocked on
 // an SVG renderer nobody actually needed - scripts/build-icon.ps1 uses WPF's
 // own path-mini-language parser instead, so this cost nothing in go.mod.
-const codeLineBudget = 11632
+//
+// Raised to 11867 on 2026-07-31 (was 11632) for the serial-hybrid HTTP
+// discovery path from the reopened sync-speed campaign: httpdiscovery.go
+// (section-candidate parsing + show-all AJAX URL extraction),
+// httpdiscovery_fetch.go (the HTTP fetch layer, following pager-showAllLink),
+// and the scraper.go/orchestrator.go wiring that runs it behind
+// OPAL_HTTP_DISCOVERY and diffs it against the browser. This earns its keep
+// on evidence, not promise: verified diff=0 against the browser's file set
+// across all 6 real courses (docs/sync-speed-campaign.md, 2026-07-31 entry),
+// overturning an earlier rejection of HTTP-first discovery that was
+// recorded but never actually diagnosed.
+// It ships off by default - the flag exists so the browser path stays
+// authoritative until a production mode is deliberately turned on - so this
+// raise buys a verified-correct diagnostic tool today and the option of a
+// real speedup later, not a behavior change yet.
+const codeLineBudget = 11867
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

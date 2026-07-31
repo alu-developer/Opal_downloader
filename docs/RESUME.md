@@ -332,3 +332,29 @@ subfolders at multiple time points and diff folder-link counts. If folder
 links are present at ~50ms but file tables need 300ms+, a navigation-only
 short wait is viable and the speedup is real. If they appear together, the
 tree-walk cannot be sped up safely and A tops out where it is.
+
+### MEASURED — the tree-walk wait lever is real for pure-navigation nodes (2026-07-31)
+treewalk_timing_probe_test.go (OPAL_TREEWALK_URL) on a real SW tree node (16
+subfolders, no file table):
+
+| delay(ms) | folders (min-max, 3 runs) | files |
+|---|---|---|
+| 0 | 9-9 | 0 |
+| 50 | 25-25 | 0 |
+| 100 | 25-25 | 0 |
+| 200 | 25-25 | 0 |
+| 400 | 25-25 | 0 |
+
+Folder-nav links reach their full count (25) by ~50ms and stay flat to 400ms,
+identically across 3 runs. A pure-navigation node needs no 300ms settle wait -
+~50ms is enough and stable. So a navigation-only tree-walk IS viable for the
+folder-only case.
+
+THE REMAINING RISK (still unmeasured): a section that has BOTH subfolders AND a
+file table (a hybrid node). There, a 50ms wait might catch the folders but miss
+files that need the full settle - which is exactly the silent-file-loss class.
+The safe design: browser walks the tree with a short wait for FOLDER links only,
+and ALWAYS lets HTTP fetch the file tables (never trusts the browser's own
+file read at the short wait). That sidesteps the risk: the browser never reads
+files at the impatient budget, so it cannot lose them. This is the design to
+build next, and it should be verified by the same diff=0 contract.

@@ -290,3 +290,22 @@ risk-testing it for file loss) worth it, given 30s is now clearly out of reach
 without the rejected cache approach (B)? The diff=0 result means A is SAFE to
 ship as-is for correctness; the question is whether ~60-90s is acceptable or
 whether to stop here with a verified, correct-but-not-30s improvement.
+
+### CORRECTION to my own framing — current mode=1 is not faster (2026-07-31)
+Honest self-check: my current scrapeCoursesHybrid runs the FULL browser crawl
+(200s, including its own leaf extraction and settle waits) and THEN runs HTTP.
+That is verify-only; mode=1 returning HTTP would not be faster either, because
+the browser crawl - the slow part - runs unchanged either way. Adding HTTP
+cannot speed up a crawl that still does all the work itself.
+
+The ONLY way A produces a speedup is: browser walks the tree WITHOUT extracting
+leaf file tables (so it does not pay the settle wait that exists to render
+them), and HTTP fetches the leaf tables instead. That requires changing
+visitSection's wait budget for the tree-walk case - the code with documented
+silent-file-loss history. So "A fertigstellen" and "wait-logic messen" are the
+SAME task, not alternatives: the speedup IS the wait-logic change.
+
+This is the real next experiment: does the section TREE (folder nav links) need
+the same settle wait the file table does, or do folder links render early
+enough that a navigation-only wait suffices? Measure, don't assume - this is
+the exact class of change that lost files silently before.

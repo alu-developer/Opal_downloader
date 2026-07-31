@@ -95,20 +95,20 @@ try {
     # read after the day it was written. Pruned here by the writer rather than by
     # a script somebody has to remember, so the set is bounded by construction.
     #
-    # Age AND a floor, not age alone: a quiet fortnight would otherwise delete
-    # every recovery point the repo has, which is precisely when the oldest
-    # surviving checkpoint is the only one left to matter. The ref name is the
-    # creation timestamp, so age needs no extra git call.
+    # Count only, not age. The first version of this prune required BOTH a count
+    # floor and 14 days of age, and measured on 2026-07-31 it had never deleted
+    # anything: the set was 535 refs, every one of them younger than the age
+    # cutoff, because the write rate (26-201/day) outruns a fortnight by an order
+    # of magnitude. "Bounded by construction" was the intent and a pure count is
+    # the only version of this that delivers it. The ref name is the creation
+    # timestamp, so ordering needs no extra git call.
     $prunedCount = 0
-    $keepDays = 14
-    $keepAtLeast = 20
-    if ($env:OPAL_CHECKPOINT_KEEP_DAYS) { $keepDays = [int]$env:OPAL_CHECKPOINT_KEEP_DAYS }
-    if ($env:OPAL_CHECKPOINT_KEEP_AT_LEAST) { $keepAtLeast = [int]$env:OPAL_CHECKPOINT_KEEP_AT_LEAST }
+    $keepNewest = 40
+    if ($env:OPAL_CHECKPOINT_KEEP_AT_LEAST) { $keepNewest = [int]$env:OPAL_CHECKPOINT_KEEP_AT_LEAST }
     try {
         Push-Location $repoRoot
         $allRefs = @(& git for-each-ref --format='%(refname)' refs/wip-checkpoints/ 2>$null | Where-Object { $_ })
-        if ($allRefs.Count -gt $keepAtLeast) {
-            $cutoff = $nowUnix - ([long]$keepDays * 86400)
+        if ($allRefs.Count -gt $keepNewest) {
             $stamped = $allRefs | ForEach-Object {
                 $stamp = 0L
                 if ($_ -match 'refs/wip-checkpoints/(\d+)$') { $stamp = [long]$Matches[1] }
@@ -116,8 +116,8 @@ try {
             } | Sort-Object -Property Stamp -Descending
             # Stamp -gt 0 skips any ref whose name is not a timestamp: unknown
             # provenance is a reason to leave it alone, not to guess its age.
-            $doomed = @($stamped | Select-Object -Skip $keepAtLeast |
-                        Where-Object { $_.Stamp -gt 0 -and $_.Stamp -lt $cutoff })
+            $doomed = @($stamped | Select-Object -Skip $keepNewest |
+                        Where-Object { $_.Stamp -gt 0 })
             foreach ($d in $doomed) {
                 & git update-ref -d $d.Ref 2>$null | Out-Null
                 if ($LASTEXITCODE -eq 0) { $prunedCount++ }

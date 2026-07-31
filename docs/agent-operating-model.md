@@ -85,11 +85,32 @@ What survives:
 - **Uncommitted work** — `.claude/hooks/turn-failure-checkpoint.ps1`
   (`StopFailure`) runs `git stash create` and points
   `refs/wip-checkpoints/<unix>` at the result, without touching the working
-  tree, index, stash, or any branch. It prunes its own refs (14 days, floor of
-  20) because 322 had once piled up.
+  tree, index, stash, or any branch. It keeps the newest 40 refs and deletes the
+  rest on every fire.
 - **`.claude/queue/LAST_FAILURE.json`** plus an append-only `turn-failures.log`,
   written by the same hook. That directory is gitignored scratch space and holds
-  nothing else any more.
+  nothing else any more. The autopilot task reads `LAST_FAILURE.json` at the top
+  of a run; nothing else does, so a change that stops it looking there makes the
+  file write-only again.
+
+Two things this is *not*, both measured 2026-07-31:
+
+- **It is not the main thing that saves work.** A usage-limit kill does not
+  delete anything — the working tree is exactly as the killed turn left it, and
+  the next autopilot run refuses to start on a dirty tree rather than clobber
+  it. What actually dies is the *context*, which is why `RESUME.md` and small
+  commits carry this and the ref is a backstop for the narrow case where
+  something later discards the tree.
+- **It is not a substitute for `/rewind`.** Claude Code checkpoints code *and*
+  conversation before every prompt, keeps them 30 days, and restores after a
+  resume — strictly more than this hook, for any session a human is sitting in.
+  The hook's one non-overlapping job is the unattended runs, where nobody is
+  there to press anything. Keep it that small.
+
+The prune above is the correction of a real defect, not a tidy-up: the first
+version required *both* a count floor and 14 days of age, and had therefore
+never deleted a single ref. 535 had accumulated at 26-201/day, each pinning a
+whole tree against gc. A bound that the write rate outruns is not a bound.
 
 **Staying savable is about how often you commit, not how much you attempt.**
 There is no budget hook now. There used to be, and its own wording — "avoid

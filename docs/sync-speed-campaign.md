@@ -142,8 +142,8 @@ does not need this conversation's context to execute it:
 
 **This is a backlog/next-session item, not something to run inline in a chat
 turn** — it needs a real, possibly multi-attempt run against the live
-account, and that belongs in the unattended/autopilot workflow
-(`docs/agent-operating-model.md`) or a background agent task, not a
+account, and that belongs in an unattended scheduled run (the
+`opal-downloader-sync-speed` Routine) or a background agent task, not a
 foreground conversation.
 
 ## 2026-07-27: where the second actually goes — measured, and it is our own debounce

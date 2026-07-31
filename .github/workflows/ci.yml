@@ -36,8 +36,7 @@ jobs:
       # here and not (necessarily) on a contributor's machine: the Linux
       # runner already has gcc, whereas a stock Windows dev box has neither,
       # so `go test -race` fails there with `C compiler "gcc" not found`.
-      # See docs/agent-operating-model.md's sibling note in
-      # scripts/dev.ps1's "race" target for the local story.
+      # See scripts/dev.ps1's "race" target for the local story.
       #
       # This project has repeatedly hunted concurrency bugs by hand
       # (parallel course crawls, worker pools, parallel downloads), so having

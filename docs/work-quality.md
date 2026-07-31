@@ -210,5 +210,25 @@ Between sessions something external must start the agent; a process cannot
 revive itself. That is the one unavoidable piece, and it should be one
 first-party routine, not eleven PowerShell files.
 
+## Do not rebuild these
+
+Each was built here, measured, and removed. Each is cheap to reinvent, and each
+made things worse than having nothing:
+
+- **A budget hook that advises mid-turn.** `budget-guard.ps1`'s own wording —
+  "avoid starting work that only pays off if a long turn completes" — is the
+  documented cause of complaint 2 above. There is no budget hook now.
+- **A rate-limit estimator.** Written and removed the same day, for reporting
+  83.5% against a real 46%. A miscalibrated signal that gates work is worse
+  than no signal.
+- **A hook that makes the agent keep working.** `autopilot-gate.ps1`: runs
+  ended on its timers and caps rather than on the work being done. Stopping is
+  a rule, not a mechanism.
+
+The lesson that outlived all three: **a watchdog whose failures are silent is
+worse than none, because it looks like a working safety net.** The two
+surviving hooks are one bad edit away from that, so verify a hook by finding
+its effect in the repo, never by reading its code.
+
 **The standing rule: wanting to build a gate is the signal to do the work
 instead.**

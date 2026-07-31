@@ -162,11 +162,15 @@ move the rest across.
   `course_folders` applies under the wildcard too.
 - **Deleted the self-built autonomy machinery** (2026-07-31): ten of twelve
   PowerShell files, the `OpalDownloader-ResumeRunner` Windows task, the
-  keep-warm process, and all of `.claude/queue/`. Replaced by one first-party
-  Claude Code Desktop scheduled task. Kept only the two hooks that *enforce*
-  (pre-push gate, turn-failure checkpoint). Trigger: 102 of 193 commits in
-  seven days touched only `docs/`, `.claude/` or `scripts/`. See
-  `docs/agent-operating-model.md`.
+  keep-warm process, and every accumulated file in `.claude/queue/`. Replaced by
+  first-party Claude Code Desktop scheduled tasks. Kept only the two hooks that
+  *enforce* (pre-push gate, turn-failure checkpoint — which still writes
+  `LAST_FAILURE.json` there). Trigger: 102 of 193 commits in seven days touched
+  only `docs/`, `.claude/` or `scripts/`. The follow-up on 2026-07-31 deleted
+  `docs/agent-operating-model.md` and `docs/agent-incidents.md` too: of 189
+  lines, one section was neither duplicated in `CLAUDE.md` nor describing
+  deleted scripts. Survivors folded into `CLAUDE.md` and
+  `docs/work-quality.md`.
 - Closed the last Noticed item (the User-Agent-fix theory) with a decision
   rather than another probe — a higher-volume burst at the real OPAL server is
   what `docs/server-load.md` exists to prevent, curiosity included.

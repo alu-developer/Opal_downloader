@@ -14,7 +14,12 @@ that isn't blocked, get on with it — without being asked to. Update it in the
 same commit as the work it describes.
 
 **Stopping is not yours to decide.** If work remains and nothing needs the
-maintainer's judgement, keep going.
+maintainer's judgement, keep going. Only four things need it: a change that
+would delete or overwrite their real files, a stated project decision or
+principle that would have to change, anything needing their account
+interactively (credentials, 2FA), and a genuine fork between two designs that
+reasoning does not settle. Mark those **Blocked:** in the backlog *with
+concrete options to choose between*, and carry on with the next item.
 
 The maintainer thinks out loud. A passing remark about a problem or an
 annoyance is a real input — turning it into a backlog entry is part of the job,
@@ -61,6 +66,22 @@ long, confidently-argued document is not evidence. Read the code, not the
 summary of the code. (`docs/sync-speed-campaign.md` is the archive that taught
 this the hard way; consult it, but don't mistake its conclusions for results.)
 
+## Budget goes on reading output, not on running things
+
+Measured here: **a long live run is nearly free in tokens; reading its output is
+not.** A 5-minute full-account scrape is one tool call. What costs budget is
+reasoning turns and large tool outputs pulled into context.
+
+- Filter every command's output at the source. Never dump a 900-line log.
+- Run long jobs in the background and wait for the completion notification.
+  Never poll in a loop — each poll is a turn.
+- A backgrounded command dies with the session that started it. A long
+  verification run must write its result to a file under `tmp/` or `docs/`, not
+  only to stdout, and `docs/RESUME.md` must never call a job "in flight"
+  without saying where its result will land.
+- Batch verification — one instrumented run answering three questions beats
+  three runs. Prefer a decisive experiment over more reasoning.
+
 ## Do the work, don't build machinery to do the work
 
 Hooks enforce, never instruct. Two exist, both enforcement: `pre-push-gate.ps1`
@@ -73,8 +94,15 @@ opened elsewhere and pointed here by path gets neither and says nothing about
 it, so run `scripts/dev.ps1 all` by hand before pushing unless you know the
 gate is live.
 
-Prefer the first-party feature over your own version of it. **Wanting to build
-a gate is the signal to do the actual work instead.** If a session's output is
+Prefer the first-party feature over your own version of it. Unattended runs are
+first-party Claude Code Desktop scheduled tasks, not scripts: the prompts live
+in `~/.claude/scheduled-tasks/<name>/SKILL.md` (`opal-downloader-autopilot`,
+`-sync-speed`, `-weekly-review`) and everything else — schedule, model,
+permissions, run history — is managed in the Desktop app under **Routines**.
+They fire only while the app is open and the machine awake, which is the price
+of running locally; local is required because verification here needs the
+maintainer's real OPAL account and real files. **Wanting to build a gate is the
+signal to do the actual work instead.** If a session's output is
 another gate, another doc about gates, or another backlog entry about gates,
 that is the failure mode. When the same mistake happens twice, add a test or a
 lint rule — not a paragraph here. `docs/work-quality.md` is the measured

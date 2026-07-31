@@ -72,3 +72,65 @@ honest conclusion from the closed speed investigation: the HTTP path is a
 correct, verified, independent file source (a useful no-regression control),
 not a speed win, because the browser tree-walk is the bottleneck and cannot
 be sped up safely. A is productized for correctness, not for the 30s target.
+
+### CONCRETE BREAKDOWN — why the predicted improvement doesn't work (2026-07-31)
+list --verbose on a renewed session, 282 sections, the real numbers:
+
+| phase | time | per-section | share |
+|---|---|---|---|
+| settle wait (MutationObserver debounce) | 1m35.4s | 338ms | 64% |
+| stability poll (candidateStabilityPoll) | 48.6s | 172ms | 32% |
+| everything else (extract, nav, all) | 3.8s | 14ms | 2% |
+
+Plus: `rate ceiling: 286 navigation(s), 0 delayed, 0s held` - the rate limiter
+holds back ZERO requests. All 207s is this tool waiting on its own timers.
+
+WHY EACH PREDICTED IMPROVEMENT FAILS - checked, not asserted:
+
+1. "Skip the settle wait" -> measured WORSE. crawl.go:310 records it: skipping
+   is byte-identical AND 51% SLOWER (317s vs 210s), because the settle wait
+   PRODUCES the sectionCalm signal that lets the poll open impatient. Without
+   settle, every section pays the poll's full patience streak. The 64% is not
+   removable overhead; it is the cheaper of two waiting mechanisms.
+
+2. "HTTP replaces browser extraction, saves the settle" -> HTTP can't run
+   before the browser yields section URLs, and the browser pays settle on
+   every section to get them. HTTP afterward (mode=1) ADDS ~56s instead of
+   removing the ~95s. That is exactly why mode=1 measures ~250s, not faster.
+
+3. "Cut the stability poll (32%)" -> not optional. navigation.go:545 records
+   it: a poll requiring 1 stable read instead of 4 lost real files past
+   pagination, because the show-all control had not rendered at extract time.
+   The poll is a safety requirement, not waste.
+
+4. "Rate limiter is the bottleneck" -> it is not: 0 delayed, 0s held. Server-
+   load policy brakes nothing here.
+
+NET: the 207s is structurally this tool proving its own completion (96% is
+waiting for silence/stability), on a tree OPAL renders client-side at every
+level. There is no lever left that removes waiting without removing the
+correctness guarantee that waiting provides. 30s is unreachable without
+caching section URLs across runs (option B), which silently misses new
+sections - the one constraint the maintainer refused to relax.
+
+### MODE=1 MEASURED LIVE — 254.1s, slower than the plain browser crawl (2026-07-31)
+On the renewed session, OPAL_HTTP_DISCOVERY=1 list: Total 254.1s (HTTP phase
+55.82s, diff=0 verified, HTTP result returned). vs the plain browser crawl's
+206.9s measured the same session. mode=1 is 47s SLOWER, exactly as the
+breakdown predicted: the browser crawl still pays its full ~207s (it can't be
+sped up), then HTTP adds 56s on top.
+
+NOTE for follow-up (not a speed issue): mode=1 reported Softwaretechnologie at
+246 files vs the browser's 200. The HTTP result does not apply the browser's
+cross-section fileSeen dedupe the same way (HTTP fetches per-section and the
+merge is looser). The diff=0 is on distinct NAMES per course, so no files are
+LOST - but the HTTP path can surface name-collisions the browser's stricter
+dedupe collapses. Worth tightening before mode=1 ships as a default; for now
+it is opt-in and the diff guard still catches any genuine loss.
+
+This is the final, measured answer to "why doesn't the predicted improvement
+work": it was never going to, because the improvement requires removing the
+browser's per-section wait, and that wait (settle 64% + poll 32% = 96% of
+in-section time) is the mechanism that makes file extraction correct on a
+tree OPAL renders client-side at every level. HTTP can't replace it because
+HTTP needs the section URLs only the browser's waited-out crawl produces.

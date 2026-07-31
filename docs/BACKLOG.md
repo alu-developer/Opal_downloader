@@ -162,6 +162,13 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- Fixed a stdin BOM silently breaking JSON parsing in 5 hooks (budget-guard,
+  turn-failure-checkpoint, noticed-gate, autopilot-gate, pre-push-gate) —
+  `scripts/dev.ps1 all` is fully green for the first time this session
+  (2026-07-31).
+- Raised the code budget for the verified serial-hybrid HTTP discovery
+  feature; built/measured the tree-walk wait lever (folder links stable by
+  50ms) — still blocked on sign-off before building it (2026-07-31).
 - Moved 678 lines of closed work into `docs/BACKLOG-archive.md` (2026-07-31).
 - Released the autonomy brakes: budget-guard advises instead of denying,
   autopilot caps raised from 4h/20 to 12h/60 (2026-07-31).

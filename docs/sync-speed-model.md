@@ -75,17 +75,12 @@ größer als am Ende).
 
 ## Was wir nicht wissen (sortiert nach Hebelwirkung)
 
-### 1. Was rendert OPAL da eigentlich? — der Quellcode wurde nie gelesen
-OpenOLAT ist Open Source. Diese Kampagne hat zehn Tage lang am lebenden
-Server geraten, was er tut. Dort direkt beantwortbar:
-- Gibt es einen **Fertig-Marker** beim Aufbau der Dateitabelle (CSS-Klasse,
-  Attribut, JS-Callback, Wicket-Komponente)? Die Kampagne hat "es gibt
-  keinen" aus Abwesenheit im DOM geschlossen — das ist nicht dasselbe wie
-  nachgelesen.
-- Gibt es eine **andere View auf dieselbe Dateiliste** ohne gestaffeltes
-  Client-Rendering (Druck-, Export-, Feed-, WebDAV-, Mobil-Ansicht)?
-- Wie funktioniert der **Pager serverseitig** — gibt es einen Parameter
-  statt des Klicks?
+### 1. Was rendert OPAL da eigentlich? — jetzt nachgelesen, siehe unten
+~~OpenOLAT ist Open Source. Diese Kampagne hat zehn Tage lang am lebenden
+Server geraten, was er tut.~~ Beantwortet 2026-07-31, siehe "Nächstes
+Experiment" unten für die Belege. Kurzfassung: es gibt **keinen** Marker, weil
+es **nichts client-seitig Gerendertes gibt, das fertig werden müsste** —
+Baum und Dateitabelle sind reines Server-HTML. Das öffnet Frage 7.
 
 ### 2. Warum war HTTP auf 2 von 6 Kursen leer?
 "Manche Bausteine rendern server-, manche client-seitig" ist die
@@ -99,11 +94,7 @@ Ungeklärt — und es entwertet jede Zahl, die mit installierter Route gemessen
 wurde. Playwright-seitig, nicht OPAL-seitig; also lokal reproduzierbar ohne
 Account.
 
-### 4. Was passiert in den 336ms wirklich?
-Bisher als Blackbox behandelt: gewartet, bis Ruhe ist. Nie im Browser
-profiliert, was in dieser Zeit läuft. Wenn es z.B. Layout-Thrashing oder ein
-Skript ist, das auf einen Timer wartet, ist das eine ganz andere Ursache als
-"die Seite braucht das".
+### 4. _(aufgegangen in Frage 7 — siehe unten)_
 
 ### 5. Ist "30s" überhaupt an Discovery gebunden?
 Das Ziel ist *"fühlt sich wie ein Klick an"*. Nie geprüft: Hintergrundlauf
@@ -114,25 +105,47 @@ vor dem Nutzer steht.
 ### 6. Warum bleibt 1 von 12 Sektionen über Läufe hinweg instabil?
 Der Rest wurde auf Wicket-Bookkeeping zurückgeführt. Dieser eine nicht.
 
+### 7. Wenn nichts client-seitig rendert — was füllt dann die 336ms? (ersetzt die alte Frage 4)
+Das Kampagnen-Fazit vom 2026-07-31 spät ("der Content-Tree ist auf jeder
+Ebene JS-gerendert") und der heutige Quellcode-Befund ("alles ist
+Server-HTML, kein Client-Rendering") widersprechen sich direkt — beide
+stützen sich auf echte Belege (Live-DOM-Probe vs. Java-Quellcode +
+OpenOLAT-eigene Doku), keiner ist bloße Behauptung. Das muss aufgelöst
+werden, nicht stillschweigend überschrieben:
+- **Kandidat A:** Settle-Zeit ist Netzwerk-/Transferzeit einer großen
+  Server-Antwort, keine JS-Bauzeit. Plausibel, weil jede Coursenode-Seite den
+  kompletten `o_tree` des Kurses mitliefert — bei 282 Sektionen potenziell ein
+  großes HTML-Dokument pro Request. Ungeprüft: skaliert die Settle-Zeit mit
+  der Kursgröße, und deckt sich "Response fertig übertragen" zeitlich mit
+  "Kandidatenzahl stabil"?
+- **Kandidat B:** Die Probe hat etwas anderes gemessen als Baum/Tabelle
+  selbst — z. B. wächst die Trefferzahl von `looksLikeSectionFolderLink`
+  einfach, weil der Browser ein großes statisches HTML-Dokument noch
+  parst/layoutet, nicht weil JS etwas nachbaut.
+- **Kandidat C:** Ein schmal begrenztes JS-Widget auf der Seite (nicht Baum
+  oder Tabelle selbst) ist verantwortlich — ungeprüft, welches.
+
 ---
 
 ## Nächstes Experiment
 
-**Frage:** (1) — gibt es im OpenOLAT-Quellcode einen Fertig-Marker oder eine
-alternative Dateilisten-View?
+**Frage:** (7) — erklärt Netzwerk-/Transferzeit einer großen
+Server-HTML-Antwort die 336ms Settle-Wait, statt Client-JS?
 
-**Vorhersage:** In OpenOLAT existiert für die Dateitabelle
-(`VFSItemTable`/FolderRunController) eine identifizierbare fertige
-DOM-Struktur; wahrscheinlich (60%) gibt es eine Tabellen-Zustandsklasse oder
-ein Wicket-Behavior, das erst nach vollständigem Aufbau gesetzt wird.
+**Vorhersage:** Response-Größe (Content-Length) und Time-to-last-byte einer
+Coursenode-Seite korrelieren mit der Kursgröße (Sektionsanzahl im Baum), und
+"Netzwerk fertig" fällt zeitlich nah mit "Kandidatenzahl stabil" zusammen.
 
-**Gescheitert ab:** Wenn nach Lesen der einschlägigen Klassen und Templates
-kein Marker und keine alternative View benennbar ist, die sich am Live-System
-prüfen lässt. Dann ist "es gibt kein positives Signal" zum ersten Mal
-*nachgelesen* statt geschlossen — und Frage (4) rückt auf.
+**Gescheitert ab:** Wenn die Antwortkörper klein sind (wenige KB,
+Transfer < 50ms) während Settle/Stability weiter 300ms+ braucht, ist Transfer
+nicht die Erklärung — dann bleibt offen, was in der Zeit läuft (zurück zu
+Kandidat B/C), und das braucht ein echtes Browser-Profiling, kein Quellcode-
+Lesen mehr.
 
-**Kosten:** Lesen, kein Account, kein Lauf. Billigstes Experiment der Liste
-bei größtem Hebel.
+**Kosten:** Ein Live-Lauf gegen den echten Account (Netzwerk-Timing pro
+Sektion mitschneiden), kein Build-Risiko — rein lesende Instrumentierung,
+kein Diff gegen den Ground-Truth-Sync nötig, weil nichts am Sync-Verhalten
+geändert wird.
 
 **Ergebnis:** _(offen)_
 
@@ -147,4 +160,47 @@ kein Deckel auf die Kampagne, das Kill-Kriterium sitzt pro Experiment
 jede Abbruchbedingung, die dieses Repo je hatte, wurde zu dem, woran die
 Arbeit aufhörte).
 
-_(noch keiner)_
+### 2026-07-31 (autopilot): Frage 1 gelesen, nicht gemessen
+
+**Quellen (primär, `gh search code --repo OpenOLAT/OpenOLAT`):**
+- `src/main/java/org/olat/core/gui/components/tree/MenuTreeRenderer.java` —
+  baut `.o_tree`/`.o_tree_l{n}` als Java-`StringBuilder`-HTML, synchron,
+  serverseitig. Kein JS-Templating.
+- `src/main/java/org/olat/core/gui/components/table/TableRenderer.java` +
+  die FlexiTable-Renderer (`.o_table_wrapper`, `.o_table_flexi`) — dasselbe
+  Muster: Java-Renderer erzeugt komplettes Tabellen-HTML inkl. Paging-Links.
+- Die alte `Table`-Klasse (`org.olat.core.gui.components.table.Table`,
+  vermutlich NICHT die für Kursordner verwendete — das ist FlexiTable) kennt
+  einen URL-Parameter `COMMAND_PAGEACTION_SHOWALL="a"`. Nicht live geprüft,
+  ob die Kursordner-Dateiliste diesen Pfad überhaupt nutzt — der bestehende
+  Wicket-AJAX-Klick in `wicket.go` ist bereits live vermessen (0 Fehler,
+  byte-identische Parität) und wurde hierdurch **nicht** ersetzt.
+- REST-API (`/repo/courses/{id}/elements/folder/{nodeId}/files`,
+  `VFSWebservice`) existiert im Quellcode — aber am Reverse-Proxy bereits mit
+  403 gemessen (`docs/sync-speed-campaign.md` Zeile 899), unabhängig
+  bestätigt tot. WebDAV ebenso bereits mit blankem 200 gemessen (dead
+  backend) — `docs/webdav-propfind-research.md`. Beides nicht neu getestet,
+  nur der Quellcode-Fund gegen die schon vorliegenden Messungen abgeglichen.
+- Sekundär, zur Bestätigung: OpenOLATs eigene `.claude/openolat-frontend-
+  knowledge.md` im selben Repo sagt wörtlich "No client-side framework (no
+  React/Angular/Vue). All state lives on the server."
+
+**Ergebnis: Vorhersage (60% Tabellen-Zustandsklasse) widerlegt, aber mit
+Erklärung, die das Fehlen vorhersagt (Regel 2 erfüllt) — kein Marker,
+weil nichts client-seitig aufgebaut wird, das einen Marker bräuchte.**
+Deckt sich mit dem bereits bekannten "Dateizeilen sind in der initialen
+Antwort server-gerendert, null Wicket-AJAX" aus `wicket.go`. Frage (1c,
+Pager-Parameter) bleibt unklar, ändert aber nichts am bestehenden,
+funktionierenden Wicket-Signal-Ansatz. Frage (1b, alternative View) bleibt
+verneint — beide bekannten Alternativen sind bereits unabhängig als tot
+gemessen.
+
+**Neue offene Frage (Regel 3):** Frage 7 oben — der Quellcode-Befund
+widerspricht der Live-DOM-Probe vom 2026-07-31, die zum Verwerfen des
+Nav-Walk-Hebels führte. Nicht aufgelöst, nur präzise benannt.
+
+**Nicht ausgeführt in diesem Zyklus:** das oben definierte nächste
+Experiment (Netzwerk-Timing live messen) — das ist ein Lauf gegen den echten
+Account, nicht mehr Lesen, und gehört in einen `opal-downloader-sync-speed`-
+Zyklus mit dessen eigener Berichts-Kadenz statt in diesen allgemeinen
+Autopilot-Lauf.

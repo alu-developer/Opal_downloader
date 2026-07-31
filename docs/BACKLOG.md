@@ -44,17 +44,21 @@ headless Chromium (`browser_walk_test.go`), and the live "List courses" path is
 covered too (`live_list_walk_test.go`, `OPAL_GUI_LIVE_LIST=1`). What each pass
 found is in `docs/BACKLOG-archive.md`.
 
-Three things left that are the maintainer's call, not an agent's:
+One thing left, and it is the maintainer's, not an agent's:
 
-1. **"List courses" is not a quick list.** It crawls every section of every
-   course — 210s and 482s measured. It sits next to "Sync" and reads like a
-   cheap lookup. Rename, warn up front, or serve from the dashboard listing?
-2. **A stranger who wants specific courses has to guess.** With no config,
-   "Sync all courses" renders checked and hides the picker behind it.
-   Reasonable default, discoverable only by unticking something.
-3. **Nobody has looked.** The walks assert structure and behaviour, headless.
-   They cannot catch a purely visual break, and `gui`/`main.exe gui` is still
-   unexercised because `Run` opens a real window unconditionally on Windows.
+**Nobody has looked.** The walks assert structure and behaviour, headless. They
+cannot catch a purely visual break, and `gui`/`main.exe gui` is still
+unexercised because `Run` opens a real window unconditionally on Windows.
+
+The other two entries that stood here were already answered: the "List courses"
+rename shipped on 2026-07-26 (`2f811c5`, now "Preview sync (no download)",
+guarded by `TestSyncPagePreviewButtonIsHonestAboutWhatItCosts`), and the hidden
+course picker was decided on 2026-07-31 — keep "Sync all courses" as the
+default, but show the list, muted, instead of hiding it. Both are done. They
+reappeared here because the 2026-07-31 compaction (`9b51cf2`) rebuilt this item
+out of the archived *findings* rather than the decisions that followed them,
+directly under a line saying the decisions had shipped. **When compacting an
+entry, check the code, not the older text you are summarising.**
 
 Worth knowing independently of this item: **the scheduler's disable path has no
 guard**, and `scheduler.TaskName` is a single global constant that the
@@ -93,6 +97,10 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The course list is always on the settings page now** (2026-07-31):
+  "Sync all courses" still starts ticked, but it mutes the list and says the
+  ticks are inactive instead of hiding it. Folder inputs stay live, because
+  `course_folders` applies under the wildcard too.
 - **Deleted the self-built autonomy machinery** (2026-07-31): ten of twelve
   PowerShell files, the `OpalDownloader-ResumeRunner` Windows task, the
   keep-warm process, and all of `.claude/queue/`. Replaced by one first-party

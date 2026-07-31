@@ -57,6 +57,11 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	/* An unticked course stays on the list rather than vanishing, so it can be
 	   ticked again - but it has to be obvious that it will not be synced. */
 	tr.off input[type=text] { color: #999; background: #fafafa; }
+	/* Muted, not hidden, while "Sync all courses" is ticked: the note above it
+	   stays at full contrast, and nothing is disabled, because the folder
+	   column applies under the wildcard too and must still submit. */
+	#courses-field.muted { opacity: 0.55; }
+	#courses-inactive-note { background: #f5f5f5; border-left: 3px solid #bbb; padding: 0.4rem 0.6rem; }
 	#find-courses-status { font-style: italic; }
 	.save-btn { background: #1a73e8; color: #fff; border-color: #1a73e8; margin-top: 1.5rem; font-weight: 600; }
 </style>
@@ -119,11 +124,13 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<label for="sync_all_courses">Sync all courses</label>
 	</div>
 	<p class="hint">While this is ticked, every course you are enrolled in gets
-	synced and there is nothing to choose. <strong>Untick it to pick specific
-	courses</strong> &ndash; "Find my courses" then fetches the courses you are
+	synced. <strong>Untick it to pick specific courses</strong> from the list
+	below &ndash; "Refresh this list from OPAL" fetches the courses you are
 	actually enrolled in, so you tick the ones you want instead of typing names.
-	This is the default on a first run, which is why the course list below is
-	hidden until you untick it.</p>
+	Syncing everything is the default on a first run.</p>
+
+	<p class="hint" id="courses-inactive-note">Every course is being synced, so
+	the ticks below are ignored for now. Folders you set still apply.</p>
 
 	<div class="field" id="courses-field">
 		<label>Your courses</label>
@@ -248,10 +255,17 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			}
 		})();
 
+		// This used to be display:none, so on a first run - where the wildcard
+		// is the default - choosing specific courses was discoverable only by
+		// unticking a box nobody had a reason to untick. Maintainer's call,
+		// 2026-07-31: keep the default, show the list.
 		var syncAllCheckbox = document.getElementById('sync_all_courses');
 		var coursesField = document.getElementById('courses-field');
+		var coursesInactiveNote = document.getElementById('courses-inactive-note');
 		function updateCoursesVisibility() {
-			coursesField.style.display = syncAllCheckbox.checked ? 'none' : '';
+			var all = syncAllCheckbox.checked;
+			coursesField.classList.toggle('muted', all);
+			coursesInactiveNote.style.display = all ? '' : 'none';
 		}
 		syncAllCheckbox.addEventListener('change', updateCoursesVisibility);
 		updateCoursesVisibility();

@@ -50,11 +50,12 @@ func TestDiscoverCoursesReportsConfigErrorAsJSON(t *testing.T) {
 
 // The settings page must offer the picker and keep the manual escape hatch:
 // a course discovery misses still has to be addable by hand.
-// The picker is hidden behind "Sync all courses", which is ticked by default
-// on a first run - so the whole course-selection feature is invisible to
-// anyone who doesn't think to untick a box. Found by walking the first run in
-// a browser (2026-07-26); the maintainer's answer was to explain it rather
-// than change the default.
+// "Sync all courses" is ticked by default on a first run. It used to hide the
+// picker entirely, which made the whole course-selection feature invisible to
+// anyone who never thought to untick a box (found by walking the first run in
+// a browser, 2026-07-26). Explaining it was tried first; on 2026-07-31 the
+// maintainer chose to show the list instead - default unchanged, list always
+// on the page, with the wording still saying what unticking is for.
 func TestSettingsPageExplainsThatUntickingRevealsTheCoursePicker(t *testing.T) {
 	dir := t.TempDir()
 	rec := httptest.NewRecorder()
@@ -65,10 +66,16 @@ func TestSettingsPageExplainsThatUntickingRevealsTheCoursePicker(t *testing.T) {
 	if !strings.Contains(body, "Untick it to pick specific") {
 		t.Fatalf("nothing tells the user that unticking reveals the picker, body was:\n%s", body)
 	}
-	// Saying "untick to choose" is only useful if it also says why the list
-	// isn't there in the first place.
-	if !strings.Contains(body, "hidden until you untick it") {
-		t.Fatalf("the hidden course list is not explained, body was:\n%s", body)
+	// The list itself must be served, not hidden behind the checkbox, and it
+	// has to say that its ticks do nothing while the wildcard is on.
+	if !strings.Contains(body, `id="courses-field"`) {
+		t.Fatalf("the course list is not on the page at all, body was:\n%s", body)
+	}
+	if !strings.Contains(body, "the ticks below are ignored for now") {
+		t.Fatalf("nothing says the ticks are inactive while syncing everything, body was:\n%s", body)
+	}
+	if strings.Contains(body, "hidden until you untick it") {
+		t.Fatal("the page still claims the course list is hidden; it is shown now")
 	}
 }
 

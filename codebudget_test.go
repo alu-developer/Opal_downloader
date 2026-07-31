@@ -162,7 +162,14 @@ import (
 // authoritative until a production mode is deliberately turned on - so this
 // raise buys a verified-correct diagnostic tool today and the option of a
 // real speedup later, not a behavior change yet.
-const codeLineBudget = 11867
+//
+// Raised to 11873 on 2026-07-31 (was 11867) for the settings page's course
+// list: it is shown and muted while "Sync all courses" is ticked instead of
+// hidden behind it. Six lines - a note, a class toggle, one CSS rule - for the
+// first-run finding that choosing specific courses was discoverable only by
+// unticking a box a stranger had no reason to untick (maintainer's call,
+// 2026-07-31). Written smaller twice before raising: +9, then +6.
+const codeLineBudget = 11873
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

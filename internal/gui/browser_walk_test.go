@@ -115,19 +115,25 @@ func TestBrowserFirstRunWalk(t *testing.T) {
 	mustFill("#download_path", downloadPath)
 
 	// A first run has no config, so config.Load's default course list is the
-	// wildcard and "Sync all courses" renders checked - which hides the whole
-	// course picker behind JS. Picking specific courses therefore starts by
-	// unticking it. That is the intended default (sync everything is the
-	// low-friction path), but it does mean the picker is invisible until a
-	// stranger thinks to uncheck a box, which is worth knowing.
-	if picker, err := page.Locator("#courses-field").IsVisible(); err == nil && picker {
-		t.Fatal("expected the course picker to start hidden behind 'Sync all courses' on a first run")
+	// wildcard and "Sync all courses" renders checked. Syncing everything stays
+	// the default (it is the low-friction path), but the picker must be on the
+	// page anyway: hiding it made choosing specific courses discoverable only by
+	// unticking a box nobody had a reason to untick (maintainer's call,
+	// 2026-07-31). While the wildcard is on, the list is muted and says so.
+	if visible, err := page.Locator("#courses-field").IsVisible(); err != nil || !visible {
+		t.Fatalf("the course picker must be visible on a first run (visible=%v err=%v)", visible, err)
+	}
+	if muted, err := page.Locator("#courses-inactive-note").IsVisible(); err != nil || !muted {
+		t.Fatalf("nothing says the ticks are inactive while 'Sync all courses' is on (visible=%v err=%v)", muted, err)
 	}
 	if err := page.Uncheck("#sync_all_courses"); err != nil {
 		t.Fatalf("uncheck sync_all_courses: %v", err)
 	}
 	if visible, err := page.Locator("#courses-field").IsVisible(); err != nil || !visible {
-		t.Fatalf("unticking 'Sync all courses' did not reveal the picker (visible=%v err=%v)", visible, err)
+		t.Fatalf("unticking 'Sync all courses' hid the picker (visible=%v err=%v)", visible, err)
+	}
+	if noteShown, err := page.Locator("#courses-inactive-note").IsVisible(); err != nil || noteShown {
+		t.Fatalf("the 'ticks are ignored' note must go away once the wildcard is off (visible=%v err=%v)", noteShown, err)
 	}
 
 	// --- step 3: add a course the JavaScript way -----------------------------

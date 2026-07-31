@@ -1,123 +1,143 @@
 # Agent operating model
 
 How the AI assistant working on this repo organises itself: when it keeps
-going on its own, which model/effort it runs at, and how it stays inside the
-maintainer's Claude Pro budget.
+going on its own, what restarts it between sessions, and what survives a run
+being killed.
 
 **The rules are here. The incidents that produced them are in
-`docs/agent-incidents.md`.** That split happened on 2026-07-31, when this file
-had reached 529 lines and was mostly history — read the incidents file when a
-rule looks arbitrary or you want to remove one, not to find out what to do.
+`docs/agent-incidents.md`**, and the retrospective that produced *this*
+version is `docs/work-quality.md`. Read those when a rule looks arbitrary or
+you want to remove one — not to find out what to do.
 
-Written 2026-07-21 to fix two recurring problems: the assistant stopping at
-"natural" checkpoints and waiting to be told *weiter*, and model/effort being
-picked ad hoc with no policy behind it.
+This file was 529 lines on 2026-07-31, describing eleven PowerShell files. Ten
+of them are gone. If it starts growing again, that is the symptom, not the
+progress.
 
 ## 0. The one rule this document exists for
 
 **Stopping is not the assistant's decision.** Not on budget, not on session
-length, not on "the next task deserves a fresh start" — those were the actual
-rationalisations used to end three runs early on 2026-07-21. If stopping looks
+length, not on "the next task deserves a fresh start". If stopping looks
 right, say so in the reply *and keep working*.
 
-Everything below is machinery serving that one rule. When the machinery and
-the rule disagree, the machinery is wrong.
+It is a rule, not a mechanism. Between 2026-07-23 and 2026-07-31 it was a
+mechanism — a `Stop` hook that refused to let the turn end — and the measured
+result was that the mechanism became the stopping condition: runs ended on its
+timers and caps rather than on the work being done. Every guard added to keep
+the agent working was a new place for it to stop. That is the whole lesson.
 
-## 1. Autopilot: working without being prompted
+## 1. Working without being prompted
 
-A `Stop` hook (`.claude/hooks/autopilot-gate.ps1`) refuses to let the turn end
-while unblocked work remains in `docs/BACKLOG.md`, and tells the assistant to
-pick up the next item itself. It engages only when `.claude/queue/AUTOPILOT`
-exists, so ordinary conversation is unaffected.
+`docs/BACKLOG.md` is the list. Read it, take the top unblocked item, do it,
+update the file in the same commit. Nothing arms this and nothing gates it.
 
-### Every gate here is silently absent unless the session started in this repo
+**When autonomy stalls, the cause is almost always the backlog's *content*,
+not a mechanism.** On 2026-07-31 all four "Now" items were marked
+**Blocked:** on the maintainer, so there was correctly nothing to run — which
+is indistinguishable from the automation being broken. Check that first; it is
+the cheapest thing to verify.
 
-`.claude/settings.json` is *project* configuration, loaded from the directory
-the session was opened in. Open a session elsewhere and point it here by path
-and **none of these hooks exist** — not the Stop gate, not the pre-push gate,
-not the budget guard. Nothing announces it.
+Which means the bar in §4 matters. Applying it too widely converts the backlog
+into a wall, and the wall looks like a bug.
 
-So: **start the session in the repo directory.** If you cannot tell whether the
-hooks are live, assume they are not and run `scripts/dev.ps1 all` yourself
-before every push. Autopilot not engaging is the visible symptom; the missing
-pre-push gate is the part that matters.
+## 2. Restarting between sessions
 
-### Starting and stopping it
+A process cannot revive itself, so something external has to start the agent.
+That is the one unavoidable piece, and since 2026-07-31 it is **one
+first-party Claude Code Desktop scheduled task**, not a Windows scheduled task
+driving 23 KB of PowerShell gating.
 
-Armed automatically by a `SessionStart` hook (matcher `startup` only, so it
-never resets an in-flight session) unless `.claude/queue/AUTOPILOT.OFF` exists.
-Default stretch: **12 hours, 60 continuations.** By hand:
+- Prompt: `~/.claude/scheduled-tasks/opal-downloader-autopilot/SKILL.md`
+- Managed in the Desktop app under **Routines**: schedule, working folder,
+  model, permission mode, run history, and per-task tool approvals.
 
-```powershell
-# arm a specific stretch
-$exp = [DateTimeOffset]::UtcNow.AddHours(8).ToUnixTimeSeconds()
-"{`"expires_at`": $exp, `"max_iterations`": 40}" |
-  Set-Content .claude/queue/AUTOPILOT -Encoding utf8
+**It only fires while the Desktop app is open and the machine is awake.** That
+is the price of running locally, and running locally is required: verification
+here needs the maintainer's real OPAL account and real files, which a cloud
+routine cannot reach. Missed runs are caught up once on wake (one catch-up for
+the most recent miss, not one per miss), and skipped runs are visible in the
+task's history with the reason.
 
-# stop it (maintainer only - this is the off switch)
-New-Item .claude/queue/AUTOPILOT.OFF -ItemType File
-```
+Why the previous design was replaced, in one line each — the long version is
+in `docs/agent-incidents.md`:
 
-**Deleting `AUTOPILOT` does nothing** — the hook keeps a session record and
-restores it. Interrupting the session works, and always wins.
+- It died silently twice while looking healthy, and its own log could not show
+  it, because the log only recorded decisions the gate reached.
+- Modern Standby made an `InteractiveToken` task refuse to launch; a refusal is
+  never replayed, so the `missed` counter reached 19 while the task read
+  `State: Ready`.
+- A frozen run left a 0-byte log and no commits while the log still said
+  "launched". Nine of nineteen run logs were 0 bytes.
 
-### Guards
+The Desktop task has catch-up, a real run history, and a visible session per
+run, so all three failure modes are observable without building anything.
 
-Every guard ends the turn rather than continuing; the hook **fails open**,
-because trapping the maintainer in a loop is worse than stopping early.
+## 3. When the usage limit is hit mid-run
 
-| Guard | Behaviour |
-|---|---|
-| No `AUTOPILOT` marker | No-op. Normal conversation. |
-| `expires_at` passed | Stops, and deletes the marker so it cannot linger. |
-| `max_iterations` reached (per session) | Stops. Default 60. |
-| Rate limit 5h ≥ 90% or 7d ≥ 92% | Stops. |
-| Rate-limit data stale (>30 min) | Treated as *unknown*, capping the stretch at 25 continuations. |
-| No unblocked item in `docs/BACKLOG.md` | Stops — there is nothing to do. |
-| Any error, unreadable JSON, unexpected state | Stops. |
+A usage-limit kill stops the turn dead. No `Stop` hook runs, so the design goal
+is not avoidance — the data cannot support prediction — but that **being killed
+costs the current turn and nothing more.**
 
-**The failure mode to know:** a backlog whose every "Now" item is marked
-**Blocked:** makes the gate correctly conclude there is no work, which looks
-exactly like autopilot being broken. Check the backlog before debugging hooks.
+What survives:
 
-The thresholds were 75%/80% and 4h/20 until 2026-07-31. They were raised
-because they had stopped being a safety allowance and become the actual
-stopping condition — runs were ending on a timer with a quarter of the budget
-unused, and the maintainer had to restart what was still in flight.
+- **`docs/RESUME.md`** — tracked in git, deliberately messy, holds the thought
+  that would otherwise live only in a context window. Keep it current *while*
+  working; the end of a task is the part that does not always arrive.
+- **Uncommitted work** — `.claude/hooks/turn-failure-checkpoint.ps1`
+  (`StopFailure`) runs `git stash create` and points
+  `refs/wip-checkpoints/<unix>` at the result, without touching the working
+  tree, index, stash, or any branch. It prunes its own refs (14 days, floor of
+  20) because 322 had once piled up.
+- **`.claude/queue/LAST_FAILURE.json`** plus an append-only `turn-failures.log`,
+  written by the same hook. That directory is gitignored scratch space and holds
+  nothing else any more.
 
-### The budget signal is a floor, never a measurement
+**Staying savable is about how often you commit, not how much you attempt.**
+There is no budget hook now. There used to be, and its own wording — "avoid
+starting work that only pays off if a long turn completes" — is the documented
+cause of the half-finished changes the maintainer complained about on
+2026-07-30. Do not rebuild it.
 
-`~/.claude/rate-limit-status.json` is written only by the status line, which
-does not run in non-interactive sessions. It has been found **18 hours stale,
-reporting 1% against a real 46%**. `.claude/hooks/rate-limit-keepwarm.ps1`
-keeps it fresh with a hidden idle `claude`; the gate invokes it with `-NoWait`.
+**Do not build a rate-limit estimator.** One was written and removed the same
+day for reporting 83.5% against a real 46%. A miscalibrated signal that gates
+work is worse than no signal.
 
-- **Every reading is a lower bound.** "60%" means "at least 60%, possibly an
-  hour's worth more". It never means "40% left".
-- **Staleness is per window.** A window whose `resets_at` has passed is
-  meaningless and must be ignored, or a stale-and-expired reading gates every
-  future run forever. A window still inside its period is usable even when old,
-  since usage only climbs.
-- That rule lives in `.claude/hooks/budget-lib.ps1` and nowhere else. It used
-  to be copied per hook, and the copies had drifted.
-- **Do not build an estimator.** One was written and removed the same day for
-  reporting 83.5% against a real 46%. A miscalibrated signal that gates work is
-  worse than no signal.
+### What does *not* survive: a background process
 
-### Testing the gate must never touch the real queue
+A backgrounded command belongs to the session that started it, and both die
+together. So:
 
-`scripts/test-hooks.ps1` covers this machinery and runs inside
-`scripts/dev.ps1 all`. Set `OPAL_AUTOPILOT_QUEUE_DIR` to a throwaway directory
-and `OPAL_RATE_LIMIT_STATUS` to a synthetic status file — a verification run
-once cleaned up after itself by deleting the *live* `AUTOPILOT` marker and its
-session record. When adding assertions, mutate the code under test and confirm
-they can actually fail.
+- A long verification run must write its result to a file under `tmp/` or
+  `docs/`, not only to stdout.
+- `docs/RESUME.md` must never call a background process "in flight" without
+  saying where its result will land.
+- An unattended run commits first and verifies second. A commit survives; a
+  working tree survives by luck.
 
-## 2. Model and effort
+## 4. What still needs a human
+
+Mark the item **Blocked:** in `docs/BACKLOG.md` — with the open question
+written down *and concrete options to choose between* — and continue with the
+next item, when:
+
+- The change would delete or overwrite the maintainer's real files.
+- A stated project decision or principle would have to change.
+- Credentials, 2FA, or anything requiring their account interactively.
+- Two reasonable designs differ in a way only their preference settles, and
+  reasoning it through genuinely does not resolve it.
+
+Everything else: decide, do it, report afterwards.
+
+**A blocked entry without options is not finished work.** "Please look at the
+GUI" costs the maintainer 45 minutes and therefore waits weeks; the same
+question as three concrete alternatives costs ten seconds and gets answered.
+Whoever marks an item blocked owes it the options. `/decide` collects them.
+
+**Watch the ratio.** If several sessions in a row end with every backlog item
+blocked, the bar above is being applied too widely.
+
+## 5. Model and effort
 
 The maintainer is on **Claude Pro**, so budget is the binding constraint.
-Default `sonnet` at `medium` effort (`~/.claude/settings.json`).
-
 Escalate to Opus and/or high effort deliberately: root-causing a live bug,
 designing a change touching the crawl path, anything where being wrong costs a
 full re-verification cycle. Not for routine implementation, doc edits, or test
@@ -127,82 +147,7 @@ The assistant **cannot change the session's own model or effort** — those are
 interactive panels. Say plainly when a task needs more and let the maintainer
 flip it. Subagent models it does control; default those to something cheap.
 
-## 3. When the usage limit is hit mid-run
-
-A usage-limit kill stops the turn dead. **No `Stop` hook runs**, so every guard
-in §1 is bypassed. The design goal is therefore *not* avoidance — the data
-cannot support prediction — but that **being killed costs the current turn and
-nothing more**.
-
-| Piece | Hook | Job |
-|---|---|---|
-| `budget-guard.ps1` | `PreToolUse` | The only check running *during* a turn. As the floor climbs, tells the assistant to commit and write down where it got to. |
-| `turn-failure-checkpoint.ps1` | `StopFailure` | Fires *because* the turn died. Records what happened, captures uncommitted work. |
-| `session-start-autopilot.ps1` | `SessionStart` | Hands the next session the failure record and `docs/RESUME.md`. |
-
-**The rungs** (worst window wins, thresholds are on the floor):
-
-| Rung | 5h | 7d | Effect |
-|---|---|---|---|
-| 1 | ≥50% | ≥65% | Silent. |
-| 2 | ≥70% | ≥80% | Commit what is correct now, even mid-task. Update the resume note. |
-| 3 | ≥80% | ≥85% | Same, more urgently. |
-
-Advice is throttled: once when the rung rises, then at most every 15 minutes.
-
-**None of these rungs is a stop condition, and none of them shrinks the task.**
-They say "stay savable" — which is about how often you commit, not about how
-much you attempt. Rung 1 was made silent and rung 3's subagent deny was removed
-on 2026-07-31, because between them they had turned a savability mechanism into
-a general instruction to do less.
-
-### What survives a kill
-
-- **`docs/RESUME.md`** — tracked in git, deliberately messy, holds the thought
-  that would otherwise live only in a context window. Keep it current *while*
-  working; the end of a task is the part that does not always arrive.
-- **Uncommitted work** — `turn-failure-checkpoint.ps1` runs `git stash create`
-  and points `refs/wip-checkpoints/<unix>` at it, without touching the working
-  tree, index, stash, or any branch. The next session is told the SHA.
-- **`.claude/queue/LAST_FAILURE.json`** plus an append-only `turn-failures.log`.
-
-### What does *not* survive: a background process
-
-A backgrounded command belongs to the session that started it, and both die
-together. So:
-
-- **A long verification run must write its result to a file** under `tmp/` or
-  `docs/`, not only to stdout.
-- **`docs/RESUME.md` must never call a background process "in flight"** without
-  saying where its result will land.
-- **An unattended run commits first and verifies second.** A commit survives; a
-  working tree survives by luck.
-
-### Automatic resumption
-
-The `OpalDownloader-ResumeRunner` scheduled task restarts work between
-sessions — it survives closed terminals, reboots and logouts, and stops only
-when unregistered or when `AUTOPILOT.OFF` exists. Set it up with
-`scripts/register-resume-task.ps1` (`-Status` to inspect, `-Remove`).
-
-**What makes it affordable:** `.claude/hooks/resume-runner.ps1` gates entirely
-in PowerShell — off switch, already-running, cooldown, budget, is-there-work —
-so **a quiet hour costs no model turn.** An in-session cron was considered and
-rejected for exactly this: every fire is a model turn, including one that
-concludes there is nothing to do.
-
-Its bounds, because nobody is watching: `OPAL_UNATTENDED_RESUME=1` arms 15
-iterations / 4h, `--model sonnet`, a 2-hour cooldown, mains power required, and
-it resumes only at rung 0–1 on the **worst** window. It skips while
-`.session-heartbeat.json` is under 20 minutes old or the worktree was modified
-in the last 30 minutes, so it never joins a tree someone else is working in.
-
-`.claude/hooks/unattended-run.ps1` wraps the agent: it holds a wake lock so
-Modern Standby cannot freeze the run, and writes what the run actually achieved
-(`finished` / `run-died-early` / `run-left-uncommitted`), because a dead run and
-a working one used to be indistinguishable in the log.
-
-## 4. Staying inside 5h / 7d limits
+## 6. Staying inside 5h / 7d limits
 
 The single most useful thing learned while measuring this repo:
 
@@ -212,27 +157,12 @@ A 5-minute full-account scrape is one tool call. What consumes budget is
 reasoning turns and large tool outputs pulled into context.
 
 - **Filter every command's output** at the source. Never dump a 900-line log.
-- **Run long jobs in the background** and wait for the completion notification.
-  Never poll in a loop — each poll is a turn.
+- **Run long jobs in the background** and wait for the completion
+  notification. Never poll in a loop — each poll is a turn.
 - **Batch verification.** One instrumented run answering three questions beats
   three runs.
 - **Prefer a decisive experiment over more reasoning.**
 
-## 5. What still needs a human
+## 7. The standing rule
 
-Autopilot does not mean "decide everything". Mark the item **Blocked:** in
-`docs/BACKLOG.md` with the open question written down, and continue with the
-next one, when:
-
-- The change would delete or overwrite the maintainer's real files.
-- A stated project decision or principle would have to change.
-- Credentials, 2FA, or anything requiring their account interactively.
-- Two reasonable designs differ in a way only their preference settles — and
-  only if reasoning it through genuinely does not resolve it.
-
-Everything else: decide, do it, and report what was decided afterwards.
-
-**Watch the ratio.** If several sessions in a row end with every backlog item
-blocked, the bar above is being applied too widely — that is the state the
-backlog was found in on 2026-07-31, where all four items waited on the
-maintainer and autopilot therefore had nothing to run.
+**Wanting to build a gate is the signal to do the work instead.**

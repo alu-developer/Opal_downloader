@@ -242,48 +242,39 @@ Two things follow, and they are different:
 The same applies to this project's own docs, including the ones written
 confidently. A long, well-argued document is not evidence.
 
-## How to organise yourself (autopilot, model/effort, budget)
+## How to organise yourself
 
-`docs/agent-operating-model.md` is the standing answer to "when do you keep
-working on your own, what model/effort do you run at, and how do you stay
-inside a Pro plan's limits". Read it before deciding to stop and wait for
-input — stopping to ask "shall I continue?" is the specific failure it
-exists to prevent.
+`docs/agent-operating-model.md` is the standing answer. It is short now, and
+the short version is shorter still:
 
-**These hooks only exist if the session was started in this repo's
+**Stopping is not yours to decide.** If work remains in `docs/BACKLOG.md` and
+nothing needs the maintainer's judgement, keep going. That is a rule you
+follow, not a gate that catches you — the gates that used to enforce it were
+removed on 2026-07-31 because they had become the thing that stopped the work.
+
+**Two hooks remain, both enforcement, never behaviour:**
+`pre-push-gate.ps1` blocks a push that hasn't passed `scripts/dev.ps1 all`,
+and `turn-failure-checkpoint.ps1` saves uncommitted work when a usage-limit
+kill ends a turn dead. Neither tells you what to do.
+
+**A usage-limit kill is unpredictable and unpreventable**, so the goal is that
+being killed costs the current turn and nothing more: commit small, and keep
+**`docs/RESUME.md`** current *while* working. Budget pressure is never a
+reason to stop, to pick a smaller task, to skip the harder half, or to avoid
+subagents.
+
+**Both hooks only exist if the session was started in this repo's
 directory.** `.claude/settings.json` is project configuration; a session
-opened elsewhere and pointed here by path runs with no autopilot gate, no
-pre-push gate, and no rate-limit gate, and says nothing about it. Run
-`scripts/dev.ps1 all` by hand before every push unless you know the gate is
-live. See the operating model doc for the incident that prompted this.
-
-Short version: a `Stop` hook (`.claude/hooks/autopilot-gate.ps1`) keeps the
-turn going while `.claude/queue/AUTOPILOT` exists and unblocked work remains
-in `docs/BACKLOG.md`, with expiry/iteration/rate-limit guards that all fail
-open. **Ending a run is not yours to decide** — deleting the marker does
-nothing (the hook restores it); only those guards or the maintainer's
-`.claude/queue/AUTOPILOT.OFF` end it. Default model is
-Sonnet at medium effort; escalating to Opus/high is a deliberate call the
-maintainer has to make, so ask for it explicitly when a task needs it.
-
-**A usage-limit kill bypasses all of that** — it stops the turn dead and no
-`Stop` hook runs. So `.claude/hooks/budget-guard.ps1` (`PreToolUse`) watches
-the budget *during* a turn and, as it climbs, tells you to commit and to keep
-**`docs/RESUME.md`** current. Do that: the resume note plus small commits are
-what survive a kill, and `docs/RESUME.md` is what the next session is handed.
-
-**Staying savable is about how often you commit, not about how much you
-attempt.** Budget pressure is never a reason to stop working, and never a
-reason to pick a smaller task, skip the harder half, or avoid subagents. That
-distinction had to be written down on 2026-07-31: the guard's own wording had
-drifted into asking for less work, and 40% of the repo's commits over the
-previous month touched only its own docs and machinery. Hook behaviour is
-covered by `scripts/test-hooks.ps1`.
+opened elsewhere and pointed here by path gets neither, and says nothing about
+it. Run `scripts/dev.ps1 all` by hand before every push unless you know the
+gate is live.
 
 **Keep this machinery small.** It is infrastructure for building
 opal-downloader, not the project. If a session's output is another gate,
 another doc about gates, or another entry in a backlog about gates, that is
-the failure mode — not diligence.
+the failure mode — not diligence. On 2026-07-31 that ratio was measured at
+102 of 193 commits in seven days touching only `docs/`, `.claude/` or
+`scripts/`; the cleanup that followed is why this section is this short.
 
 **`docs/work-quality.md` is why these rules exist** — the measured
 retrospective of how the workflow drifted, including the three rules that came
@@ -303,22 +294,20 @@ says what should happen; the resume note is allowed to be messy and says where
 you actually are. Clear it back to its placeholder line when the work lands.
 
 The older `.claude/queue/` workflow — `task-capture` / `queue-run` /
-`queue-review` against `todo/`, `in-progress/`, `done/`, `blocked/` — is
-**retired for this repo** (2026-07-22, maintainer's decision). It is not
-deleted: the skills stay installed and are still reasonable for a repo where
-a formal queue earns its ceremony. Don't reach for them here.
+`queue-review` against `todo/`, `in-progress/`, `done/`, `blocked/` — was
+retired for this repo on 2026-07-22 and the skills themselves were deleted on
+2026-07-31, having gone unused since 20 July. If you find an old
+`.claude/queue/` directory on a machine, it is debris: `docs/BACKLOG.md` is
+authoritative.
 
 Why it was retired: the queue was gitignored, so the only record of in-flight
 work couldn't survive a fresh clone; and it needed a skill to be *invoked*
 before anything happened, which made autonomy depend on ceremony rather than
-on simply owning the backlog. If you find an old `.claude/queue/` directory
-on a machine, treat `docs/BACKLOG.md` as authoritative.
+on simply owning the backlog.
 
 ## Maintenance
 
-- `scripts/dev.ps1 all` — local build/vet/test/lint, run before any PR. Also
-  runs `scripts/test-hooks.ps1` (the `.claude/hooks/` autopilot and budget
-  machinery); `scripts/dev.ps1 hooks` runs just that part.
+- `scripts/dev.ps1 all` — local build/vet/test/lint, run before any PR.
 - `scripts/test-fresh-install.ps1` — validates the no-credentials setup path
   (clone through `init`); see `docs/setup-friction.md` for known friction.
 - `docs/manual-setup-checklist.md` — manual checklist for the

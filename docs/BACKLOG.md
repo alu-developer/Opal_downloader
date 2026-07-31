@@ -93,56 +93,32 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Deleted the self-built autonomy machinery** (2026-07-31): ten of twelve
+  PowerShell files, the `OpalDownloader-ResumeRunner` Windows task, the
+  keep-warm process, and all of `.claude/queue/`. Replaced by one first-party
+  Claude Code Desktop scheduled task. Kept only the two hooks that *enforce*
+  (pre-push gate, turn-failure checkpoint). Trigger: 102 of 193 commits in
+  seven days touched only `docs/`, `.claude/` or `scripts/`. See
+  `docs/agent-operating-model.md`.
 - Closed the last Noticed item (the User-Agent-fix theory) with a decision
-  instead of another probe: isolating the mechanism further would mean
-  deliberately sending a higher-volume burst at the real OPAL server to try
-  to reproduce the original degradation, which is exactly what
-  `docs/server-load.md` exists to weigh before doing — "read before any
-  change that would make the tool ask OPAL for more, or ask faster" applies
-  to a curiosity probe the same as a shipped feature. The result
-  (`cd1282c`'s fix demonstrably works, 345 files byte-identical) stays cited
-  regardless of the unexplained mechanism; nothing to build here.
-- Closed the "unattended run can't wait for a background job" Noticed item
-  without building a detector: `docs/work-quality.md` names building more
-  watch-the-process machinery as the exact anti-pattern to stop, and the
-  actual fix already shipped this session as a *rule*, not code — the
-  resume-runner's own prompt template already says "do not start anything
-  that outlives this turn... commit first and leave the check as the next
-  action." Behavior lives in the prompt, hooks stay for enforcement only.
-- Fixed a stdin BOM silently breaking JSON parsing in 5 hooks (budget-guard,
-  turn-failure-checkpoint, noticed-gate, autopilot-gate, pre-push-gate) —
-  `scripts/dev.ps1 all` is fully green for the first time this session
-  (2026-07-31).
-- **Closed the sync-speed campaign's remaining question myself, per
-  `docs/work-quality.md`'s instruction to decide rather than defer:** decided
-  NOT to build the risky wait-shortening change autonomously. Reasoning in
-  `docs/sync-speed-campaign.md`'s closing entry (2026-07-31) — the short
-  version: the verified HTTP-hybrid (diff=0, all 6 courses) ships as an
-  opt-in diagnostic; the only path to an actual speedup needs an unreviewed
-  change to the crawl's highest-risk code, for an estimated (not measured)
-  ~60-90s that still misses the original 30s target. CLAUDE.md ranks
-  reliability over features and over ease-of-use; an autonomous, unattended
-  turn is not the place to gamble with a real user's file sync on an
-  estimate. This is a decision, not a stall - reopen it only with a
-  maintainer watching the diff live, not by re-measuring.
-- Resolved two Noticed items with real evidence, both against my own
-  same-session claims: the resume runner's Logon trigger genuinely fires
-  (Task Scheduler event 119, "due to user log-on", 2026-07-31 01:04:24 -
-  confirmed, not just registered) and the "overlapping resume-runner
-  launches" I'd called confirmed the same day was wrong - the four Task
-  Scheduler firings were the cheap gate script (one was a missed-schedule
-  catch-up, one the real logon trigger, one the hourly tick), and
-  `resume-runner.log` shows only one actual `claude` launch in that window.
-  The real same-day collision was two ordinary sessions in one directory,
-  not a bug to fix.
+  rather than another probe — a higher-volume burst at the real OPAL server is
+  what `docs/server-load.md` exists to prevent, curiosity included.
+- Closed the "unattended run can't wait for a background job" item as a rule,
+  not a detector: behaviour lives in the prompt, hooks enforce only.
+- Fixed a stdin BOM silently breaking JSON parsing in 5 hooks (2026-07-31).
+- **Closed the sync-speed campaign's remaining question with a decision:** the
+  verified HTTP-hybrid (diff=0, all 6 courses) ships as an opt-in diagnostic;
+  the actual speedup would need an unreviewed change to the crawl's
+  highest-risk code for an estimated ~60-90s that still misses the 30s target.
+  Reliability outranks features. Reopen only with the maintainer watching the
+  diff live, not by re-measuring. Reasoning in `docs/sync-speed-campaign.md`.
+- Corrected two of my own same-session claims with real evidence: the Logon
+  trigger did fire (Task Scheduler event 119), and the "overlapping launches"
+  I had called confirmed were the cheap gate script, not real launches.
 - Moved 678 lines of closed work into `docs/BACKLOG-archive.md` (2026-07-31).
-- Released the autonomy brakes: budget-guard advises instead of denying,
-  autopilot caps raised from 4h/20 to 12h/60 (2026-07-31).
 - Routed every live probe's diagnostic logs somewhere visible.
-- Fixed the Blocked marker so the autopilot gate's parser actually reads it.
 - Found a real completion-signal candidate: jsTree's `aria-busy`, across 4
   courses.
 - Wired the app icon into the running window (WM_SETICON), rasterised from
   logoSVG.
-- Gave every hook a heartbeat, so a silently dead hook is observable.
 - Deleted the section change-detection cache, budget and all.

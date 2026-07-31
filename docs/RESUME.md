@@ -13,9 +13,8 @@ that does not always arrive. Update it whenever the answer to "what am I doing
 and what's next" changes materially. When the work lands, clear it back to the
 placeholder line below.
 
-The SessionStart hook reads this file and hands it to the next session. The
-scheduled resume runner also treats a non-placeholder file here as "there is
-work", so leaving stale content in it will wake an unattended run for nothing.
+The scheduled Desktop task's prompt reads this file first, so stale content
+here sends an unattended run after work that is already done. Clear it.
 
 ---
 

@@ -1,5 +1,63 @@
 # Sync speed campaign
 
+## 2026-07-31 (late): the lever the morning's entry said was "real" was measured and is NOT. 30s is unreachable loss-free.
+
+The 2026-07-31 entry below ended on "the lever is real" — a navigation-only
+tree-walk shortening the settle wait — based on a *timing* probe that counted
+folder links at 50ms. That count was misleading: `looksLikeSectionFolderLink`
+matches any `/coursenode/` href, and at 50ms the visible links are nav/
+breadcrumb/other-course links, not the node's real content subtree. A second
+probe (`navtreewalk_probe_test.go`) ran the actual lightweight BFS — navigate,
+100ms wait, expand only folder targets — and it reached **1 section** (the
+root), expanding **0 children**, on both the course root and the real content
+node (`CourseNode/1615865126729195011`, which has 16 children in the full
+crawl). A debug probe confirmed: that node at 100ms yields 24 candidates but
+only 1 passes `looksLikeSectionFolderLink`, and it points back at the course
+root — not real children. **The content tree is JS-rendered at every level, not
+just the dashboard.** A navigation-only short wait cannot enumerate it.
+
+**The concrete per-phase breakdown, finally measured** (`list --verbose` on a
+renewed session, 282 sections — this is the number this campaign ran without
+for its whole life):
+
+| phase | time | per-section | share | removable? |
+|---|---|---|---|---|
+| settle wait (MutationObserver debounce) | 1m35.4s | 338ms | **64%** | **no** — skipping is measured 51% *slower* (it produces the `sectionCalm` signal the poll needs) |
+| stability poll (candidateStabilityPoll) | 48.6s | 172ms | **32%** | **no** — 1-vs-4 reads lost real files past pagination (control not rendered yet) |
+| everything else (extract, nav, all) | 3.8s | 14ms | 2% | already minimal |
+| rate limiter | 0s | — | 0% | `0 delayed, 0s held` — brakes nothing |
+
+**96% of in-section time is this tool waiting on its own timers**, and every
+piece of that waiting is load-bearing. Also checked directly: there is **no
+positive render-done signal** in OPAL's DOM (no loading indicator, no busy
+flag, no "done" marker) — silence-inference is the only mechanism that works.
+
+**`mode=1` measured live, the predicted improvement that isn't:**
+`OPAL_HTTP_DISCOVERY=1 list` on the renewed session = **254.1s total** (HTTP
+phase 55.8s, diff=0 verified, HTTP result returned) vs the **206.9s** plain
+browser crawl measured the same session. **mode=1 is 47s slower, not faster.**
+The reason is structural and was the morning's blind spot: HTTP can't run
+before the browser yields section URLs, and the browser pays its full
+per-section wait to get them — so HTTP adds time after the browser rather than
+removing the wait. The "predicted improvement" required removing the browser's
+wait, and that wait *is* the correctness mechanism on a tree OPAL renders
+client-side at every level.
+
+**Conclusion, measured not argued:** the realistic loss-free ceiling is the
+~207s plain browser crawl. 30s is unreachable without caching section URLs
+across runs (option B), which silently misses new sections — the one
+constraint the maintainer refused to relax. The serial hybrid shipped behind
+`OPAL_HTTP_DISCOVERY` is a correct, verified, independent file source (a
+no-regression control), not a speed win. The mode=1 path also surfaces a
+looser cross-section dedupe (Softwaretechnologie reports 246 vs the browser's
+200 files — no loss, diff=0 on distinct names, but worth tightening before
+it is ever a default).
+
+This closes the campaign: every lever measured, every rejection diagnosed to
+a named cause. What remains in the tree (`httpdiscovery*.go`,
+`*probe_test.go`, `scrapeCoursesHybrid`) is reusable tooling, not a pending
+speedup.
+
 ## 2026-07-31: REOPENED — the "needs a live human" close was more cautious than the actual risk
 
 The 2026-07-31 closing entry (bottom of this file) declined to build the

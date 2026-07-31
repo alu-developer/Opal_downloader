@@ -485,6 +485,22 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 	if err := s.ensureSession(false); err != nil {
 		return nil, err
 	}
+	// Serial-hybrid discovery (option A, docs/RESUME.md): the browser walks the
+	// course-content tree to enumerate section URLs (the part OPAL renders
+	// client-side), then HTTP bulk-fetches each section's leaf file table -
+	// where the ~0.67s/section settle wait actually goes - skipping that wait
+	// because there is no render to wait for over HTTP. HTTP and browser never
+	// run concurrently (measured: that corrupts the shared Wicket session).
+	//
+	// OPAL_HTTP_DISCOVERY=verify: run BOTH the browser crawl and the HTTP
+	// fetch, serially, and log a per-course diff. Returns the browser result
+	// (the trusted source) so verification can't silently lose files. This is
+	// the mode to reach the 345-file contract diff=0 before flipping the
+	// default. OPAL_HTTP_DISCOVERY=1 will return the HTTP result once verified.
+	httpDiscoveryMode := os.Getenv("OPAL_HTTP_DISCOVERY")
+	if httpDiscoveryMode == "verify" || httpDiscoveryMode == "1" {
+		return s.scrapeCoursesHybrid(ctx, courseFilter, httpDiscoveryMode)
+	}
 	return s.scrapeCoursesBrowser(ctx, courseFilter)
 }
 

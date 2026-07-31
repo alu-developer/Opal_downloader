@@ -231,3 +231,23 @@ during tree-walk; HTTP fetches leaf tables ONLY when the browser is done (or
 never concurrently). This is always-complete (no silent loss) and skips the
 per-section settle wait by bulk-fetching leaf tables. The maintainer's parallel
 idea would have been faster but is impossible against this OPAL session model.
+
+### BUILD — serial hybrid wired in, gated behind OPAL_HTTP_DISCOVERY (2026-07-31)
+Three new files + entry-point branch:
+- httpdiscovery.go: parseHTTPSectionCandidates + extractShowAllURLFromHTML (pure,
+  7 offline unit tests green).
+- httpdiscovery_fetch.go: fetchSectionFilesHTTP (fetch + pager-showAll follow-up,
+  3 offline unit tests green with a fake httpFetcher).
+- scraper.go ScrapeWithSavedSession: branch on OPAL_HTTP_DISCOVERY.
+- orchestrator.go scrapeCoursesHybrid: runs the browser crawl (source of truth),
+  then STRICTLY serial HTTP fetch of every section the browser visited
+  (VisitRecords is the section-URL source, since RemoteFile drops SectionURL),
+  and logs a per-course diff.
+
+mode=verify (current): returns the browser result, logs the diff. This is the
+345-file contract check. mode=1 (future): returns HTTP result once diff=0.
+
+RUNNING NOW: OPAL_HTTP_DISCOVERY=verify list against the real account. Expect
+the summary line "total missing=0 extra=0". If anything is missing, the per-file
+"missing:" log lines name exactly which and (from the diagnosis) why. Log in
+tmp/baseline/verify-run.{out,err}.

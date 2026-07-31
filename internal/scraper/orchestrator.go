@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,6 +96,175 @@ func (s *OpalScraper) scrapeCoursesBrowser(ctx context.Context, courseFilter []s
 		return remoteFiles, err
 	}
 	return remoteFiles, nil
+}
+
+// scrapeCoursesHybrid is the serial-hybrid discovery path (option A,
+// docs/RESUME.md). It runs the browser crawl first (the trusted source, and
+// the only thing that can enumerate the JS-rendered section tree), then -
+// STRICTLY AFTER the browser is done, never concurrently - bulk-fetches each
+// section's file table over HTTP and compares.
+//
+// mode=="verify": returns the BROWSER result (so a verification run cannot
+// silently lose files) but logs a per-course diff between what HTTP found and
+// what the browser found, plus timing. This is how the 345-file contract gets
+// checked: HTTP must find every file the browser did, with zero missing.
+// mode=="1": returns the HTTP result instead (faster), used only after verify
+// has shown diff=0.
+//
+// The HTTP fetch reuses the browser's already-authenticated session context
+// (s.getContext().Request()), which shares the session cookies - which is
+// exactly why the two phases must be serial. See fetchSectionFilesHTTP's
+// doc comment for the measured concurrency hazard.
+func (s *OpalScraper) scrapeCoursesHybrid(ctx context.Context, courseFilter []string, mode string) ([]RemoteFile, error) {
+	// Phase 1: the browser crawl, unchanged. This is the source of truth for
+	// section URLs AND files in verify mode.
+	browserFiles, err := s.scrapeCoursesBrowser(ctx, courseFilter)
+	if err != nil {
+		return nil, err
+	}
+	if mode == "1" {
+		// Future: once verify shows diff=0, return HTTP result. For now, until
+		// verification lands, mode=1 behaves as verify to avoid returning an
+		// unverified faster path. Fall through to verify logging.
+	}
+
+	// Phase 2: HTTP fetch, serial after the browser. The browser crawl records
+	// every section it actually visited (recordSectionVisit/VisitRecords),
+	// including each section's URL - that is the exact set HTTP must re-fetch
+	// for a fair comparison. RemoteFile drops SectionURL, so VisitRecords is the
+	// source here.
+	httpFetcher := s.httpDiscoveryFetcher()
+	if httpFetcher == nil {
+		logging.Warn("OPAL_HTTP_DISCOVERY: no authenticated request context; skipping HTTP phase")
+		return browserFiles, nil
+	}
+
+	visitRecords := s.VisitRecords()
+	// Dedupe section URLs (a section can be recorded once per scrape; across
+	// multi-course scrapes the list is already per-section). Keep first course
+	// title seen for each URL for logging.
+	seenSection := map[string]bool{}
+	type sectionInfo struct {
+		course CourseRef
+		sect   SectionRef
+	}
+	var sections []sectionInfo
+	for _, vr := range visitRecords {
+		if vr.SectionURL == "" || seenSection[vr.SectionURL] {
+			continue
+		}
+		seenSection[vr.SectionURL] = true
+		repoID := repositoryEntryID(vr.SectionURL)
+		sections = append(sections, sectionInfo{
+			course: CourseRef{RepoID: repoID, Title: vr.Course, URL: repositoryEntryRoot(vr.SectionURL)},
+			sect:   SectionRef{CourseRepoID: repoID, Title: vr.SectionTitle, URL: vr.SectionURL},
+		})
+	}
+
+	// Fetch every distinct section URL over HTTP - the same set the browser
+	// visited. Group results by course title for the diff.
+	var httpFiles []FileRef
+	httpStart := time.Now()
+	httpRequests := 0
+	for _, si := range sections {
+		files, reqs, ferr := fetchSectionFilesHTTP(httpFetcher, si.course, si.sect, s.opalURL)
+		httpRequests += reqs
+		if ferr != nil {
+			logging.Warn("OPAL_HTTP_DISCOVERY: %v", ferr)
+			continue
+		}
+		httpFiles = append(httpFiles, files...)
+	}
+	httpElapsed := time.Since(httpStart)
+
+	// Distinct-name sets per course for the diff. httpFiles carry CourseTitle
+	// (set by appendSectionFiles); browserFiles carry Course (same value).
+	httpByCourse := map[string]map[string]bool{}
+	for _, hf := range httpFiles {
+		if httpByCourse[hf.CourseTitle] == nil {
+			httpByCourse[hf.CourseTitle] = map[string]bool{}
+		}
+		httpByCourse[hf.CourseTitle][hf.Name] = true
+	}
+	browserByCourse := map[string]map[string]bool{}
+	for _, bf := range browserFiles {
+		if browserByCourse[bf.Course] == nil {
+			browserByCourse[bf.Course] = map[string]bool{}
+		}
+		browserByCourse[bf.Course][bf.Name] = true
+	}
+
+	var missingTotal, extraTotal int
+	for course, browserSet := range browserByCourse {
+		httpSet := httpByCourse[course]
+		var missing, extra []string
+		for name := range browserSet {
+			if !httpSet[name] {
+				missing = append(missing, name)
+			}
+		}
+		for name := range httpSet {
+			if !browserSet[name] {
+				extra = append(extra, name)
+			}
+		}
+		missingTotal += len(missing)
+		extraTotal += len(extra)
+		logging.User("OPAL_HTTP_DISCOVERY diff [%s]: browser=%d http=%d missing=%d extra=%d",
+			course, len(browserSet), len(httpSet), len(missing), len(extra))
+		if len(missing) > 0 && len(missing) <= 20 {
+			for _, m := range missing {
+				logging.Detail("  missing: %s", m)
+			}
+		}
+	}
+	logging.User("OPAL_HTTP_DISCOVERY summary: %d sections, %d HTTP requests, HTTP phase %s; total missing=%d extra=%d",
+		len(sections), httpRequests, httpElapsed.Round(time.Millisecond), missingTotal, extraTotal)
+
+	// verify mode returns the trusted browser result. mode=1 (future) returns
+	// the HTTP result; until verification lands diff=0, keep returning browser.
+	_ = httpFiles
+	return browserFiles, nil
+}
+
+// httpDiscoveryFetcher returns the authenticated HTTP request context the
+// hybrid path uses for leaf-table fetches, or nil if the browser session was
+// torn down. Lives here so the hybrid method reads as one block.
+func (s *OpalScraper) httpDiscoveryFetcher() httpFetcher {
+	if ctx := s.getContext(); ctx != nil {
+		return ctx.Request()
+	}
+	return nil
+}
+
+// repositoryEntryRoot returns the RepositoryEntry/<id> URL that owns a section
+// URL, by stripping any /CourseNode/... tail. Used to reconstruct a course
+// root URL from a file's SectionURL in the hybrid path.
+func repositoryEntryRoot(sectionURL string) string {
+	idx := strings.Index(sectionURL, "/CourseNode/")
+	if idx < 0 {
+		return sectionURL
+	}
+	return sectionURL[:idx]
+}
+
+// repositoryEntryID extracts the numeric RepositoryEntry id from an OPAL URL,
+// e.g. ".../RepositoryEntry/53228666883/CourseNode/..." -> "53228666883".
+// Returns "" when no RepositoryEntry segment is present. Used by the hybrid
+// path to build a CourseRef.RepoID from a section URL when reconstructing what
+// the browser crawled.
+func repositoryEntryID(sectionURL string) string {
+	const marker = "/RepositoryEntry/"
+	idx := strings.Index(sectionURL, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := sectionURL[idx+len(marker):]
+	end := strings.IndexAny(rest, "/?")
+	if end < 0 {
+		end = len(rest)
+	}
+	return rest[:end]
 }
 
 // newPageStaggerMs is how long newCourseFileCollector holds s.newPageMu

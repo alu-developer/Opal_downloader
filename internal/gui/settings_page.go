@@ -56,7 +56,11 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	.course-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 	/* An unticked course stays on the list rather than vanishing, so it can be
 	   ticked again - but it has to be obvious that it will not be synced. */
-	tr.off input[type=text] { color: #999; background: #fafafa; }
+	/* Scoped to :not(.muted) - while #courses-field is already dimmed via
+	   opacity, this color stacks with that opacity multiplicatively and
+	   renders unticked course names near-invisible (~#c9c9c9 on white). The
+	   per-row distinction only matters once the list is actually active. */
+	#courses-field:not(.muted) tr.off input[type=text] { color: #999; background: #fafafa; }
 	/* Muted, not hidden, while "Sync all courses" is ticked: the note above it
 	   stays at full contrast, and nothing is disabled, because the folder
 	   column applies under the wildcard too and must still submit. */
@@ -129,7 +133,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	actually enrolled in, so you tick the ones you want instead of typing names.
 	Syncing everything is the default on a first run.</p>
 
-	<p class="hint" id="courses-inactive-note">Every course is being synced, so
+	<p class="hint" id="courses-inactive-note" style="{{if not .SyncAllCourses}}display:none;{{end}}">Every course is being synced, so
 	the ticks below are ignored for now. Folders you set still apply.</p>
 
 	<div class="field" id="courses-field">

@@ -99,26 +99,14 @@ maintainer's live daily sync is registered under.
 
 ## Next
 
-From the weekly review pass, 2026-07-31, window `4c2347d..9ece956`:
-
-### `pre-push-gate.ps1` cites tests that no longer exist
-Its line 63 says the push matcher is "Covered by the matcher tests in
-scripts/test-hooks.ps1". That file was deleted in `85aea11`. The deletion was
-deliberate and should stand — but this is now the one hook that can block a
-push, with nothing checking that its matcher still recognises a `git push`,
-and a comment claiming otherwise. Fix the comment; do **not** rebuild the
-suite to make it true again.
-
-### Two visibility bugs in the settings course list
-Both from `0d7e0c8`, both one-liners:
-- `#courses-field.muted` (`opacity: 0.55`) stacks on `tr.off input`'s
-  `color: #999`, so while "Sync all courses" is ticked, an unticked course's
-  name renders around `#c9c9c9` on white — effectively unreadable. The two
-  rules landed together and were not considered together.
-- `#courses-inactive-note` has no `display:none` in the markup;
-  `updateCoursesVisibility()` only hides it once the script runs. On a load
-  with the box unticked it briefly shows "Every course is being synced",
-  which is exactly the wrong statement.
+Empty right now — the weekly review pass's two items (2026-07-31, window
+`4c2347d..9ece956`) both landed: the stale `pre-push-gate.ps1` comment was
+fixed to not claim a deleted test suite covers the matcher, and the settings
+course-list contrast bug (`#courses-field.muted` opacity stacking with
+`tr.off`'s color) plus the `#courses-inactive-note` flash-of-wrong-state were
+both fixed with scoped CSS / a server-rendered initial `display:none`. Real
+Chromium walks (`TestBrowserCoursePickerIsOneList`,
+`TestBrowserFirstRunWalk`) still pass.
 
 ---
 
@@ -140,6 +128,9 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Weekly-review pass's two Next items closed** (2026-07-31, autopilot):
+  `pre-push-gate.ps1`'s stale test-suite comment fixed, and both settings
+  course-list visibility bugs (opacity-stacking contrast, note flash) fixed.
 - **Sync-speed campaign closed for real this time** (2026-07-31): reopened
   autonomously via the ground-truth diff instead of needing a live human
   (confirmed `internal/syncer` never deletes files, so a regression here is

@@ -60,7 +60,8 @@ if (-not $command) { exit 0 }
 
 # Strip quoted strings first, so a commit message that happens to contain the
 # word "push" (`git commit -m "push the parser harder"`) is not mistaken for a
-# push. Covered by the matcher tests in scripts/test-hooks.ps1 - it fails safe
+# push. No automated test covers this matcher (scripts/test-hooks.ps1 was
+# deleted in 85aea11, deliberately, and was not rebuilt) - it fails safe
 # (runs dev.ps1 needlessly) rather than unsafe, but a gate that cries wolf gets
 # ignored.
 $scan = $command -replace '"[^"]*"', '' -replace "'[^']*'", ''

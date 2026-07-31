@@ -68,14 +68,8 @@ maintainer's live daily sync is registered under.
 
 ## Next
 
-### The .exe's own Explorer icon still shows the Go default
-**Blocked:** needs the maintainer's OK to add a build-time dependency.
-
-The running window shows the real icon since 2026-07-30. This is only the
-file's icon before the program runs, which needs a build-time-embedded `.syso`.
-Producing one needs `rsrc`/`goversioninfo` or a hand-built COFF object, and
-this repo's "three direct Go deps total" framing makes a new dependency the
-maintainer's call. **Open question: worth it, and if so, `rsrc` or by hand?**
+Nothing queued. The next thing that lands here should come from the Noticed
+list or from the maintainer.
 
 ---
 
@@ -97,6 +91,10 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The .exe has its own Explorer icon** (2026-07-31): `rsrc_windows_amd64.syso`
+  is generated from `internal/gui/assets/icon.ico` and checked in, so building
+  needs no new tool and `go.mod` is untouched — which is what the "needs the
+  maintainer's OK for a build-time dependency" block was really about.
 - **The course list is always on the settings page now** (2026-07-31):
   "Sync all courses" still starts ticked, but it mutes the list and says the
   ticks are inactive instead of hiding it. Folder inputs stay live, because

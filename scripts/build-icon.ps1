@@ -15,6 +15,16 @@ logoSVG in internal/gui/chrome.go. If that constant changes, this script's
 $rectRadius/$gradientStops/$pathData must change with it - there is no
 automatic link between the two, since Go doesn't have an SVG parser to read
 logoSVG from here either. Rerun this script after any logo edit.
+
+The .ico feeds two things: WM_SETICON at runtime (window_windows.go), and the
+checked-in rsrc_windows_amd64.syso that gives the file itself an icon in
+Explorer before it ever runs. The .syso is a build artifact committed on
+purpose - regenerating it needs a tool, but *using* it needs nothing, so the
+repo keeps its three-direct-deps promise. After editing the icon, regenerate
+it too:
+
+  go run github.com/akavel/rsrc@latest -ico internal\gui\assets\icon.ico `
+      -arch amd64 -o rsrc_windows_amd64.syso
 #>
 
 Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase

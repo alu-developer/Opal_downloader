@@ -297,6 +297,13 @@ try {
     $out = Invoke-Hook "budget-guard.ps1" @{ session_id = "s1"; tool_name = "Read" }
     Assert-That "quiet below thresholds" ([string]::IsNullOrWhiteSpace($out)) "got: $out"
 
+    # Rung 1 is silent by design (2026-07-31): it fired across most of a normal
+    # session and carried no advice beyond "commit as you go".
+    Set-Status -FivePct 55 -SevenPct 5
+    Remove-Item $guardState -Force -ErrorAction SilentlyContinue
+    $out = Invoke-Hook "budget-guard.ps1" @{ session_id = "s1b"; tool_name = "Read" }
+    Assert-That "rung 1 stays silent" ([string]::IsNullOrWhiteSpace($out)) "got: $out"
+
     # Rung 2: advises, does not block.
     Set-Status -FivePct 72 -SevenPct 5
     Remove-Item $guardState -Force -ErrorAction SilentlyContinue
@@ -323,12 +330,15 @@ try {
     $out4 = Invoke-Hook "budget-guard.ps1" @{ session_id = "other-session"; tool_name = "Read" }
     Assert-That "throttle is per session" (-not [string]::IsNullOrWhiteSpace($out4)) "got nothing"
 
-    # Rung 3 + Agent: the one hard deny.
+    # This hook denies nothing, at any rung. The rung-3 Agent deny was removed on
+    # 2026-07-31: denying the one tool that parallelises work is a strange way to
+    # spend less, and it landed exactly when a run most needed to finish.
     Set-Status -FivePct 85 -SevenPct 5
     Remove-Item $guardState -Force -ErrorAction SilentlyContinue
     $out = Invoke-Hook "budget-guard.ps1" @{ session_id = "s3"; tool_name = "Agent" }
     $parsed = $out | ConvertFrom-Json
-    Assert-That "rung 3 denies a subagent launch" ($parsed.hookSpecificOutput.permissionDecision -eq "deny") "got: $out"
+    Assert-That "rung 3 does not deny a subagent launch" ($null -eq $parsed.hookSpecificOutput.permissionDecision) "got: $out"
+    Assert-That "rung 3 still advises" ($parsed.hookSpecificOutput.additionalContext -match "BUDGET CRITICAL") "got: $out"
 
     Set-Status -FivePct 72 -SevenPct 5
     Remove-Item $guardState -Force -ErrorAction SilentlyContinue
@@ -336,12 +346,12 @@ try {
     $parsed = $out | ConvertFrom-Json
     Assert-That "rung 2 allows a subagent launch" ($null -eq $parsed.hookSpecificOutput.permissionDecision) "got: $out"
 
-    # An expired window must not deny anything - the whole point of the
+    # An expired window must not even advise - the whole point of the
     # freshness rule.
     Set-Status -FivePct 99 -FiveResetsIn -60 -SevenPct 2 -AgeSeconds 7200
     Remove-Item $guardState -Force -ErrorAction SilentlyContinue
     $out = Invoke-Hook "budget-guard.ps1" @{ session_id = "s5"; tool_name = "Agent" }
-    Assert-That "expired 99% window does not deny" ([string]::IsNullOrWhiteSpace($out)) "got: $out"
+    Assert-That "expired 99% window stays quiet" ([string]::IsNullOrWhiteSpace($out)) "got: $out"
 
     # Malformed stdin must never break a tool call.
     $path = Join-Path $hooksDir "budget-guard.ps1"
@@ -486,16 +496,22 @@ try {
     Assert-That "arms on a healthy budget" (Test-Path $marker)
     if (Test-Path $marker) {
         $cfg = Get-Content $marker -Raw | ConvertFrom-Json
-        Assert-That "arms the full stretch when budget is fine" ($cfg.max_iterations -eq 20) "got $($cfg.max_iterations)"
+        Assert-That "arms the full stretch when budget is fine" ($cfg.max_iterations -eq 60) "got $($cfg.max_iterations)"
     }
 
-    # The bug observed on 2026-07-23: a 4h/20 stretch was armed at 7d=85%,
-    # which the Stop gate vetoes at its very first check.
+    # Rung 3 arms a short stretch rather than refusing. It refused until
+    # 2026-07-31, when the Stop gate's own thresholds were 75/80 and would have
+    # vetoed the marker immediately; the gate now stops at 90/92, so there is a
+    # usable stretch left at rung 3 and declining it just stalls the session.
     Remove-Item $marker -Force -ErrorAction SilentlyContinue
     Set-Status -FivePct 5 -SevenPct 88
     $out = Invoke-Hook "session-start-autopilot.ps1" @{ session_id = "n2"; source = "startup" }
-    Assert-That "does not arm on a spent budget" (-not (Test-Path $marker)) "marker was created anyway"
-    Assert-That "says why it did not arm" ($out -match "NOT armed") "got: $out"
+    Assert-That "still arms on a nearly spent budget" (Test-Path $marker) "marker was not created"
+    if (Test-Path $marker) {
+        $cfg = Get-Content $marker -Raw | ConvertFrom-Json
+        Assert-That "rung 3 stretch is 12 iterations" ($cfg.max_iterations -eq 12) "got $($cfg.max_iterations)"
+    }
+    Assert-That "says the stretch is short and why" ($out -match "armed SHORT") "got: $out"
 
     Remove-Item $marker -Force -ErrorAction SilentlyContinue
     Set-Status -FivePct 72 -SevenPct 5
@@ -503,7 +519,7 @@ try {
     Assert-That "arms a short stretch at rung 2" (Test-Path $marker)
     if (Test-Path $marker) {
         $cfg = Get-Content $marker -Raw | ConvertFrom-Json
-        Assert-That "short stretch is 6 iterations" ($cfg.max_iterations -eq 6) "got $($cfg.max_iterations)"
+        Assert-That "short stretch is 30 iterations" ($cfg.max_iterations -eq 30) "got $($cfg.max_iterations)"
     }
 
     # Recovery: the new session must be told the last one was killed.
@@ -1225,7 +1241,10 @@ try {
     Remove-Item Env:\OPAL_UNATTENDED_RESUME -ErrorAction SilentlyContinue
     if (Test-Path $marker) {
         $cfg = Get-Content $marker -Raw | ConvertFrom-Json
-        Assert-That "unattended runs get a tight iteration cap" ($cfg.max_iterations -le 5) "got $($cfg.max_iterations)"
+        # Bounded, but not so tight that an unattended run cannot finish
+        # anything: raised from 5 to 15 on 2026-07-31. What keeps a run cheap to
+        # lose is committing often, not stopping after five continuations.
+        Assert-That "unattended runs get a bounded iteration cap" (($cfg.max_iterations -le 15) -and ($cfg.max_iterations -lt 60)) "got $($cfg.max_iterations)"
     } else {
         Assert-That "unattended runs still arm autopilot" $false "no marker written"
     }

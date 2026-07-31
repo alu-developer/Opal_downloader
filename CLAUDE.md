@@ -258,11 +258,11 @@ pre-push gate, and no rate-limit gate, and says nothing about it. Run
 live. See the operating model doc for the incident that prompted this.
 
 Short version: a `Stop` hook (`.claude/hooks/autopilot-gate.ps1`) keeps the
-turn going while `.claude/queue/AUTOPILOT` exists and queued work remains,
-with expiry/iteration/rate-limit guards that all fail open. **Ending a run is
-not yours to decide** — deleting the marker does nothing (the hook restores
-it); only those guards or the maintainer's `.claude/queue/AUTOPILOT.OFF` end
-it. Default model is
+turn going while `.claude/queue/AUTOPILOT` exists and unblocked work remains
+in `docs/BACKLOG.md`, with expiry/iteration/rate-limit guards that all fail
+open. **Ending a run is not yours to decide** — deleting the marker does
+nothing (the hook restores it); only those guards or the maintainer's
+`.claude/queue/AUTOPILOT.OFF` end it. Default model is
 Sonnet at medium effort; escalating to Opus/high is a deliberate call the
 maintainer has to make, so ask for it explicitly when a task needs it.
 
@@ -271,8 +271,19 @@ maintainer has to make, so ask for it explicitly when a task needs it.
 the budget *during* a turn and, as it climbs, tells you to commit and to keep
 **`docs/RESUME.md`** current. Do that: the resume note plus small commits are
 what survive a kill, and `docs/RESUME.md` is what the next session is handed.
-Budget pressure is never a reason to stop working — only a reason to stay
-savable. Hook behaviour is covered by `scripts/test-hooks.ps1`.
+
+**Staying savable is about how often you commit, not about how much you
+attempt.** Budget pressure is never a reason to stop working, and never a
+reason to pick a smaller task, skip the harder half, or avoid subagents. That
+distinction had to be written down on 2026-07-31: the guard's own wording had
+drifted into asking for less work, and 40% of the repo's commits over the
+previous month touched only its own docs and machinery. Hook behaviour is
+covered by `scripts/test-hooks.ps1`.
+
+**Keep this machinery small.** It is infrastructure for building
+opal-downloader, not the project. If a session's output is another gate,
+another doc about gates, or another entry in a backlog about gates, that is
+the failure mode — not diligence.
 
 ## Task tracking: `docs/BACKLOG.md`, not the old queue
 

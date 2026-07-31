@@ -12,1120 +12,144 @@ Keep personal specifics out of this file — the repo is public. Absolute
 paths, account details, and measured numbers that only make sense for one
 machine belong in local memory, not here.
 
+**Keep entries short.** An item says what is left and where the detail lives.
+It is not the place to record what was already done — that goes in the commit
+message, the relevant `docs/` file, or `docs/BACKLOG-archive.md`. This rule
+exists because ignoring it grew the file to 1057 lines by 2026-07-31, most of
+it closed work, until nobody could read it in one pass. Reintroducing history
+here is the failure mode to watch for.
+
 ---
 
 ## Now
 
 ### The 2026-07-26 feedback batch needs your eyes
-**Blocked:** on you looking at it. Everything an agent can check is checked.
+**Blocked:** on the maintainer looking at the GUI.
 
-All ten items are done — "Done recently" says what each turned out to involve,
-and several turned out to be a different problem than the one reported.
+All ten items shipped and everything an agent can check is checked. What is
+left is judgement: six pages changed shape (sync log, settings, the new
+`/schedule` page, course picker) and no test can say whether they read well to
+the person in front of them.
 
-What is left is judgement, not verification. Six pages changed shape: the sync
-log, the settings page, the new `/schedule` page, and the course picker. Every
-claim about how they read is a test assertion or a screenshot, and neither of
-those can tell you whether a page makes sense to the person in front of it.
+One decision on the record: **`internal/scraper/crawl.go` (1250 lines) stays
+unsplit** — the most correctness-sensitive file here, with a documented history
+of silent file loss from changes to it. Tidying buys nothing worth that risk.
 
-The one part still worth deciding: **`internal/scraper/crawl.go` (1250 lines) is
-deliberately not split.** It is the most correctness-sensitive file here, with a
-documented history of *silent* file loss from changes made to it, and tidying it
-buys nothing that justifies going near it. Said out loud because "the big file
-stayed big" should be a decision on the record rather than an oversight.
+### Sync speed: the lead is real, implementing it needs sign-off
+**Blocked:** **open question for the maintainer — is the jsTree+MathJax
+completion-signal approach worth attempting, given the risk profile?**
 
-Code size otherwise stays a standing rule rather than a backlog item: keep the
-big files from growing while touching them. Two byte-identical splits landed
-this session (`gui.go` 1154 → 835, `settings.go` 1028 → 512).
+The standing goal (2026-07-21): a no-op sync should feel instant, ~30s, not
+5+ minutes. `docs/sync-speed-campaign.md` is the full decision log — every
+measurement and every rejected approach. Read it before reaching for one.
 
-### Sync speed: measured for the first time, and the lead is real
-**Blocked:** the investigation (2026-07-30) is done and conclusive, but what's
-left is *implementing* a change to `waitForInteractiveLinks`/
-`waitForContentSettled` — the settle-wait/stability-poll pair, the most
-correctness-sensitive code in this repo, with a documented history of
-*silent* file loss from exactly this kind of change. The section-level
-concurrency rewrite earlier in this same campaign needed the maintainer's
-explicit sign-off before being built for the identical reason; this should
-get the same treatment rather than an agent deciding alone to start editing
-this specific code path unattended. **Open question for the maintainer: is
-the jsTree+MathJax completion-signal approach below worth attempting, given
-the risk profile?**
+Where it stands: the 300ms MutationObserver settle-wait dominates the run
+(94.2s of 210s) and three attempts to shorten it all lost files. Section-level
+concurrency was tried with sign-off and rejected. On 2026-07-30 the course-nav
+jsTree widget's `aria-busy="false"` was confirmed as a genuine render-complete
+signal across 4 courses — but its ordering against MathJax is inconsistent, so
+it is not a safe drop-in.
 
-Standing goal (maintainer, 2026-07-21): a routine no-op sync should feel
-instant, ~30 seconds, not the 5+ minutes it took at the start of this
-campaign. `docs/sync-speed-campaign.md` is the full decision log — every
-measurement, every rejected approach, and why — kept there rather than here
-so this file states current status and what's next, not the history.
-Re-litigating a rejected approach without new evidence wastes a round trip;
-read that file before reaching for one.
-
-**Where the campaign landed, in three points:**
-
-1. **The dominant cost is a debounce that pays for itself.** A 210s run spends
-   94.2s (63% of in-section time) on a 300ms MutationObserver settle-wait.
-   Three independent attempts to shorten, skip, or replace it (an AJAX-based
-   signal, reading before it settles, skipping it outright) were all measured
-   and all lost files or got slower with nothing saved — the debounce is the
-   *cheapest* way to wait for a page that itself takes that long to render,
-   not overhead sitting in front of the real work.
-2. **Section-level concurrency was tried (with sign-off) and rejected.**
-   Every added tab makes a run faster and loses more files - 2 tabs: 345→257
-   files, 145s faster; 4 tabs: 345→214 files, 117s faster. Off by default;
-   `--section-concurrency` stays for a future re-measure.
-3. **2026-07-30: a real, replicated completion-signal candidate was found.**
-   The course-navigation **jsTree** widget sets `aria-busy="false"` as its own
-   render-complete signal — confirmed on 6 sections across 4 courses, root and
-   non-root alike. Its ordering against MathJax (on courses that use it) is
-   genuinely inconsistent, so a jsTree-only wait is not safe as a drop-in
-   debounce replacement. `internal/scraper/mutationmarker_probe_test.go`
-   (`OPAL_MUTATION_MARKER_TRACE=1`) is the reusable probe that found this.
-
-**The concrete next step, once sign-off is given:** build a combined wait
-condition (jsTree's signal, plus MathJax's own completion when
-`typeof MathJax !== 'undefined'` on the page), gated behind an env flag, and
-byte-for-byte A/B tested against the 345-file ground truth
-(`scripts/compare-visit-runs.ps1`). A file *count* is not acceptable evidence
-here — this project has been burned by that twice.
+The block is not the idea, it is the code: `waitForInteractiveLinks` /
+`waitForContentSettled` is where the silent file loss came from, and the
+concurrency rewrite needed explicit sign-off for the identical reason. Next
+step once given: combined wait condition behind an env flag, byte-for-byte A/B
+against the 345-file ground truth (`scripts/compare-visit-runs.ps1`). A file
+*count* is not acceptable evidence here — that has burned this project twice.
 
 ### Dogfood the whole first-run journey
-**Blocked:** all four decisions below shipped on 2026-07-26 (first-run
-introduction, "List courses" renamed, scheduling walked, picker explained),
-plus one bug that only looking could find. What is left is the maintainer
-opening the GUI and saying whether it now reads well — their eyes, not a test.
-Everything an agent can check here is checked.
+**Blocked:** on the maintainer opening the GUI as a stranger would.
 
-The four questions this was blocked on were answered by the maintainer on
-2026-07-26. Their decisions, now delivered:
+All four decisions from 2026-07-26 shipped. The journey is now a permanent test
+(`internal/gui/first_run_journey_test.go`), every nav page loads in real
+headless Chromium (`browser_walk_test.go`), and the live "List courses" path is
+covered too (`live_list_walk_test.go`, `OPAL_GUI_LIVE_LIST=1`). What each pass
+found is in `docs/BACKLOG-archive.md`.
 
-1. **A first run needs a real introduction.** Not just an unhidden picker — the
-   start / no-courses-configured state should actually explain what to do.
-   ("nein, es sollte beim start/nicht konfigurierten Kursen eine gute
-   Einführung geben.")
-2. **Rename "List courses".** The name is wrong twice over: it costs a full
-   crawl, and listing courses is not really what it does. ("Ich meine, das
-   macht es ja auch nicht.")
-3. **Making it faster stays the dream, not this task.** The maintainer's
-   position: past attempts were hard, but they believe it is possible — that is
-   the sync-speed item above, which still needs their explicit sign-off before
-   the section-level concurrency rewrite is attempted. Not folded in here.
-4. **Walk scheduling.** Approved ("jo, mach mal"), including that it registers
-   a real scheduled task on their machine.
+Three things left that are the maintainer's call, not an agent's:
 
-Drive the GUI as a real first-time user — no config, through setup, login,
-course selection, a sync, status, scheduling, then changing a setting — and
-write down everything broken, confusing, or annoying. Findings get fixed if
-trivial, filed here if not.
+1. **"List courses" is not a quick list.** It crawls every section of every
+   course — 210s and 482s measured. It sits next to "Sync" and reads like a
+   cheap lookup. Rename, warn up front, or serve from the dashboard listing?
+2. **A stranger who wants specific courses has to guess.** With no config,
+   "Sync all courses" renders checked and hides the picker behind it.
+   Reasonable default, discoverable only by unticking something.
+3. **Nobody has looked.** The walks assert structure and behaviour, headless.
+   They cannot catch a purely visual break, and `gui`/`main.exe gui` is still
+   unexercised because `Run` opens a real window unconditionally on Windows.
 
-Explicitly from the perspective of a TU Dresden student who is *not* the
-maintainer: a stranger's first run is in scope.
-
-**First pass done (2026-07-23), no-credentials part only:** a fresh binary in
-an empty folder, no config, walked through landing/settings/TU-Fast/sync in a
-real browser. All findings from this pass are now fixed (see "Done recently"
-below) except one deliberately left open: the "three status boxes" finding
-led to hiding the login-state box before setup (it's meaningless with no
-config to log into), but the update-check box was kept — knowing whether
-you're on a stale binary seemed worth the one extra box regardless of setup
-progress, and that's more a taste call than the login box was. Revisit if it
-still feels cluttered.
-
-**Scheduling/login/sync exercised for real (2026-07-23), but not through the
-GUI:** fixing the scheduled-task working-directory bug (see "Done recently")
-required actually triggering the real Windows Task Scheduler task against
-the live account, which incidentally exercised login (interactive relogin
-path), a real sync (2 downloaded, 342 skipped), and the scheduled-run path
-end to end. That's real signal the underlying mechanics work, but it's not
-the same as clicking through the GUI as a stranger would.
-
-**The journey is now a permanent test (2026-07-26), not a one-off probe:**
-`internal/gui/first_run_journey_test.go` walks no-config → landing → settings
-form → course selection → save → landing/sync moving on → changing a setting
-afterwards, against the real handlers and a real `config.yaml` in a temp dir.
-Every other test in the package hits one handler with a prebuilt config; what
-was missing was each step's on-disk result being the next step's input.
-
-**Finding from writing it — a real structural fragility, now pinned.**
-`parseSettingsForm` rebuilds `course_folders`, `subfolder_destinations` and
-`section_folder_names` from the submitted rows *alone*; nothing in the handler
-preserves them. The only thing standing between a returning user and silent
-data loss is that `GET /settings` renders those rows as real server-rendered
-form controls, which a browser then resubmits natively. That invariant was
-load-bearing and completely untested — a template change dropping a `value=`
-attribute would have made every save quietly wipe the user's mappings. It is
-the same shape as the incident below, which is what made it worth looking for.
-*Mutation-tested: removing one `value="{{$row.Key}}"` fails the test.*
-
-**The browser walk is no longer blocked (2026-07-26).** The obstacle was
-recorded as "the WebView2 window can't be driven here", but the window is only
-a viewer for a plain local HTTP server, and the repo already ships Playwright's
-Chromium. `internal/gui/browser_walk_test.go` serves the real mux over
-`httptest` and drives it with headless Chromium: same pages, same JavaScript,
-no window on anyone's desktop. Opt-in (`OPAL_GUI_BROWSER_WALK=1`), following
-`internal/scraper`'s probe precedent, since a fresh clone has no browsers
-installed; ~4s when it does run.
-`Run`'s route table moved into `newMux` so the walk exercises the real routes -
-wiring handlers up by hand in a test passes happily when a route is registered
-at the wrong path or not at all.
-
-**This is what the handler-level pass could not see.** Course selection is
-largely JavaScript: "+ Add course" and "Find my courses" build their
-`course_row_name[]` inputs client-side, so those rows exist in no
-server-rendered HTML. *Mutation-tested, and the result is the argument for
-keeping it: renaming the JS-created input to `course_row_name` (a row that
-silently never submits) fails the browser walk and leaves the handler-level
-journey test green.*
-
-**First-run finding, not a bug:** with no config, `config.Load` defaults to the
-wildcard course list, so "Sync all courses" renders checked and the whole
-course picker is hidden behind it. Syncing everything is a reasonable
-low-friction default, but a stranger who wants specific courses has to guess
-that unticking a checkbox reveals the picker. Pinned in the walk as intended
-behaviour rather than changed unilaterally - worth a maintainer's opinion.
-
-**Every page in the nav now loads in a real browser too** (`/`, `/settings`,
-`/sync`, `/tufast-setup`, `/update`, `/feedback`): HTTP 200, no uncaught
-JavaScript on load, a heading, and a link home. That last one matters more than
-it looks - the real window is WebView2 with no address bar and no back button,
-so a page without a link home is a dead end the user cannot leave.
-*No findings: all six were already clean. Mutation-tested by removing
-`/feedback`'s back link, which fails the check.*
-One thing worth knowing rather than fixing: `/sync` opens its SSE progress
-stream on load and holds it, so the page never reaches network-idle even when
-nothing is syncing. That is the page working; a walk that waits for idle there
-times out on a healthy page.
-
-**The live half is now covered too** (`internal/gui/live_list_walk_test.go`,
-opt-in via `OPAL_GUI_LIVE_LIST=1`): "List courses" clicked in a real browser
-against the real account, driving the parts the other walks stop short of —
-reusing the saved session, the background job, the SSE progress stream, and the
-result rendering. *Verified live: 6 courses reported, 345 remote files
-discovered, and the run asserts the real session file is byte-identical
-afterwards.* It reads the real `config.yaml` but writes its own in a temp dir
-and works on a **copy** of the session state, so the 2026-07-23 config-wipe is
-not repeatable here — there is no real path for it to write to.
-
-**Finding: "List courses" is not a quick list.** It crawls every section of
-every course, costing the same as a sync's discovery phase — measured at 210s
-and 482s in two runs on the maintainer's account. The button sits next to
-"Sync" and reads like a cheap lookup, so a user clicking it to see what is
-there waits minutes with no warning. Worth either renaming, warning up front,
-or serving from the dashboard listing rather than a full crawl; which of those
-is a product call, so it is filed rather than decided.
-
-**Scheduling walked (2026-07-26), and it turned up a hazard in the walks
-themselves.** Rendering `/settings` calls `applyScheduleStatus`, which can
-*write* to Task Scheduler during a page render (`repairDoomedSchedule`
-re-points a registration whose executable looks doomed). A GUI test's
-`os.Executable()` is a binary in the temp directory — so on a machine whose
-task happened to look doomed, the browser walks committed earlier today would
-have re-pointed the maintainer's real daily sync at a binary deleted seconds
-later. It did not happen, because their task points at a stable path and the
-repair never fired. That is luck. All GUI tests now stub the scheduler seams.
-
-The walk itself (`TestBrowserSchedulingWalk`) ticks the box, sets a time,
-saves, reloads, and unticks — asserting the toggle reflects the *scheduler's*
-state rather than its own, since it is re-queried on every render. It runs
-against stubs on purpose: `scheduler.TaskName` is a single global constant and
-the maintainer's live daily sync is registered under it, so a real enable would
-overwrite that task and a real disable would delete it — **the disable path has
-no guard at all**. That is worth knowing independently of testing.
-
-What *is* checked against the real Task Scheduler is the refusal
-(`TestSchedulingRefusesToRegisterADisposableBinaryForReal`, opt-in via
-`OPAL_GUI_LIVE_SCHEDULE=1`): enabling from a disposable binary must fail before
-writing anything. *Verified live: the refusal rendered, and the real
-registration was byte-identical before and after — still 08:00, same
-executable.* Deliberately **not** mutation-tested: the mutation is "register
-anyway", which would overwrite the maintainer's real scheduled sync. The
-stubbed walk is mutation-tested instead (dropping the disable call fails it).
-
-**Fixed a bug that only looking could find:** the secondary buttons on the
-settings page — "Browse...", "+ Add course", "Suggest folders", "+ Add rule" —
-rendered white text on a near-white fill, i.e. invisible. `pageStyle`'s base
-`button` rule sets `color:#fff` for the blue primary buttons, and those class
-rules overrode only `background`, leaving the inherited white. Every assertion
-in the package passed throughout, because the markup was never wrong. Found by
-screenshotting the page and reading the image. *Mutation-tested: dropping the
-colour again fails the new test.*
-
-Still genuinely unverified: nothing here is a human *looking* at the pages.
-The walk asserts structure and behaviour, not that the result reads well, and
-it runs headless so it would not catch a purely visual break. Also still not
-run via `gui`/`main.exe gui`: `Run` calls `openNativeWindow` unconditionally
-on Windows, which would pop a real window on the maintainer's desktop with no
-warning - not something to trigger from an unattended session.
-
-**Handler-level pass done (2026-07-23)** against the real account instead:
-stood up the real mux/handlers over `httptest`, hit them with plain HTTP.
-Landing, settings, and sync pages all render correctly; course discovery
-against the real account found 8 courses (2 more than the 6 in the current
-`courses` filter - "[WS25/26] Programmierung" and "Helfende DMS" - not a bug,
-just means the account has courses the config doesn't track, which is
-expected/normal). No UX issues found at this level, though this still isn't
-the same as watching a stranger actually click through it.
-
-**Incident during this pass, already resolved:** the probe's own settings-
-POST round-trip check briefly wiped the real `course_folders`,
-`subfolder_destinations`, and `use_section_subfolders` in the live
-`config.yaml` (a bug in the probe's crude form-scraper, which only
-resubmitted a handful of hardcoded field names and silently dropped the
-`name="...[]"` array-style rows those settings actually use) — caught
-immediately via a manual backup taken before the run, restored exactly, no
-lasting damage. Confirmed by reading `settings.go`'s real POST handler
-(`r.PostForm["subfolder_dest_key[]"]` etc.) that the actual shipped
-settings page is NOT vulnerable to this: its rendered `<input name="...[]">`
-rows are real, server-rendered form controls that any normal browser
-submission includes natively, JS or not - this was purely an artifact of the
-probe's own incomplete field list, not a product bug. The probe file was
-deleted rather than fixed, since a settings-round-trip check isn't valuable
-enough to justify keeping a known-hazardous test around.
+Worth knowing independently of this item: **the scheduler's disable path has no
+guard**, and `scheduler.TaskName` is a single global constant that the
+maintainer's live daily sync is registered under.
 
 ---
 
 ## Next
 
 ### The .exe's own Explorer icon still shows the Go default
-**Blocked:** needs the maintainer's OK to add a build-time resource-compiling
-tool. The running window itself now shows the real icon (2026-07-30, see
-"Done recently") - this is only the file's icon as seen in Explorer/the
-taskbar/Alt-Tab *before the program runs*, which needs a build-time-embedded
-`.syso` resource. Producing one needs `rsrc`/`goversioninfo` (a new build-time
-dependency) or a hand-built COFF object; this repo's "three direct Go deps
-total" framing treats adding a dependency as worth a maintainer's eyes rather
-than an agent's default yes, unlike the WPF icon-rasterisation path, which
-added nothing to `go.mod`. Open question for the maintainer: is the Explorer
-icon worth a new build dependency, and if so, `rsrc` or a hand-built object?
+**Blocked:** needs the maintainer's OK to add a build-time dependency.
+
+The running window shows the real icon since 2026-07-30. This is only the
+file's icon before the program runs, which needs a build-time-embedded `.syso`.
+Producing one needs `rsrc`/`goversioninfo` or a hand-built COFF object, and
+this repo's "three direct Go deps total" framing makes a new dependency the
+maintainer's call. **Open question: worth it, and if so, `rsrc` or by hand?**
 
 ---
 
 ## Noticed
 
 Things seen while working on something else and passed over. Not commitments —
-a list of rough edges that would otherwise only ever exist in one session's
-context window. Delete an entry when it is done, or when it turns out not to
-matter.
+rough edges that would otherwise only exist in one session's context window.
+Delete an entry when it is done, or when it turns out not to matter.
 
-- **The resume runner's new unlock/logon triggers have not been seen firing
-  yet (2026-07-29).** They are registered and Task Scheduler accepted them
-  (`SessionStateChange` with `StateChange 8`, `Logon` with a 2m delay), and the
-  runner itself is verified end to end from the task — but the only honest
-  proof that the unlock trigger fires is an event 107/`SessionStateChange`
-  entry in `Microsoft-Windows-TaskScheduler/Operational` after the machine has
-  actually been locked and unlocked. Testing it for real means locking the
-  maintainer's workstation, so it was left for the next natural unlock. Check
-  with `scripts/register-resume-task.ps1 -Status`: a `missed` count climbing
-  again while work sits in `docs/RESUME.md` means the triggers did not take and
-  event 332 is back.
+- **The resume runner's unlock/logon triggers have not been seen firing
+  (2026-07-29).** Registered and accepted by Task Scheduler; the only honest
+  proof is an event 107 in `Microsoft-Windows-TaskScheduler/Operational` after
+  a real lock/unlock. Check with `scripts/register-resume-task.ps1 -Status` —
+  a climbing `missed` count while work sits in `docs/RESUME.md` means the
+  triggers did not take and event 332 is back.
 
-- **A background `go test -v ... > log 2>&1` run that gets killed mid-flight
-  (e.g. by the usage-limit/budget guard) leaves a log with no marker that
-  it's incomplete.** Hit this directly 2026-07-28: `tmp/cache_cold_run.log`
-  ended after "Discovery: 3.6s (6 courses)" with a bare `FAIL ... 40.134s`
-  and no error text — indistinguishable from a real, silent test failure.
-  Had to cross-check `~/.opal_storage_state.json`'s mtime and re-run from
-  scratch to tell "log got cut off" from "the test actually failed for an
-  unlogged reason." An `EXIT:<code>` sentinel appended after the command is
-  a partial fix (added ad hoc for the rerun) but doesn't help if the kill
-  happens before that line is ever reached.
+- **A killed background `go test > log 2>&1` leaves a log with no marker that
+  it is incomplete.** Hit 2026-07-28: a truncated log was indistinguishable
+  from a real silent failure. An `EXIT:<code>` sentinel helps only if the kill
+  lands after that line.
 
-- **An unattended resume run cannot wait for a background job, and reports
-  success anyway (hit 2026-07-30).** The 11:12 run wrote the UA fix, launched
-  the live verification with `run_in_background`, and ended its turn saying it
-  was "waiting for the background live-verification run to finish before
-  committing anything". Both halves of that failed silently: the background
-  `go test` died with the run's own process (its log stops after
-  `"Saved session state expired. Interactive login required."`, no `EXIT:`
-  sentinel, no output file), and because the run intended to commit *after*
-  verifying, the fix sat uncommitted in the working tree while `docs/RESUME.md`
-  claimed "committed-pending". The runner logged `exit 0, 9.3m, 0 new
-  commit(s)` — nothing in that line reads as a failure. Two separate lessons:
-  an unattended run should commit first and verify second (a commit survives,
-  a working tree only survives by luck), and it should not start work that
-  outlives its own turn without something that notices the orphan. The
-  2026-07-29 run had the milder version of the same shape: 2 real commits,
-  never pushed, sitting local for a day until the maintainer happened to spot
-  them.
+- **An unattended run cannot wait for a background job, and reports success
+  anyway (2026-07-30).** The job dies with the run's own process; the fix sat
+  uncommitted while `docs/RESUME.md` claimed otherwise. Half-detected now —
+  `unattended-run.ps1` scores clean-exit-with-changes-but-no-commit as
+  `run-left-uncommitted`. **Not** fixed: nothing notices an orphaned background
+  job, and detection is not prevention. The lesson stands: commit first, verify
+  second.
 
-  **Half of this is now detected (2026-07-30).** `unattended-run.ps1` scores a
-  run that exits clean, changes tracked files and commits nothing as
-  `run-left-uncommitted` rather than `finished`, and the outcome line now
-  carries an unpushed count so the 2026-07-29 variant is visible too. Removing
-  the verdict fails exactly one assertion, so the test is known to bite. **Not**
-  fixed: nothing notices an orphaned background job. Detection also is not
-  prevention — the run still has to be the thing that commits. A wrapper cannot
-  make the agent commit first; it can only make the omission impossible to read
-  as success.
-
-- **Why the User-Agent fix works is still a theory, though the fix itself is
-  verified.** `cd1282c` demonstrably restores all 6 courses (345 files,
-  byte-identical, per-course section counts confirmed). But on 2026-07-30 a
-  *standalone* probe sending the same synthetic UA at low volume was served full
-  78–172 KB pages, not stubs — so "OPAL flags that fingerprint" cannot be the
-  whole story. The distinguishing factor is probably volume or interleaving with
-  a live browser crawl (~33 probe requests fired during one course's crawl), but
-  nobody has isolated it. Do not cite the mechanism as established; cite the
-  result.
-
-- **The section-cache probe's User-Agent lesson outlived the probe.** The probe
-  itself was deleted with the feature (2026-07-30), so the drift risk went with
-  it. What is still true and still unexplained: a synthetic User-Agent got 5 of
-  6 courses served stub pages *during a crawl*, while the same string at low
-  volume standalone was served full 78-172 KB pages. Anything this project adds
-  that talks to OPAL over plain HTTP should look like the browser it is running
-  next to; `internal/scraper/htmlstability_probe_test.go` keeps the only
-  surviving copy of the string.
+- **Why the User-Agent fix works is still a theory.** `cd1282c` demonstrably
+  restores all 6 courses (345 files, byte-identical). But a standalone probe
+  sending the same synthetic UA at low volume was served full pages, not stubs
+  — so "OPAL flags that fingerprint" is not the whole story. Probably volume or
+  interleaving with a live crawl; nobody has isolated it. Cite the result, not
+  the mechanism. Anything this project adds that talks to OPAL over plain HTTP
+  should look like the browser it runs next to;
+  `internal/scraper/htmlstability_probe_test.go` keeps the only surviving copy
+  of the string.
 
 ---
 
 ## Done recently
 
-Newest first. Trimmed periodically — git history and PR bodies are the real
-record.
+Newest first, one line each. **Anything needing more than a line belongs in
+`docs/BACKLOG-archive.md`** — this section exists so a session can see what just
+happened, not to hold the reasoning. Trim to roughly the last ten entries and
+move the rest across.
 
-- **This file was too big to read in one go (~1500 lines) because closed
-  sync-speed measurements were accumulating here instead of in
-  `docs/sync-speed-campaign.md`.** The "Sync speed" entry carried ~270 lines
-  of A/B tables and blow-by-blow history (the `ctx.Route` tax investigation,
-  the file-preview-blocking A/Bs, the skip-settle-wait experiment) that had
-  never actually been migrated to the campaign doc despite this file saying
-  in multiple places that closed measurements belong there. Moved all of it
-  (verbatim, nothing lost - verified every table survived) into
-  `docs/sync-speed-campaign.md` as dated entries continuing its existing
-  2026-07-27 narrative, and rewrote the BACKLOG entry down to current status
-  + a 3-point summary + a pointer to the log. 1429 → 1130 lines overall.
-
-- **Every live probe test in `internal/scraper` now routes its diagnostic
-  Warn/Detail logs somewhere visible, not just `TestFileListSnapshot`.**
-  `captureProbeLogs(t)` added to the three `htmlstability_probe_test.go`
-  functions, `network_trace_probe_test.go`, `httpdiscovery_probe_test.go`, and
-  `mutationmarker_probe_test.go` - a one-line addition each, matching the
-  pattern `TestFileListSnapshot` already used. Live-verified, not just
-  compiled: running the mutation-marker probe with the fix in place surfaced
-  a real, previously-silent diagnostic ("show all" control expansion capped a
-  section at 17 rows, later files missing) that the probe's own summary line
-  never mentioned - exactly the class of information the 2026-07-29 incident
-  (`probelogging_test.go`) was about.
-
-- **`scripts/dev.ps1 all` no longer fails outright when a live probe (or the
-  test harness's own parent process) is running in this tree — it skips just
-  the two assertions that cannot be evaluated, and says so.** The busy-check
-  precondition in `test-hooks.ps1` used to `Assert-That` (i.e. FAIL) when it
-  found a live `go test`/`.test.exe`/repo-path-bearing process, which blocked
-  even a docs-only push for however long that process ran, with no action for
-  the reader beyond "wait and retry". A new `Skip-Assertion` helper (separate
-  pass/fail/skip counters) marks it `SKIP` instead, and the final summary line
-  now reports a skip count. Verified live both ways: a normal run shows
-  `209 passed`; forcing a busy fixture mid-run (a backgrounded `cmd.exe` with
-  the repo path on its command line, held alive for the whole run) shows
-  `207 passed, 2 skipped` and still exits 0.
-
-  **Worth remembering independent of the fix:** an earlier version of this
-  entry blamed the suite's own `taskkill` fixture for an unrelated flake,
-  based on "perfect correlation across 5 runs, 3 of 5 failed" - reasoning
-  that was wrong twice over (9 later clean runs refuted the correlation, and
-  the accused `ping` child carries no repo path so could never have tripped
-  this assertion anyway). A cause was asserted from a correlation without
-  reading the assertion's own message, which already named the real
-  offending processes - exactly what `CLAUDE.md` says not to do.
-
-- **All three unbounded local accumulators this project had are now pruned;
-  `tmp/` was the last.** `.claude/queue/`'s resume-run logs and
-  `refs/wip-checkpoints/` were fixed earlier 2026-07-30 (age + count-floor
-  pruning on each invocation of the process that writes them).
-  `scripts/dev.ps1 all` now also prunes `tmp/` of files older than 14 days on
-  every run - no count floor needed there, unlike the other two, since `tmp/`
-  is written by hand and sporadically rather than by an automated process
-  that could plausibly race a burst of writes into deleting something recent.
-  Verified live: pruned exactly the 10 files from 27-day-old abandoned
-  research (`dump-links.*`, `opal-course-1-*.json`,
-  `opal-resource-courses-*.json`), left everything from the last two weeks
-  (including the section-cache A/B's own recent output) untouched, and a
-  second run found nothing left to prune.
-- **The section-detection cache is deleted (2026-07-30), for the second time
-  it was rejected on the same measurement.** `internal/sectioncache`,
-  `internal/sectionhash`, `internal/scraper/sectioncachewiring.go`,
-  `sectionpayload.go`, the `crawl.go` probe loop, the `syncer.go` load/save,
-  `OPAL_SECTION_CACHE`, and `FileRef.SectionURL` are gone; code budget back
-  down 11902 -> 11577. Warm 273.3s against a 241.0s control, 3.9% hit rate -
-  the same rejection the 2026-07-21 attempt already earned, reached again by
-  a rebuild that didn't measure the hit rate until the end. The maintainer
-  also declined a third-round volatility diagnostic ("mir wurscht") -
-  recorded so nobody reopens it looking for a decision that was never made.
-  Evidence lives in `docs/sync-speed-campaign.md`; reversible in one
-  `git show` if anyone wants to re-measure. What survived and matters more
-  than the feature did: `ctx.Route` costs ~30% of a run just by existing,
-  and the settle wait is the cheap completion signal, not overhead to cut.
-- **The Windows binary's running window now shows opal-downloader's own
-  icon, not the Go default.** `scripts/build-icon.ps1` rasterises `logoSVG`
-  into `internal/gui/assets/icon.ico` (16-256px) via WPF - `Geometry.Parse`
-  already speaks the SVG path mini-language, so the "needs an SVG renderer"
-  blocker recorded 2026-07-27 didn't need a new dependency to clear.
-  `window_windows.go` embeds the file and `WM_SETICON`s it onto the window
-  right after creation. Live-verified by screenshotting the real running
-  window. The `.exe`'s own Explorer icon is a separate, not-yet-decided
-  follow-up (see "Next").
-- **Self-monitoring (2026-07-30 maintainer request): 2 of 3 named symptoms now
-  have a real detector, both wired into `session-start-autopilot.ps1` and
-  tested in `scripts/test-hooks.ps1` (209 hook assertions, up from 191).**
-  - **A silently dead hook.** `.claude/hooks/hookbeat.ps1`: every wired hook
-    writes a liveness beat; `Test-HookLiveness` flags `autopilot-gate`/
-    `noticed-gate`/`budget-guard` (the three that fire on almost every turn)
-    as dead if their last beat predates the newest commit - a comparison
-    that can't false-positive, since a commit only lands inside a turn that
-    made a tool call and then hit Stop. Surfaced as `SELF-AUDIT: possible
-    dead hook(s)`.
-    **Found and fixed along the way:** `hookbeat.ps1` ignored
-    `$env:OPAL_AUTOPILOT_QUEUE_DIR`, so every test run was overwriting the
-    *real* liveness beats with test timestamps - which would have made the
-    check permanently blind, since the test suite kept "healing" the exact
-    thing it exists to catch.
-  - **Budget spent with nothing to show for it.** `session-start-autopilot.ps1`
-    persists the budget floor + HEAD commit each session start; the next one
-    compares, and flags a same-window floor rise of 15+ points against 0
-    commits in between as `SELF-AUDIT: ... 'too many tokens for too little'`.
-  - **Not built:** a detector for "too little actually worked on" in
-    *interactive* sessions specifically (unattended runs already get this
-    from `unattended-run.ps1`'s existing verdict). Judged fuzzier than the
-    other two - "too little" has no clean definition for a session the
-    maintainer is actively driving - and lower priority; see `docs/RESUME.md`
-    if picking this back up.
-  - Neither detector has been observed catching a real incident yet, only
-    tested against synthetic state - same starting position every hook in
-    this family began from.
-  - `docs/work-quality.md` (separate, same request): names why "no
-    acceptance authority" and "half-changes by default" happen, and drafts a
-    definition of done. Explicitly does NOT include any hook that grades
-    code quality - self-grading was ruled out on purpose (see that file).
-- **The "Noticed" section has a consumer now.** The maintainer asked what
-  happens to the notes ("was passiert eigentlich mit den notizen?") and the
-  honest answer was: nothing, unless somebody happened to read them. That is
-  the same gap that made autopilot look dead the same evening — an all-blocked
-  "Now" had the gate concluding there was no work while real entries sat lower
-  in the file.
-  The gate now falls back to Noticed when nothing under "Now" is actionable,
-  and says which list the work came from. **Second-class on purpose:** the
-  section describes its own entries as "not commitments", so they never outrank
-  a real item and never make a finished backlog look busy. An all-blocked
-  backlog with no notes still ends the run — a gate that never lets go is worse
-  than one that stops early.
-  *Seven new assertions (129 total), and the wiring is tested end to end rather
-  than just the parser: `OPAL_AUTOPILOT_BACKLOG` was added for exactly that,
-  since whether the fallback fires otherwise depends on the repo's own backlog
-  happening to be all-blocked. Testing the parser alone is how the stall
-  watchdog shipped connected to nothing.*
-
-- **Autopilot had been dead all session, and nothing said so.** The maintainer
-  asked "wo hook? warum muss ich dich schon wieder anschreiben?" — and they
-  were right: `.autopilot-state.json` had not been touched since 14:08, so the
-  Stop gate never blocked once during a session lasting hours.
-  **Two independent causes, both found by looking rather than guessing.**
-  First, every item under "Now" was marked `**Blocked:**`, including sync speed
-  — whose blocker (a hand-run `login`) the maintainer had cleared that very
-  evening, while the heading was never updated. The gate reads only the
-  heading's first line, so it correctly concluded there was no work, which is
-  indistinguishable from being broken. Second, the marker and session record
-  later vanished with nothing recording why, after which the gate allowed every
-  stop *silently*.
-  The silence is the part that was fixed, because it is what made this cost an
-  evening: autopilot ending now always writes `.autopilot-ended.json` with a
-  reason, and a gate that finds no config but sees a state file — proof it once
-  ran here — blocks **once** to say so and explains how to re-arm. A repo that
-  never armed autopilot stays a complete no-op, and the report writes its record
-  before blocking, so a confused state can never trap anyone in a loop.
-  *Five new hook assertions covering exactly those three cases (122 total).*
-  **Still unattributed:** what removed the marker. The off switch was absent and
-  the arithmetic does not obviously fit the expiry either. Recording the reason
-  is what makes the next occurrence answerable instead of guessed at — which is
-  the honest fix available, since the evidence for this one is gone.
-
-- **Four things the maintainer hit running the GUI (2026-07-27 evening).**
-  `/feedback` asked people to attach the diagnostic log and offered no way to
-  obtain it - it linked to a viewer and left them to go find the file. There is
-  a download now (`/logs/download`), serving the whole file rather than the
-  page's tail, because a bug report wants all of it; no log yet returns an
-  explanation instead of an empty file somebody would attach believing it held
-  something. A `go run` build is no longer told it lives in "a temporary
-  location" - accurate, but it reads as a fault when it is just how `go run`
-  works - and now names the command that fixes it. The schedule page's error
-  box said "Could not update", which reads as a failed app update rather than a
-  schedule that did not change. And `/settings` had two `<h2>` sections styled
-  exactly like real ones that contained nothing settable, only pointers
-  elsewhere; they are one secondary line at the foot of the page now.
-  *Verified in a real headless browser, not only asserted - the last GUI bug
-  here was invisible white-on-white text that every assertion passed.*
-
-- **A cancelled run reports as cancelled, not as a broken tool.** The
-  maintainer cancelled the 18:31 run themselves - "da war alles normal" - and
-  got a course-listing failure plus advice to leave their browser window open.
-  Cancelling tears the browser down, so every source fails; `scrapeCoursesBrowser`
-  checked `ctx.Err()` before discovery and after the crawl but not around
-  discovery's own error, which is exactly the window a cancel lands in.
-  **This also corrects that turn's own reporting**, which presented a
-  cancellation as an incident.
-  *The wiring is the part that breaks here: removing the call site passes the
-  unit test, the build and `go vet`. So the probe cancels for real against a
-  real browser, with a server that blocks until the cancel has landed so the
-  earlier guard cannot catch it first. Mutation-tested: reverting the call site
-  reproduces the exact message the maintainer would have seen.*
-
-- **A run that read nothing no longer reports as a healthy empty account.**
-  Found by the maintainer running `go run . gui` (2026-07-27 18:31): login
-  succeeded, then all three course-listing sources failed with Playwright's
-  `target closed` and the run finished as `Found 0 course links / Discovered
-  0 remote files` — which is exactly what a successful sync of an empty
-  account looks like. `discoverCourseLinks` warned per source, `continue`d,
-  and returned an empty list with a **nil error**; "every source failed" and
-  "you have no courses" were the same value to every caller.
-  Now all-sources-failed is an error. A *partial* failure stays a warning on
-  purpose — the sources overlap, and one transient navigation failure
-  aborting a whole sync would be a worse bug than the one being fixed. An
-  empty result with no failures also stays fine, since `courses:` can
-  legitimately filter everything away.
-  **Nothing was lost or damaged by the bad run**: checked rather than
-  assumed — the syncer's only `os.Remove` is a temp file, and it never
-  removes a local file on the strength of a remote listing.
-  The likely trigger is worth knowing on its own: in developer mode the crawl
-  keeps running in the *same visible window* the interactive login used, and
-  nothing tells you to leave it open. So the error names that case
-  specifically when the failure looks like a closed browser.
-  *Verified against a real headless browser
-  (`TestDiscoveryAgainstARealBrowser`, opt-in via
-  `OPAL_SCRAPER_BROWSER_PROBE=1`), which reproduces the incident by closing
-  the page mid-run — the unit tests cover the predicates, and this covers
-  that `discoverCourseLinks` actually calls them, the gap the stall watchdog
-  fell into. Mutation-tested: making the predicate always return false
-  reproduces the original message verbatim. Both directions covered — a
-  readable listing still discovers its course and does not error, and a plain
-  timeout must not be reported as a closed window.*
-
-- **`course_concurrency` default confirmed at 1, live config now matches.**
-  Re-measured the real account five times: serial 227.9s/345 files; `2` came
-  back 228.2s/**336 files** (`Übungsblätter` 29 → 20, one "show all" expansion
-  silently not happening) and otherwise 345 across three more runs at
-  230.4s/219.6s/229.4s — no longer faster (mean 226.9s vs. serial 227.9s,
-  inside noise) and still loses files about one run in five. Root cause fixed:
-  `expandShowAllInSection` now warns instead of silently returning a truncated
-  section (`scripts/compare-visit-runs.ps1` turns that into a one-command
-  diagnosis), though the warning itself is unverified in the wild — a
-  deliberately lossy `--section-concurrency 4` run produced zero warnings
-  while losing 160 files, a different failure mode (the file table never
-  renders at all, so there's no "show all" control to find). The maintainer's
-  own `config.yaml` explicitly set `course_concurrency: 2`; confirmed
-  2026-07-27 it now reads `1`, so the measured-correct default reaches them.
-- **Fixed the hook-output mojibake noticed in the previous session.** Root
-  cause: `docs/RESUME.md` and `docs/BACKLOG.md` have no BOM, and
-  `Get-Content` without an explicit `-Encoding` reads a BOM-less file as the
-  system ANSI codepage in Windows PowerShell 5.1 — so a UTF-8 em dash
-  (`E2 80 94`) was read as three separate CP1252 characters and then
-  re-encoded as UTF-8 on the way out, doubling the corruption. Fixed in the
-  three call sites where this prose actually reaches the model:
-  `session-start-autopilot.ps1` (embeds `RESUME.md` in its `additionalContext`),
-  `resume-runner.ps1` (reads `RESUME.md` to decide if there's work), and
-  `budget-lib.ps1`'s `Get-BacklogItems` (titles feed directly into
-  `autopilot-gate.ps1`'s Stop-hook reason text). *Verified by running the
-  hook directly and inspecting the raw output bytes before and after: the em
-  dash arrived as the single correct 3-byte sequence, not six mangled bytes.
-  Mutation-tested in `scripts/test-hooks.ps1`: a non-ASCII backlog title now
-  round-trips byte-exact through `Get-BacklogItems`.*
-
-- **Removed the stale agent worktree flagged above.**
-  `.claude/worktrees/agent-ae4c52c8caec1f5e0` (branch
-  `worktree-agent-ae4c52c8caec1f5e0`) was a 2026-07-23 prototype ("Add
-  section-level flattened crawl (shared frontier across courses)") that
-  predates and was superseded by the per-course tab-pool section concurrency
-  that actually shipped and was measured on 2026-07-26 (`ca299c5` "Build
-  section-level concurrency" onward) — confirmed by comparing commit dates
-  and `git merge-base` before removing anything. Uncommitted changes in the
-  worktree (`.gitignore`, `section_crawl.go`) were an earlier iteration of
-  the same dead approach. `git worktree remove --force` + `git branch -D`;
-  nothing pushed, nothing referenced elsewhere.
-
-- **The folder picker corrupted any path with a non-ASCII character.** Chased
-  from a mojibake spotted in a live `config.yaml` (`...\Analysis\<U+FFFD>bung`,
-  should be `Übung`) and it turned out to be a real bug, not a typo.
-  `browseForFolder` runs a PowerShell script and reads its stdout, and
-  PowerShell encodes stdout in the **console's OEM code page** — 850 on a
-  German Windows, where `Ü` is the single byte `0x9A`. Go reads those bytes as
-  UTF-8, `0x9A` is not valid UTF-8, and it becomes U+FFFD. So the user picks a
-  real folder with the file browser and the tool stores a path that points at
-  nothing — silently, with a successful-looking picker.
-  One line fixes it (`[Console]::OutputEncoding` before anything is written).
-  *Measured, not reasoned: under code page 850 the path arrives as
-  `...,92,154,98,117,110,103` without it and `...,92,195,156,98,117,110,103`
-  with it. Both directions are tests — one asserts the round trip survives, the
-  other asserts the corruption still happens without the guard, so the guard
-  cannot quietly stop being load-bearing.*
-  **Why it hid:** it does not reproduce on a console already at 65001, which is
-  what an interactive shell here happened to have. The machine's real OEM code
-  page had to be read out of the registry to see it.
-  The maintainer's own `config.yaml` was repaired in place (backup left beside
-  it); the `Übung` folder it should have pointed at already existed.
-
-- **The diagnostic log can be reached from the GUI now.** It was written to
-  `~/.opal-downloader/logs/`, named in the CLI's `--help`, and mentioned
-  nowhere in the GUI — which is how most people use this, and the case where
-  the log matters *most*, since a windowed app's stdout goes nowhere. A
-  diagnostic nobody can find is close to no diagnostic.
-  `/logs` shows the path, the end of the file, and a button that reveals it in
-  the file manager, linked from `/feedback` because a bug report is exactly
-  when someone needs it. Showing the contents in a page is safe by
-  construction, not by judgement: everything in that file has already been
-  through `statuslog.SanitizeMessage`.
-  Both the log path and the file-manager call are **seams stubbed in every
-  test** — the same hazard as the scheduler one: a test must not open Explorer
-  on the maintainer's desktop or depend on their real log.
-  *Verified in a real browser (it is in `TestBrowserEveryPageLoads` now) and
-  screenshotted, since the last GUI bug here was invisible white-on-white text
-  that every assertion passed. Mutation-tested in two directions: dropping the
-  tail cap and removing the feedback link both fail.*
-
-- **Refused to schedule a daily sync when there is nothing to sync.** Found
-  while building the `/schedule` page and left open at the time. Enabling the
-  daily run with no `config.yaml` registered a Windows task that does not fail
-  once — it fails *every morning*, silently, unless the failure notification
-  happens to be on, in which case it becomes a daily toast about a job the user
-  cannot tell they set up wrong. Pre-existing (the old settings-page handler did
-  the same), but the new page shows the form right next to a "set up first"
-  warning and then let you ignore it.
-  Now the enable path refuses before writing anything and says what to do
-  instead. **Disabling is deliberately never blocked**: somebody whose config
-  has gone missing still has a task running every morning, and refusing to let
-  them remove it would strand them with it.
-  *Mutation-tested: dropping the guard re-registers the doomed task. All three
-  directions covered — refused without a config, still works with one, and
-  disable unaffected.*
-
-- **The sync page notices when a run stops moving.** A sync was reported stuck
-  once (2026-07-26) and the only evidence was a status line that had not
-  changed — nothing noticed, and nothing could have, because the page rendered
-  the last event it received and had no opinion about how long ago that was.
-  After three minutes of silence during a run it now says how long it has been
-  and points at Cancel. Deliberately not an alarm: a large section legitimately
-  goes quiet for a while, so it reports elapsed time rather than declaring a
-  fault, and any event clears it so it cannot latch on and cry wolf.
-  A second bug fell out of writing the test: the page learned "a run is in
-  flight" only from the SSE frame sent when it connects, so a run that started
-  *after* the page was open was never watched — which is exactly the run worth
-  watching. Events arriving now count as proof of a run in flight.
-  *Verified in a real browser (`TestBrowserSyncPageNoticesAStalledRun`), which
-  also checks the idle page stays quiet and the notice clears on activity.*
-  **The other half is now closed too** (`internal/scraper/stallwatch.go`): a
-  watchdog inside the crawl logs, every 30s of silence past 3 minutes, *which
-  section it was on* — course, title and URL. That covers CLI and scheduled
-  runs, which had nothing at all, and it records the thing that was actually
-  missing the one time this happened: somewhere to go and look. It only logs;
-  cancelling a crawl on suspicion would risk killing a slow-but-healthy run,
-  and losing work to a false positive is worse than the stall.
-  *Mutation-tested in three directions, and the third is the interesting one:
-  deleting the call from `scrapeCoursesBrowser` passed every other test,
-  because they all invoke `watchForStall` directly and so check the machinery
-  rather than whether anything uses it. The watchdog now records that it was
-  started, and the scrape is asserted to start it. Its position moved to the
-  top of the function as a result — a watcher stopped by an early return costs
-  microseconds, and starting there means nothing can later be added above it
-  that hangs unwatched.*
-  The original hang has still never been reproduced.
-- **Server load is bounded, and the bound is written down.** The maintainer
-  asked for this to be set up long-term rather than checked once. Three parts,
-  in rough order of how much they matter:
-  **Scattering the scheduled runs** is the cheapest and largest. Every install
-  proposed `06:00`, so a few hundred of them would start several hundred page
-  loads on the same tick — a spike created entirely by a default, for no
-  benefit. The minute is now derived from the hostname: scattered but stable,
-  so opening the page twice shows the same time.
-  **A rate ceiling** every navigation passes through (`internal/polite`, via
-  `gotoPolitely`, all fifteen call sites), defaulting to ~4 requests/second —
-  about three times looser than what the crawl does on its own. The looseness
-  is the design: a limiter that binds during normal operation makes every
-  future performance measurement a measurement of the limiter. Its job is to
-  stop a *future* change speeding past a defensible rate by accident.
-  **Backoff** when OPAL reports overload (429/503), easing off again on a clean
-  response. A transport error is deliberately not treated as overload — backing
-  off on flaky wifi would turn a bad network into an ever-slower sync.
-  `docs/server-load.md` is the policy and is referenced from `CLAUDE.md`,
-  including the part that has to be said out loud: this pulls directly against
-  `docs/sync-speed-campaign.md`, and the distinction that matters is asking for
-  *more things* versus asking for the *same things faster*.
-  *Measured live, not assumed: `284 navigation(s), 0 delayed, 0s held in
-  total`, on a run that took 226.9s against 211.9s and 223.4s unthrottled. An
-  intermediate run measured 244.6s and briefly looked like the ceiling binding
-  — the instrumented run settled it. The limiter counts its own interference
-  and a scrape logs it, so this stays checkable rather than becoming folklore.*
-
-- **The stalled-login reload watches the page instead of a clock.** Reported as
-  "der refresh bei tu-fast braucht viel zu lange" — and that was a description
-  of the design, not a tuning complaint. The old code waited a flat 45 seconds
-  before reloading, whether or not anything was happening, so a TU-Fast that
-  never fired always cost 45 seconds of staring at a page that was never going
-  to move. It now reads the login page between short probes and reloads after
-  **8 seconds of no change at all** — no navigation, no field being filled, no
-  change in how many fields there are.
-  **This also fixes a real bug in the old behaviour, not just its speed.** A
-  human typing their password by hand stays on a login URL, which was the only
-  thing the timer checked — so after 45 seconds it would reload the page and
-  wipe what they had typed. A non-empty field now means somebody or something
-  is working, and the page is left alone.
-  The reading counts fields and how many are non-empty. It never reads their
-  contents, and an unreadable page (closed, mid-navigation, evaluation failed)
-  counts as activity rather than as a stall — acting on a reading that could
-  not be taken is how a working login gets interrupted. The retargeting the old
-  code did by hand for flows that open a new tab now falls out for free, since
-  the active page is re-read every pass.
-  *Mutation-tested: dropping the "nothing typed in it" condition fails the
-  test that pins the wiped-password case. The DOM reading is verified against a
-  real headless browser and a real Shibboleth-shaped form
-  (`OPAL_SCRAPER_BROWSER_PROBE=1`), because a wrong type assertion there fails
-  silently as "unknown", which reads as "busy" and would disable stall
-  detection entirely.*
-  **Not yet seen in the wild:** the stall itself has never been reproduced on
-  demand, so the 8-second threshold is reasoned, not measured. If TU-Fast is
-  ever observed taking longer than that to fire on a page it *does* eventually
-  act on, the reload is harmless (it acts on the reloaded page) but the
-  threshold is worth revisiting.
-
-- **Course selection is one list now.** The maintainer's words were "es gibt so
-  mehrere stellen und so weiter.. fühlt sich weird an", and they were right
-  about the cause: a box of discovered checkboxes, a separate table of
-  configured rows, a "+ Add course" button producing a third kind of thing, and
-  the user left to join them up mentally. Every course now appears exactly once,
-  with its tickbox and its folder on the same line, under three plainly-named
-  actions ("Refresh this list from OPAL", "Add one by hand", "Fill in folders
-  for me").
-  **Unticking no longer deletes the row.** The old version did, which is why it
-  had to refuse with an `alert()` when the row carried a folder override — it
-  was protecting the user from a deletion it had chosen to do. Keeping the row
-  greyed out removes the deletion, the alert and the special case: unticked rows
-  are dropped when the form is submitted, and until then the decision is free to
-  change. The wire format is untouched, so `parseSettingsForm` did not have to
-  learn anything new.
-  Also: choosing "pick specific courses" now fetches the list straight away
-  instead of leaving a button to be found, and a failed automatic lookup reads
-  as "log in first, then refresh" rather than as an error, because on a first
-  run that is exactly what it is.
-  *Verified in a real browser (`TestBrowserCoursePickerIsOneList`) and
-  screenshotted. Mutation-tested: making submit keep the unticked rows fails
-  it.*
-
-- **Automatic sync got its own page.** The maintainer's read was that Settings
-  is really folder configuration and a daily schedule is a different kind of
-  thing; they offered "own page or fold it into sync options" and left the
-  call. Own page — `/schedule` — because `/sync` is where you make something
-  happen *now*, and putting "run every day at 06:00" beside a button that runs
-  immediately invites exactly the mis-click it sounds like.
-  The move also fixed something that was never a layout problem: Settings had
-  **two independent forms with two save buttons**, one of which did not save
-  the schedule and the other of which did not save the settings. And "Notify me
-  if a scheduled sync fails" sat under a *Notifications* heading in the
-  settings form, about a feature configured further down the page in the other
-  form. It now saves with the thing it is about, under one save button.
-  **A data-loss hazard came with it, and is pinned by a test.**
-  `parseSettingsForm` rebuilds the config from submitted form fields, and an
-  unchecked checkbox is indistinguishable from an absent one — so once the
-  notification input left the settings page, reading it there would have
-  silently switched the preference off *every time anyone saved their folder
-  settings*. It is now carried over from disk, and
-  `TestSavingSettingsDoesNotClearTheScheduledFailureNotification` fails if that
-  regresses. This is the same shape as the invariant already flagged in the
-  first-run journey notes below.
-  *All five browser walks pass against the new route, and the page was
-  screenshotted rather than only asserted on.*
-
-- **Gave the tool real logging, and moved the developer chatter into it.**
-  Raised by the maintainer relaying their father's point that a long-lived
-  project needs logging with more than one layer. Until now there was exactly
-  one channel — `fmt.Printf` to stdout — doing two unrelated jobs: talking to
-  the person running the tool, and recording what a crawl did. It served
-  neither. The user read text written for a developer, and the developer's text
-  scrolled away, or was never visible at all, because the GUI runs as a window
-  and nobody sees its stdout.
-  `internal/logging` splits it on two axes rather than one: a **level** (how
-  bad) and an **audience** (who it is for), because "skipping section" is a
-  genuine warning *and* of no interest to a student who wants their slides. Two
-  sinks read those independently — the console takes user-facing records plus
-  every error, and a rotating file under `~/.opal-downloader/logs/` takes
-  everything. `--verbose` (any command) adds diagnostics to the console;
-  `--debug-clicks` implies it, since asking for a trace and not being shown it
-  would be absurd. Built on stdlib `log/slog`, so no fourth dependency, with a
-  printf-shaped facade because that is what every existing call site looks like.
-  The scraper's 25 prints are routed by audience. The CLI's own `fmt.Println`
-  results are deliberately **not** migrated: a CLI printing its results to
-  stdout is already the user channel.
-  **Two bugs the first real log caught, which no test would have.** The shared
-  credential scrub redacts any 32+ character run of the base64 alphabet — and
-  `/` is in that alphabet, so every OPAL URL collapsed to
-  `https://bildungsportal.sachsen.[redacted]`. The section URL is precisely
-  what `scripts/compare-visit-runs.ps1` needs to answer "which section lost the
-  files", so the log was being stripped of the one field that makes it worth
-  keeping. URLs are now held out of the scrub and put back with their query
-  string dropped — path identifies a course node, query is where a jsessionid
-  would live. Second: migrated messages kept their literal `Warning: ` prefix,
-  which now doubled up against `level=WARN`.
-  *Verified live against the real account: a `list` run wrote user lines to the
-  console and diagnostics only to the file. Rotation is mutation-tested
-  (reversing the backup shift fails it), as is the audience split.*
-
-- **Rewrote the sync log for a user instead of a developer.** The maintainer's
-  account is ~345 files of which almost none change, so a routine sync printed
-  ~345 `skipped: course / file` rows and buried the handful of lines that say
-  what the run actually did. Worse, the live status line named whichever file
-  was being checked, so it sat on one arbitrary filename for minutes — which
-  reads as a hang, and was reported as one (`hybrid_quicksort.ipynb`, the
-  separate hang item below). Now an already-up-to-date file is counted, not
-  listed: the status line shows a running "N files checked, M downloaded" total
-  that visibly ticks, downloads and errors still get their own rows, and the
-  closing summary is a sentence ("Everything was already up to date (345 files
-  checked)") rather than `downloaded=0 skipped=345 errors=0`, which made a
-  successful no-op look like a run that did nothing for an unclear reason.
-  *Verified in a real browser (`TestBrowserSyncLogIsWrittenForAUser`) by
-  publishing events into the real job and letting the real SSE stream drive the
-  real JavaScript — a live sync takes minutes and cannot produce an error on
-  demand. Mutation-tested: restoring the per-file rows fails it.*
-
-- **Warn before settings edits are thrown away.** Reported by the maintainer
-  (2026-07-26): change a field, click away, and it is gone with nothing said.
-  Three layers, because no one of them covers every way out of a page — a
-  persistent bar while anything is unsaved (the layer that actually helps: it
-  removes the need to remember, rather than interrupting at the moment of
-  leaving), a confirmation on in-page links (how the user navigates in the real
-  WebView2 window, which has no address bar and no back button), and
-  `beforeunload` for closing the window. Dirtiness is measured against a
-  snapshot taken on load rather than "has anyone typed", so an edit that is
-  undone leaves the page clean — a warning that cries wolf gets clicked
-  through. Re-checked on a timer as well as on input, because every change this
-  page makes in JavaScript (added rows, "Suggest folders", "Browse...") assigns
-  `.value`, which fires no event and is invisible to a MutationObserver too.
-  *Verified in a real headless browser (`TestBrowserUnsavedChangesWalk`) and
-  screenshotted, since the last GUI bug here was invisible white-on-white text
-  that every assertion passed through. Mutation-tested: removing the guard
-  fails the walk.*
-- **Stopped shipping mojibake, and made it detectable.** The sync page's
-  preview hint rendered its em-dashes as three junk characters each; two more
-  sat in `config.go`'s comments. A human found the first by reading the running
-  program, which is the only way any of them could have been found — the damage
-  is invisible in review, because the reviewer's terminal renders the broken
-  bytes as the characters they were mistaken for. So the fix is a guard
-  (`encoding_test.go`) rather than three edits: it scans git-tracked text for
-  the lead characters that produce essentially all mojibake, in combinations
-  that cannot occur in German or English. Tracked files rather than a directory
-  walk — a plain walk also reads the gitignored `tmp/` dumps of real OPAL
-  pages, 77 findings this repo cannot fix, which would have made the guard
-  useless on its first run. *Mutation-tested both directions.*
-
-- **Made the self-resume runner able to actually start a session.** It never
-  once did. Reported by the maintainer (2026-07-26) as "hasn't worked so far";
-  `.claude/queue/resume-runner.log` showed six `launch-failed` lines over two
-  days, every one of them `%1 is not a valid Win32 application`. All five gates
-  were correct — they decided a resume was warranted, and then the launch died.
-  Cause: `Start-Process -FilePath "claude"` does not resolve a bare name the way
-  the shell prompt does. The prompt walks PATHEXT and finds `claude.cmd`;
-  Start-Process hands the raw string to the Windows loader, which takes the
-  first PATH match by name — npm's extensionless POSIX shim, not a PE binary.
-  A second bug was sitting behind it, never reached: the multi-line prompt was
-  passed as a `-ArgumentList` argument, and a `.cmd` runs under cmd.exe, which
-  ends its command line at the first newline. It would have delivered line one
-  and tried to *execute* the rest — `--model sonnet` included, so the run would
-  not even have been on the intended model. The prompt now goes over stdin,
-  which has no quoting or newline rules.
-  **Why it stayed invisible for two days:** the runner's only output is a log
-  line, and nothing reads that file. `SessionStart` now reports unacknowledged
-  `launch-failed` entries to the next interactive session, once each — a
-  watchdog whose failures are silent is worse than none, because it looks like
-  a working safety net.
-  The tests were fully green throughout: every resume-runner assertion used
-  `-DryRun`, which returns before `Start-Process` is reached. The launch path is
-  now testable via an `OPAL_RESUME_CLAUDE_CMD` stub, and `-WhichClaude` lets the
-  suite ask the runner what it would execute rather than reimplementing the
-  resolution and asserting two copies of the same idea agree.
-  *Verified live end-to-end: the real runner launched the real `claude`, which
-  read its prompt over stdin and replied — run in an isolated `OPAL_RESUME_REPO_ROOT`
-  so an unattended agent was not turned loose on the working tree. Both bugs are
-  mutation-tested: restoring the bare `claude` fails the resolution assertion,
-  and restoring the argument form fails four, with the stub capturing the prompt
-  truncated at line one exactly as predicted. 90 hook assertions, `dev.ps1 all`
-  green.*
-- **Stopped the resume runner joining a session already working in the tree.**
-  Found by the fix above working: the very next hourly fire launched a real
-  unattended agent into this worktree while an interactive session was editing
-  it. Two agents, one tree, no lock between them — the run was killed before it
-  committed anything, tree clean. The existing gate only asked whether a
-  *previous unattended run* was alive, which says nothing about a human's
-  session. Now `budget-guard.ps1` stamps `.session-heartbeat.json` on every tool
-  call and the runner skips while that stamp is under 20 minutes old.
-  The obvious implementation — "is any `claude` process alive?" — would have
-  deadlocked: the keep-warm process is permanently alive and idle, so it would
-  have vetoed every launch forever. Stamping from the tool-call hook separates
-  *working* from *running*, and a stamp that ages out means a session dying
-  cannot wedge the runner shut. An idle open session is the accepted false
-  negative; it isn't editing anything.
-  *Verified live: the real runner now reports `a session is active in this tree
-  (0m since its last tool call)` against this session's own heartbeat. Both
-  directions mutation-tested — removing the gate fails the "won't launch" test,
-  and making the heartbeat immortal fails the ages-out test — plus a third
-  proving the stamp really comes from `budget-guard` on a healthy budget, where
-  it returns early.*
-- **Made stopping an unattended run actually stop it.** Same night, same
-  incident, third bug: the recorded pid is the `cmd.exe` wrapper, not the agent.
-  Killing it left `claude.exe` orphaned and still editing the worktree for five
-  more minutes, and its changes landed in an unrelated commit before anyone
-  noticed. `resume-runner.ps1 -Stop` now kills the recorded pid *and its
-  descendants*, and says which.
-  That orphan's own half-finished work was kept rather than reverted — it was
-  sound (stop counting `**Blocked:**` backlog items as work an unattended run
-  can do, so an all-blocked backlog no longer forces hourly relaunches with
-  nowhere to go) — but it had been killed before writing a single test for a
-  change to the gate that decides whether autopilot keeps running. That gap is
-  now closed: `Get-BacklogItems` has its own tests, including that the real
-  `docs/BACKLOG.md` still parses into items, since a formatting change that made
-  it parse as zero would stop autopilot dead in silence.
-  *Verified: the orphan-kill is mutation-tested by reverting it to a plain
-  `Stop-Process`, which reproduces the incident exactly (`orphaned: 38980`).
-  `Get-BacklogItems` is mutation-tested in both directions — never flagging
-  blocked, and flagging on any mention anywhere in the body. 107 hook
-  assertions.*
-- **Made work resume by itself once the budget recovers.** Closes the
-  "should a killed run restart itself?" question — the maintainer asked for it
-  directly (2026-07-23) after being told the cost. An hourly Windows scheduled
-  task runs `.claude/hooks/resume-runner.ps1`, whose five gates (off switch,
-  already-running, 2h cooldown, budget rung, is-there-work) all run in
-  PowerShell and cost **zero tokens**, so a quiet hour is free and a `claude`
-  process starts only when all five pass. Unattended runs are bounded by
-  construction: 5 autopilot iterations instead of 20, `--model sonnet`, and a
-  cooldown so a run that dies on startup cannot become a relaunch loop.
-  An in-session cron job was considered as a second layer and rejected: its
-  only advantage is preserving this conversation's context, which after a kill
-  costs more to resume than a fresh session reading `docs/RESUME.md`.
-  Set up / inspect / remove with `scripts/register-resume-task.ps1`.
-  **A deadlock nearly shipped here**, caught by the maintainer asking where the
-  runner gets fresh numbers from: `rate-limit-status.json` is only written by a
-  live session's status line, and this runner exists for when no session is
-  running. Once both windows' `resets_at` pass, every reading is unusable — and
-  that is exactly when the quota came back. Giving up there meant needing fresh
-  numbers to justify starting a session, while only a session produces fresh
-  numbers: it would have logged `refusing to guess` hourly, forever, silently.
-  An unusable reading now forces a keep-warm sync and re-reads; a usable one
-  never does.
-  *Verified live: the real registered task was triggered and correctly logged
-  `skip  budget not recovered` without spawning anything, and fired again on its
-  own hourly schedule. `keepwarm -Force` tested for real — killed the stale
-  process, resynced in 14s, file genuinely updated. The deadlock fix is
-  mutation-tested: removing the refresh reproduces `refusing to guess` exactly.
-  **The launch path was flagged unverified here, and was in fact broken** — see
-  the entry above; "tests cover it only in `-DryRun`" was the whole problem, not
-  a caveat.*
-- **Watch the token budget during a turn, not just between turns.** A run was
-  killed mid-turn by the 5-hour limit (2026-07-23) and left no trace;
-  diagnosing it meant comparing commit timestamps against window-reset
-  arithmetic. Every guard lived on the `Stop` hook — *between* turns — so one
-  long turn ran past the budget unwatched, with 1–2 autopilot continuations
-  used against a cap of 20. A usage-limit kill never reaches `Stop`, so none of
-  the existing guards could ever have fired.
-  Now: `budget-guard.ps1` (`PreToolUse`, every tool call) escalates advice as
-  the budget floor climbs — commit, update `docs/RESUME.md`, and at the top
-  rung no new subagents; `turn-failure-checkpoint.ps1` (`StopFailure`) records
-  the kill and captures uncommitted work as a `refs/wip-checkpoints/` commit
-  without touching the working tree; `SessionStart` hands the next session the
-  failure record and the resume note, and won't arm a full autonomous stretch
-  on a budget the `Stop` gate would veto immediately.
-  It deliberately does **not** try to predict the limit — the data is a floor
-  that can be an hour stale, and the one precise estimator attempted here was
-  removed the day it was written for reporting 83.5% against a real 46%. The
-  goal is that a kill costs one turn, not a session's train of thought.
-  Two latent bugs fixed on the way: keep-warm's 42s cold-launch wait sat inside
-  a 15s `Stop` hook timeout and was silently ending autopilot, and
-  `rate-limit-gate.ps1` (now deleted, folded into `budget-guard.ps1`) had no
-  freshness check and would gate on an already-rolled-over window.
-  *Verified: `budget-guard` fired live at rung 3 on a real tool call during
-  this work; 58 new assertions in `scripts/test-hooks.ps1`, now part of
-  `dev.ps1 all`, and mutation-tested to confirm they fail when the code is
-  wrong. **Unverified:** `StopFailure` has not been observed firing for real —
-  that needs an actual API kill; tests drive the script directly via synthetic
-  stdin, which covers everything except whether the harness invokes it.*
-- **Set up the recurring review pass as an actual weekly cron**, not just a
-  backlog note. A scheduled cloud routine (Monday 06:00 UTC) reviews only the
-  commits since its own last run (tracked via `docs/last-review-commit.txt`),
-  looks for correctness bugs and simplification opportunities in that diff,
-  files genuine findings here, and commits/pushes directly — matching how
-  this repo already operates. "Nothing to report" is treated as a fine
-  outcome, not padded with invented findings. Maintainer confirmed the
-  ongoing-cost tradeoff (a real recurring cloud-agent run against their Pro
-  plan budget) before this was created rather than assuming it.
-- **Stopped treating "another sync already running" as a scheduled-sync
-  failure.** This closes what used to be the "blocked, needs evidence" sync-
-  lock-contention item above: reported live again (2026-07-19, "PID 34084,
-  4 seconds after another"), and reading the code showed the GUI's own "Sync
-  now" job runs a sync in-process (same PID as gui.exe) using the identical
-  `synclock` lock a scheduled run acquires - so this is routine overlap
-  between the GUI and the daily trigger, not an incident, and there was
-  nothing actionable for the user regardless of which process actually won
-  the race. Added `statuslog.OutcomeSkipped`, distinct from `OutcomeFailure`,
-  for exactly this case (`synclock.ErrHeld`); it's still recorded in the
-  status file/history for diagnosis but no longer fires the failure toast or
-  GUI banner. The rolling history log added earlier the same day turned out
-  not to be needed to close this - the fix didn't require catching another
-  occurrence, just correctly classifying the one already reported.
-- **Fixed the tufast-setup page's inconsistent "Home" link** — every other
-  page uses "&larr; Back", this one alone said plain "Home" with no arrow.
-- **Decided: leave legacy manifest orphans inert, don't prune.** Checked the
-  real manifest (2026-07-23): 26 entries still use the pre-migration
-  absolute-path key scheme (`_2. Semester/...`, `_4. Semester/...`), matching
-  the count from the original migration run. `delete(manifest.Files, ...)` is
-  used exactly once in the whole codebase, immediately followed by
-  re-inserting under the new key (a rename, not a deletion) — nowhere does
-  the manifest ever forget an entry outright, for files removed from OPAL or
-  otherwise. Adding a prune path would break that invariant for 26 dead JSON
-  keys in a 370-entry file: no perf or correctness cost either way. Not
-  revisiting unless the manifest's never-delete design changes for other
-  reasons.
-- **Set the scheduled task's working directory.** Task Scheduler launches an
-  action with no working directory set to `C:\Windows\System32`, not the
-  exe's own folder; every subcommand resolves `config.yaml` relative to the
-  current working directory, so a scheduled run failed with `config file not
-  found: C:\windows\system32\config.yaml` — caught live on the maintainer's
-  machine (2026-07-23), even though the registered exe path itself was
-  already stable (a different failure than the still-doomed-path repair
-  logic below covers). *Verified live end-to-end: rebuilt, re-registered the
-  real scheduled task, triggered it, watched it complete
-  (`LastTaskResult: 0`, "2 downloaded, 342 skipped").*
-- **Hid the pre-setup landing page's login-state box.** A first run with no
-  config yet can't be logged in - there's no OPAL URL or credentials to log
-  into - so "Not logged in yet" above the setup button was noise, not signal.
-  Comes back automatically once a config exists.
-- **Auto-arm autopilot on session start**, instead of requiring the marker
-  file to be created by hand (in practice it rarely was, so autopilot rarely
-  ran even for sessions opened correctly in this directory). Does not help a
-  session opened outside this directory - see the "gates are absent" section
-  above, unchanged.
-- **Gave the dev-build update note its own neutral status-box style**,
-  instead of reusing "up to date"'s green on the landing page or the
-  error/warn red on `/update`.
-- **Gate the `/sync` page's own Sync/List buttons on the same readiness check
-  the landing page already applies**, instead of leaving them live when no
-  config exists or nobody is logged in. *Verified via handler-level tests
-  (exact rendered HTML/disabled state); not exercised in a live browser
-  window - this sandbox can't run the native WebView2 binary.*
-- **Repair a scheduled sync that points at a disposable binary**, instead of
-  telling the user to repair it themselves. Finishes what #122 started: that
-  one only stopped new doomed registrations being created. *The repair branch
-  is unobserved in the wild — verified live only in its refusing-to-repair
-  form, since triggering the repair means rewriting a real Task Scheduler
-  entry.*
-- **Suggest a per-course download folder**, now measured against a real
-  account and tree: 6 of 6 course→folder mappings correct, after a first pass
-  that got 0 of 6. Three fixes made the difference — excluding the tool's own
-  `default_course_folder` dumping ground (it name-matches perfectly and
-  shadowed the real folders), and two tie-breaks for folders a name cannot
-  separate (the `…/Downloads` convention, then recency, so this semester's
-  "Analysis" beats last semester's). *A stranger's naming is still only as
-  good as these signals; the thresholds are tuned to one real tree.*
-- **#124** Reload a login page TU-Fast has not acted on, instead of waiting
-  out the full timeout. *The stall itself was never reproduced; the reload
-  branch is unobserved in the wild.*
-- **#123** Verify files OPAL reports no size or date for by comparing bytes,
-  instead of assuming they are unchanged. Closes the second half of the
-  never-updating-file bug.
-- **#122** Refuse to register a scheduled sync against a disposable binary.
-- **#121** Discover courses so they can be ticked in setup, not typed.
-- **#120** Don't treat a recycled PID as a running sync.
-- **#119** Report what the crawl is doing while it runs.
-- **#118** Put a primary "Sync now" action on the GUI start page.
-- **#117** Heal manifest entries that carry no size/modified signal. First
-  half of the never-updating-file bug.
+- Moved 678 lines of closed work into `docs/BACKLOG-archive.md` (2026-07-31).
+- Released the autonomy brakes: budget-guard advises instead of denying,
+  autopilot caps raised from 4h/20 to 12h/60 (2026-07-31).
+- Routed every live probe's diagnostic logs somewhere visible.
+- Fixed the Blocked marker so the autopilot gate's parser actually reads it.
+- Found a real completion-signal candidate: jsTree's `aria-busy`, across 4
+  courses.
+- Wired the app icon into the running window (WM_SETICON), rasterised from
+  logoSVG.
+- Gave every hook a heartbeat, so a silently dead hook is observable.
+- Deleted the section change-detection cache, budget and all.

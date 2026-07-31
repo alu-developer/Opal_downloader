@@ -151,8 +151,13 @@ if (Test-Path $resumePath) {
 }
 
 # --- budget-aware arming ------------------------------------------------------
-$expiresHours = 4
-$maxIterations = 20
+# Raised on 2026-07-31 from 4h/20. Those caps were set as a safety allowance and
+# then became the actual stopping condition: sessions ended because the marker
+# expired, not because the work was done, and the maintainer had to restart what
+# was still in flight. The real bounds are the rate limit and the backlog running
+# out - both already enforced by the Stop gate.
+$expiresHours = 12
+$maxIterations = 60
 $budgetNote = $null
 $armed = $true
 
@@ -163,8 +168,8 @@ $armed = $true
 # marker IS the bound.
 $unattended = ($env:OPAL_UNATTENDED_RESUME -eq "1")
 if ($unattended) {
-    $expiresHours = 2
-    $maxIterations = 5
+    $expiresHours = 4
+    $maxIterations = 15
 }
 
 try {
@@ -173,16 +178,17 @@ try {
         . $lib
         $budget = Get-BudgetFloor
         $rung = Get-BudgetRung $budget
-        if ($rung -ge 3) {
-            # The Stop gate stops at 5h>=75 / 7d>=80, which rung 3 already
-            # exceeds. Arming here would create a marker whose first check
-            # vetoes it.
-            $armed = $false
-            $budgetNote = "Autopilot NOT armed: $($budget.Reason), which is past the point where the Stop gate would refuse to continue anyway. Work normally, at whatever pace the maintainer asks for, and keep docs/RESUME.md current - budget is not a reason to refuse work, only a reason not to run unattended."
-            Remove-Item $marker -Force -ErrorAction SilentlyContinue
+        # Rung 3 used to refuse to arm at all, because the Stop gate's old
+        # 75/80 thresholds would have vetoed the marker on its first check.
+        # The gate now stops at 90/92, so there is a real stretch left here and
+        # arming short beats not arming (2026-07-31).
+        if ($rung -ge 3 -and -not $unattended) {
+            $expiresHours = 3
+            $maxIterations = 12
+            $budgetNote = "Autopilot armed SHORT (${expiresHours}h, max $maxIterations continuations) because $($budget.Reason). Commit in small increments and keep docs/RESUME.md current. This is about staying savable, not about attempting less."
         } elseif ($rung -eq 2 -and -not $unattended) {
-            $expiresHours = 2
-            $maxIterations = 6
+            $expiresHours = 8
+            $maxIterations = 30
             $budgetNote = "Autopilot armed SHORT (${expiresHours}h, max $maxIterations continuations) because $($budget.Reason). Commit in small increments and keep docs/RESUME.md current."
         }
     }

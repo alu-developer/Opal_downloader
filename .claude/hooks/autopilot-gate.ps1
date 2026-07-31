@@ -162,14 +162,20 @@ try {
         $five = $budget.FiveHour
         $seven = $budget.SevenDay
 
-        if (($null -ne $five) -and ($five -ge 75)) { Allow-Stop }
-        if (($null -ne $seven) -and ($seven -ge 80)) { Allow-Stop }
+        # Raised on 2026-07-31 from 75/80. Those thresholds ended autonomous work
+        # with a quarter of the window unused, on a figure that is only a floor -
+        # and the budget-guard already keeps the tree savable the whole way up.
+        # Hitting the real wall now costs one turn, which is the price these
+        # numbers were paying a quarter of the budget to avoid.
+        if (($null -ne $five) -and ($five -ge 90)) { Allow-Stop }
+        if (($null -ne $seven) -and ($seven -ge 92)) { Allow-Stop }
     }
 } catch { }
 
-if (-not $rateKnown -and $count -ge 8) {
-    # No usable budget reading at all: allow a short autonomous stretch, not a
-    # long one.
+if (-not $rateKnown -and $count -ge 25) {
+    # No usable budget reading at all: still bounded, but not the 8-continuation
+    # leash it used to be - a blind stretch that short ended most runs early on
+    # nothing more than a missing status file.
     Allow-Stop
 }
 

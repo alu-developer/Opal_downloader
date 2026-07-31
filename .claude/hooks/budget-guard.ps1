@@ -88,29 +88,21 @@ if (-not (Test-Path $lib)) { Allow-Silently }
 
 $budget = Get-BudgetFloor
 $rung = Get-BudgetRung $budget
-if ($rung -le 0) { Allow-Silently }
+
+# Rung 1 is deliberately silent (2026-07-31). It fired at 50% of a 5-hour
+# window - i.e. most of a normal working session - and said nothing that
+# "commit as you go" doesn't already cover. Every one of those notices was a
+# mid-turn interruption bought for no information, and the accumulated effect
+# was a run that behaved as though it were always nearly out of budget.
+if ($rung -le 1) { Allow-Silently }
 
 $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-# --- hard stop on new subagents at the top rung -------------------------------
-# Folded in from the old rate-limit-gate.ps1, which was wired to the Agent
-# matcher alone. Kept as a real deny (not just advice) because a subagent is
-# the one action that can multiply spend without the assistant seeing it climb.
-# Unlike its predecessor this now runs through the shared floor logic, so it no
-# longer gates on a window that has already rolled over.
-if ($rung -ge 3 -and $toolName -eq 'Agent') {
-    $reason = "Rate-limit guard: $($budget.Reason). Not starting new subagents - " +
-              "finish and checkpoint the work already in flight instead."
-    $out = @{
-        hookSpecificOutput = @{
-            hookEventName            = "PreToolUse"
-            permissionDecision       = "deny"
-            permissionDecisionReason = $reason
-        }
-    } | ConvertTo-Json -Depth 5 -Compress
-    Write-Output $out
-    exit 0
-}
+# NOTE: this hook does not deny anything. It used to hard-deny the Agent tool at
+# rung 3, inherited from the old rate-limit-gate.ps1. That was removed on
+# 2026-07-31: denying the one tool that parallelises work is a strange way to
+# spend less, and the deny arrived exactly when a run most needed to finish
+# something. Advice only - the assistant decides what to do with it.
 
 # --- throttle -----------------------------------------------------------------
 # Speak up when the rung first rises, then at most every 15 minutes while it
@@ -147,27 +139,15 @@ This is a budget floor, not a measurement: the real figure is at least this and 
 "@
 
 switch ($rung) {
-    1 {
-        $msg = @"
-BUDGET NOTICE - $($budget.Reason).
-
-$common
-
-Nothing to change yet beyond working in savable increments: commit each piece as it becomes correct rather than batching several up, and keep docs/RESUME.md pointing at what you are actually doing right now.
-"@
-    }
     2 {
         $msg = @"
 BUDGET CHECKPOINT - $($budget.Reason).
 
 $common
 
-A usage-limit kill from here would end the turn instantly, with no Stop hook and no chance to save anything. Before your next substantial step:
+A usage-limit kill from here would end the turn instantly, with no Stop hook. So: commit whatever is already correct, and make sure docs/RESUME.md names what you are in the middle of. A WIP commit is recoverable; an uncommitted tree plus a lost context window is not.
 
-1. Commit whatever is already correct, even if the task is unfinished. A WIP commit is recoverable; an uncommitted working tree plus a lost context window is not.
-2. Update docs/RESUME.md: the task, what is done, the immediate next action, and anything you learned that is not yet written down anywhere else.
-
-Then carry on. Prefer decisive single experiments over exploratory back-and-forth, and filter command output at the source rather than reading long logs into context.
+That is the whole ask. Keep working on what you were working on - at full size. Do not switch to smaller tasks, do not skip the harder half, do not stop.
 "@
     }
     default {
@@ -176,11 +156,9 @@ BUDGET CRITICAL - $($budget.Reason).
 
 $common
 
-Assume the turn may be killed at any moment. Right now, before anything else: commit what is correct and write docs/RESUME.md so the next session resumes without re-deriving anything.
+Assume the turn may be killed at any moment, so commit what is correct now and keep docs/RESUME.md pointing at the next concrete action. That is what survives a kill.
 
-After that, keep going but stay permanently savable - land small commits, avoid starting work that only pays off if a long turn completes, and do not launch subagents (that is denied at this level).
-
-Do NOT stop the run over this. Budget is not a stop condition; the Stop gate decides when a run ends, or the maintainer does.
+Then carry on with the same work. Budget is not a stop condition and not a reason to shrink the task - being savable is about how often you commit, not about how much you attempt.
 "@
     }
 }

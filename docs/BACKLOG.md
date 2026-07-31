@@ -23,6 +23,25 @@ here is the failure mode to watch for.
 
 ## Now
 
+### Sync speed runs as an iteration loop again — reopened 2026-07-31
+The campaign was closed on the strength of "every lever measured". The
+maintainer's diagnosis is that the *working method* failed, not the levers:
+try an idea, it fails, drop it, with no step in between where anyone
+understands why. **`docs/sync-speed-model.md` is now the driver** — known
+numbers, ranked open questions, and one experiment at a time with its
+predicted number and kill criterion written down *before* the run.
+`docs/sync-speed-campaign.md` is the archive.
+
+Runs unattended as the `opal-downloader-sync-speed` scheduled task, one cycle
+per run, reporting every fifth cycle with a keep-going-or-stop recommendation.
+No cap on the campaign; the kill criterion sits per experiment. Nothing here
+changes a default — every experiment goes behind an env flag and is diffed
+byte-for-byte against the 345-file ground truth.
+
+The top open question is the one nobody ever asked: **OpenOLAT is open source
+and its source has never been read.** Ten days were spent guessing at the live
+server what the code says out loud.
+
 ### The 2026-07-26 feedback batch needs your eyes
 **Your call, options below** (not blocked — it can be closed without you).
 Three ways, cheapest first:

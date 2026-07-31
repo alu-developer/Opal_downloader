@@ -50,8 +50,14 @@ which specific initiative is being worked on:
   passes through (`internal/polite`, wired in via `gotoPolitely`), backoff when
   OPAL reports overload, and scheduled runs scattered across the hour instead
   of every install firing at 06:00. Read it before any change that makes the
-  tool ask OPAL for more, or ask faster - it pulls directly against
-  `docs/sync-speed-campaign.md`, and that trade-off is written down there.
+  tool ask OPAL for more, or ask faster - it pulls directly against the
+  sync-speed work, and that trade-off is written down there.
+  **`docs/sync-speed-model.md` is that work's driver**: what is known, the
+  ranked open questions, and one experiment at a time with its predicted
+  number and kill criterion written down *before* the run.
+  `docs/sync-speed-campaign.md` is the archive behind it — consult it so a
+  measured rejection is not repeated, but a written conclusion there is not a
+  result. Quote the measurement.
 - **Local-only tool.** Everything runs on the user's own machine. No
   opal-downloader-operated backend/cloud service exists today, and none is
   planned — not ruled out forever on principle, but no current need has been

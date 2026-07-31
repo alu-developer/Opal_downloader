@@ -1,5 +1,15 @@
 # Sync speed campaign
 
+> **This file is the archive. `docs/sync-speed-model.md` drives the work.**
+> Reopened 2026-07-31: the campaign was closed on "every lever measured", but
+> the maintainer's diagnosis is that the *method* failed — try an idea, it
+> fails, drop it, with no step in between where anyone understands why. Read
+> this file so a measured rejection is not repeated. Do **not** take a
+> conclusion here as a result: several were written confidently and refuted
+> later, and the rule below ("quote the measurement") is why. In particular,
+> "there is no positive render signal" was inferred from the live DOM — the
+> OpenOLAT source, which is public, has never been read.
+
 ## 2026-07-31 (late): the lever the morning's entry said was "real" was measured and is NOT. 30s is unreachable loss-free.
 
 The 2026-07-31 entry below ended on "the lever is real" — a navigation-only

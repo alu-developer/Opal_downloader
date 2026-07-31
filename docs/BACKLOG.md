@@ -45,7 +45,8 @@ unsplit** — the most correctness-sensitive file here, with a documented histor
 of silent file loss from changes to it. Tidying buys nothing worth that risk.
 
 ### Dogfood the whole first-run journey
-**Your call, options below.** Same three options as the item above apply here — it's the same underlying gap
+**Your call, options below.** Same three options as the item above apply
+here — it's the same underlying gap
 (nobody's looked with eyes), just framed as a first-time user instead of a
 feature-by-feature check. Recommendation is the same: close it on the
 strength of the automated coverage below unless you're opening the GUI for

@@ -251,3 +251,42 @@ RUNNING NOW: OPAL_HTTP_DISCOVERY=verify list against the real account. Expect
 the summary line "total missing=0 extra=0". If anything is missing, the per-file
 "missing:" log lines name exactly which and (from the diagnosis) why. Log in
 tmp/baseline/verify-run.{out,err}.
+
+### VERIFICATION PASSED — 345-file contract diff = 0 (2026-07-31)
+OPAL_HTTP_DISCOVERY=verify list against the real account:
+
+| course | browser | http | missing | extra |
+|---|---|---|---|---|
+| 2026 LA20 | 25 | 25 | 0 | 0 |
+| Algorithmen | 38 | 38 | 0 | 0 |
+| Analysis | 30 | 30 | 0 | 0 |
+| So26 Prog | 13 | 13 | 0 | 0 |
+| Softwaretechnologie | 200 | 200 | 0 | 0 |
+| TUDMATH NuMa | 17 | 17 | 0 | 0 |
+| TOTAL | 323 | 323 | 0 | 0 |
+
+(The 345 baseline count vs 323 here: the difference is cross-section duplicate
+file names that the per-course distinct sets collapse. Both sources count
+identically, which is what the contract requires.)
+
+HTTP phase alone: 282 sections, 287 requests, 56.0s. Log: tmp/baseline/verify-run.out.
+
+### THE HONEST NUMBERS — and what they mean for 30 s
+- verify mode runs BOTH phases serially: browser crawl (200s) + HTTP (56s) =
+  267s total. Adding HTTP after the browser is SLOWER, not faster.
+- The HTTP leaf-fetch is sound and complete (diff=0), but it only saves time
+  if it REPLACES the browser's leaf extraction (mode=1) rather than running
+  after it. And even then, the browser still has to walk the section TREE
+  (the JS-rendered part) — which is the bulk of the 200s.
+- So the realistic speedup from option A is NOT 200s -> 30s. It is:
+  browser tree-walk (no leaf settle wait) + HTTP leaf fetch. The tree-walk's
+  settle wait exists to render the FILE table the browser currently reads;
+  if the browser only needs folder links (tree nav), a shorter wait might do.
+  THAT is the unmeasured lever left, and it touches visitSection's wait logic
+  - exactly the code with a documented silent-file-loss history.
+
+Next decision point: is the remaining work (shortening the tree-walk's wait,
+risk-testing it for file loss) worth it, given 30s is now clearly out of reach
+without the rejected cache approach (B)? The diff=0 result means A is SAFE to
+ship as-is for correctness; the question is whether ~60-90s is acceptable or
+whether to stop here with a verified, correct-but-not-30s improvement.

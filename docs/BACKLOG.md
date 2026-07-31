@@ -81,14 +81,6 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
-- **An unattended run cannot wait for a background job, and reports success
-  anyway (2026-07-30).** The job dies with the run's own process; the fix sat
-  uncommitted while `docs/RESUME.md` claimed otherwise. Half-detected now —
-  `unattended-run.ps1` scores clean-exit-with-changes-but-no-commit as
-  `run-left-uncommitted`. **Not** fixed: nothing notices an orphaned background
-  job, and detection is not prevention. The lesson stands: commit first, verify
-  second.
-
 - **Why the User-Agent fix works is still a theory.** `cd1282c` demonstrably
   restores all 6 courses (345 files, byte-identical). But a standalone probe
   sending the same synthetic UA at low volume was served full pages, not stubs
@@ -108,6 +100,13 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- Closed the "unattended run can't wait for a background job" Noticed item
+  without building a detector: `docs/work-quality.md` names building more
+  watch-the-process machinery as the exact anti-pattern to stop, and the
+  actual fix already shipped this session as a *rule*, not code — the
+  resume-runner's own prompt template already says "do not start anything
+  that outlives this turn... commit first and leave the check as the next
+  action." Behavior lives in the prompt, hooks stay for enforcement only.
 - Fixed a stdin BOM silently breaking JSON parsing in 5 hooks (budget-guard,
   turn-failure-checkpoint, noticed-gate, autopilot-gate, pre-push-gate) —
   `scripts/dev.ps1 all` is fully green for the first time this session

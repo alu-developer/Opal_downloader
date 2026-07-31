@@ -113,28 +113,6 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
-- **The resume runner's unlock/logon triggers: now actually checked, still
-  unconfirmed (2026-07-31).** Queried `Microsoft-Windows-TaskScheduler/
-  Operational` directly (event IDs 107/129) instead of trusting
-  `-Status`'s `missed` counter: every launch in the last several hours (00:56
-  through 03:08, 8 events) says **"due to a time trigger condition."** Zero
-  say session-unlock or logon. That's not proof the other triggers are dead —
-  no lock/unlock necessarily happened in this window — but it's the first
-  real look, and it found nothing, which is itself worth recording rather
-  than continuing to guess.
-
-- **Confirmed same-day: overlapping resume-runner launches are real, not
-  theoretical (2026-07-31).** The same event log shows launches at 00:56:37,
-  00:57:42, 01:04:24, then 01:08:30 — four within twelve minutes, well inside
-  a session's own runtime. This session personally collided with another
-  concurrently-running instance: it committed this session's uncommitted
-  `docs/BACKLOG.md`/`docs/sync-speed-campaign.md` edits under its own message
-  before this session could commit them itself (see `33d3f1b` — no work was
-  lost, but only by luck). `register-resume-task.ps1 -Status`'s "previous
-  resume run still active" skip logic exists for exactly this and evidently
-  didn't catch it here. Not investigated further this session — worth a look
-  at why the pid-liveness check missed an active run.
-
 - **An unattended run cannot wait for a background job, and reports success
   anyway (2026-07-30).** The job dies with the run's own process; the fix sat
   uncommitted while `docs/RESUME.md` claimed otherwise. Half-detected now —
@@ -169,6 +147,16 @@ move the rest across.
 - Raised the code budget for the verified serial-hybrid HTTP discovery
   feature; built/measured the tree-walk wait lever (folder links stable by
   50ms) — still blocked on sign-off before building it (2026-07-31).
+- Resolved two Noticed items with real evidence, both against my own
+  same-session claims: the resume runner's Logon trigger genuinely fires
+  (Task Scheduler event 119, "due to user log-on", 2026-07-31 01:04:24 -
+  confirmed, not just registered) and the "overlapping resume-runner
+  launches" I'd called confirmed the same day was wrong - the four Task
+  Scheduler firings were the cheap gate script (one was a missed-schedule
+  catch-up, one the real logon trigger, one the hourly tick), and
+  `resume-runner.log` shows only one actual `claude` launch in that window.
+  The real same-day collision was two ordinary sessions in one directory,
+  not a bug to fix.
 - Moved 678 lines of closed work into `docs/BACKLOG-archive.md` (2026-07-31).
 - Released the autonomy brakes: budget-guard advises instead of denying,
   autopilot caps raised from 4h/20 to 12h/60 (2026-07-31).

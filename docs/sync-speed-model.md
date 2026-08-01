@@ -124,9 +124,11 @@ werden, nicht stillschweigend überschrieben:
 - **Kandidat A:** Settle-Zeit ist Netzwerk-/Transferzeit einer großen
   Server-Antwort, keine JS-Bauzeit. Plausibel, weil jede Coursenode-Seite den
   kompletten `o_tree` des Kurses mitliefert — bei 282 Sektionen potenziell ein
-  großes HTML-Dokument pro Request. Ungeprüft: skaliert die Settle-Zeit mit
-  der Kursgröße, und deckt sich "Response fertig übertragen" zeitlich mit
-  "Kandidatenzahl stabil"?
+  großes HTML-Dokument pro Request. **Live gemessen 2026-08-01 (siehe
+  "Nächstes Experiment" unten): widerlegt in der geprüften Form.** Bytes
+  wachsen bei 27x mehr Sektionen nur um 1,4x, Netzwerkanteil bleibt bei
+  25–31% — Minderheit, nicht Erklärung. Offen, warum die Bytes nicht
+  skalieren (→ Frage 9).
 - **Kandidat B:** Die Probe hat etwas anderes gemessen als Baum/Tabelle
   selbst — z. B. wächst die Trefferzahl von `looksLikeSectionFolderLink`
   einfach, weil der Browser ein großes statisches HTML-Dokument noch
@@ -153,9 +155,49 @@ umgehen lässt. Wichtig für "previews.go ohne `ctx.Route` ausliefern"
 nichts am Cache-Verhalten ändert — dann bräuchte es tatsächlich einen
 browser-seitigen Blockmechanismus ohne CDP-`Fetch`-Domain.
 
+### 9. Warum wächst die Sektionsseiten-Response kaum mit der Kursgröße, wenn `MenuTreeRenderer` den ganzen Baum mitliefert? (neu, aus Frage 7 / Kandidat A, siehe Bericht unten)
+Gemessen: 1,4x Bytes bei 27,3x mehr Sektionen. Zwei unbestätigte
+Erklärungen, nicht gegeneinander geprüft:
+- **(a)** Der Renderer serialisiert nur den sichtbaren/aufgeklappten
+  Teilbaum, nicht alle Sektionen — dann wäre Baumtiefe/offene Knoten die
+  richtige unabhängige Variable, nicht Gesamtsektionszahl.
+- **(b)** Server-seitiges Caching/Wiederverwendung des Baum-Fragments.
+Am billigsten zu prüfen über (a): `MenuTreeRenderer.java` erneut lesen,
+diesmal gezielt auf bedingte Rekursion (nur `open`/`selected`-Knoten) statt
+auf das reine "ist es Server-HTML"-Ergebnis von Frage 1. Falls (a) zutrifft,
+könnte das auch Frage 6 (1 von 12 Sektionen instabil) mit Auf-/Zuklapp-
+Zustand statt Wicket-Bookkeeping erklären — ungeprüfte Vermutung, nicht mehr.
+
+Nach Widerlegung von Kandidat A bleiben **69–75% des settle+stable-Waits**
+unerklärt (Netzwerk erklärt nur 25–31%) — Kandidat B/C aus Frage 7 sind
+weiterhin offen; das Modell sagt dafür bereits echtes Browser-Profiling
+voraus, nicht mehr Quellcode-Lesen oder Netzwerk-Tracing.
+
 ---
 
 ## Nächstes Experiment
+
+**Frage:** (9) — serialisiert `MenuTreeRenderer` den ganzen Kursbaum auf
+jeder Sektionsseite, oder nur den sichtbaren/aufgeklappten Teilbaum?
+
+**Vorhersage:** Der Quellcode zeigt bedingte Rekursion (z. B. ein
+`if (node.isOpen())`-artiger Check vor dem rekursiven Aufruf für
+Kindknoten), die erklärt, warum die gemessene Response-Größe nicht mit der
+Gesamtsektionszahl skaliert.
+
+**Gescheitert ab:** Wenn der Code unbedingt über alle Kindknoten
+rekursiert (kein Open/Closed-Gate erkennbar), ist (a) widerlegt und es
+bleibt nur (b) (Caching) oder eine dritte, noch nicht benannte Erklärung —
+dann zurück zu reinem Messen: Response-Bytes zweier verschiedener
+Sektionsseiten *innerhalb desselben großen Kurses* vergleichen (variieren
+sie mit der angeklickten Sektion, oder sind sie auch dort flach?).
+
+**Kosten:** Quellcode-Lesen (`gh search code --repo OpenOLAT/OpenOLAT`),
+kein Build, kein Live-Lauf nötig.
+
+---
+
+## Vorheriges Experiment (Frage 7, abgeschlossen 2026-08-01)
 
 **Frage:** (7) — erklärt Netzwerk-/Transferzeit einer großen
 Server-HTML-Antwort die 336ms Settle-Wait, statt Client-JS?
@@ -176,8 +218,50 @@ kein Diff gegen den Ground-Truth-Sync nötig, weil nichts am Sync-Verhalten
 geändert wird.
 
 **Ergebnis (2026-08-01, `opal-downloader-sync-speed`, dieser Zyklus):
-Instrument gebaut, Messfehler vor dem ersten Lauf gefunden, Live-Lauf
-blockiert — offen.**
+Live-Lauf durchgeführt, Vorhersage widerlegt — Kandidat A (Baumgröße treibt
+Response-Größe) ist tot, aber mit einer neuen, engeren Frage statt
+geschlossen (Regel 2 noch nicht erfüllt, siehe unten).**
+
+Ergebnis (`tmp/settle-timing-network-trace.txt`):
+
+| | Algorithmen u. Datenstrukturen (6 Sektionen) | Softwaretechnologie (164 Sektionen) |
+|---|---|---|
+| avg. Dokument-Response | 5604 Bytes / 79ms | 7789 Bytes / 65ms |
+| settle+stable pro Sektion | 511ms | 525ms |
+| Netzwerkanteil an settle+stable | 31% | 25% |
+
+Byteverhältnis (größer/kleiner) **1,4x** bei einem Sektionsverhältnis von
+**27,3x**. Die Vorhersage verlangte, dass Response-Größe mit der Kursgröße
+mitwächst (Begründung: `MenuTreeRenderer` liefert den kompletten `o_tree`
+auf jeder Sektionsseite mit). Das ist nicht eingetreten — die Bytes bleiben
+über einen 27-fachen Größenunterschied praktisch flach, die Transferdauer
+sinkt sogar leicht. Deckt sich mit dem Scheitern-Kriterium: kleine Bodies
+(5,6–7,8 KB), Transfer im Bereich 65–130ms/Sektion (2 Dokument-Requests je
+Sektion), während settle+stable bei 511–525ms/Sektion bleibt — Netzwerk
+erklärt höchstens 25–31%, nie die Mehrheit.
+
+Nebenbefund, nicht Teil der Vorhersage, aber informativ: settle+stable
+pro Sektion ist zwischen den beiden Kursen fast identisch (511 vs. 525ms) —
+deckt sich mit dem bereits bekannten Aggregat aus der Tabelle oben
+(338+172=510ms/Sektion). Das Timing selbst skaliert also so oder so nicht
+mit der Kursgröße; nur die Vorhersage, *warum* es das nicht tut (Bytes
+skalieren auch nicht), ist neu.
+
+**Warum Kandidat A trotzdem offen bleibt (Regel 2):** Widerlegt ist nur die
+Vorhersage "Response wächst mit Kursgröße", nicht der Mechanismus dahinter.
+Es gibt zwei unbestätigte Erklärungen, warum `MenuTreeRenderer` trotz
+27x mehr Sektionen kaum mehr Bytes schickt:
+- **(a)** Der Renderer serialisiert nicht den ganzen Baum, sondern nur den
+  sichtbaren/aufgeklappten Teilbaum (Tiefe/offene Knoten statt
+  Gesamtsektionszahl) — dann wäre Kursgröße die falsche unabhängige
+  Variable, nicht die Baumgröße als solche widerlegt.
+- **(b)** Der Baum wird serverseitig irgendwo gecached/wiederverwendet und
+  nur ein Diff oder Verweis geschickt.
+Keine davon ist geprüft. Ungeprüft, auch: die 25–31% Netzwerkanteil sind
+real, aber Minderheit — was füllt die restlichen 69–75%, wenn nicht
+Client-JS (Frage 1, beantwortet) und nicht Netzwerktransfer (jetzt
+größtenteils widerlegt)? Das war schon vor diesem Lauf Kandidat B/C und
+bleibt es.
 
 Die Probe (`internal/scraper/network_timing_probe_test.go`,
 `OPAL_SETTLE_TIMING_TRACE=1`) crawlt die kleinste und die größte

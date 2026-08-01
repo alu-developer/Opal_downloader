@@ -73,6 +73,13 @@ Delete an entry when it is done, or when it turns out not to matter.
   Noticed while closing the 2026-07-26 feedback-batch backlog item, not
   investigated further.
 
+- **One unexplained 300s login timeout on 2026-07-31.** `ensureSession: timed
+  out after 300000ms waiting for the OPAL course list after login` during a
+  sync-speed cycle. It was written off as "needs 2FA, unattended runs can't do
+  that", which is wrong — the same path auto-logged-in fine on 2026-08-01, so
+  the cause is still unknown. If it recurs, capture the browser state instead
+  of blaming 2FA. Note in `docs/sync-speed-model.md`.
+
 ---
 
 ## Done recently

@@ -204,8 +204,14 @@ frei ist.
 
 **Live-Lauf blockiert:** gespeicherte Session war abgelaufen
 (`ensureSession: timed out after 300000ms waiting for the OPAL course list
-after login`), Login braucht 2FA im geöffneten Browserfenster — in einem
-unbeaufsichtigten Lauf ohne Person am Rechner nicht überbrückbar.
+after login`). Die damalige Begründung — "Login braucht 2FA im geöffneten
+Browserfenster, unbeaufsichtigt nicht überbrückbar" — **war falsch** und wird
+hier stehen gelassen, weil sie einen ganzen Zyklus gekostet hat. TU-Fast im
+dedizierten Profil erledigt Login und 2FA selbst; eine abgelaufene Session ist
+kein Blocker. Nachgemessen 2026-08-01: `list` mit abgelaufenem State →
+Auto-Login → 8 Kurse in 3,7 s, ohne Klick. Der 300-s-Timeout am 2026-07-31 war
+also ein echter Fehlschlag mit unbekannter Ursache, keine strukturelle Grenze —
+beim nächsten Auftreten die Fehlermeldung untersuchen, nicht die Person rufen.
 Browser/Profil wurden sauber geschlossen (`sc.Close()` lief über den
 regulären `defer`, `rate ceiling: 2 navigation(s), 0 delayed` bestätigt
 es), nichts blieb hängen.

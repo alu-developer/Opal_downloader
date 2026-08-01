@@ -16,10 +16,19 @@ same commit as the work it describes.
 **Stopping is not yours to decide.** If work remains and nothing needs the
 maintainer's judgement, keep going. Only four things need it: a change that
 would delete or overwrite their real files, a stated project decision or
-principle that would have to change, anything needing their account
-interactively (credentials, 2FA), and a genuine fork between two designs that
-reasoning does not settle. Mark those **Blocked:** in the backlog *with
-concrete options to choose between*, and carry on with the next item.
+principle that would have to change, a login that genuinely needs them at the
+keyboard (see below — an expired session does not), and a genuine fork between
+two designs that reasoning does not settle. Mark those **Blocked:** in the
+backlog *with concrete options to choose between*, and carry on with the next
+item.
+
+**An expired session is not a blocker.** TU-Fast is installed in the dedicated
+login profile and completes credentials and 2FA by itself; `login`/`sync`/`list`
+trigger it automatically when the saved session is stale, with nobody at the
+machine. Live-verified 2026-08-01: expired state → auto-login → 8 courses in
+3.7s, no click. So never report "needs the maintainer for 2FA/fresh cookies" —
+just run the command. Only a run that actually failed is a blocker, and then
+quote its error. How it works: `docs/architecture.md`.
 
 The maintainer thinks out loud. A passing remark about a problem or an
 annoyance is a real input — turning it into a backlog entry is part of the job,

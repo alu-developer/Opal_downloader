@@ -233,6 +233,16 @@ func Enable(exePath, hhmm string) error {
 // Disable removes the scheduled-sync Task Scheduler task. Idempotent: if
 // the task doesn't exist (already disabled, or never enabled), this is a
 // no-op rather than an error.
+//
+// This function itself performs no ownership check - it deletes whatever is
+// currently registered under TaskName, full stop. That is safe today only
+// because both real callers (cmd/opal-downloader/root.go's `schedule
+// disable` subcommand, internal/gui/schedule.go's applyScheduleRegistration)
+// are reachable exclusively via explicit user action - typing the command or
+// submitting the Settings form - and nothing else in this codebase calls
+// Disable automatically. Any new caller added later inherits that same
+// obligation: TaskName is one global name per machine, so an automatic or
+// background call here would silently remove the user's live daily sync.
 func Disable() error {
 	out, err := exec.Command("schtasks", "/Delete", "/TN", TaskName, "/F").CombinedOutput()
 	if err != nil {

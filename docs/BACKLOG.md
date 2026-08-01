@@ -67,12 +67,6 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
-- **The scheduler's disable path has no guard.** `scheduler.TaskName` is a
-  single global constant that the maintainer's live daily sync is registered
-  under — nothing stops some other code path from disabling it by name.
-  Noticed while closing the 2026-07-26 feedback-batch backlog item, not
-  investigated further.
-
 - **One unexplained 300s login timeout on 2026-07-31.** `ensureSession: timed
   out after 300000ms waiting for the OPAL course list after login` during a
   sync-speed cycle. It was written off as "needs 2FA, unattended runs can't do
@@ -89,6 +83,16 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Scheduler disable-path "no guard" Noticed item closed as investigated,
+  not fixed** (2026-08-01, autopilot): `scheduler.Disable()` itself still
+  performs no ownership check (it deletes whatever `schtasks` has under
+  `TaskName`), but both real callers — the CLI's `schedule disable` and the
+  GUI's Settings form handler — are reachable only via explicit user action,
+  and no installer/uninstaller script or background path calls it. The actual
+  residual risk is dev/test sessions in this repo, already mitigated by
+  `live_schedule_guard_test.go`'s env-var gating and the `scheduleDisableFunc`
+  test double. Left a doc comment on `Disable()` spelling out the obligation
+  for future callers instead of adding speculative validation logic.
 - **Installer's Chromium-bundling path bug found and a fix opened as a PR**
   (2026-08-01, autopilot): see Next — `%LOCALAPPDATA%` vs
   `EnsurePlaywrightBrowsersPath`'s actual `%USERPROFILE%\.opal-downloader`

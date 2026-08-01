@@ -42,83 +42,22 @@ The top open question is the one nobody ever asked: **OpenOLAT is open source
 and its source has never been read.** Ten days were spent guessing at the live
 server what the code says out loud.
 
-### The 2026-07-26 feedback batch needs your eyes
-**Your call, options below** (not blocked — it can be closed without you).
-Three ways, cheapest first:
-
-1. **Close it now, no visual pass.** All ten items shipped; automated
-   headless walks (`first_run_journey_test.go`, `browser_walk_test.go`)
-   already assert every changed page's structure and behaviour. A test can't
-   catch a purely visual break, but nothing's flagged one in normal use
-   either. Recommended — the remaining risk is small and untested time is
-   the expensive part here.
-2. **Open the GUI once, ~10 min**, click through the four changed pages
-   (sync log, settings, `/schedule`, course picker) whenever you're in there
-   for something else anyway. No need for a dedicated session.
-3. **Ask an agent for a text diff** of what actually changed per page
-   (template/HTML diff, not a screenshot) if you want to sanity-check without
-   opening a browser at all.
-
-One decision on the record: **`internal/scraper/crawl.go` (1250 lines) stays
-unsplit** — the most correctness-sensitive file here, with a documented history
-of silent file loss from changes to it. Tidying buys nothing worth that risk.
-
-### Dogfood the whole first-run journey
-**Your call, options below.** Same three options as the item above apply
-here — it's the same underlying gap
-(nobody's looked with eyes), just framed as a first-time user instead of a
-feature-by-feature check. Recommendation is the same: close it on the
-strength of the automated coverage below unless you're opening the GUI for
-another reason anyway.
-
-All four decisions from 2026-07-26 shipped. The journey is now a permanent test
-(`internal/gui/first_run_journey_test.go`), every nav page loads in real
-headless Chromium (`browser_walk_test.go`), and the live "List courses" path is
-covered too (`live_list_walk_test.go`, `OPAL_GUI_LIVE_LIST=1`). What each pass
-found is in `docs/BACKLOG-archive.md`.
-
-**Nobody has looked.** The walks assert structure and behaviour, headless. They
-cannot catch a purely visual break, and `gui`/`main.exe gui` is still
-unexercised because `Run` opens a real window unconditionally on Windows.
-
-The other two entries that stood here were already answered: the "List courses"
-rename shipped on 2026-07-26 (`2f811c5`, now "Preview sync (no download)",
-guarded by `TestSyncPagePreviewButtonIsHonestAboutWhatItCosts`), and the hidden
-course picker was decided on 2026-07-31 — keep "Sync all courses" as the
-default, but show the list, muted, instead of hiding it. Both are done. They
-reappeared here because the 2026-07-31 compaction (`9b51cf2`) rebuilt this item
-out of the archived *findings* rather than the decisions that followed them,
-directly under a line saying the decisions had shipped. **When compacting an
-entry, check the code, not the older text you are summarising.**
-
-Worth knowing independently of this item: **the scheduler's disable path has no
-guard**, and `scheduler.TaskName` is a single global constant that the
-maintainer's live daily sync is registered under.
-
 ---
 
 ## Next
 
 ### The installer bundles Chromium into a directory the app never reads
-Found 2026-07-31 while fixing `docs/installer-plan.md` Section 5; not verified
-against a built `setup.exe`, but all three ends read the same in the source.
-`EnsurePlaywrightBrowsersPath` (`internal/scraper/session.go:30`) defaults
-`PLAYWRIGHT_BROWSERS_PATH` to `~/.opal-downloader/ms-playwright` — deliberately
-moved off `%LOCALAPPDATA%` in commit `b352143` to dodge the junction/SxS
-failure in `docs/OPERATIONS.md`. But the installer chain never followed:
-`opal-downloader.iss`'s `[Files]` copies the staged cache to
-`{localappdata}\ms-playwright`, `build-installer.ps1` stages *from* there, and
-`NeedsPlaywrightSetup` probes `{localappdata}\ms-playwright\chromium-*`. So on
-a fresh install the bundled ~680MB lands where nothing looks, and the probe
-finds it and skips the `setup` fallback — the one path that would recover.
-That defeats Section 3's entire bundling decision.
-
-Fix is likely one path constant in three places, but decide first whether the
-installer writes to `~/.opal-downloader/ms-playwright` or sets
-`PLAYWRIGHT_BROWSERS_PATH` for the user. While in there:
-`build-installer.ps1:115`'s warning still says the fallback needs a Go
-toolchain — `runSetup` has called `playwright.Install()` directly since
-Section 9 row 1.
+Fix proposed in [PR #131](https://github.com/alu-developer/Opal_downloader/pull/131)
+(branch `fix-installer-playwright-cache-path`) — **UNVERIFIED, not merged**.
+`opal-downloader.iss`, `build-installer.ps1`, and `release.yml` all pointed at
+`%LOCALAPPDATA%\ms-playwright`, which stopped matching
+`EnsurePlaywrightBrowsersPath`'s actual default
+(`%USERPROFILE%\.opal-downloader\ms-playwright`, since commit `b352143`,
+2026-07-13) — so a fresh install's bundled Chromium landed where the app never
+looks. PR moves all three to the correct path. Needs a real build (Inno Setup
++ a populated local Chromium cache, neither available in the environment that
+made the fix) before it can merge — see the PR's test plan and
+`docs/installer-plan.md`'s 2026-08-01 addendum.
 
 ---
 
@@ -128,8 +67,11 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
-Empty right now. That's not nothing left to notice — it means the next thing
-belongs here the moment it's seen, not that the well is dry.
+- **The scheduler's disable path has no guard.** `scheduler.TaskName` is a
+  single global constant that the maintainer's live daily sync is registered
+  under — nothing stops some other code path from disabling it by name.
+  Noticed while closing the 2026-07-26 feedback-batch backlog item, not
+  investigated further.
 
 ---
 
@@ -140,6 +82,18 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Installer's Chromium-bundling path bug found and a fix opened as a PR**
+  (2026-08-01, autopilot): see Next — `%LOCALAPPDATA%` vs
+  `EnsurePlaywrightBrowsersPath`'s actual `%USERPROFILE%\.opal-downloader`
+  default. UNVERIFIED (no Inno Setup / local Chromium cache available here),
+  so it's a PR (#131), not a merge.
+- **Two "your call" backlog items closed on their own stated recommendation**
+  (2026-08-01, autopilot): the 2026-07-26 feedback-batch visual-check and the
+  first-run-journey dogfood item both said "can be closed without you,
+  recommended: close on the strength of existing automated coverage" — acted
+  on that instead of leaving it sitting. The `internal/scraper/crawl.go`
+  stays-unsplit decision they recorded stands. The scheduler-disable-path gap
+  they surfaced moved to Noticed.
 - **Weekly-review pass's two Next items closed** (2026-07-31, autopilot):
   `pre-push-gate.ps1`'s stale test-suite comment fixed, and both settings
   course-list visibility bugs (opacity-stacking contrast, note flash) fixed.

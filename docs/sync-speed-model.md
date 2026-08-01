@@ -89,10 +89,19 @@ der Antwort erkennbar? Vermutlich beantwortet durch (1). Dieser Ansatz war
 der schnellste, den es je gab (22s) — er wurde an Tag 1 verworfen, ohne dass
 je jemand die Ursache diagnostiziert hat.
 
-### 3. Warum kostet `ctx.Route` 30%?
-Ungeklärt — und es entwertet jede Zahl, die mit installierter Route gemessen
-wurde. Playwright-seitig, nicht OPAL-seitig; also lokal reproduzierbar ohne
-Account.
+### 3. ~~Warum kostet `ctx.Route` 30%?~~ Beantwortet 2026-08-01, siehe Bericht unten
+Playwright installiert bei jeder Route, egal welches Pattern übergeben wird,
+CDP-seitig `Fetch.enable` mit `patterns: [{ urlPattern: "*", requestStage:
+"Request" }]` — jede einzelne Anfrage im Browser pausiert und braucht einen
+Roundtrip zum Driver-Prozess, bevor sie weiterläuft. Das aufrufer-seitige
+Pattern (z. B. `**/FolderResource/**`) wird erst danach, im Driver-Prozess,
+geprüft — zu spät, um den Pause/Resume-Roundtrip zu vermeiden. Das erklärt
+exakt den beobachteten Befund "Pattern, das nichts matcht, kostet trotzdem
+~30%" — der ist mit CDP-seitigem `"*"` unvermeidbar, keine Pattern-Wahl
+rettet ihn. Zusätzlich schaltet dieselbe Codestelle `Network.setCacheDisabled
+(true)` scharf, solange irgendeine Route aktiv ist — der komplette
+HTTP-Cache der Session ist aus, solange interceptiert wird, unabhängig vom
+Pattern.
 
 ### 4. _(aufgegangen in Frage 7 — siehe unten)_
 
@@ -124,6 +133,25 @@ werden, nicht stillschweigend überschrieben:
   parst/layoutet, nicht weil JS etwas nachbaut.
 - **Kandidat C:** Ein schmal begrenztes JS-Widget auf der Seite (nicht Baum
   oder Tabelle selbst) ist verantwortlich — ungeprüft, welches.
+
+### 8. Welcher der beiden `ctx.Route`-Kosten dominiert — Cache-Aus oder Pause/Resume?
+Frage 3 fand zwei getrennte Mechanismen hinter derselben Zahl:
+`Network.setCacheDisabled(true)` (kein Browser-Cache mehr für die ganze
+Session) und der CDP-`Fetch`-Pause/Resume-Roundtrip pro Anfrage (immer `"*"`,
+unabhängig vom Pattern). Playwright koppelt beide fest — ein Aufrufer kann sie
+in dieser Driver-Version (1.61.1) nicht einzeln abschalten. Ungeprüft: wie
+viel der ~30% ist reines Cache-Aus (viele kleine statische Wicket-Assets pro
+Sektionsseite, die sonst aus dem Cache kämen) gegenüber reinem
+Pause/Resume-Overhead (ein CDP-Roundtrip pro Anfrage, unabhängig von der
+Antwortgröße)? Lokal reproduzierbar ohne Account — z. B. via `page.route` auf
+eine Seite mit vielen kleinen statischen Assets, einmal mit und einmal ohne
+zusätzlichen `CDPSession.send("Network.setCacheDisabled", {cacheDisabled:
+false})`-Override direkt nach `Fetch.enable`, falls das die Kopplung
+umgehen lässt. Wichtig für "previews.go ohne `ctx.Route` ausliefern"
+(Zeile 70ff. dort): wenn Cache-Aus der Haupttäter ist, reicht ein
+`page.on('request')`-Listener ohne Interception nicht als Ersatz, weil der
+nichts am Cache-Verhalten ändert — dann bräuchte es tatsächlich einen
+browser-seitigen Blockmechanismus ohne CDP-`Fetch`-Domain.
 
 ---
 

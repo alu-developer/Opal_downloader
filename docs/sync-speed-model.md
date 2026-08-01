@@ -155,27 +155,58 @@ umgehen lässt. Wichtig für "previews.go ohne `ctx.Route` ausliefern"
 nichts am Cache-Verhalten ändert — dann bräuchte es tatsächlich einen
 browser-seitigen Blockmechanismus ohne CDP-`Fetch`-Domain.
 
-### 9. Warum wächst die Sektionsseiten-Response kaum mit der Kursgröße, wenn `MenuTreeRenderer` den ganzen Baum mitliefert? (neu, aus Frage 7 / Kandidat A, siehe Bericht unten)
-Gemessen: 1,4x Bytes bei 27,3x mehr Sektionen. Zwei unbestätigte
-Erklärungen, nicht gegeneinander geprüft:
-- **(a)** Der Renderer serialisiert nur den sichtbaren/aufgeklappten
-  Teilbaum, nicht alle Sektionen — dann wäre Baumtiefe/offene Knoten die
-  richtige unabhängige Variable, nicht Gesamtsektionszahl.
-- **(b)** Server-seitiges Caching/Wiederverwendung des Baum-Fragments.
-Am billigsten zu prüfen über (a): `MenuTreeRenderer.java` erneut lesen,
-diesmal gezielt auf bedingte Rekursion (nur `open`/`selected`-Knoten) statt
-auf das reine "ist es Server-HTML"-Ergebnis von Frage 1. Falls (a) zutrifft,
-könnte das auch Frage 6 (1 von 12 Sektionen instabil) mit Auf-/Zuklapp-
-Zustand statt Wicket-Bookkeeping erklären — ungeprüfte Vermutung, nicht mehr.
+### 9. ~~Warum wächst die Sektionsseiten-Response kaum mit der Kursgröße?~~ Beantwortet 2026-08-01, siehe Bericht unten
+**Kandidat (a) bestätigt, mit Beleg — Regel 2 erfüllt.**
+`MenuTreeRenderer.isRenderChildren()` (OpenOLAT-Quelle, Methode ab Zeile 660)
+rekursiert nur in einen Kindknoten, wenn dessen `ident` in `openNodeIds`
+steht oder er auf dem Pfad zum aktuell selektierten Knoten liegt (`curSel ==
+curRoot`); sonst liefert die Methode `false` und `renderLevel()` (Zeile 232:
+`if (renderChildren) { renderChildren(...); }`) ruft für diesen Teilbaum
+gar nicht erst rekursiv auf. Der Baum-Fragment ist also strukturell auf
+"offene Knoten + Selektionspfad" begrenzt, nicht auf "alle Sektionen" — exakt
+der Mechanismus, der die gemessene 1,4x/27,3x-Diskrepanz vorhergesagt hätte.
+Kandidat (b) (Caching) ist damit nicht mehr nötig, um den Befund zu
+erklären, und wurde nicht separat geprüft.
 
-Nach Widerlegung von Kandidat A bleiben **69–75% des settle+stable-Waits**
-unerklärt (Netzwerk erklärt nur 25–31%) — Kandidat B/C aus Frage 7 sind
-weiterhin offen; das Modell sagt dafür bereits echtes Browser-Profiling
-voraus, nicht mehr Quellcode-Lesen oder Netzwerk-Tracing.
+Was das für Kandidat A (Frage 7) bedeutet: **endgültig tot**, jetzt mit
+Mechanismus statt nur mit Gegenbeweis. Was offen bleibt: Wenn weder das
+Baum-Fragment noch die Übertragungszeit mit der Kursgröße skalieren, aber
+settle+stable trotzdem 511–525ms/Sektion braucht (Kandidat B/C, 69–75%
+unerklärt) — skaliert diese Zeit vielleicht mit etwas anderem als
+Kursgröße, z. B. der Dateizahl *innerhalb* der gerade besuchten Sektion,
+statt mit der Gesamtsektionszahl des Kurses? Ungeprüft, und das ist jetzt
+die konkrete nächste Frage vor dem in Frage 7 bereits angekündigten
+Browser-Profiling.
 
 ---
 
 ## Nächstes Experiment
+
+**Frage:** (10, neu aus Frage 9) — skaliert settle+stable pro Sektion mit
+der Dateizahl *in der gerade besuchten Sektion*, statt mit der
+Gesamtsektionszahl des Kurses?
+
+**Vorhersage:** Innerhalb desselben großen Kurses (Softwaretechnologie, 164
+Sektionen) korreliert die pro-Sektion settle+stable-Zeit mit der Dateizahl
+dieser einen Sektion — Sektionen mit vielen Dateien brauchen spürbar länger
+als leere/dateiarme Sektionen.
+
+**Gescheitert ab:** Wenn settle+stable pro Sektion auch bei stark
+unterschiedlicher Dateizahl (z. B. 0 vs. 20+ Dateien) im selben Kurs flach
+bleibt, ist Dateizahl nicht die erklärende Variable — dann ist die
+verbleibende Zeit ein fixer Overhead pro Sektionsseite (Navigation,
+Wicket-Bookkeeping, Layout/Parsing einer im Wesentlichen konstant großen
+Seite), und das braucht laut Modell (Frage 7) echtes Browser-Profiling,
+nicht mehr Quellcode-Lesen oder Netzwerk-Tracing.
+
+**Kosten:** Erweiterung der bestehenden Probe
+(`network_timing_probe_test.go`) um Dateizahl pro Sektion neben
+`sectionTiming`, ein Live-Lauf gegen den echten Account (nur der bereits
+gecrawlte große Kurs), kein Diff gegen Ground-Truth nötig.
+
+---
+
+## Vorheriges Experiment (Frage 9, abgeschlossen 2026-08-01, reines Quellcode-Lesen)
 
 **Frage:** (9) — serialisiert `MenuTreeRenderer` den ganzen Kursbaum auf
 jeder Sektionsseite, oder nur den sichtbaren/aufgeklappten Teilbaum?
@@ -194,6 +225,20 @@ sie mit der angeklickten Sektion, oder sind sie auch dort flach?).
 
 **Kosten:** Quellcode-Lesen (`gh search code --repo OpenOLAT/OpenOLAT`),
 kein Build, kein Live-Lauf nötig.
+
+**Ergebnis (2026-08-01, `opal-downloader-sync-speed`, dieser Zyklus):
+Vorhersage bestätigt, mit Beleg — Kandidat (a) erwiesen.**
+`isRenderChildren()` (`MenuTreeRenderer.java`, ab Zeile 660) gibt `true`
+nur zurück, wenn der Knoten in `openNodeIds` steht oder auf dem
+Selektionspfad liegt (`curSel == curRoot`); sonst `false`, und
+`renderLevel()` (Zeile 232) ruft `renderChildren(...)` dann gar nicht erst
+auf — der rekursive Abstieg endet strukturell an jedem nicht offenen,
+nicht selektierten Knoten. Das ist die scharfe Erklärung, die Regel 2
+verlangt: der Baum-Fragment-Anteil der Response ist auf offene Knoten +
+Selektionspfad begrenzt, nicht auf die Gesamtsektionszahl — exakt das
+Muster, das die 1,4x/27,3x-Diskrepanz aus dem vorherigen Experiment
+vorhersagt. Kandidat A (Frage 7) ist damit nicht nur widerlegt, sondern mit
+Mechanismus geschlossen. Neue Frage (Regel 3): Frage 10 oben.
 
 ---
 

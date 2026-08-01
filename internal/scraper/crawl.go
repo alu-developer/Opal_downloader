@@ -332,6 +332,9 @@ func (s *OpalScraper) visitSection(page playwright.Page, currentURL, sectionTitl
 	// waiting still contributes the time it spent waiting - otherwise the
 	// measurement would quietly exclude the slowest cases.
 	defer func() { s.sectionTiming.record(settleSpent, stableSpent, time.Since(visitStart)) }()
+	if s.sectionProbe != nil {
+		s.sectionProbe(settleSpent, stableSpent, len(candidates))
+	}
 	if err != nil {
 		if isPageCrashError(err) {
 			newPage, recErr := s.recoverFromPageCrash(page)

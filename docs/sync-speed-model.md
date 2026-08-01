@@ -182,6 +182,28 @@ Browser-Profiling.
 
 ## Nächstes Experiment
 
+**Frage:** (11, neu aus Frage 10) — was füllt die settle+stable-Zeit, wenn
+weder Netzwerktransfer (24%) noch Sektions-Dateizahl (r=0,40, ~16%
+Varianz) die Mehrheit erklären? Kandidat: fixer Overhead pro
+Sektionsseite (Layout/Paint/CPU, nicht Netzwerk oder Inhaltsmenge).
+
+**Vorhersage:** Noch nicht geschrieben — dieses Experiment braucht zuerst
+eine Entscheidung, welches Profiling-Werkzeug (Playwright Tracing API,
+CDP `Performance`/`Tracing` Domain, oder `page.evaluate` mit
+`performance.getEntriesByType`) die CPU-/Layout-Zeit einer Sektionsseite
+separat von Netzwerkzeit sichtbar macht, ohne selbst signifikanten
+Overhead in die Messung einzuschleusen. Das ist der erste inhaltliche
+Schritt des nächsten Zyklus, nicht mehr reines Lesen oder Aufbauen auf der
+bestehenden Probe.
+
+**Kosten:** Unbekannt, vermutlich der teuerste Schritt bisher in dieser
+Kampagne — echtes Browser-Profiling braucht neues Instrument, nicht nur
+eine Erweiterung von `network_timing_probe_test.go`.
+
+---
+
+## Vorheriges Experiment (Frage 10, abgeschlossen 2026-08-01)
+
 **Frage:** (10, neu aus Frage 9) — skaliert settle+stable pro Sektion mit
 der Dateizahl *in der gerade besuchten Sektion*, statt mit der
 Gesamtsektionszahl des Kurses?
@@ -203,6 +225,29 @@ nicht mehr Quellcode-Lesen oder Netzwerk-Tracing.
 (`network_timing_probe_test.go`) um Dateizahl pro Sektion neben
 `sectionTiming`, ein Live-Lauf gegen den echten Account (nur der bereits
 gecrawlte große Kurs), kein Diff gegen Ground-Truth nötig.
+
+**Ergebnis (2026-08-01, `opal-downloader-sync-speed`, dieser Zyklus):
+weder bestätigt noch sauber widerlegt — schwacher, nicht dominanter
+Zusammenhang.** `OpalScraper.sectionProbe` (neuer Hook, nil in Produktion,
+`internal/scraper/scraper.go`/`crawl.go`) misst pro Sektion settle+stable
+gegen die Kandidatenzahl (`candidateStabilityPoll`-Trefferzahl, Proxy für
+Dateizahl). Live-Lauf, nur der große Kurs (164 Sektionen, Kandidatenzahl
+21–72): **Pearson r = 0,40** zwischen Kandidatenzahl und settle+stable-Zeit
+pro Sektion. Das ist real (nicht 0, also nicht "flach" im Sinne des
+Scheitern-Kriteriums), aber schwach — r²≈16% der Varianz erklärt, weit
+entfernt von "spürbar länger bei vielen Dateien" als Haupterklärung.
+
+Zusammen mit Frage 7 (Netzwerk erklärt 24% dieses Laufs) bleibt der
+Großteil der settle+stable-Zeit unerklärt durch beide bisher geprüften
+Kandidaten (Netzwerkbytes, Sektions-Dateizahl). Das deckt sich mit der im
+Modell schon vor diesem Zyklus benannten Konsequenz: die verbleibende Zeit
+sieht nach einem weitgehend **fixen Overhead pro Sektionsseite** aus, nicht
+nach etwas, das mit Inhaltsmenge (Baum oder Datei-Tabelle) skaliert — egal
+ob gemessen über Kursgröße (Frage 9) oder Sektions-Dateizahl (hier).
+Reines Quellcode-Lesen und Netzwerk-Tracing sind damit als Werkzeuge für
+diese Frage ausgereizt; der nächste Schritt braucht echtes
+Browser-Profiling (CPU/Layout/Paint), wie Frage 7 das schon vorhergesagt
+hatte.
 
 ---
 

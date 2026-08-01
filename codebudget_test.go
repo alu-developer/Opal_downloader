@@ -184,7 +184,16 @@ import (
 // Frage 7 network-timing probe (docs/sync-speed-model.md) to compare one
 // course's measured wait against another's within the same run - the probe
 // itself lives in a _test.go file and does not count against this budget.
-const codeLineBudget = 11887
+//
+// Raised to 11891 on 2026-08-01 (was 11887) for OpalScraper.sectionProbe
+// (internal/scraper/scraper.go, wired in crawl.go): a nil-by-default hook,
+// four lines. Same campaign, Frage 10 - after Frage 9 showed
+// MenuTreeRenderer only serializes the open/selected tree path (not the
+// whole course), the next question is whether settle-wait scales with a
+// section's own file count instead. sectionTiming's aggregate has no
+// per-section detail to answer that with; this hook gives the probe one.
+// nil in production, only network_timing_probe_test.go sets it.
+const codeLineBudget = 11891
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

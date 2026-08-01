@@ -76,6 +76,17 @@ func (t *sectionTiming) log() {
 	)
 }
 
+// snapshot lets a caller diff a bounded span (e.g. one course within a
+// probe run) instead of reading the lifetime total log() prints.
+func (t *sectionTiming) snapshot() (sections int, settle, stable, total time.Duration) {
+	if t == nil {
+		return 0, 0, 0, 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.sections, t.settle, t.stable, t.total
+}
+
 func percent(part, whole time.Duration) int {
 	if whole <= 0 {
 		return 0

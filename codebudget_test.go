@@ -176,7 +176,15 @@ import (
 // went in over budget, so master was red until this raise. The gate that would
 // have caught it only exists when the session was started in this directory
 // (see CLAUDE.md, "How to organise yourself") - run scripts/dev.ps1 all by hand.
-const codeLineBudget = 11879
+//
+// Raised to 11887 on 2026-08-01 (was 11879) for sectionTiming.snapshot()
+// (internal/scraper/sectiontiming.go): eight lines, a getter that diffs the
+// existing settle/stable counters across a bounded span instead of only the
+// lifetime total log() already printed. Built for the sync-speed campaign's
+// Frage 7 network-timing probe (docs/sync-speed-model.md) to compare one
+// course's measured wait against another's within the same run - the probe
+// itself lives in a _test.go file and does not count against this budget.
+const codeLineBudget = 11887
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

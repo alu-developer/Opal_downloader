@@ -147,7 +147,45 @@ Sektion mitschneiden), kein Build-Risiko — rein lesende Instrumentierung,
 kein Diff gegen den Ground-Truth-Sync nötig, weil nichts am Sync-Verhalten
 geändert wird.
 
-**Ergebnis:** _(offen)_
+**Ergebnis (2026-08-01, `opal-downloader-sync-speed`, dieser Zyklus):
+Instrument gebaut, Messfehler vor dem ersten Lauf gefunden, Live-Lauf
+blockiert — offen.**
+
+Die Probe (`internal/scraper/network_timing_probe_test.go`,
+`OPAL_SETTLE_TIMING_TRACE=1`) crawlt die kleinste und die größte
+Content-Kurs im Account nacheinander und stellt pro Kurs Bytes/Dauer der
+Section-Seiten-Dokumentresponses (`Request.Sizes()`/`Request.Timing()`)
+neben `sectionTiming` (settle+stable, diese Datei kannte den Mechanismus
+schon, siehe oben).
+
+Vor dem ersten Live-Lauf ein Blick in den bereits archivierten Trace vom
+2026-07-27 (`tmp/network-trace-Softwaretechnologie (SoSe 26).txt`, aus einer
+anderen Probe): 324 Hauptframe-Dokumentresponses, **0 bytes
+content-length-Summe**. Ein Java/Wicket-Servlet, das eine Seite dynamisch
+baut, puffert sie nicht komplett, um vorher `Content-Length` auszurechnen —
+es schickt Chunked Transfer-Encoding, das den Header ganz weglässt. Die
+erste Fassung dieser Probe hätte also für jede Section-Seite in beiden
+Kursen "0 bytes" gemeldet und Kandidat A fälschlich für widerlegt gehalten —
+nicht weil die Antwort klein war, sondern weil das Instrument blind war.
+Umgestellt auf `Request.Sizes()` (echte transferierte Bytes, nicht der
+Header) — das braucht einen Round-Trip in den Browser-Prozess, deshalb
+absichtlich *nicht* im `OnResponse`/`OnRequestFinished`-Handler aufgerufen
+(derselbe Deadlock, den `network_trace_probe_test.go` am 2026-07-27 schon
+55 Minuten lang live hatte), sondern danach, wenn die Dispatch-Loop wieder
+frei ist.
+
+**Live-Lauf blockiert:** gespeicherte Session war abgelaufen
+(`ensureSession: timed out after 300000ms waiting for the OPAL course list
+after login`), Login braucht 2FA im geöffneten Browserfenster — in einem
+unbeaufsichtigten Lauf ohne Person am Rechner nicht überbrückbar.
+Browser/Profil wurden sauber geschlossen (`sc.Close()` lief über den
+regulären `defer`, `rate ceiling: 2 navigation(s), 0 delayed` bestätigt
+es), nichts blieb hängen.
+
+Frage 7 bleibt offen — keine neue Live-Messung diesmal. Aber die Probe ist
+jetzt lauffähig und der Bytes-Messweg schon gegen einen echten Bug
+verifiziert; der nächste Zyklus mit valider Session kann direkt messen statt
+erst zu bauen.
 
 ---
 

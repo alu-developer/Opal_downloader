@@ -182,23 +182,42 @@ Browser-Profiling.
 
 ## Nächstes Experiment
 
-**Frage:** (11, neu aus Frage 10) — was füllt die settle+stable-Zeit, wenn
-weder Netzwerktransfer (24%) noch Sektions-Dateizahl (r=0,40, ~16%
-Varianz) die Mehrheit erklären? Kandidat: fixer Overhead pro
-Sektionsseite (Layout/Paint/CPU, nicht Netzwerk oder Inhaltsmenge).
+**Frage:** (11, neu aus Frage 10) — was mutiert während des
+~338ms-Settle-Fensters tatsächlich im DOM, wenn weder Netzwerktransfer
+(24%) noch Sektions-Dateizahl (r=0,40, ~16% Varianz) die Mehrheit
+erklären?
 
-**Vorhersage:** Noch nicht geschrieben — dieses Experiment braucht zuerst
-eine Entscheidung, welches Profiling-Werkzeug (Playwright Tracing API,
-CDP `Performance`/`Tracing` Domain, oder `page.evaluate` mit
-`performance.getEntriesByType`) die CPU-/Layout-Zeit einer Sektionsseite
-separat von Netzwerkzeit sichtbar macht, ohne selbst signifikanten
-Overhead in die Messung einzuschleusen. Das ist der erste inhaltliche
-Schritt des nächsten Zyklus, nicht mehr reines Lesen oder Aufbauen auf der
-bestehenden Probe.
+**Präzisiert (2026-08-01, nach Quellcode-Lesen statt Raten):** Der erste
+Entwurf dieser Frage nannte "CPU-/Layout-Profiling" als nötiges nächstes
+Werkzeug, ungeprüft teuer. `contentSettleWaitScript`
+(`internal/scraper/navigation.go` Zeile ~452) zeigt den Mechanismus
+direkt: ein `MutationObserver` auf dem Content-Root mit
+`{childList, subtree, attributes, characterData}` — **jede** Mutation,
+egal wie klein, setzt den Debounce-Timer zurück. Settle-Zeit misst also
+nicht "wie lange bis der Inhalt fertig ist", sondern "wie lange bis
+irgendwo im Root-Element gar nichts mehr passiert". Das ist direkt
+beobachtbar, ohne CPU-Profiling: die Mutation-Records selbst mitschneiden
+(Ziel-Element, Typ, `attributeName`) statt nur ihre Häufigkeit.
 
-**Kosten:** Unbekannt, vermutlich der teuerste Schritt bisher in dieser
-Kampagne — echtes Browser-Profiling braucht neues Instrument, nicht nur
-eine Erweiterung von `network_timing_probe_test.go`.
+**Vorhersage:** Ein Live-Mitschnitt der Mutation-Records während echter
+Sektions-Visits zeigt, dass die Mutationen auf wenige, eng begrenzte
+Elemente konzentriert sind (z. B. ein wiederkehrendes Widget, ein
+Attribut-Toggle, eine Live-Anzeige) — nicht breit verteilt über
+Baum/Dateitabelle, die laut Frage 1/9 beim initialen Laden bereits
+fertiges Server-HTML sind und keinen Grund zum Nachmutieren hätten.
+
+**Gescheitert ab:** Wenn die Mutationen breit über viele verschiedene,
+nicht wiederkehrende Elemente verteilt sind (kein klar abgrenzbarer
+Verursacher erkennbar), ist die Hypothese eines engen Kandidat-C-Widgets
+widerlegt — dann bleibt nur eine diffuse Erklärung, und erst dann wird
+echtes CPU-/Layout-Profiling nötig, nicht vorher.
+
+**Kosten:** Test-seitige Instrumentierung (Kopie von
+`contentSettleWaitScript` mit Mutation-Logging statt nur Debounce), Live-
+Lauf gegen wenige Sektionen des kleinen Kurses (Algorithmen, 6 Sektionen —
+bewusst nicht wieder der große, dritter Live-Crawl desselben Kurses an
+einem Tag wäre unnötige Serverlast, docs/server-load.md), keine
+Produktionscode-Änderung nötig, kein neues Werkzeug.
 
 ---
 

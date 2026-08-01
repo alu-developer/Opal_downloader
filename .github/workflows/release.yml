@@ -52,19 +52,28 @@ jobs:
       - name: Fetch Playwright Chromium
         # A fresh windows-latest runner has no local Playwright cache at
         # all, unlike a dev machine that may have already run
-        # `opal-downloader.exe setup`. This populates
-        # %LOCALAPPDATA%\ms-playwright the same way that command does
-        # (it shells out to the same `playwright install` driver command -
-        # see runSetup in cmd/opal-downloader/root.go), using the exact
-        # playwright-go version pinned in go.mod so the fetched Chromium
-        # revision matches what the built opal-downloader.exe expects at
-        # runtime. Installing the full driver (not just "chromium") is
-        # intentional: it's what guarantees both "chromium-<rev>" AND
-        # "chromium_headless_shell-<rev>" land in the cache - see
-        # installer/opal-downloader.iss's header comment for why both are
-        # required (headless list/sync session reuse resolves to
-        # chrome-headless-shell.exe, not chrome.exe).
-        run: go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
+        # `opal-downloader.exe setup`. This shells out to the same
+        # `playwright install` driver command runSetup uses (see
+        # cmd/opal-downloader/root.go), using the exact playwright-go
+        # version pinned in go.mod so the fetched Chromium revision matches
+        # what the built opal-downloader.exe expects at runtime. Installing
+        # the full driver (not just "chromium") is intentional: it's what
+        # guarantees both "chromium-<rev>" AND "chromium_headless_shell-<rev>"
+        # land in the cache - see installer/opal-downloader.iss's header
+        # comment for why both are required (headless list/sync session
+        # reuse resolves to chrome-headless-shell.exe, not chrome.exe).
+        #
+        # PLAYWRIGHT_BROWSERS_PATH is set explicitly here to match
+        # EnsurePlaywrightBrowsersPath's default (internal/scraper/
+        # session.go) - the same path the running app and
+        # build-installer.ps1's ChromiumCacheSrc default expect. Without
+        # this, the bare `playwright install` CLI falls back to its own
+        # default (%LOCALAPPDATA%\ms-playwright), which is not where
+        # anything else in this chain looks (found 2026-07-31, see
+        # docs/installer-plan.md's addendum).
+        run: |
+          $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright"
+          go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
         shell: pwsh
 
       - name: Build installer

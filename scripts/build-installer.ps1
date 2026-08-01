@@ -8,9 +8,12 @@
 # invokes Inno Setup's `iscc` to compile the installer.
 #
 # Requires Inno Setup 6 installed locally (iscc.exe on PATH or in one of the
-# usual install locations) and a populated %LOCALAPPDATA%\ms-playwright (run
-# `opal-downloader.exe setup` once beforehand if it's empty - see
-# docs/installer-plan.md Section 9 task 4).
+# usual install locations) and a populated
+# %USERPROFILE%\.opal-downloader\ms-playwright (run `opal-downloader.exe
+# setup` once beforehand if it's empty - see docs/installer-plan.md Section 9
+# task 4). This is where EnsurePlaywrightBrowsersPath
+# (internal/scraper/session.go) actually points PLAYWRIGHT_BROWSERS_PATH,
+# not %LOCALAPPDATA%\ms-playwright - see docs/installer-plan.md's addendum.
 #
 # This is a local/manual release-build helper (docs/installer-plan.md
 # Section 9 task 4) - no CI/release-workflow automation is in scope here.
@@ -25,9 +28,11 @@ param(
     # Directory containing an existing local Playwright Chromium cache to
     # stage from, i.e. the folder that contains "chromium-<rev>" and
     # "chromium_headless_shell-<rev>" subfolders. Defaults to the real
-    # %LOCALAPPDATA%\ms-playwright (acceptance criterion (a): reuse an
-    # existing local cache if present).
-    [string]$ChromiumCacheSrc = (Join-Path $env:LOCALAPPDATA "ms-playwright"),
+    # %USERPROFILE%\.opal-downloader\ms-playwright (acceptance criterion (a):
+    # reuse an existing local cache if present) - matches
+    # EnsurePlaywrightBrowsersPath's default in internal/scraper/session.go,
+    # NOT %LOCALAPPDATA%\ms-playwright.
+    [string]$ChromiumCacheSrc = (Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright"),
 
     # Where the Chromium cache gets staged to for the .iss script to pick up
     # (matches ChromiumSrcDir's default in installer\opal-downloader.iss).
@@ -112,7 +117,7 @@ try {
     $requiredPrefixes = @("chromium-", "chromium_headless_shell-")
 
     if (-not (Test-Path $ChromiumCacheSrc)) {
-        Write-Warning "Chromium cache source '$ChromiumCacheSrc' does not exist. Run 'opal-downloader.exe setup' once to populate it, then re-run this script. Continuing without staging Chromium - the resulting installer will fall back to running 'setup' post-install (requires internet + Go toolchain on the target machine)."
+        Write-Warning "Chromium cache source '$ChromiumCacheSrc' does not exist. Run 'opal-downloader.exe setup' once to populate it, then re-run this script. Continuing without staging Chromium - the resulting installer will fall back to running 'setup' post-install (requires internet on the target machine; no Go toolchain needed - runSetup calls playwright-go's Install() API directly)."
     }
     else {
         if (Test-Path $ChromiumSrcDir) {

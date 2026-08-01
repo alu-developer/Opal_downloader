@@ -99,26 +99,7 @@ maintainer's live daily sync is registered under.
 
 ## Next
 
-### The installer bundles Chromium into a directory the app never reads
-Found 2026-07-31 while fixing `docs/installer-plan.md` Section 5; not verified
-against a built `setup.exe`, but all three ends read the same in the source.
-`EnsurePlaywrightBrowsersPath` (`internal/scraper/session.go:30`) defaults
-`PLAYWRIGHT_BROWSERS_PATH` to `~/.opal-downloader/ms-playwright` — deliberately
-moved off `%LOCALAPPDATA%` in commit `b352143` to dodge the junction/SxS
-failure in `docs/OPERATIONS.md`. But the installer chain never followed:
-`opal-downloader.iss`'s `[Files]` copies the staged cache to
-`{localappdata}\ms-playwright`, `build-installer.ps1` stages *from* there, and
-`NeedsPlaywrightSetup` probes `{localappdata}\ms-playwright\chromium-*`. So on
-a fresh install the bundled ~680MB lands where nothing looks, and the probe
-finds it and skips the `setup` fallback — the one path that would recover.
-That defeats Section 3's entire bundling decision.
-
-Fix is likely one path constant in three places, but decide first whether the
-installer writes to `~/.opal-downloader/ms-playwright` or sets
-`PLAYWRIGHT_BROWSERS_PATH` for the user. While in there:
-`build-installer.ps1:115`'s warning still says the fallback needs a Go
-toolchain — `runSetup` has called `playwright.Install()` directly since
-Section 9 row 1.
+Empty right now.
 
 ---
 
@@ -140,6 +121,15 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Installer's Chromium bundling path fixed** (2026-08-01, autopilot,
+  UNVERIFIED PR): `opal-downloader.iss`, `build-installer.ps1`, and
+  `release.yml` all pointed at `%LOCALAPPDATA%\ms-playwright`, which stopped
+  being where `EnsurePlaywrightBrowsersPath` looks back on 2026-07-13 — moved
+  all three to `%USERPROFILE%\.opal-downloader\ms-playwright`; also fixed the
+  stale "fallback needs Go" wording in two places. Couldn't build a real
+  `setup.exe` here (no Inno Setup, no local Chromium cache) — see
+  `docs/installer-plan.md`'s 2026-08-01 addendum for what still needs a real
+  build to confirm.
 - **Weekly-review pass's two Next items closed** (2026-07-31, autopilot):
   `pre-push-gate.ps1`'s stale test-suite comment fixed, and both settings
   course-list visibility bugs (opacity-stacking contrast, note flash) fixed.

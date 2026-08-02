@@ -140,6 +140,10 @@ type OpalScraper struct {
 	// read off the source. See sectiontiming.go.
 	sectionTiming *sectionTiming
 
+	// sectionProbe is a test-only hook for per-section (settle+stable,
+	// candidate count) correlation; nil in production (Frage 10, sync-speed-model.md).
+	sectionProbe func(settle, stable time.Duration, candidates int)
+
 	// stall records when the crawl last made progress and what it was doing,
 	// so a run that wedges leaves behind the one thing that was missing the
 	// time this actually happened: which section it was on. See stallwatch.go.

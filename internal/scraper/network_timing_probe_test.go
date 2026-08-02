@@ -61,6 +61,7 @@ package scraper
 // Usage: OPAL_SETTLE_TIMING_TRACE=1 go test ./internal/scraper/ -run TestSettleTimingAgainstNetworkTransfer -v -timeout 10m
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,6 +99,23 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 
 	sc := New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	defer sc.Close()
+
+	// sectionSamples collects one (settle+stable, candidateCount) tuple per
+	// section across the whole run - docs/sync-speed-model.md Frage 10,
+	// added after Frage 9 (2026-08-01) showed MenuTreeRenderer only
+	// serializes open/selected-path tree nodes, not the whole course, so
+	// "does settle-wait scale with course size" was answered (no) but
+	// "does it scale with the file count of the section actually visited"
+	// was not. sectionProbe (scraper.go) is nil in production; this test is
+	// the only caller.
+	type sectionSample struct {
+		settleStable time.Duration
+		candidates   int
+	}
+	var sectionSamples []sectionSample
+	sc.sectionProbe = func(settle, stable time.Duration, candidates int) {
+		sectionSamples = append(sectionSamples, sectionSample{settleStable: settle + stable, candidates: candidates})
+	}
 
 	if err := sc.ensureSession(false); err != nil {
 		t.Fatalf("ensureSession: %v", err)
@@ -165,6 +183,7 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 		say("--- course %q (%s) ---", course.Title, course.URL)
 
 		startIdx := len(finishedMainDocs)
+		sectionStartIdx := len(sectionSamples)
 		beforeSections, beforeSettle, beforeStable, _ := sc.sectionTiming.snapshot()
 
 		_, files, _, err := sc.collectCourseFiles(page, course)
@@ -173,6 +192,30 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 		}
 
 		afterSections, afterSettle, afterStable, _ := sc.sectionTiming.snapshot()
+		courseSections := sectionSamples[sectionStartIdx:]
+		if len(courseSections) >= 2 {
+			var minC, maxC int = -1, -1
+			var xs, xsSquared, ys []float64
+			for _, sample := range courseSections {
+				if minC == -1 || sample.candidates < minC {
+					minC = sample.candidates
+				}
+				if sample.candidates > maxC {
+					maxC = sample.candidates
+				}
+				xs = append(xs, float64(sample.candidates))
+				xsSquared = append(xsSquared, float64(sample.candidates*sample.candidates))
+				ys = append(ys, float64(sample.settleStable.Milliseconds()))
+			}
+			say("  Frage 10: %d sections, candidate count range %d-%d, settle+stable-vs-candidates Pearson r=%.2f",
+				len(courseSections), minC, maxC, pearsonR(xs, ys))
+			// Frage 12 (docs/sync-speed-model.md, born from Frage 11's finding
+			// that mutation COUNT scales roughly with candidates^2, not
+			// candidates): does settle+stable TIME follow the same quadratic
+			// shape, which would explain Frage 10's own weak linear r=0.40 as a
+			// linear model underfitting a real quadratic relationship?
+			say("  Frage 12: settle+stable-vs-candidates^2 Pearson r=%.2f", pearsonR(xsSquared, ys))
+		}
 		// The dispatch loop is idle here (collectCourseFiles has returned), so
 		// the Sizes() round trip below is safe - see the doc comment above.
 		docs := finishedMainDocs[startIdx:]
@@ -254,4 +297,33 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 	} else {
 		t.Logf("findings written to %s", outPath)
 	}
+}
+
+// pearsonR is the sample Pearson correlation coefficient between xs and ys
+// (equal length). Returns 0 for fewer than 2 points or zero variance in
+// either series - this is a diagnostic probe, not a stats library, so
+// "no signal" is reported as 0 rather than NaN/panic.
+func pearsonR(xs, ys []float64) float64 {
+	n := len(xs)
+	if n < 2 || n != len(ys) {
+		return 0
+	}
+	var sumX, sumY float64
+	for i := 0; i < n; i++ {
+		sumX += xs[i]
+		sumY += ys[i]
+	}
+	meanX, meanY := sumX/float64(n), sumY/float64(n)
+
+	var cov, varX, varY float64
+	for i := 0; i < n; i++ {
+		dx, dy := xs[i]-meanX, ys[i]-meanY
+		cov += dx * dy
+		varX += dx * dx
+		varY += dy * dy
+	}
+	if varX == 0 || varY == 0 {
+		return 0
+	}
+	return cov / math.Sqrt(varX*varY)
 }

@@ -42,64 +42,22 @@ The top open question is the one nobody ever asked: **OpenOLAT is open source
 and its source has never been read.** Ten days were spent guessing at the live
 server what the code says out loud.
 
-### The 2026-07-26 feedback batch needs your eyes
-**Your call, options below** (not blocked — it can be closed without you).
-Three ways, cheapest first:
-
-1. **Close it now, no visual pass.** All ten items shipped; automated
-   headless walks (`first_run_journey_test.go`, `browser_walk_test.go`)
-   already assert every changed page's structure and behaviour. A test can't
-   catch a purely visual break, but nothing's flagged one in normal use
-   either. Recommended — the remaining risk is small and untested time is
-   the expensive part here.
-2. **Open the GUI once, ~10 min**, click through the four changed pages
-   (sync log, settings, `/schedule`, course picker) whenever you're in there
-   for something else anyway. No need for a dedicated session.
-3. **Ask an agent for a text diff** of what actually changed per page
-   (template/HTML diff, not a screenshot) if you want to sanity-check without
-   opening a browser at all.
-
-One decision on the record: **`internal/scraper/crawl.go` (1250 lines) stays
-unsplit** — the most correctness-sensitive file here, with a documented history
-of silent file loss from changes to it. Tidying buys nothing worth that risk.
-
-### Dogfood the whole first-run journey
-**Your call, options below.** Same three options as the item above apply
-here — it's the same underlying gap
-(nobody's looked with eyes), just framed as a first-time user instead of a
-feature-by-feature check. Recommendation is the same: close it on the
-strength of the automated coverage below unless you're opening the GUI for
-another reason anyway.
-
-All four decisions from 2026-07-26 shipped. The journey is now a permanent test
-(`internal/gui/first_run_journey_test.go`), every nav page loads in real
-headless Chromium (`browser_walk_test.go`), and the live "List courses" path is
-covered too (`live_list_walk_test.go`, `OPAL_GUI_LIVE_LIST=1`). What each pass
-found is in `docs/BACKLOG-archive.md`.
-
-**Nobody has looked.** The walks assert structure and behaviour, headless. They
-cannot catch a purely visual break, and `gui`/`main.exe gui` is still
-unexercised because `Run` opens a real window unconditionally on Windows.
-
-The other two entries that stood here were already answered: the "List courses"
-rename shipped on 2026-07-26 (`2f811c5`, now "Preview sync (no download)",
-guarded by `TestSyncPagePreviewButtonIsHonestAboutWhatItCosts`), and the hidden
-course picker was decided on 2026-07-31 — keep "Sync all courses" as the
-default, but show the list, muted, instead of hiding it. Both are done. They
-reappeared here because the 2026-07-31 compaction (`9b51cf2`) rebuilt this item
-out of the archived *findings* rather than the decisions that followed them,
-directly under a line saying the decisions had shipped. **When compacting an
-entry, check the code, not the older text you are summarising.**
-
-Worth knowing independently of this item: **the scheduler's disable path has no
-guard**, and `scheduler.TaskName` is a single global constant that the
-maintainer's live daily sync is registered under.
-
 ---
 
 ## Next
 
-Empty right now.
+### The installer bundles Chromium into a directory the app never reads
+Fix proposed in [PR #131](https://github.com/alu-developer/Opal_downloader/pull/131)
+(branch `fix-installer-playwright-cache-path`) — **UNVERIFIED, not merged**.
+`opal-downloader.iss`, `build-installer.ps1`, and `release.yml` all pointed at
+`%LOCALAPPDATA%\ms-playwright`, which stopped matching
+`EnsurePlaywrightBrowsersPath`'s actual default
+(`%USERPROFILE%\.opal-downloader\ms-playwright`, since commit `b352143`,
+2026-07-13) — so a fresh install's bundled Chromium landed where the app never
+looks. PR moves all three to the correct path. Needs a real build (Inno Setup
++ a populated local Chromium cache, neither available in the environment that
+made the fix) before it can merge — see the PR's test plan and
+`docs/installer-plan.md`'s 2026-08-01 addendum.
 
 ---
 
@@ -109,8 +67,47 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
-Empty right now. That's not nothing left to notice — it means the next thing
-belongs here the moment it's seen, not that the well is dry.
+- **The "one unexplained 300s login timeout" recurred a second time
+  (2026-08-02), this time with no concurrent-process collision to blame.**
+  After clearing the collision above and confirming no other opal-downloader
+  process was running, the Frage 15 retry hit `ensureSession: timed out after
+  300000ms waiting for the OPAL course list after login` on its own - TU-Fast
+  opened the login window but the course list never appeared within 5
+  minutes. No debug flag was on, so nothing was captured. Fixed the capture
+  gap so this doesn't happen a third time: `waitForLoggedInCourseLink`
+  (`internal/scraper/session.go`) now folds the page's URL at the moment of
+  timeout directly into the returned error, unconditionally (not gated behind
+  `--debug-clicks`) - see the commit for the one-line diff. Whether the
+  actual cause is TU-Fast itself, OPAL, or something in this project is still
+  unknown; next recurrence should at least say where the page was stuck.
+- **Two concurrent Routines colliding on the shared browser profile produced a
+  hard failure, not the clean serialization `acquireSessionLock` is supposed
+  to give (2026-08-02).** Running the Frage 15 sync-speed probe manually
+  overlapped in real time with a separately-scheduled run (`last-scheduled-run.json`,
+  timestamp `2026-08-02T11:22:51+02:00`): that run failed with `playwright:
+  timeout: Timeout 180000ms exceeded` while launching Chrome against
+  `login-profile`, and my own probe hung for the full 22 minutes before its
+  own `go test -timeout 20m` killed it — no `ErrProfileLocked` surfaced on
+  either side, which `session_lock_windows.go`'s named-mutex design
+  (`sessionLockAcquireTimeout = 6 * time.Minute`) exists specifically to
+  produce instead of a raw launch-timeout or a silent hang. Two chrome.exe
+  processes were left running after the killed test and had to be reaped by
+  hand before the profile was usable again. Not yet root-caused — candidates:
+  the mutex names two processes derive not actually matching for some path
+  representation reason, or Playwright's own Chromium `ProcessSingleton`
+  timing out before either process's Go-level lock logic gets a chance to
+  run. Options for whoever picks this up: (a) reproduce deliberately (launch
+  two `ensureSession` calls a few seconds apart against the same profile,
+  watch for `ErrProfileLocked` vs a raw launch timeout) rather than trying to
+  reason from one real collision; (b) log `sessionMutexName`'s derived name
+  and the profileDir/stateFile strings each process actually resolves,
+  since a silent mismatch there would explain the mutex never engaging;
+  (c) lower `sessionLockAcquireTimeout` or add a fail-fast path so a second
+  process gets a clear error in seconds instead of minutes even if today's
+  exact failure mode isn't reproduced. No file loss and no bad data resulted
+  (only a wasted 22 minutes and two orphaned processes), so this is not
+  urgent, but it undermines the "safe to run several sessions at once"
+  assumption this whole autonomy setup leans on.
 
 ---
 
@@ -121,15 +118,37 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
-- **Installer's Chromium bundling path fixed** (2026-08-01, autopilot,
-  UNVERIFIED PR): `opal-downloader.iss`, `build-installer.ps1`, and
-  `release.yml` all pointed at `%LOCALAPPDATA%\ms-playwright`, which stopped
-  being where `EnsurePlaywrightBrowsersPath` looks back on 2026-07-13 — moved
-  all three to `%USERPROFILE%\.opal-downloader\ms-playwright`; also fixed the
-  stale "fallback needs Go" wording in two places. Couldn't build a real
-  `setup.exe` here (no Inno Setup, no local Chromium cache) — see
-  `docs/installer-plan.md`'s 2026-08-01 addendum for what still needs a real
-  build to confirm.
+- **Sync-speed Frage 15 closed: 150ms debounce holds on the large course too**
+  (2026-08-02, autopilot): same file-set, 210/210, across 2 baseline (300ms)
+  and 2 override (150ms) runs against Softwaretechnologie (164 sections);
+  savings 28.7%, matching the small course's 29.6% (Frage 14) almost exactly
+  — took 3 failed attempts first (a Routine collision, then a recurrence of
+  the 300s login timeout, now diagnosed with a page-URL fix in `session.go`).
+  Course-size dimension answered; `course_concurrency>1` contention is not,
+  and can't be with the current probe design — see `docs/sync-speed-model.md`
+  Frage 16.
+- **Scheduler disable-path "no guard" Noticed item closed as investigated,
+  not fixed** (2026-08-01, autopilot): `scheduler.Disable()` itself still
+  performs no ownership check (it deletes whatever `schtasks` has under
+  `TaskName`), but both real callers — the CLI's `schedule disable` and the
+  GUI's Settings form handler — are reachable only via explicit user action,
+  and no installer/uninstaller script or background path calls it. The actual
+  residual risk is dev/test sessions in this repo, already mitigated by
+  `live_schedule_guard_test.go`'s env-var gating and the `scheduleDisableFunc`
+  test double. Left a doc comment on `Disable()` spelling out the obligation
+  for future callers instead of adding speculative validation logic.
+- **Installer's Chromium-bundling path bug found and a fix opened as a PR**
+  (2026-08-01, autopilot): see Next — `%LOCALAPPDATA%` vs
+  `EnsurePlaywrightBrowsersPath`'s actual `%USERPROFILE%\.opal-downloader`
+  default. UNVERIFIED (no Inno Setup / local Chromium cache available here),
+  so it's a PR (#131), not a merge.
+- **Two "your call" backlog items closed on their own stated recommendation**
+  (2026-08-01, autopilot): the 2026-07-26 feedback-batch visual-check and the
+  first-run-journey dogfood item both said "can be closed without you,
+  recommended: close on the strength of existing automated coverage" — acted
+  on that instead of leaving it sitting. The `internal/scraper/crawl.go`
+  stays-unsplit decision they recorded stands. The scheduler-disable-path gap
+  they surfaced moved to Noticed.
 - **Weekly-review pass's two Next items closed** (2026-07-31, autopilot):
   `pre-push-gate.ps1`'s stale test-suite comment fixed, and both settings
   course-list visibility bugs (opacity-stacking contrast, note flash) fixed.

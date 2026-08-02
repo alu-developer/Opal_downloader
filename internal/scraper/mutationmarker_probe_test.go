@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -255,6 +256,196 @@ func TestMutationMarkerAtSectionSettle(t *testing.T) {
 	} else {
 		outPath := filepath.Join(outDir, "mutation-marker-probe.txt")
 		header := "mutation marker probe recorded " + time.Now().Format(time.RFC3339) + "\n\n"
+		if err := os.WriteFile(outPath, []byte(header+strings.Join(report, "\n")+"\n"), 0o644); err != nil {
+			t.Logf("could not write %s, result is in this log only: %v", outPath, err)
+		} else {
+			t.Logf("findings written to %s", outPath)
+		}
+	}
+}
+
+// TestMutationConcentrationAcrossSections is docs/sync-speed-model.md Frage
+// 11 (the "Nächstes Experiment" written 2026-08-01): TestMutationMarkerAtSectionSettle
+// above already showed, for exactly two sections, that the mutation tail is
+// dominated by named elements (#veil, a Wicket AJAX busy-overlay; MathJax_Message,
+// a math-rendering widget) rather than by the content itself - but that was
+// eyeballing the last 8 records of 2 sections by hand, not a quantitative
+// answer for the whole small course. This test reuses the same
+// mutationObserverInitScript and full mutation log, but walks every section of
+// the small course (Algorithmen und Datenstrukturen, 6 sections per
+// docs/sync-speed-model.md) via the same BFS appendSectionFolderTargets uses
+// in crawl.go, and aggregates every mutation across all sections by target
+// element (tag#id, or tag.class when no id) to test the prediction
+// quantitatively: are mutations concentrated in a small number of recurring
+// element keys (few keys account for most mutations), or diffusely spread
+// across many distinct, non-recurring elements?
+//
+// Usage: OPAL_MUTATION_CONCENTRATION_TRACE=1 go test ./internal/scraper/ -run TestMutationConcentrationAcrossSections -v -timeout 5m
+func TestMutationConcentrationAcrossSections(t *testing.T) {
+	if os.Getenv("OPAL_MUTATION_CONCENTRATION_TRACE") == "" {
+		t.Skip("set OPAL_MUTATION_CONCENTRATION_TRACE=1 to run the real-account mutation-concentration probe (docs/sync-speed-model.md Frage 11)")
+	}
+	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
+
+	loaded, err := config.Load(filepath.Join("..", "..", "config.yaml"))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	courseName := os.Getenv("OPAL_MUTATION_CONCENTRATION_COURSE")
+	if courseName == "" {
+		courseName = "Algorithmen und Datenstrukturen"
+	}
+
+	sc := New(loaded.Credentials.URL, loaded.Credentials.StateFile)
+	defer sc.Close()
+
+	if err := sc.ensureSession(false); err != nil {
+		t.Fatalf("ensureSession: %v", err)
+	}
+
+	courses, err := sc.discoverCourseLinks([]string{courseName})
+	if err != nil {
+		t.Fatalf("discoverCourseLinks: %v", err)
+	}
+	if len(courses) == 0 {
+		t.Fatalf("course %q not found", courseName)
+	}
+	course := courses[0]
+	t.Logf("probing course %q (%s)", course.Title, course.URL)
+
+	page := sc.getPage()
+	if page == nil {
+		t.Fatalf("no page available after ensureSession")
+	}
+
+	script := mutationObserverInitScript
+	if err := page.AddInitScript(playwright.Script{Content: &script}); err != nil {
+		t.Fatalf("AddInitScript: %v", err)
+	}
+
+	var report []string
+	say := func(format string, args ...any) {
+		line := fmt.Sprintf(format, args...)
+		report = append(report, line)
+		t.Log(line)
+	}
+
+	counts := map[string]int{}
+	totalMutations := 0
+	sectionsWalked := 0
+	// maxSections guards against an unexpectedly large course, not the primary
+	// bound - the small course has 6 known sections (docs/sync-speed-model.md),
+	// so BFS should exhaust the queue well before this.
+	const maxSections = 20
+
+	rootKey := sectionKey(course.URL, course.RepoID)
+	queue := []string{course.URL}
+	queued := map[string]struct{}{rootKey: {}}
+	visited := map[string]struct{}{}
+	sectionTitles := map[string]string{rootKey: course.Title}
+
+	for len(queue) > 0 && sectionsWalked < maxSections {
+		currentURL := queue[0]
+		queue = queue[1:]
+		currentKey := sectionKey(currentURL, course.RepoID)
+		delete(queued, currentKey)
+		if _, ok := visited[currentKey]; ok {
+			continue
+		}
+		visited[currentKey] = struct{}{}
+
+		title := sectionTitles[currentKey]
+		newPage, visit := sc.visitSection(page, currentURL, title)
+		page = newPage
+		sectionsWalked++
+		if visit.failed {
+			say("section %q (%s): visitSection FAILED - skipped", title, currentURL)
+			continue
+		}
+
+		raw, err := page.Evaluate(`() => JSON.stringify(window.__mlog || [])`)
+		if err != nil {
+			say("section %q: reading mutation log failed: %v", title, err)
+			continue
+		}
+		rawStr, _ := raw.(string)
+		var mutations []mutationRecord
+		if rawStr != "" {
+			if err := json.Unmarshal([]byte(rawStr), &mutations); err != nil {
+				say("section %q: unmarshal mutation log (%d bytes) failed: %v", title, len(rawStr), err)
+				continue
+			}
+		}
+		say("section %q (%s): %d candidates, %d mutations", title, currentURL, len(visit.candidates), len(mutations))
+		for _, m := range mutations {
+			totalMutations++
+			key := m.tag_or_unknown()
+			if m.ID != "" {
+				key += "#" + m.ID
+			} else if strings.TrimSpace(m.Cls) != "" {
+				key += "." + strings.ReplaceAll(strings.TrimSpace(m.Cls), " ", ".")
+			}
+			counts[key]++
+		}
+
+		queue, _ = appendSectionFolderTargets(queue, queued, visited, visit.candidates, sc.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles, false)
+	}
+
+	say("--- aggregate: %d sections walked, %d total mutations, %d distinct element keys ---", sectionsWalked, totalMutations, len(counts))
+
+	type kv struct {
+		key   string
+		count int
+	}
+	sorted := make([]kv, 0, len(counts))
+	for k, c := range counts {
+		sorted = append(sorted, kv{k, c})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].count != sorted[j].count {
+			return sorted[i].count > sorted[j].count
+		}
+		return sorted[i].key < sorted[j].key
+	})
+
+	top := sorted
+	if len(top) > 15 {
+		top = top[:15]
+	}
+	for _, e := range top {
+		pct := 0.0
+		if totalMutations > 0 {
+			pct = float64(e.count) / float64(totalMutations) * 100
+		}
+		say("  %-45s %5d mutations (%.1f%%)", e.key, e.count, pct)
+	}
+
+	var top3Sum int
+	for i, e := range sorted {
+		if i >= 3 {
+			break
+		}
+		top3Sum += e.count
+	}
+	if totalMutations > 0 {
+		top3Pct := float64(top3Sum) / float64(totalMutations) * 100
+		say("RESULT: top-3 element keys account for %.1f%% of all %d mutations, out of %d distinct keys total.", top3Pct, totalMutations, len(sorted))
+		if top3Pct >= 50 {
+			say("VERDICT: concentrated - a small number of recurring elements dominate, consistent with the Kandidat-C prediction (docs/sync-speed-model.md Frage 11).")
+		} else {
+			say("VERDICT: diffuse - no small set of elements dominates; the Kandidat-C narrow-widget prediction is not supported by this run's failure criterion.")
+		}
+	} else {
+		say("RESULT: no mutations recorded across %d sections - inconclusive, not a diffuse/concentrated verdict.", sectionsWalked)
+	}
+
+	outDir := filepath.Join("..", "..", "tmp")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Logf("could not create %s, result is in this log only: %v", outDir, err)
+	} else {
+		outPath := filepath.Join(outDir, "mutation-concentration-probe.txt")
+		header := "mutation concentration probe recorded " + time.Now().Format(time.RFC3339) + "\n\n"
 		if err := os.WriteFile(outPath, []byte(header+strings.Join(report, "\n")+"\n"), 0o644); err != nil {
 			t.Logf("could not write %s, result is in this log only: %v", outPath, err)
 		} else {

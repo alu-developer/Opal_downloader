@@ -182,6 +182,36 @@ Browser-Profiling.
 
 ## Nächstes Experiment
 
+**Frage:** (16, neu aus Frage 15) — hält die 150ms-`mutationObserverDebounceMs`
+auch unter echter `course_concurrency>1`-Kontention (mehrere Kurs-Tabs
+rendern gleichzeitig, konkurrieren um CPU/Event-Loop)? Frage 15 hat das
+bewusst nicht getestet (siehe deren "Referenzpunkt": `OPAL_DEBOUNCE_MS_OVERRIDE`
+kurzschließt die `effectiveCourseConcurrency() > 1`-Verzweigung in
+`contentSettleWaitBudget()` komplett, ein Solo-Kurs-Lauf mit
+`SetCourseConcurrency(2)` erzeugt also gar keine echte Konkurrenz). Genau
+unter Kontention passierten historisch alle echten Datenverluste dieser
+Kampagne (`docs/sync-speed-campaign.md`; `course_concurrency=2` verlor 9
+Dateien am 2026-07-26). Das Projekt hält selbst schon 500ms/6000ms (statt
+300ms/4000ms) für nötig, sobald Kontention vorliegt — die offene Frage ist,
+ob eine gesenkte Serial-Debounce-Zeit diese Marge unterläuft, wenn der
+Override beide Werte gleich setzt statt nur den seriellen.
+
+**Vorhersage:** noch nicht geschrieben. Vor dem Schreiben nötig: ein Testaufbau,
+der echte Kontention erzeugt (mind. 2 Kurse tatsächlich gleichzeitig gecrawlt,
+nicht nur das Concurrency-Flag auf einen Einzelkurs gesetzt) - vermutlich
+`collectCourseFilesConcurrently` (`orchestrator.go` Zeile 437) direkt mit 2
+echten Kursen aufrufen, mit `OPAL_DEBOUNCE_MS_OVERRIDE` gesetzt, dann densel-
+ben Byte-für-Byte-Vergleich wie Frage 14/15 gegen eine bekannte Ground-Truth
+für beide Kurse zusammen. Teurer als Frage 15 (zwei Kurse gleichzeitig statt
+einer), und die erste Frage, bei der auch `mutationObserverConcurrentDebounceMs`
+selbst (nicht nur der Override-Wert) explizit gegenübergestellt werden sollte
+— vermutlich Override vs. unverändertes 500ms/6000ms-Konzept, nicht Override
+vs. 300ms/4000ms.
+
+---
+
+## Vorheriges Experiment (Frage 15, abgeschlossen 2026-08-02)
+
 **Frage:** (15, neu aus Frage 14) — Frage 14 bestätigte die gesenkte
 `mutationObserverDebounceMs` (150ms) nur auf dem **kleinen** Kurs (6
 Sektionen, 38 Dateien, `course_concurrency=1`, eine bereits vorher bekannte
@@ -262,12 +292,49 @@ Kursliste erschien nie. Kein Debug-Flag war an, also nichts Konkretes
 mitgeschnitten. Behoben für das nächste Mal: `waitForLoggedInCourseLink`
 (`session.go`) faltet die Seiten-URL beim Timeout jetzt direkt in den
 zurückgegebenen Fehler, unbedingt, nicht hinter `--debug-clicks` versteckt.
-Frage 15 bleibt nach zwei Versuchen unbeantwortet, aus zwei verschiedenen,
-von der Debounce-Änderung unabhängigen Umgebungsgründen — kein Grund, die
-Vorhersage selbst anzuzweifeln, aber auch kein Grund, in diesem Zyklus ein
-drittes Mal zu versuchen, ohne dass sich etwas an der Ausgangslage geändert
-hat. Nächster Versuch: derselbe Befehl, in einer künftigen Sitzung, jetzt mit
-besserer Diagnose, falls der Course-List-Timeout wieder auftritt.
+
+**Dritter Versuch (2026-08-02): lief mechanisch durch, aber mit einer
+Diskrepanz, die eine weitere Runde nötig machte.** `OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE`
+(kein frischer 300ms-Lauf, nur gegen die historische 198-Datei-Zahl vom
+2026-07-16 verglichen): 210 Dateien, selbstkonsistent über beide
+150ms-Läufe — aber 210 ≠ 198. Zwei Erklärungen wären damit vereinbar
+gewesen: (a) der Kurs ist ein aktiver SoSe-26-Kurs und hat in 2,5 Wochen
+echt 12 Dateien dazubekommen, oder (b) die Override tut etwas Falsches. Das
+Skip-Baseline-Design konnte die beiden nicht unterscheiden — genau die
+Lücke, die ein frischer Vergleich am selben Tag schließt.
+
+**Vierter Versuch (2026-08-02), vollständiger Probe (2 Baseline + 2
+Override, kein Skip): Vorhersage bestätigt, Diskrepanz aufgelöst.**
+
+| Lauf | Dateien | settle+stable |
+|---|---:|---:|
+| baseline-1 (300ms) | 210 | 86670ms |
+| baseline-2 (300ms) | 210 | 86376ms |
+| override-1 (150ms) | 210 | 61583ms |
+| override-2 (150ms) | 210 | 61837ms |
+
+Der frische Baseline-Lauf findet selbst 210 Dateien, nicht 198 — die
+Diskrepanz aus dem dritten Versuch war Kursinhalt-Drift (Erklärung a),
+keine Override-Nebenwirkung. Alle drei Vergleiche (Baseline-Selbstkonsistenz,
+Override-Selbstkonsistenz, Baseline-vs-Override) sind **exakt identisch**,
+210 Dateien in allen 4 Läufen. Ersparnis: Ø-settle+stable sinkt von 86523ms
+auf 61710ms, **28,7%** — praktisch identisch zur 29,6% des kleinen Kurses
+(Frage 14), trotz eines 35x größeren Kurses (210 vs. 6 Sektionen betroffene
+Größenordnung nach Dateizahl). Das ist die Signatur, die Regel 2 verlangt:
+wäre die Ersparnis kursgrößenabhängig gewesen, hätten die beiden Kurse nicht
+auf 1 Prozentpunkt genau übereingestimmt.
+
+**Frage 15 damit beantwortet, mit Einschränkung:** Für `course_concurrency=1`
+hält die 150ms-Debounce-Korrektheit auf beiden geprüften Kursen (klein: 6
+Sektionen/38 Dateien, groß: 164 Sektionen/210 Dateien), mit praktisch
+identischer Ersparnis (29,6%/28,7%) — der Mechanismus (300ms ist die
+bindende Konstante, nicht kursgrößenabhängige Render-Arbeit, siehe Frage 9
+und Frage 13) sagt genau dieses Ergebnis vorher und wird durch beide Läufe
+bestätigt, nicht nur durch Zufallstreffer. **Ausdrücklich nicht geprüft:**
+`course_concurrency>1` — siehe "Referenzpunkt" oben, wieso der bestehende
+Probe das gar nicht messen kann. Genau dort lagen historisch alle echten
+Datenverluste dieser Kampagne, also ist die Korrektheit unter Kontention die
+Voraussetzung für einen echten Default-Wechsel, nicht diese Runde — Frage 16.
 
 ---
 

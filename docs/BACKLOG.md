@@ -109,13 +109,6 @@ Delete an entry when it is done, or when it turns out not to matter.
   urgent, but it undermines the "safe to run several sessions at once"
   assumption this whole autonomy setup leans on.
 
-- **One unexplained 300s login timeout on 2026-07-31.** `ensureSession: timed
-  out after 300000ms waiting for the OPAL course list after login` during a
-  sync-speed cycle. It was written off as "needs 2FA, unattended runs can't do
-  that", which is wrong — the same path auto-logged-in fine on 2026-08-01, so
-  the cause is still unknown. If it recurs, capture the browser state instead
-  of blaming 2FA. Note in `docs/sync-speed-model.md`.
-
 ---
 
 ## Done recently
@@ -125,6 +118,15 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Sync-speed Frage 15 closed: 150ms debounce holds on the large course too**
+  (2026-08-02, autopilot): same file-set, 210/210, across 2 baseline (300ms)
+  and 2 override (150ms) runs against Softwaretechnologie (164 sections);
+  savings 28.7%, matching the small course's 29.6% (Frage 14) almost exactly
+  — took 3 failed attempts first (a Routine collision, then a recurrence of
+  the 300s login timeout, now diagnosed with a page-URL fix in `session.go`).
+  Course-size dimension answered; `course_concurrency>1` contention is not,
+  and can't be with the current probe design — see `docs/sync-speed-model.md`
+  Frage 16.
 - **Scheduler disable-path "no guard" Noticed item closed as investigated,
   not fixed** (2026-08-01, autopilot): `scheduler.Disable()` itself still
   performs no ownership check (it deletes whatever `schtasks` has under

@@ -195,7 +195,7 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 		courseSections := sectionSamples[sectionStartIdx:]
 		if len(courseSections) >= 2 {
 			var minC, maxC int = -1, -1
-			var xs, ys []float64
+			var xs, xsSquared, ys []float64
 			for _, sample := range courseSections {
 				if minC == -1 || sample.candidates < minC {
 					minC = sample.candidates
@@ -204,10 +204,17 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 					maxC = sample.candidates
 				}
 				xs = append(xs, float64(sample.candidates))
+				xsSquared = append(xsSquared, float64(sample.candidates*sample.candidates))
 				ys = append(ys, float64(sample.settleStable.Milliseconds()))
 			}
 			say("  Frage 10: %d sections, candidate count range %d-%d, settle+stable-vs-candidates Pearson r=%.2f",
 				len(courseSections), minC, maxC, pearsonR(xs, ys))
+			// Frage 12 (docs/sync-speed-model.md, born from Frage 11's finding
+			// that mutation COUNT scales roughly with candidates^2, not
+			// candidates): does settle+stable TIME follow the same quadratic
+			// shape, which would explain Frage 10's own weak linear r=0.40 as a
+			// linear model underfitting a real quadratic relationship?
+			say("  Frage 12: settle+stable-vs-candidates^2 Pearson r=%.2f", pearsonR(xsSquared, ys))
 		}
 		// The dispatch loop is idle here (collectCourseFiles has returned), so
 		// the Sizes() round trip below is safe - see the doc comment above.

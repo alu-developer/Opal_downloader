@@ -182,6 +182,35 @@ Browser-Profiling.
 
 ## Nächstes Experiment
 
+**Frage:** (13, neu aus Frage 12) — wo sitzt die verbleibende, unerklärte
+Settle-Zeit tatsächlich (CPU/Layout/Paint), wenn drei unabhängige Kandidaten
+(Netzwerktransfer 24–31 %, Sektions-Dateizahl linear ~16–21 % Varianz,
+Sektions-Dateizahl quadratisch ~29 % Varianz) alle nur Minderheiten
+erklären? Dies ist der in Frage 7 und Frage 10 schon vorhergesagte
+"nächste Schritt braucht echtes Browser-Profiling" — jetzt nicht mehr
+optional, weil die einzige noch ungeprüfte Erklärungsklasse.
+
+**Vorhersage:** noch nicht geschrieben — dieser Zyklus (Frage 12) hat den
+Bedarf begründet, aber die Methode (vermutlich Playwright Go's
+`BrowserContext.Tracing` bzw. eine direkte CDP-`Tracing.start`-Session mit
+den `devtools.timeline`/`v8`-Kategorien, ausgewertet für eine einzelne
+langsame Sektions-Navigation im großen Kurs) ist neu für dieses Projekt und
+noch nicht recherchiert. Die nächste Sitzung schreibt die konkrete
+Vorhersage und das Scheitern-Kriterium, bevor sie einen Lauf startet (Regel
+1) — inklusive einer Lehre aus diesem Zyklus: das Kriterium braucht eine
+qualitative Formulierung, nicht nur einen Zahlenschwellenwert (siehe Frage
+12s Ergebnis unten).
+
+**Kosten:** unbekannt, vermutlich höher als bisherige Experimente — neues
+Werkzeug (Trace-Aufzeichnung + Auswertung), kein einfacher Ein-Zeiler wie
+bei Frage 12. Ein guter erster Schritt vor dem vollen Aufbau: prüfen, ob
+Playwright Go's `Tracing`-API überhaupt zugänglich ist (Quellcode-Lesen,
+kein Live-Lauf) — das entscheidet, ob CDP direkt angesprochen werden muss.
+
+---
+
+## Vorheriges Experiment (Frage 12, abgeschlossen 2026-08-02)
+
 **Frage:** (12, neu aus Frage 11) — skaliert die settle+stable-**Wartezeit**
 (nicht nur die Mutationszahl) mit der quadrierten Kandidatenzahl besser als
 mit der linearen (Frage 10: r=0,40 linear) — und erklärt das den bisher
@@ -208,6 +237,39 @@ denselben großen Kurs wie Frage 10 — heute noch kein zweiter Crawl dieses
 Kurses, also kein Grund, ihn zu vermeiden (`docs/server-load.md`: ein Crawl
 pro Tag ist vernachlässigbar). Kein Diff gegen Ground-Truth nötig, da nichts
 am Sync-Verhalten geändert wird.
+
+**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus,
+direkt im Anschluss an Frage 11 mit derselben noch gültigen Session:
+Vorhersage nicht bestätigt — nur eine geringe Verbesserung, kein
+"deutlich höher".**
+
+Live-Lauf gegen denselben Kurs wie Frage 10 (Softwaretechnologie, 164
+Sektionen, `tmp/settle-timing-network-trace.txt`): linear r=0,46 (leicht
+über dem archivierten 0,40 aus Frage 10 — Lauf-zu-Lauf-Streuung eines
+realen Servers, keine Regression), quadratisch (Kandidatenzahl²) r=0,54.
+r² (erklärte Varianz) steigt damit von 21 % auf 29 % — ein realer, aber
+kleiner Unterschied, keiner, der die "schwache Korrelation" von Frage 10
+erklärt.
+
+**Ehrliche Einordnung des eigenen Scheitern-Kriteriums:** wörtlich genommen
+("unter ~0,5 bleibt") ist das Kriterium mit r=0,54 knapp nicht erfüllt —
+aber das Kriterium war zu lasch formuliert. Der Geist der Vorhersage war
+"erklärt die schwache lineare Korrelation", nicht "liegt algebraisch über
+0,5". Eine Verbesserung von 8 Prozentpunkten erklärter Varianz ist das
+nicht. Lehre für künftige Kriterien in dieser Datei: ein Schwellenwert
+allein reicht nicht, das Kriterium braucht auch eine qualitative Formulierung
+("verdoppelt die erklärte Varianz" statt nur "über x").
+
+**Was das für das Gesamtbild bedeutet:** drei unabhängig geprüfte Kandidaten
+für die Settle-Zeit landen jetzt alle im selben Bereich "real, aber
+Minderheit": Netzwerktransfer 24–31 % (Frage 7), Sektions-Dateizahl linear
+r=0,40–0,46 / ~16–21 % Varianz (Frage 10, hier bestätigt), Sektions-
+Dateizahl quadratisch r=0,54 / ~29 % Varianz (hier). Keiner davon ist
+dominant. Der in Frage 7 und Frage 10 schon vorhergesagte nächste Schritt
+ist damit nicht mehr optional, sondern die einzige noch ungeprüfte Klasse:
+echtes Browser-Profiling (CPU/Layout/Paint) einer einzelnen Sektions-
+Navigation, um zu sehen, wo die verbleibenden 70+ % der Zeit tatsächlich
+sitzen.
 
 ---
 

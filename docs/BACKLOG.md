@@ -67,6 +67,35 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
+- **Two concurrent Routines colliding on the shared browser profile produced a
+  hard failure, not the clean serialization `acquireSessionLock` is supposed
+  to give (2026-08-02).** Running the Frage 15 sync-speed probe manually
+  overlapped in real time with a separately-scheduled run (`last-scheduled-run.json`,
+  timestamp `2026-08-02T11:22:51+02:00`): that run failed with `playwright:
+  timeout: Timeout 180000ms exceeded` while launching Chrome against
+  `login-profile`, and my own probe hung for the full 22 minutes before its
+  own `go test -timeout 20m` killed it — no `ErrProfileLocked` surfaced on
+  either side, which `session_lock_windows.go`'s named-mutex design
+  (`sessionLockAcquireTimeout = 6 * time.Minute`) exists specifically to
+  produce instead of a raw launch-timeout or a silent hang. Two chrome.exe
+  processes were left running after the killed test and had to be reaped by
+  hand before the profile was usable again. Not yet root-caused — candidates:
+  the mutex names two processes derive not actually matching for some path
+  representation reason, or Playwright's own Chromium `ProcessSingleton`
+  timing out before either process's Go-level lock logic gets a chance to
+  run. Options for whoever picks this up: (a) reproduce deliberately (launch
+  two `ensureSession` calls a few seconds apart against the same profile,
+  watch for `ErrProfileLocked` vs a raw launch timeout) rather than trying to
+  reason from one real collision; (b) log `sessionMutexName`'s derived name
+  and the profileDir/stateFile strings each process actually resolves,
+  since a silent mismatch there would explain the mutex never engaging;
+  (c) lower `sessionLockAcquireTimeout` or add a fail-fast path so a second
+  process gets a clear error in seconds instead of minutes even if today's
+  exact failure mode isn't reproduced. No file loss and no bad data resulted
+  (only a wasted 22 minutes and two orphaned processes), so this is not
+  urgent, but it undermines the "safe to run several sessions at once"
+  assumption this whole autonomy setup leans on.
+
 - **One unexplained 300s login timeout on 2026-07-31.** `ensureSession: timed
   out after 300000ms waiting for the OPAL course list after login` during a
   sync-speed cycle. It was written off as "needs 2FA, unattended runs can't do

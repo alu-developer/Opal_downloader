@@ -243,6 +243,17 @@ unbeantwortet (siehe Referenzpunkt oben) — das ist die neue Frage 16, und sie
 braucht andere Werkzeuge (echter Zwei-Kurse-Parallel-Crawl), nicht nur diesen
 Probe mit einem anderen Flag.
 
+**Erster Versuch (2026-08-02, `opal-downloader-autopilot`): kein Ergebnis,
+Kollision mit einem zweiten gleichzeitig laufenden Routine-Run, nicht der
+getestete Mechanismus.** `docs/BACKLOG.md`'s Noticed-Eintrag hat die Details.
+Zwei Prozesse griffen im selben Realzeit-Fenster auf `login-profile` zu; der
+andere Lauf scheiterte mit einem rohen Playwright-Launch-Timeout, dieser Lauf
+hing 22 Minuten, bis der eigene `go test -timeout 20m` ihn tötete — beides
+ohne das saubere `ErrProfileLocked`, das `acquireSessionLock` eigentlich
+liefern soll. Kein Datei-Befund, keine Regression gemessen — die Frage ist
+offen geblieben, nicht beantwortet. Zweiter Versuch folgt unten, nachdem
+verifiziert wurde, dass kein anderer opal-downloader-Prozess mehr läuft.
+
 ---
 
 ## Vorheriges Experiment (Frage 14, abgeschlossen 2026-08-02)

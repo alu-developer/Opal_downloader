@@ -251,8 +251,23 @@ andere Lauf scheiterte mit einem rohen Playwright-Launch-Timeout, dieser Lauf
 hing 22 Minuten, bis der eigene `go test -timeout 20m` ihn tötete — beides
 ohne das saubere `ErrProfileLocked`, das `acquireSessionLock` eigentlich
 liefern soll. Kein Datei-Befund, keine Regression gemessen — die Frage ist
-offen geblieben, nicht beantwortet. Zweiter Versuch folgt unten, nachdem
-verifiziert wurde, dass kein anderer opal-downloader-Prozess mehr läuft.
+offen geblieben, nicht beantwortet.
+
+**Zweiter Versuch (2026-08-02, direkt danach, verifiziert kein anderer
+opal-downloader-Prozess lief): wieder kein Ergebnis, diesmal die
+2026-07-31-Altlast des 300s-Course-List-Timeouts, ohne erkennbare Kollision.**
+`ensureSession: timed out after 300000ms waiting for the OPAL course list
+after login` nach 305,98s — TU-Fast öffnete das Loginfenster, aber die
+Kursliste erschien nie. Kein Debug-Flag war an, also nichts Konkretes
+mitgeschnitten. Behoben für das nächste Mal: `waitForLoggedInCourseLink`
+(`session.go`) faltet die Seiten-URL beim Timeout jetzt direkt in den
+zurückgegebenen Fehler, unbedingt, nicht hinter `--debug-clicks` versteckt.
+Frage 15 bleibt nach zwei Versuchen unbeantwortet, aus zwei verschiedenen,
+von der Debounce-Änderung unabhängigen Umgebungsgründen — kein Grund, die
+Vorhersage selbst anzuzweifeln, aber auch kein Grund, in diesem Zyklus ein
+drittes Mal zu versuchen, ohne dass sich etwas an der Ausgangslage geändert
+hat. Nächster Versuch: derselbe Befehl, in einer künftigen Sitzung, jetzt mit
+besserer Diagnose, falls der Course-List-Timeout wieder auftritt.
 
 ---
 

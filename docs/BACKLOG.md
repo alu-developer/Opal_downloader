@@ -67,6 +67,19 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
+- **The "one unexplained 300s login timeout" recurred a second time
+  (2026-08-02), this time with no concurrent-process collision to blame.**
+  After clearing the collision above and confirming no other opal-downloader
+  process was running, the Frage 15 retry hit `ensureSession: timed out after
+  300000ms waiting for the OPAL course list after login` on its own - TU-Fast
+  opened the login window but the course list never appeared within 5
+  minutes. No debug flag was on, so nothing was captured. Fixed the capture
+  gap so this doesn't happen a third time: `waitForLoggedInCourseLink`
+  (`internal/scraper/session.go`) now folds the page's URL at the moment of
+  timeout directly into the returned error, unconditionally (not gated behind
+  `--debug-clicks`) - see the commit for the one-line diff. Whether the
+  actual cause is TU-Fast itself, OPAL, or something in this project is still
+  unknown; next recurrence should at least say where the page was stuck.
 - **Two concurrent Routines colliding on the shared browser profile produced a
   hard failure, not the clean serialization `acquireSessionLock` is supposed
   to give (2026-08-02).** Running the Frage 15 sync-speed probe manually

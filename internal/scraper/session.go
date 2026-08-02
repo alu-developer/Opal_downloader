@@ -674,7 +674,11 @@ func (s *OpalScraper) waitForLoggedInCourseLink() error {
 		if remaining <= 0 {
 			s.auditLog("wait-selector-timeout", page, courseLinkSelector,
 				fmt.Sprintf("post-login course link did not resolve within the %dms budget", loginTotalBudgetMs))
-			return fmt.Errorf("timed out after %dms waiting for the OPAL course list after login", loginTotalBudgetMs)
+			// URL folded into the error itself (not gated behind debugClicks):
+			// this timeout has recurred twice (2026-07-31, 2026-08-02) with no
+			// debug flag on either time - docs/BACKLOG.md asks to capture
+			// state, not guess, and the error string is what a caller sees.
+			return fmt.Errorf("timed out after %dms waiting for the OPAL course list after login (page was at %q)", loginTotalBudgetMs, s.readLoginSignals(page).URL)
 		}
 
 		probe := math.Min(float64(loginPollMs), float64(remaining.Milliseconds()))

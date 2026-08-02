@@ -193,7 +193,17 @@ import (
 // section's own file count instead. sectionTiming's aggregate has no
 // per-section detail to answer that with; this hook gives the probe one.
 // nil in production, only network_timing_probe_test.go sets it.
-const codeLineBudget = 11891
+//
+// Raised to 11898 on 2026-08-02 (was 11891) for the OPAL_DEBOUNCE_MS_OVERRIDE
+// escape hatch in contentSettleWaitBudget (internal/scraper/navigation.go):
+// seven lines (two new imports, one env-var read/parse). Same campaign,
+// Frage 13/14 - Frage 13 found the measured settle-wait sits almost exactly
+// on the mutationObserverDebounceMs constant (300ms) rather than on
+// measurable browser CPU work; this flag lets a probe test a lower value
+// against the real account without changing the shipped default (unset
+// behaves exactly as before). Off by default, only
+// debounceoverride_probe_test.go sets it.
+const codeLineBudget = 11898
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

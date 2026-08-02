@@ -3,7 +3,9 @@ package scraper
 import (
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -383,6 +385,20 @@ func isExecutionContextDestroyedError(err error) bool {
 // once it has to compete with other courses' tabs rendering at the same
 // time.
 func (s *OpalScraper) contentSettleWaitBudget() (debounceMs, hardCapMs float64) {
+	// OPAL_DEBOUNCE_MS_OVERRIDE: test-only escape hatch for
+	// docs/sync-speed-model.md Frage 14 (2026-08-02) - is 300ms more
+	// settle-debounce margin than section rendering actually needs?
+	// mutationObserverHardCapMs deliberately stays untouched, so a
+	// genuinely slow section still gets its full patience; only the
+	// "how long is quiet enough to call it done" sampling changes, the
+	// same shape sectionContentPollIntervalMs's already-proven-safe
+	// 400->150ms change used (crawl.go, 2026-07-21). Off by default -
+	// unset means the historically live-tested budget below, unchanged.
+	if v := os.Getenv("OPAL_DEBOUNCE_MS_OVERRIDE"); v != "" {
+		if ms, err := strconv.ParseFloat(v, 64); err == nil && ms > 0 {
+			return ms, mutationObserverHardCapMs
+		}
+	}
 	if s.effectiveCourseConcurrency() > 1 {
 		return mutationObserverConcurrentDebounceMs, mutationObserverConcurrentHardCapMs
 	}

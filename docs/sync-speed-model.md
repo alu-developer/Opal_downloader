@@ -182,27 +182,142 @@ Browser-Profiling.
 
 ## Nächstes Experiment
 
-**Frage:** (14, neu aus Frage 13) — `mutationObserverDebounceMs` (300ms,
-`navigation.go` Zeile 99) und `sectionContentPollIntervalMs` (150ms,
-`crawl.go` Zeile 982) sind feste Konstanten, keine gemessenen Werte. Frage
-13 fand, dass die gemessene settle-Zeit (Ø 326ms/Sektion) fast exakt der
-300ms-Konstante entspricht und die stable-Zeit (Ø 193ms) nahe an einem
-einzelnen 150ms-Poll-Intervall liegt — mit CPU-Arbeit (selbst großzügig
-über `TaskDuration` gerechnet) als Erklärung für höchstens ~24 % der Zeit.
-Wenn die Konstanten selbst der Flaschenhals sind statt tatsächlicher
-Render-Arbeit: **wie wurden 300ms/150ms ursprünglich festgelegt, und wie
-viel Sicherheitsspanne steckt darin?** Noch nicht recherchiert, ob es dazu
-schon eine Messung/Begründung im Code oder in `docs/sync-speed-campaign.md`
-gibt, bevor probiert wird, sie zu senken.
+**Frage:** (15, neu aus Frage 14) — Frage 14 bestätigte die gesenkte
+`mutationObserverDebounceMs` (150ms) nur auf dem **kleinen** Kurs (6
+Sektionen, 38 Dateien, `course_concurrency=1`, eine bereits vorher bekannte
+paginierte Sektion verhielt sich in allen 4 Läufen identisch). Die
+historischen Datenverlust-Vorfälle dieser Kampagne (Wicket-AJAX-Race,
+`docs/sync-speed-campaign.md`; `sectionContentRequiredStableReads`s eigene
+Historie, `crawl.go` Zeile 920ff.) passierten alle unter **Kontention**:
+großer Kurs mit vielen paginierten Sektionen, oft zusätzlich unter
+`course_concurrency>1`, wo der Renderer die Maschine nicht mehr für sich
+allein hat. Frage 14s Testfall deckt genau das nicht ab. Hält die gesenkte
+Debounce-Zeit auch auf dem großen Kurs (Softwaretechnologie, 164 Sektionen)
+und/oder unter `course_concurrency>1` — oder zeigt sich dort genau die
+Art von Verlust, die die bisherigen Vorsichtsmaßnahmen (separates,
+breiteres `mutationObserverConcurrentDebounceMs`-Budget) schon andeuten?
 
 **Vorhersage:** noch nicht geschrieben — das ist die Aufgabe der nächsten
-Sitzung vor dem nächsten Lauf (Regel 1).
+Sitzung vor dem nächsten Lauf (Regel 1). Vor dem Schreiben lohnt sich ein
+Blick auf den bereits existierenden, aber bisher nie an dieser Stelle
+genutzten `mutationObserverConcurrentDebounceMs`-Wert (`navigation.go`) als
+Referenzpunkt dafür, wie viel zusätzliche Sicherheitsspanne das Projekt
+selbst schon für Kontention für nötig hält.
 
-**Kosten:** vermutlich niedrig, sofern es beim Lesen/Reduzieren der
-Konstanten bleibt (ein Lauf mit testweise gesenkten Werten gegen den
-kleinen Kurs, Diff gegen Ground-Truth nötig, weil eine zu aggressive Senkung
-genau die Art von stillem Datenverlust wäre, die diese Kampagne schon
-zweimal gesehen hat — Wicket-AJAX-Race, `docs/sync-speed-campaign.md`).
+**Kosten:** höher als Frage 14 — mindestens ein Lauf gegen den großen Kurs
+(164 Sektionen, ~2x der bisherigen Tageslast für diesen Kurs, siehe
+`docs/server-load.md`s "ein Crawl pro Tag ist vernachlässigbar"-Bewertung),
+plus ggf. `course_concurrency>1`-Läufe. Kein Produktionscode-Änderung nötig
+(`OPAL_DEBOUNCE_MS_OVERRIDE` existiert schon), aber das ist die Frage, deren
+Antwort tatsächlich entscheidet, ob Frage 13/14s Befund den Weg zu einer
+echten Default-Änderung antritt oder nicht.
+
+---
+
+## Vorheriges Experiment (Frage 14, abgeschlossen 2026-08-02)
+
+**Frage:** (14, neu aus Frage 13) — `mutationObserverDebounceMs` (300ms,
+`navigation.go` Zeile 99) und `sectionContentPollIntervalMs` (150ms,
+`crawl.go` Zeile 982) sind feste Konstanten. Frage 13 fand, dass die
+gemessene settle-Zeit (Ø 326ms/Sektion) fast exakt der 300ms-Konstante
+entspricht und die stable-Zeit (Ø 193ms) nahe an einem einzelnen
+150ms-Poll-Intervall liegt — mit CPU-Arbeit (selbst großzügig über
+`TaskDuration` gerechnet) als Erklärung für höchstens ~24 % der Zeit. Kann
+`mutationObserverDebounceMs` sicher gesenkt werden, ohne Dateiverlust zu
+riskieren?
+
+**Vorrecherche (2026-08-02, Quellcode-Lesen, kein Live-Lauf):**
+`sectionContentPollIntervalMs` selbst wurde bereits einmal genau in diese
+Richtung verändert — 400→150ms am 2026-07-21 (`crawl.go` Zeile 965ff.),
+explizit als *Sampling-Rate-Senkung, keine Geduld-Kürzung* (Gesamtbudget
+`sectionContentMaxPolls` gleichzeitig angehoben, damit die Gesamtwartezeit
+gleich bleibt). Live gemessen: 322/322 Dateien bei 150ms, kein Regression.
+Aber derselbe Kommentar trägt eine explizite, bis heute unaufgelöste
+Warnung: *"1 of 3 runs at the OLD 400ms setting silently lost 15 files
+(...). That intermittent loss is NOT proven fixed by this change; three
+clean runs are not enough to prove absence."* `mutationObserverDebounceMs`
+selbst wurde dagegen nie in diese Richtung getestet — der einzige
+dokumentierte Live-Test (2026-07-16, `navigation.go` Zeile 89ff.) validierte
+300ms als korrekt gegen die alte fixe 1100ms-Wartezeit, probierte aber nie
+einen niedrigeren Wert.
+
+**Vorhersage:** Eine Senkung von `mutationObserverDebounceMs` auf 150ms
+(gleiches Sampling-Muster wie die bereits bewährte Poll-Interval-Senkung,
+`mutationObserverHardCapMs` unverändert lassen, damit die Gesamt-Geduld für
+langsame Sektionen gleich bleibt) verliert bei wiederholten Läufen gegen den
+345-Datei-Ground-Truth keine Dateien und spart durchschnittlich ~150ms/
+Sektion (≈46 % der aktuellen Ø-326ms-settle-Zeit, ≈29 % von settle+stable).
+
+**Gescheitert ab:** Jede Datei-/Byte-Abweichung gegen den Ground-Truth bei
+**mindestens 2–3 wiederholten** Läufen (ein einzelner sauberer Lauf ist laut
+der eigenen Historie oben *keine* ausreichende Evidenz für Verlustfreiheit).
+Auch ein Lauf, der zwar alle Dateien findet, aber die Ø-Ersparnis unter
+~50ms/Sektion bleibt, widerlegt den behaupteten Mechanismus (dann wäre
+300ms nicht die bindende Grenze, MutationObserver würde real länger
+brauchen als die Konstante vorgibt, und die Ø-326ms wären Zufall, kein
+Beleg).
+
+**Kosten:** höher als jedes bisherige Frage-13-und-früher-Experiment — dies
+ist die erste Frage der Kampagne, die tatsächlich Scraper-Verhalten ändert,
+nicht nur misst. Muss laut Aufgaben-Policy hinter einem Env-Flag liegen,
+off by default (`docs/RESUME.md`/Scheduled-Task-Regeln: "Anything touching
+discovery goes behind an env flag"). Braucht `scripts/compare-visit-runs.ps1`
+und mehrere Live-Läufe gegen den echten Account — genau das
+Wicket-AJAX-Race-Risiko, das diese Kampagne schon zweimal real getroffen hat
+(`docs/sync-speed-campaign.md`, `sectionContentRequiredStableReads`s eigene
+Historie oben).
+
+**Umsetzung, abweichend von der Kostenschätzung:** `OPAL_DEBOUNCE_MS_OVERRIDE`
+(neu, `navigation.go`s `contentSettleWaitBudget`, off by default — bei
+gesetztem Wert ersetzt sie sowohl den seriellen als auch den
+Concurrency>1-Debounce-Wert, `mutationObserverHardCapMs` bleibt in jedem
+Fall unverändert, wie vorhergesagt). `scripts/compare-visit-runs.ps1`
+wurde nicht gebraucht — ein neuer Probe-Test (`debounceoverride_probe_test.go`)
+vergleicht Datei-URL-Mengen direkt in Go, ohne den Umweg über einen echten
+`sync`/`list`-Lauf und dessen Visit-Log. Vier Läufe gegen den kleinen Kurs
+(Baseline×2, 150ms×2 — bewusst nicht nur Baseline-vs-Override, siehe oben),
+`course_concurrency=1` (Default).
+
+**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus,
+Live-Lauf, `tmp/debounce-override-probe.txt`): Vorhersage bestätigt, auf
+diesem Kurs, mit dieser Wiederholungszahl.**
+
+| Lauf | Dateien | settle+stable |
+|---|---:|---:|
+| baseline-1 | 38 | 3094ms |
+| baseline-2 | 38 | 3135ms |
+| override-1 (150ms) | 38 | 2205ms |
+| override-2 (150ms) | 38 | 2180ms |
+
+Alle drei Vergleiche (Baseline-Selbstkonsistenz, Override-Selbstkonsistenz,
+Baseline-vs-Override) sind **exakt identisch** — gleiche 38 Datei-URLs in
+allen 4 Läufen, keine Abweichung. Eine bereits vorher bekannte, vom
+Debounce unabhängige Paginierungs-Lücke (eine Sektion bleibt bei 17 von
+tatsächlich mehr Zeilen hängen, `show all`-Klick ohne Wirkung) trat in
+allen 4 Läufen identisch auf — kein neues Symptom, keine Verschlechterung
+durch die Änderung.
+
+Zeitersparnis: Ø-settle+stable sinkt von 3114ms auf 2192ms, **29,6 %** —
+extrem nah an der vorab berechneten Schätzung (≈29 % von settle+stable,
+≈150ms/Sektion: gemessen 922ms/6 Sektionen = 154ms/Sektion). Das ist die
+Signatur, die Regel 2 verlangt: die Ersparnis trifft die Arithmetik-
+Vorhersage fast exakt, was bestätigt, dass die 300ms-Konstante tatsächlich
+die bindende Grenze war, kein Zufall in der Ø-326ms-Beobachtung aus Frage
+13.
+
+**Warum das trotzdem nicht "Frage 14 gelöst, Default ändern" bedeutet
+(Regel 2, Umfang der Vorhersage ernst nehmen):** Die Vorhersage war
+ausdrücklich auf Korrektheit *ohne Kontention* begrenzt — kleiner Kurs, 6
+Sektionen, `course_concurrency=1`. Jeder historische Datenverlust dieser
+Kampagne trat unter Kontention auf (großer Kurs, viele paginierte
+Sektionen, teils `course_concurrency>1`) — genau der Fall, den dieser Lauf
+nicht testet. Vier identische Läufe auf einem Kurs, an einem Tag, sind
+außerdem wörtlich die Größenordnung, die der eigene 2026-07-21-Kommentar zu
+`sectionContentPollIntervalMs` schon als unzureichend markiert hat ("three
+clean runs are not enough to prove absence"). Frage 14 ist damit **für den
+getesteten Fall (klein, seriell) mit Mechanismus beantwortet**, aber nicht
+allgemein geschlossen — neue, schärfere Frage: Frage 15 oben (großer Kurs,
+ggf. Concurrency).
 
 ---
 

@@ -197,20 +197,51 @@ und/oder unter `course_concurrency>1` — oder zeigt sich dort genau die
 Art von Verlust, die die bisherigen Vorsichtsmaßnahmen (separates,
 breiteres `mutationObserverConcurrentDebounceMs`-Budget) schon andeuten?
 
-**Vorhersage:** noch nicht geschrieben — das ist die Aufgabe der nächsten
-Sitzung vor dem nächsten Lauf (Regel 1). Vor dem Schreiben lohnt sich ein
-Blick auf den bereits existierenden, aber bisher nie an dieser Stelle
-genutzten `mutationObserverConcurrentDebounceMs`-Wert (`navigation.go`) als
-Referenzpunkt dafür, wie viel zusätzliche Sicherheitsspanne das Projekt
-selbst schon für Kontention für nötig hält.
+**Referenzpunkt (gelesen vor der Vorhersage):** `mutationObserverConcurrentDebounceMs`
+(`navigation.go` Zeile 127) steht bei 500ms gegen 300ms seriell — das Projekt
+hält für Kontention selbst schon 67% mehr Sicherheitsspanne für nötig. Aber
+`contentSettleWaitBudget()` (Zeile 397-401) prüft `OPAL_DEBOUNCE_MS_OVERRIDE`
+**vor** der `effectiveCourseConcurrency() > 1`-Verzweigung — ist die Override
+gesetzt, kommt sie unabhängig von Concurrency zurück, die 500/300-Marge
+existiert für den Override-Pfad also gar nicht. Damit lässt sich mit dem
+bestehenden Probe (`debounceoverride_probe_test.go`, nur `sc.collectCourseFiles`
+auf einen Einzelkurs) echte Concurrency-Kontention (konkurrierende Tabs, die
+sich CPU/Event-Loop teilen) gar nicht testen — `SetCourseConcurrency(2)` auf
+einen Solo-Kurs-Lauf würde nur den ungenutzten Zweig anders belegen, ohne dass
+je ein zweiter Tab tatsächlich mitrendert. Diese Runde testet deshalb bewusst
+nur die Kursgröße (großer Kurs, `course_concurrency=1`); echte
+Mehr-Kurs-Konkurrenz bleibt Frage 16.
 
-**Kosten:** höher als Frage 14 — mindestens ein Lauf gegen den großen Kurs
-(164 Sektionen, ~2x der bisherigen Tageslast für diesen Kurs, siehe
-`docs/server-load.md`s "ein Crawl pro Tag ist vernachlässigbar"-Bewertung),
-plus ggf. `course_concurrency>1`-Läufe. Kein Produktionscode-Änderung nötig
-(`OPAL_DEBOUNCE_MS_OVERRIDE` existiert schon), aber das ist die Frage, deren
-Antwort tatsächlich entscheidet, ob Frage 13/14s Befund den Weg zu einer
-echten Default-Änderung antritt oder nicht.
+**Vorhersage:** Zwei Läufe des bestehenden Probes gegen den großen Kurs
+(`Softwaretechnologie (SoSe 26)`, 164 Sektionen) bei 150ms-Override finden
+dieselbe Dateimenge in beiden Läufen (Selbstkonsistenz) — der in Frage 9
+gefundene Mechanismus (Baum-Fragment strukturell auf offene Knoten begrenzt,
+nicht auf Kursgröße) sagt voraus, dass der Debounce pro Sektion unabhängig
+von der Gesamtsektionszahl wirkt, also überträgt sich Frage 14s
+Korrektheits-Befund vom kleinen auf den großen Kurs. Ein frischer
+300ms-Baseline-Lauf auf diesem Kurs wird bewusst NICHT wiederholt: der
+2026-07-16-Livetest (`navigation.go` Zeile 91-100) hat 300ms auf exakt
+diesem Kurs bereits gegen eine 344/344-Ground-Truth bestätigt — ein neuer
+Baseline-Lauf heute wäre eine dritte Bestätigung derselben, längst
+etablierten Zahl, nicht neue Evidenz. Verglichen wird stattdessen gegen
+die historische 198-Datei-Zahl dieses Kurses.
+
+**Gescheitert ab:** Jede Datei-/Byte-Abweichung zwischen den beiden
+150ms-Läufen, oder gegen die historische 198-Datei-Zahl (gleiches Kriterium
+wie Frage 14: ein einzelner sauberer Lauf reicht laut eigener Historie nicht,
+zwei sind das Minimum). Zusätzlich: wenn die Ersparnis auf dem großen Kurs
+deutlich unter den ~29,6% liegt, die Frage 14 auf dem kleinen Kurs gemessen
+hat (z. B. <15%), widerlegt das nicht die Korrektheit, aber die Annahme
+"Mechanismus ist kursgrößen-unabhängig".
+
+**Kosten:** Zwei volle Crawls des großen Kurses (164 Sektionen) statt der
+vollen Vier-Läufe-Probe (Baseline entfällt aus obigem Grund) — bei ~230s/Lauf
+bei 300ms historisch, bei 150ms schneller, geschätzt ~5-6 Minuten Gesamtlauf,
+passt in ein einzelnes Zeitfenster. Kein Produktionscode-Änderung nötig
+(`OPAL_DEBOUNCE_MS_OVERRIDE` existiert schon). `course_concurrency>1` bleibt
+unbeantwortet (siehe Referenzpunkt oben) — das ist die neue Frage 16, und sie
+braucht andere Werkzeuge (echter Zwei-Kurse-Parallel-Crawl), nicht nur diesen
+Probe mit einem anderen Flag.
 
 ---
 

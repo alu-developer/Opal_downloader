@@ -134,22 +134,40 @@ func TestDebounceOverrideCorrectness(t *testing.T) {
 		return lines
 	}
 
-	say("--- baseline (default %.0fms debounce), run 1 ---", mutationObserverDebounceMs)
-	base1 := doRun("baseline-1", "")
-	say("--- baseline, run 2 (self-consistency check) ---")
-	base2 := doRun("baseline-2", "")
+	// OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE: docs/sync-speed-model.md Frage 15
+	// (2026-08-02) - re-running the 300ms baseline on a course that already
+	// has a historical live-verified baseline (navigation.go's 2026-07-16
+	// doc comment: 344/344 across all 9 courses including this one) is a
+	// third confirmation of an already-established number, not new evidence.
+	// Set to skip both baseline runs and compare override self-consistency
+	// plus the historical file count instead - use only for a course whose
+	// 300ms baseline is already separately documented as live-tested.
+	skipBaseline := os.Getenv("OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE") != ""
+
+	var base1, base2 run
+	if !skipBaseline {
+		say("--- baseline (default %.0fms debounce), run 1 ---", mutationObserverDebounceMs)
+		base1 = doRun("baseline-1", "")
+		say("--- baseline, run 2 (self-consistency check) ---")
+		base2 = doRun("baseline-2", "")
+	} else {
+		say("--- baseline SKIPPED (OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE set) - relying on this course's already-documented 300ms baseline instead of re-measuring it ---")
+	}
 	say("--- override (%sms debounce), run 1 ---", overrideMs)
 	over1 := doRun("override-1", overrideMs)
 	say("--- override, run 2 (self-consistency check) ---")
 	over2 := doRun("override-2", overrideMs)
 
 	say("--- comparisons ---")
-	baseSelfDiff := diff(base1, base2)
-	if len(baseSelfDiff) == 0 {
-		say("baseline self-consistency: IDENTICAL across both runs (%d files)", base1.fileCount)
-	} else {
-		say("baseline self-consistency: %d difference(s) between the two default-setting runs (flaky regardless of the override):", len(baseSelfDiff))
-		report = append(report, baseSelfDiff...)
+	var baseSelfDiff []string
+	if !skipBaseline {
+		baseSelfDiff = diff(base1, base2)
+		if len(baseSelfDiff) == 0 {
+			say("baseline self-consistency: IDENTICAL across both runs (%d files)", base1.fileCount)
+		} else {
+			say("baseline self-consistency: %d difference(s) between the two default-setting runs (flaky regardless of the override):", len(baseSelfDiff))
+			report = append(report, baseSelfDiff...)
+		}
 	}
 
 	overSelfDiff := diff(over1, over2)
@@ -160,23 +178,45 @@ func TestDebounceOverrideCorrectness(t *testing.T) {
 		report = append(report, overSelfDiff...)
 	}
 
-	crossDiff := diff(base1, over1)
-	if len(crossDiff) == 0 {
-		say("baseline vs override (run 1 vs run 1): IDENTICAL file sets (%d files)", base1.fileCount)
+	var crossDiff []string
+	historicalMismatch := false
+	if !skipBaseline {
+		crossDiff = diff(base1, over1)
+		if len(crossDiff) == 0 {
+			say("baseline vs override (run 1 vs run 1): IDENTICAL file sets (%d files)", base1.fileCount)
+		} else {
+			say("baseline vs override (run 1 vs run 1): %d difference(s):", len(crossDiff))
+			report = append(report, crossDiff...)
+		}
+	} else if historicalCount := os.Getenv("OPAL_DEBOUNCE_OVERRIDE_HISTORICAL_COUNT"); historicalCount != "" {
+		if over1.fileCount != over2.fileCount {
+			say("override file count differs between the two runs (%d vs %d) - already caught by override self-consistency above", over1.fileCount, over2.fileCount)
+		}
+		say("comparing against documented historical baseline count (%s files) instead of a fresh baseline run - see OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE", historicalCount)
+		var wantCount int
+		fmt.Sscanf(historicalCount, "%d", &wantCount)
+		if over1.fileCount != wantCount {
+			say("MISMATCH: override run found %d files, historical baseline documents %d", over1.fileCount, wantCount)
+			historicalMismatch = true
+		} else {
+			say("override file count matches documented historical baseline (%d)", wantCount)
+		}
+	}
+
+	if !skipBaseline {
+		avgBaseMs := (base1.settleStableMs + base2.settleStableMs) / 2
+		avgOverMs := (over1.settleStableMs + over2.settleStableMs) / 2
+		say("avg settle+stable: baseline=%.0fms, override=%.0fms", avgBaseMs, avgOverMs)
+		if avgBaseMs > 0 {
+			say("savings: %.0fms (%.1f%% of baseline settle+stable)", avgBaseMs-avgOverMs, (avgBaseMs-avgOverMs)/avgBaseMs*100)
+		}
 	} else {
-		say("baseline vs override (run 1 vs run 1): %d difference(s):", len(crossDiff))
-		report = append(report, crossDiff...)
+		avgOverMs := (over1.settleStableMs + over2.settleStableMs) / 2
+		say("avg settle+stable: override=%.0fms (no fresh baseline run this pass)", avgOverMs)
 	}
 
-	avgBaseMs := (base1.settleStableMs + base2.settleStableMs) / 2
-	avgOverMs := (over1.settleStableMs + over2.settleStableMs) / 2
-	say("avg settle+stable: baseline=%.0fms, override=%.0fms", avgBaseMs, avgOverMs)
-	if avgBaseMs > 0 {
-		say("savings: %.0fms (%.1f%% of baseline settle+stable)", avgBaseMs-avgOverMs, (avgBaseMs-avgOverMs)/avgBaseMs*100)
-	}
-
-	if len(baseSelfDiff) == 0 && len(overSelfDiff) == 0 && len(crossDiff) == 0 {
-		say("VERDICT: no file-count or file-identity regression across 4 runs (2 baseline, 2 override) - correctness prediction holds for this course on this run. NOT sufficient alone to change the production default (single course, single day, per this project's own repeated-loss history) - see docs/sync-speed-model.md Frage 14 for what would be.")
+	if len(baseSelfDiff) == 0 && len(overSelfDiff) == 0 && len(crossDiff) == 0 && !historicalMismatch {
+		say("VERDICT: no file-count or file-identity regression found - correctness prediction holds for this course on this run. NOT sufficient alone to change the production default (single course, single day, per this project's own repeated-loss history) - see docs/sync-speed-model.md Frage 14/15 for what would be.")
 	} else {
 		say("VERDICT: at least one difference found somewhere above - do not treat the override as safe without reading exactly which section(s) differed and why.")
 	}

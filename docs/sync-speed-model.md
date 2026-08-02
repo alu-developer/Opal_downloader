@@ -182,6 +182,37 @@ Browser-Profiling.
 
 ## Nächstes Experiment
 
+**Frage:** (12, neu aus Frage 11) — skaliert die settle+stable-**Wartezeit**
+(nicht nur die Mutationszahl) mit der quadrierten Kandidatenzahl besser als
+mit der linearen (Frage 10: r=0,40 linear) — und erklärt das den bisher
+schwachen linearen Befund als ein quadratisches Verhältnis, das ein lineares
+Modell unterschätzt?
+
+**Vorhersage:** Ein erneuter Lauf der bereits bestehenden Frage-10-Probe
+(`network_timing_probe_test.go`, `sectionProbe`-Hook, unverändert bis auf
+eine zusätzliche Pearson-r-Berechnung gegen `candidates²`) gegen denselben
+großen Kurs (Softwaretechnologie, 164 Sektionen) zeigt einen deutlich
+höheren Pearson-r zwischen Kandidatenzahl² und settle+stable-Zeit als der
+bereits gemessene r=0,40 für die lineare Kandidatenzahl.
+
+**Gescheitert ab:** Wenn r für Kandidatenzahl² nicht spürbar über r=0,40
+liegt (z. B. unter ~0,5 bleibt), erklärt der in Frage 11 gefundene
+quadratische Mutations-Zusammenhang nicht die pro-Sektion-Wartezeit — dann
+bleibt der Haupttreiber der Wartezeit weiterhin offen, und der nächste
+Schritt ist das in Frage 7/10 schon vorhergesagte echte
+Browser-Profiling (CPU/Layout/Paint), nicht mehr Zählen von Mutationen.
+
+**Kosten:** Eine Zeile Ergänzung an der bestehenden Frage-10-Probe (Pearson-r
+zusätzlich gegen `candidates²` statt nur `candidates`), ein Live-Lauf gegen
+denselben großen Kurs wie Frage 10 — heute noch kein zweiter Crawl dieses
+Kurses, also kein Grund, ihn zu vermeiden (`docs/server-load.md`: ein Crawl
+pro Tag ist vernachlässigbar). Kein Diff gegen Ground-Truth nötig, da nichts
+am Sync-Verhalten geändert wird.
+
+---
+
+## Vorheriges Experiment (Frage 11, abgeschlossen 2026-08-02)
+
 **Frage:** (11, neu aus Frage 10) — was mutiert während des
 ~338ms-Settle-Fensters tatsächlich im DOM, wenn weder Netzwerktransfer
 (24%) noch Sektions-Dateizahl (r=0,40, ~16% Varianz) die Mehrheit
@@ -218,6 +249,68 @@ Lauf gegen wenige Sektionen des kleinen Kurses (Algorithmen, 6 Sektionen —
 bewusst nicht wieder der große, dritter Live-Crawl desselben Kurses an
 einem Tag wäre unnötige Serverlast, docs/server-load.md), keine
 Produktionscode-Änderung nötig, kein neues Werkzeug.
+
+**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus):
+Vorhersage teilweise bestätigt, aber mit einer Verschiebung, die Regel 2
+noch nicht ganz erfüllt — Kandidat C in seiner engen Form widerlegt,
+abgelöst durch eine schärfere Frage 12.**
+
+`TestMutationConcentrationAcrossSections`
+(`internal/scraper/mutationmarker_probe_test.go`) erweitert die bestehende
+`mutationObserverInitScript`-Probe (bislang nur Root + eine Sektion, nur
+letzte 8 Records von Hand gelesen) auf einen vollständigen BFS-Walk aller 6
+Sektionen des kleinen Kurses, mit Aggregation aller Mutationen nach
+Ziel-Element. Live-Lauf gegen den echten Account, `tmp/mutation-
+concentration-probe.txt`:
+
+| Sektion | Kandidaten | Mutationen | Mutationen/Kandidat |
+|---|---:|---:|---:|
+| Algorithmen u. Datenstrukturen (Root) | 12 | 43 | 3.58 |
+| Übungseinschreibung | 14 | 52 | 3.71 |
+| Probeklausur | 17 | 64 | 3.76 |
+| Materialien | 18 | 84 | 4.67 |
+| Übungsblätter | 27 | 164 | 6.07 |
+| Vorlesung | 44 | 533 | 12.11 |
+
+**Konzentration bestätigt:** über alle 6 Sektionen (940 Mutationen, 36
+distinkte Element-Keys) tragen die Top-3-Keys 79,8 % bei — das erfüllt das
+Scheitern-Kriterium nicht (keine diffuse Verteilung), die Vorhersage
+"konzentriert auf wenige" hält.
+
+**Aber die dominante Ursache widerspricht der Kandidat-C-Prämisse:** der
+mit Abstand größte Key ist ein namenloses `tr` (70,2 % aller Mutationen,
+Attribut-Mutationen direkt auf Datei-Tabellenzeilen ohne id/class) — nicht
+ein "schmal begrenztes Widget außerhalb von Baum/Tabelle", wie Kandidat C
+explizit forderte ("nicht Baum oder Tabelle selbst"). Die beiden 2026-07-30
+per Hand vermuteten Kandidaten (`#veil`, Wicket-AJAX-Overlay; `#MathJax_
+Message`) sind real, aber mit 0,9 % bzw. 1,3 % eine kleine Minderheit, nicht
+die Erklärung — die damalige Vermutung entstand aus dem Lesen von nur 8
+Tail-Records einer einzigen (noch dazu ungewöhnlich langsamen) Sektion, hier
+widerlegt durch die vollständige Aggregation über 940 Records.
+
+**Neuer, schärferer Befund (nicht Teil der ursprünglichen Vorhersage):** das
+Verhältnis Mutationen/Kandidat ist nicht konstant, sondern wächst von 3,58
+(12 Kandidaten) auf 12,11 (44 Kandidaten) — ein 3,4-facher Anstieg der
+Rate bei nur 3,7-fach mehr Kandidaten. Regression über die 6 Punkte:
+Kandidatenzahl vs. Mutationen linear r=0,976, Kandidatenzahl² vs.
+Mutationen r=0,997, log-log-Exponent 1,96 (r=0,993) — die Daten passen
+deutlich besser zu einer quadratischen als zu einer linearen Beziehung.
+Das ist die konkrete, prüfbare Signatur, die Regel 2 verlangt: irgendetwas
+touched Datei-Tabellenzeilen mit einem Gesamtaufwand, der eher mit
+Zeilenzahl² als mit Zeilenzahl wächst — z. B. eine paarweise Zeilen-
+Vergleichsoperation (Duplikat-/Sortier-/Highlight-Logik), nicht eine reine
+Pro-Zeile-Initialisierung. Welches konkrete Attribut auf `tr` wechselt
+(nur der Tag wurde aggregiert, nicht `attr`/`attrVal`) ist noch nicht
+untersucht.
+
+**Warum Frage 11 trotzdem nicht einfach geschlossen ist:** Kandidat C ist in
+seiner ursprünglichen, engen Form ("Widget außerhalb von Baum/Tabelle")
+widerlegt, mit Mechanismus (die Aggregation zeigt klar: es ist die Tabelle
+selbst). Aber das ist noch keine vollständige Erklärung für die
+Settle-Zeit — nur für die Mutations*zahl*. Ob der quadratische
+Mutations-Befund auch die tatsächliche Wartezeit erklärt (die eigentliche
+Zielgröße, nicht nur ein Proxy dafür), ist ungeprüft und genau die neue
+Frage 12 oben.
 
 ---
 
@@ -424,6 +517,49 @@ kein Deckel auf die Kampagne, das Kill-Kriterium sitzt pro Experiment
 (Entscheidung vom 2026-07-31, Gegenargumente in derselben Sitzung notiert:
 jede Abbruchbedingung, die dieses Repo je hatte, wurde zu dem, woran die
 Arbeit aufhörte).
+
+### 2026-08-02 (opal-downloader-sync-speed): erster Bericht dieser Aufgabe, Frage 11 geschlossen mit Verschiebung
+
+Der erste Bericht **dieser** geplanten Aufgabe (`opal-downloader-sync-speed`)
+— frühere Zyklen (Frage 3, 7-Bau, 7-Live, 9, 10, 11) liefen ohne einen. Fällig
+seit mehr als 5 Zyklen.
+
+**Bekannt seit dem letzten (nicht existenten) Bericht, also seit Kampagnenstart
+2026-07-31:** `ctx.Route` kostet ~30 % (CDP-Pause/Resume, unvermeidbar,
+Frage 3 geschlossen). Der Baum-Fragment-Anteil einer Sektionsseite ist auf
+offene Knoten + Selektionspfad begrenzt, nicht auf die Kursgröße
+(`MenuTreeRenderer.isRenderChildren`, Frage 9 geschlossen). Netzwerktransfer
+erklärt nur 24–31 % der Settle-Zeit (Frage 7). Sektions-Dateizahl erklärt sie
+linear nur schwach (r=0,40, Frage 10). Heute (Frage 11): DOM-Mutationen
+während der Settle-Zeit sind konzentriert (Top-3-Elemente = 79,8 %), aber die
+Ursache ist die Datei-Tabelle selbst (`tr`, 70 %), nicht ein externes Widget
+— und die Mutationszahl wächst mit dem Quadrat der Zeilenzahl (Exponent
+≈1,96, r=0,997), nicht linear.
+
+**Was das für den Zustand des Modells bedeutet:** vier von fünf geprüften
+Erklärungen für die Settle-Zeit sind jetzt einzeln entweder geschlossen
+(Frage 3, 9) oder als Nebenerklärung quantifiziert und verworfen (Frage 7:
+24–31 %; Frage 10: r=0,40). Frage 11 liefert zum ersten Mal eine Erklärung,
+die stark genug aussieht, um dominant zu sein (quadratisches Wachstum statt
+schwacher linearer Korrelation) — aber sie ist bisher nur für die
+Mutations*zahl* gezeigt, nicht für die tatsächliche Wartezeit. Das ist Frage
+12, bereits als nächstes Experiment aufgesetzt.
+
+**Noch offen:** Frage 12 (skaliert die Wartezeit selbst quadratisch mit der
+Zeilenzahl?), Frage 8 (Cache-Aus vs. Pause/Resume-Anteil an den 30 % aus
+Frage 3, lokal ohne Account reproduzierbar, noch nie angefasst), Frage 5 (ist
+"30s" überhaupt an Discovery gebunden, oder löst Hintergrundlauf/
+Teilergebnisse das eigentliche Ziel "fühlt sich wie ein Klick an" ohne
+schnellere Discovery?), Frage 6 (1 von 12 Sektionen bleibt über Läufe hinweg
+instabil, ungeklärt warum).
+
+**Empfehlung: weitermachen.** Zum ersten Mal seit Kampagnenbeginn gibt es eine
+Erklärung mit einer klaren quantitativen Signatur (quadratisch, nicht nur
+"nicht Netzwerk, nicht Dateizahl linear") statt einer Liste ausgeschlossener
+Kandidaten. Frage 12 entscheidet in einem einzigen billigen Lauf (keine neue
+Instrumentierung, nur eine zusätzliche Korrelation auf bereits vorhandenem
+Code), ob das die Wartezeit selbst erklärt oder nicht — in beiden Fällen ein
+scharfes Ergebnis, kein weiterer Rateversuch.
 
 ### 2026-07-31 (autopilot): Frage 1 gelesen, nicht gemessen
 

@@ -190,19 +190,6 @@ erklären? Dies ist der in Frage 7 und Frage 10 schon vorhergesagte
 "nächste Schritt braucht echtes Browser-Profiling" — jetzt nicht mehr
 optional, weil die einzige noch ungeprüfte Erklärungsklasse.
 
-**Vorhersage:** noch nicht geschrieben — dieser Zyklus (Frage 12) hat den
-Bedarf begründet, aber die Methode (vermutlich Playwright Go's
-`BrowserContext.Tracing` bzw. eine direkte CDP-`Tracing.start`-Session mit
-den `devtools.timeline`/`v8`-Kategorien, ausgewertet für eine einzelne
-langsame Sektions-Navigation im großen Kurs) ist neu für dieses Projekt und
-noch nicht recherchiert. Die nächste Sitzung schreibt die konkrete
-Vorhersage und das Scheitern-Kriterium, bevor sie einen Lauf startet (Regel
-1) — inklusive einer Lehre aus diesem Zyklus: das Kriterium braucht eine
-qualitative Formulierung, nicht nur einen Zahlenschwellenwert (siehe Frage
-12s Ergebnis unten).
-
-**Kosten:** höher als bisherige Experimente — neues Werkzeug (Trace-
-Aufzeichnung + Auswertung), kein einfacher Ein-Zeiler wie bei Frage 12.
 **Vorab geprüft (2026-08-02, Quellcode-Lesen, kein Live-Lauf, kein
 Serverkontakt):** Playwright Go's eigene `Tracing`-API
 (`playwright-go@v0.6100.0/tracing.go`) produziert nur den Playwright-
@@ -212,10 +199,57 @@ NewCDPSession(page)` existiert bereits (`browser_context.go` Zeile 88,
 `CDPSession.Send(method string, params map[string]any)
 (any, error)`, `generated-interfaces.go` Zeile 630) — dieselbe rohe
 CDP-Andockstelle, über die Frage 3 schon `Fetch.enable` gefunden hat, nur
-diesmal selbst aufgerufen statt nur gelesen. Ein `Tracing.start`
-(Kategorien `devtools.timeline`, `v8`) über diese Session ist also ohne
-neue Abhängigkeit erreichbar. Offen bleibt nur die Trace-Auswertung
-(JSON-Events parsen, keine fertige Bibliothek dafür in diesem Projekt).
+diesmal selbst aufgerufen statt nur gelesen.
+
+**Methode präzisiert (2026-08-02, vor dem Lauf):** volles `Tracing.start`
+(Chrome-Trace-JSON, Stream-Events über `Tracing.dataCollected`/
+`tracingComplete`, kein fertiger Parser im Projekt) ist mehr Werkzeug, als
+die Frage braucht. `Performance.enable` + `Performance.getMetrics()` ist
+ein leichteres Mitglied derselben CDP-Domain-Familie: ein einzelner
+synchroner Call ohne Stream, liefert kumulative Sekundenzähler
+(`ScriptDuration`, `LayoutDuration`, `RecalcStyleDuration`,
+`TaskDuration` seit `enable`). Diff vor/nach einer Sektions-Navigation
+beantwortet dieselbe qualitative Frage ("sitzt die Zeit in Skript, Layout,
+Style-Recalc, oder in keinem davon") ohne Offline-Trace-Auswertung.
+
+**Vorhersage:** Für die in Frage 11 bereits identifizierte langsamste
+Sektion des *kleinen* Kurses ("Vorlesung", Algorithmen und Datenstrukturen,
+44 Kandidaten, 533 Mutationen — kein dritter Crawl des großen Kurses an
+einem Tag nötig) macht die Summe aus LayoutDuration + RecalcStyleDuration +
+ScriptDuration einen realen, aber nicht dominanten Anteil der gemessenen
+settle+stable-Zeit aus — geschätzt 20–40%, in derselben Größenordnung wie
+die bereits gemessenen Kandidaten Netzwerk (24–31%, Frage 7) und
+Sektions-Dateizahl (16–29%, Frage 10/12), nicht die fehlenden 70%+ allein
+auffangend. Mechanismus: die in Frage 11 gefundene quadratische
+`tr`-Mutation sollte, wenn sie echte Style-Recalcs/Layout-Passes auslöst,
+in LayoutDuration/RecalcStyleDuration sichtbar sein — aber Browser-
+Style-Recalc für ein paar Dutzend Attribut-Änderungen auf `tr`-Elementen
+ist typischerweise Mikrosekunden- bis niedriger Millisekundenbereich,
+nicht Hunderte ms.
+
+**Scheitern-Kriterium (qualitativ, nicht nur ein Schwellenwert — Lehre aus
+Frage 12s zu laschem Kriterium):**
+- **>50%** der settle+stable-Zeit in Layout+RecalcStyle+Script: Vorhersage
+  widerlegt, aber im guten Sinn — CPU-Arbeit ist der bisher übersehene
+  dominante Treiber, Frage 13 schließt mit Mechanismus, neue Frage: welche
+  der drei Metriken konkret und warum.
+- **~20–40%** (Vorhersage bestätigt): eine reale, aber weitere Minderheits-
+  Erklärung neben Netzwerk und Dateizahl — dann ist nach vier geprüften
+  Kandidaten (Netzwerk, Dateizahl linear, Dateizahl quadratisch, jetzt CPU)
+  keiner dominant, und die verbleibende Mehrheit der Zeit ist vermutlich
+  **reine Wartezeit ohne messbare Browser-Arbeit** — der 300ms-Debounce in
+  `waitForInteractiveLinks` selbst wird dann verdächtig, nicht mehr das,
+  worauf er wartet.
+- **<10%** (nahe Null): stärkster Fall für "die Zeit ist die
+  Debounce-Konstante, nicht Arbeit" — nächste Frage wäre dann, ob die
+  300ms-Konstante zu konservativ ist, nicht mehr, was in dieser Zeit läuft.
+
+**Kosten:** niedriger als ursprünglich angenommen — kein Trace-Parsing,
+nur eine CDP-Session pro Seite plus zwei `Performance.getMetrics()`-Calls
+pro Sektion. Lauf gegen den bereits für Frage 11 benutzten kleinen Kurs
+(6 Sektionen, keine neue Serverlast über das hinaus, was ein
+Sektions-BFS-Walk ohnehin kostet), kein Diff gegen Ground-Truth nötig
+(kein Sync-Verhalten geändert).
 
 ---
 

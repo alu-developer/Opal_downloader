@@ -182,6 +182,32 @@ Browser-Profiling.
 
 ## Nächstes Experiment
 
+**Frage:** (14, neu aus Frage 13) — `mutationObserverDebounceMs` (300ms,
+`navigation.go` Zeile 99) und `sectionContentPollIntervalMs` (150ms,
+`crawl.go` Zeile 982) sind feste Konstanten, keine gemessenen Werte. Frage
+13 fand, dass die gemessene settle-Zeit (Ø 326ms/Sektion) fast exakt der
+300ms-Konstante entspricht und die stable-Zeit (Ø 193ms) nahe an einem
+einzelnen 150ms-Poll-Intervall liegt — mit CPU-Arbeit (selbst großzügig
+über `TaskDuration` gerechnet) als Erklärung für höchstens ~24 % der Zeit.
+Wenn die Konstanten selbst der Flaschenhals sind statt tatsächlicher
+Render-Arbeit: **wie wurden 300ms/150ms ursprünglich festgelegt, und wie
+viel Sicherheitsspanne steckt darin?** Noch nicht recherchiert, ob es dazu
+schon eine Messung/Begründung im Code oder in `docs/sync-speed-campaign.md`
+gibt, bevor probiert wird, sie zu senken.
+
+**Vorhersage:** noch nicht geschrieben — das ist die Aufgabe der nächsten
+Sitzung vor dem nächsten Lauf (Regel 1).
+
+**Kosten:** vermutlich niedrig, sofern es beim Lesen/Reduzieren der
+Konstanten bleibt (ein Lauf mit testweise gesenkten Werten gegen den
+kleinen Kurs, Diff gegen Ground-Truth nötig, weil eine zu aggressive Senkung
+genau die Art von stillem Datenverlust wäre, die diese Kampagne schon
+zweimal gesehen hat — Wicket-AJAX-Race, `docs/sync-speed-campaign.md`).
+
+---
+
+## Vorheriges Experiment (Frage 13, abgeschlossen 2026-08-02)
+
 **Frage:** (13, neu aus Frage 12) — wo sitzt die verbleibende, unerklärte
 Settle-Zeit tatsächlich (CPU/Layout/Paint), wenn drei unabhängige Kandidaten
 (Netzwerktransfer 24–31 %, Sektions-Dateizahl linear ~16–21 % Varianz,
@@ -189,6 +215,83 @@ Sektions-Dateizahl quadratisch ~29 % Varianz) alle nur Minderheiten
 erklären? Dies ist der in Frage 7 und Frage 10 schon vorhergesagte
 "nächste Schritt braucht echtes Browser-Profiling" — jetzt nicht mehr
 optional, weil die einzige noch ungeprüfte Erklärungsklasse.
+
+**Vorhersage (geschrieben vor dem Lauf):** `Performance.enable` +
+`Performance.getMetrics()` (leichter als volles `Tracing.start`, ein
+synchroner CDP-Call statt Stream-Auswertung) gemessen an der schon aus
+Frage 11 bekannten langsamsten Sektion des kleinen Kurses ("Vorlesung",
+44 Kandidaten) zeigt LayoutDuration+RecalcStyleDuration+ScriptDuration als
+realen, aber nicht dominanten Anteil von settle+stable — geschätzt 20–40 %.
+
+**Gescheitert ab / erfüllt ab:** >50 % = CPU dominant (Vorhersage falsch,
+aber informativ); ~20–40 % = Vorhersage bestätigt, Debounce-Konstante wird
+Hauptverdächtiger für den Rest; <10 % = starker Fall für "Zeit ist die
+Konstante, nicht Arbeit".
+
+**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus,
+Live-Lauf gegen den kleinen Kurs, 6 Sektionen,
+`tmp/cdp-performance-metrics-probe.txt`): Vorhersage im wörtlichen Sinne
+weder bestätigt noch klar widerlegt (11,4 % Aggregat, 14,5 % für die
+langsamste Sektion — zwischen den beiden Schwellenwerten), aber eine
+zusätzliche, ungeplante Auswertung derselben Daten liefert eine schärfere,
+konvergente Erklärung.**
+
+| Sektion | Kandidaten | settle+stable | Script+Layout+RecalcStyle | % davon | TaskDuration | % davon |
+|---|---:|---:|---:|---:|---:|---:|
+| Algorithmen (Root) | 12 | 482ms | 37.5ms | 7.8% | 83.6ms | 17.3% |
+| Übungseinschreibung | 14 | 501ms | 90.3ms | 18.0% | 199.8ms | 39.9% |
+| Materialien | 18 | 505ms | 63.8ms | 12.6% | 103.0ms | 20.4% |
+| Probeklausur | 17 | 504ms | 35.1ms | 7.0% | 59.3ms | 11.8% |
+| Übungsblätter | 27 | 532ms | 43.8ms | 8.2% | 88.5ms | 16.6% |
+| Vorlesung | 44 | 588ms | 85.5ms | 14.5% | 226.8ms | 38.6% |
+| **Summe/Aggregat** | | **3112ms** | **356.1ms** | **11.4%** | **761.0ms** | **24.4%** |
+
+Die im Voraus benannte Metrik (Script+Layout+RecalcStyle) liegt bei 11,4 %
+— knapp über der <10 %-Schwelle, klar unter dem vorhergesagten 20–40 %-Band.
+`TaskDuration` (Chromes eigene, umfassendere Haupt-Thread-Beschäftigt-Zeit —
+ein Superset, das Script/Layout/RecalcStyle **und** alles andere enthält,
+was der Browser als "Task" auf dem Haupt-Thread zählt: GC, Parsing, Paint-
+Vorbereitung, Compositing-Anmeldung) liegt bei 24,4 % — im vorhergesagten
+Band, aber als **obere Schranke**, nicht als Bestätigung der spezifischen
+Kandidat-C-Hypothese (quadratische `tr`-Mutation → Layout/Style-Recalc):
+Script+Layout+RecalcStyle machen selbst von diesem großzügigsten Wert nur
+weniger als die Hälfte aus (356 von 761ms) — der Rest von `TaskDuration` ist
+unbenannte Haupt-Thread-Arbeit, kein bestätigter Mechanismus.
+
+**Methodischer Vorbehalt, gegen die eigene Messung gerichtet:** das
+CDP-Metrik-Fenster spannt sich über `visitSection` insgesamt (Navigation +
+settle + stable), das `settleStable`-Nenner-Fenster nur über settle+stable.
+Ein Teil der gemessenen CPU-Zeit fällt also vermutlich in die
+Navigation/Initial-Parse-Phase, nicht in die settle+stable-Phase selbst —
+die hier berichteten 11,4 %/24,4 % sind damit eher eine **Überschätzung**
+des CPU-Anteils an settle+stable, nicht eine Unterschätzung. Das verschärft
+den Befund, statt ihn zu relativieren.
+
+**Was das für Regel 2 bedeutet — Mechanismus statt nur Zahl:** selbst mit
+diesem Vorbehalt zugunsten von "mehr CPU" bleibt Browser-Arbeit (jede Form,
+die CDP sehen kann) eine Minderheit. Zwei bereits im Code stehende
+Konstanten erklären, wohin die Mehrheit sonst geht: `mutationObserverDebounceMs
+= 300` (`navigation.go` Zeile 99) liegt fast exakt bei der gemessenen
+durchschnittlichen settle-Zeit dieses Laufs (326ms, `section timing`-Log-
+Zeile des Testlaufs) — 26ms Differenz, 8,7 % Abweichung. `sectionContentPollIntervalMs
+= 150` (`crawl.go` Zeile 982) liegt in derselben Größenordnung wie die
+gemessene durchschnittliche stable-Zeit (193ms, gut erklärt durch einen
+einzelnen Poll-Zyklus plus etwas Overhead, wenn `initialStableReads`
+niedrig ist). Das ist die Signatur, die Regel 2 verlangt: **die settle+stable-
+Zeit sieht nicht nach variabler Render-Arbeit aus, sondern nach zwei festen
+Warte-Konstanten, die zufällig fast die gesamte Zeit ausmachen** — CPU-Arbeit
+ist real (11–24 %), aber sie sitzt *innerhalb* dieser Fenster, treibt sie
+nicht.
+
+**Kandidat B/C (Frage 7, Frage 11) damit endgültig als Nebenerklärung
+eingeordnet, nicht mehr offen als "die noch fehlende Mehrheit":** vier
+unabhängig geprüfte Erklärungen (Netzwerk 24–31 %, Dateizahl linear 16–21 %,
+Dateizahl quadratisch 29 %, jetzt CPU 11–24 %) sind alle Minderheiten, aber
+zwei bekannte, fest im Code stehende Wartekonstanten passen numerisch fast
+exakt auf die verbleibende Zeit. Das ist ein Erklärungswechsel, kein
+weiterer ausgeschlossener Kandidat: die Frage ist nicht mehr "was baut der
+Browser da", sondern "sind 300ms/150ms die richtige Sicherheitsspanne, oder
+mehr als nötig" — Frage 14 oben.
 
 **Vorab geprüft (2026-08-02, Quellcode-Lesen, kein Live-Lauf, kein
 Serverkontakt):** Playwright Go's eigene `Tracing`-API

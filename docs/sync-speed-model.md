@@ -201,11 +201,21 @@ Vorhersage und das Scheitern-Kriterium, bevor sie einen Lauf startet (Regel
 qualitative Formulierung, nicht nur einen Zahlenschwellenwert (siehe Frage
 12s Ergebnis unten).
 
-**Kosten:** unbekannt, vermutlich höher als bisherige Experimente — neues
-Werkzeug (Trace-Aufzeichnung + Auswertung), kein einfacher Ein-Zeiler wie
-bei Frage 12. Ein guter erster Schritt vor dem vollen Aufbau: prüfen, ob
-Playwright Go's `Tracing`-API überhaupt zugänglich ist (Quellcode-Lesen,
-kein Live-Lauf) — das entscheidet, ob CDP direkt angesprochen werden muss.
+**Kosten:** höher als bisherige Experimente — neues Werkzeug (Trace-
+Aufzeichnung + Auswertung), kein einfacher Ein-Zeiler wie bei Frage 12.
+**Vorab geprüft (2026-08-02, Quellcode-Lesen, kein Live-Lauf, kein
+Serverkontakt):** Playwright Go's eigene `Tracing`-API
+(`playwright-go@v0.6100.0/tracing.go`) produziert nur den Playwright-
+eigenen Trace Viewer (Screenshots/Snapshots/Netzwerk/Aktionen) — kein
+CPU-/Layout-Profil im Chrome-DevTools-Sinn. Aber `BrowserContext.
+NewCDPSession(page)` existiert bereits (`browser_context.go` Zeile 88,
+`CDPSession.Send(method string, params map[string]any)
+(any, error)`, `generated-interfaces.go` Zeile 630) — dieselbe rohe
+CDP-Andockstelle, über die Frage 3 schon `Fetch.enable` gefunden hat, nur
+diesmal selbst aufgerufen statt nur gelesen. Ein `Tracing.start`
+(Kategorien `devtools.timeline`, `v8`) über diese Session ist also ohne
+neue Abhängigkeit erreichbar. Offen bleibt nur die Trace-Auswertung
+(JSON-Events parsen, keine fertige Bibliothek dafür in diesem Projekt).
 
 ---
 

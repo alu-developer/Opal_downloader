@@ -181,7 +181,50 @@ often when the renderer is under load". Fixing the expansion is the prerequisite
 and until then the setting stays as it is — untouched default of 1, no clamp, no
 removal (maintainer's decision, 2026-08-03).
 
-### 18. Why is one section permanently truncated at every concurrency, in every run? (new from Question 17, 2026-08-03)
+### 18. ~~Why is one section permanently truncated at every concurrency, in every run?~~ Answered 2026-08-03 — it never was. The detector was broken, not the crawl.
+**Prediction refuted, in the direction the failure criterion named.** No files
+are missing, and none ever were. `tmp/showall-href-run.log` (live, small
+course, 15.5s): of every row that disappeared across both expanding sections,
+**not one** was file-shaped.
+
+`CourseNode/1775529461522481011` is the tutorial **enrolment** table — its
+Wicket path says `enrollmentTable`, and its rows are seminar slots
+("Nicht eingeschrieben", "Dienstag 2. DS", "APB/E009", "30 / 30"). It holds no
+files at all. The five rows it "lost" were the `alle anzeigen` control plus
+three pager links (`pager-last` "»", `pager-navigation-1-pageLink` "2",
+`pager-next`) plus one untargeted row. Expanding a paginated table removes its
+pager, so the raw row count falls while nothing is lost — which is the whole of
+the "17 rows before, 14 after" mystery.
+
+The comparison in `expandShowAllInSection` was counting raw candidate rows.
+Fixed the same day to count file-shaped rows instead (`countFileShapedCandidates`,
+`crawl.go`), and to stay silent on a section with no file rows at all.
+Re-verified live: warning gone, file count unchanged at 38.
+
+**The real damage was not the noise.** This warning is the only signal the
+project has for a genuine truncation, and it was firing on every run of every
+probe — which is exactly why Question 17's real loss sat unread in the same
+logs for two days. A detector that always fires detects nothing. The Question 17
+diagnosis only happened because the maintainer asked why it was consistently six
+files; without that, this warning would still be crying wolf.
+
+**What stays true from the original entry** (the reasoning below was right even
+though its conclusion was not): a permanent, identical-every-run loss really
+would be invisible to every gate this campaign has, because all of them are
+diffs. That remains a live gap in the methodology — it just is not what was
+happening here. Do not read "all runs agreed" as "no files lost"; it only ever
+meant "nothing *varied*".
+
+**Also confirmed, for Question 17:** the same run shows the paginated *folder*
+node `CourseNode/1775615795226691003/Vorlesung` expanding correctly at
+`course_concurrency=1` — 41 raw rows to 44, gaining 8 real files including
+`Vorlesung_0.pdf`. So the expansion path works; under contention it sometimes
+returns 41→41 and drops the tail. That is Candidate B, unchanged and still open.
+
+---
+
+**Original entry, kept for the record — its conclusion was wrong:**
+
 Found while answering Question 17, and more serious than Question 17 itself,
 because it is not intermittent and it hits the **shipping default**.
 
@@ -287,9 +330,45 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Question 18 — is a section being silently truncated on every run, at the
-default setting?** Full statement, evidence and the decided method are in
-Question 18 above; not restated here to keep one copy of it.
+**Question 19 — does the "show all" click get dropped, or does its answer
+arrive too late?** This is Question 17's remaining A-vs-B tail, now the oldest
+unresolved *correctness* item in the file. Question 18's run confirmed the
+expansion works at `course_concurrency=1` (41 raw rows → 44, gaining 8 real
+files); Question 16 caught it returning 41→41 twice under contention, losing the
+same six files both times.
+
+**Prediction (write the number before the run):** instrumenting the click itself
+— arm time, dispatch time, whether `AJAX_CALL_DONE` arrived, and the row count at
+the moment of the read — will show the failing runs *do* get their signal, and
+the read happens after it, with the rows simply not there yet. Mechanism: this
+repo already recorded on 2026-07-21 that `AJAX_CALL_DONE` marks a call finished
+without marking the DOM complete (it cost 52 files then), and
+`expandShowAllInSection` skips the settle wait entirely when the signal arrives
+(`crawl.go`, `if !expansionSignalled`). Under contention that skip removes the
+only remaining patience.
+
+**Counts as failed at:** if the failing runs show no signal at all, or no click
+dispatched, it is Candidate A after all and the fix is at the click, not the
+wait. If the signal arrives *and* the rows are present at read time, then the
+loss happens after this function returns and the whole diagnosis moves
+downstream.
+
+**Cost:** click-level logging behind the existing probe pattern, plus a
+contention run (2 courses, `course_concurrency=2`) to reproduce — the only
+condition known to trigger it. Higher than Question 18's, because the failure is
+intermittent: expect to need repeats.
+
+**Note on the gate this needs:** the `warnShowAllTruncated` fix from Question 18
+is what makes this practical. Before it, the warning fired on every run and could
+not distinguish a real loss from an enrolment table.
+
+---
+
+## Previous experiment (Question 18, closed 2026-08-03)
+
+**Result: prediction refuted, on the failure criterion's own terms — no files
+were being lost.** Full write-up in Question 18 above. The prediction and
+criterion as written before the run:
 
 **Prediction (written before the run):** opening
 `CourseNode/1775529461522481011` by hand in the login profile shows **more than
@@ -312,6 +391,13 @@ full crawl, no repeated runs, negligible server load.
 **Why this goes ahead of any remaining speed lever:** it is a correctness
 question about the shipping default, and this repo puts reliability over
 features. It is also the cheapest open question in the file.
+
+**How it actually went:** the run cost 15.5s and answered it outright. Worth
+recording that the "either outcome is worth the run" clause paid off — the
+prediction was wrong, and the run was still the most useful thing done all day,
+because the inverted outcome (a detector that over-reports) was named in advance
+as mattering just as much. A prediction written only to be confirmed would have
+had nowhere to land this result.
 
 ---
 

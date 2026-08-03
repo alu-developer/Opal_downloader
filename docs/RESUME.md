@@ -26,11 +26,18 @@ archived run log instead (`tmp/frage16-run.log`, 4/4 correlation with
 `warnShowAllTruncated`). Server-side variance is refuted, so there is nothing for
 that run to rule out. No env knob needed, no probe change needed.
 
-Next up, already decided and needing nobody: **Question 18**
-(`docs/sync-speed-model.md`) - `CourseNode/1775529461522481011` warns
-`warnShowAllTruncated` in every archived run at every concurrency setting, so
-files are probably missing from every sync ever done here, including the 345-file
-ground truth. Two cheap steps, neither a full crawl: log the candidate hrefs
-before and after expansion for that one node, and open the section by hand in the
-login profile to count the real files. Prediction and failure criterion are
+**Question 18 is closed and its alarm was false** - no files were ever missing
+there, the detector was counting table rows instead of file rows and flagging an
+enrolment table. Fixed and re-verified live the same day. If you find an older
+note claiming the 345-file ground truth is short, it is wrong; that was my
+prediction, and the run refuted it.
+
+Next up, already decided and needing nobody: **Question 19**
+(`docs/sync-speed-model.md`) - Question 17's remaining tail, and the last
+unexplained real file loss. Under `course_concurrency=2` a paginated folder
+returns the same 41 rows it started with and drops six files, twice out of four
+runs; at `concurrency=1` the same node expands correctly to 44. Open question is
+whether the "show all" click is dropped or whether its answer arrives after the
+read. Needs click-level logging plus a contention run to reproduce, and the
+failure is intermittent so expect repeats. Prediction and failure criterion are
 already written down in the model file - read them before running, not after.

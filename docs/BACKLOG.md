@@ -23,22 +23,14 @@ here is the failure mode to watch for.
 
 ## Now
 
-- **A section is truncated in every run we have on record, at the default
-  setting — files are probably missing from every sync this project has ever
-  done.** `CourseNode/1775529461522481011` (Algorithmen und Datenstrukturen)
-  emits `warnShowAllTruncated` in all 11 archived run logs, at
-  `course_concurrency=1` and 2 alike: it offers a "show all" control, the
-  expansion runs, and the row count comes back the same (17→17) or *lower*
-  (17→14). Found 2026-08-03 while explaining the Question 16 loss. Not caught
-  earlier because every correctness gate here is a diff, and a section that
-  loses the same rows every time is identical to itself — all 8 runs of
-  Questions 14/15 passed while this was happening in all 8, and the 345-file
-  ground truth is probably short by the same rows rather than a baseline
-  against them. Full write-up and the decided next step: `docs/sync-speed-model.md`
-  Question 18. Next step is cheap and needs no full crawl — log the candidate
-  hrefs before/after expansion for that one node, and open the section by hand
-  to count the real files. Establish whether files are lost, and how many,
-  before designing a fix.
+- **Find out whether the "show all" click is dropped or just answered too
+  late** (`docs/sync-speed-model.md` Question 19). The last unexplained real
+  file loss: under `course_concurrency=2` a paginated folder returns the same
+  41 rows it started with and drops six files, twice out of four runs, while at
+  `concurrency=1` the same node expands correctly to 44. Prediction and failure
+  criterion are already written down — read them before running, not after.
+  Needs click-level logging plus a contention run to reproduce, and expect
+  repeats because the failure is intermittent.
 
 ---
 
@@ -173,6 +165,16 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The truncation alarm was a broken detector, not a truncation** (2026-08-03,
+  Question 18): the warning that had fired on every run for two days was
+  counting raw table rows, so it flagged the tutorial *enrolment* table — which
+  holds no files — every single time its pager disappeared on expansion. Live
+  href-level probe: not one lost row was file-shaped, nothing has ever been
+  missing there, and the 345-file ground truth is fine. It now counts file rows
+  and stays quiet on sections with none; re-verified live, warning gone, file
+  count unchanged. **The cost was never the noise:** this is the only signal the
+  project has for a real truncation, and firing constantly is why Question 17's
+  genuine six-file loss sat unread in those same logs.
 - **The session status says a date now, and the failure toast stopped being
   optional** (2026-08-03): the landing page read "session saved <mtime>. May
   still need a fresh login if it expired" — a file timestamp and a shrug. New

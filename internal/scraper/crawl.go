@@ -585,9 +585,17 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		s.showAllProbe(currentURL, candidates, expanded)
 	}
 
-	if len(expanded) <= len(candidates) {
-		warnShowAllTruncated(currentURL, len(candidates),
-			fmt.Sprintf("expansion completed but added nothing (%d rows before, %d after)", len(candidates), len(expanded)))
+	// Compare *file-shaped* rows, not raw candidate rows. Question 18
+	// (2026-08-03) measured what the raw-row comparison actually reports: on
+	// an enrolment table it fired on every run of every probe for two days
+	// straight while nothing whatsoever was wrong. See
+	// countFileShapedCandidates for the evidence and the arithmetic.
+	filesBefore := countFileShapedCandidates(candidates)
+	filesAfter := countFileShapedCandidates(expanded)
+	if filesBefore > 0 && filesAfter <= filesBefore {
+		warnShowAllTruncated(currentURL, filesBefore,
+			fmt.Sprintf("expansion completed but added no files (%d file rows before, %d after; %d raw rows before, %d after)",
+				filesBefore, filesAfter, len(candidates), len(expanded)))
 	}
 
 	// Record the show-all URL (when distinct from currentURL) so the caller can point
@@ -605,6 +613,52 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	}
 
 	return page, expanded, showAllURL, expandedPageURL, true
+}
+
+// countFileShapedCandidates counts the rows in a candidate list that would
+// actually become files, using the same two tests appendSectionFiles applies
+// (files.go, lines 101-108): a resolvable link target, and looksLikeFileLink
+// against the derived name. The course/host gate there is deliberately not
+// repeated - it needs the course, and a truncation heuristic does not.
+//
+// WHY THE RAW ROW COUNT WAS THE WRONG THING TO COMPARE. Question 18
+// (docs/sync-speed-model.md) chased a warning that had fired on
+// CourseNode/1775529461522481011 in eleven consecutive archived runs,
+// reporting "17 rows before, 14 after" and claiming files were missing. A
+// live href-level probe on 2026-08-03 found nothing was missing and nothing
+// ever had been: that node is the tutorial *enrolment* table
+// (`enrollmentTable` in its Wicket path), it holds no files at all, and the
+// five rows that disappeared were the "alle anzeigen" control plus three
+// pager links ("»", "2", next) plus an untargeted table row. Expanding a
+// paginated table legitimately removes its pager, so a raw row count can
+// fall while nothing is lost.
+//
+// The cost of that was not the noise, it was the opposite. This warning is
+// the only signal this project has for a real truncation, and it was firing
+// on every single run - which is precisely why the genuine loss it exists to
+// catch (Question 17: the same six files vanishing from a paginated *folder*
+// under contention) sat in those same logs unread. A detector that always
+// fires detects nothing.
+//
+// Counting file rows fixes both directions, checked against the real data:
+// the enrolment table has 0 file rows before and after, so `filesBefore > 0`
+// suppresses it entirely; the Vorlesung folder went 41->44 raw rows in the
+// good 2026-08-03 run and gained real files, so no warning; and in Question
+// 16's two bad runs it went 41->41 with the file rows equally flat, so the
+// warning still fires exactly where it should.
+func countFileShapedCandidates(candidates []map[string]string) int {
+	count := 0
+	for _, candidate := range candidates {
+		linkTarget := extractLinkTarget(candidate["href"], candidate["onclick"], candidate["dataHref"], candidate["dataUrl"])
+		if linkTarget == "" {
+			continue
+		}
+		if !looksLikeFileLink(linkTarget, deriveFileName(candidate["title"], candidate["text"], linkTarget)) {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 // warnShowAllTruncated reports a section that advertised a "show all" control
@@ -649,7 +703,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 // and has not recurred since.
 func warnShowAllTruncated(sectionURL string, rowsBefore int, reason string) {
 	logging.Warn("section %s offered a \"show all\" control but the expansion did not add any files (%s); "+
-		"this section is capped at its first page (%d rows) and later files are missing",
+		"this section is capped at its first page (%d files) and later files are missing",
 		sectionURL, reason, rowsBefore)
 }
 

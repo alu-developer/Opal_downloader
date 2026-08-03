@@ -18,7 +18,33 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**In flight: Question 19** (`docs/sync-speed-model.md`) - does the Vorlesung
+folder's "show all" click get its Wicket `AJAX_CALL_DONE` signal under
+`course_concurrency=2` contention, or not? Landed so far (both committed,
+`git log` has the exact commits): (1) `expandShowAllInSection` (crawl.go) now
+logs `expansionSignalled` itself via `auditLog("wicket-expand-signal", ...)`
+- previously only observable indirectly through whether the settle wait got
+skipped; (2) `internal/scraper/showallsignal_probe_test.go`
+(`TestShowAllSignalUnderContention`, gated on `OPAL_SHOWALL_SIGNAL_TRACE=1`)
+runs the known-failing contention condition (Algorithmen und
+Datenstrukturen + Softwaretechnologie, `course_concurrency=2`, default
+debounce) N times (default 3, `OPAL_SHOWALL_SIGNAL_RUNS` to change it),
+greps the captured `--debug-clicks` output for the Vorlesung node
+(`CourseNode/1775615795226691003`) and reports, per run, whether
+`expansionSignalled` was true/false and whether `warnShowAllTruncated` fired
+for it. Output also goes to `tmp/showall-signal-probe.txt`.
+
+**Not yet done: actually running it.** The failure is intermittent (2 of 4 in
+the archived Question 16/17 data), so a run that reproduces nothing is not a
+result - rerun with `OPAL_SHOWALL_SIGNAL_RUNS` raised rather than concluding
+it's fixed. Read the test file's header comment for the prediction and
+failure criterion before running - they're written down there, not repeated
+here. Once a real result lands (reproduced at least once, or genuinely
+exhausted several rounds with nothing), write it into
+`docs/sync-speed-model.md`'s Question 19 section and clear this note back to
+the placeholder.
+
+---
 
 **Do not run Question 17's concurrency=1 control run.** It was the "next up" here
 until 2026-08-03 and is now unnecessary: Question 17 was answered from the
@@ -31,13 +57,3 @@ there, the detector was counting table rows instead of file rows and flagging an
 enrolment table. Fixed and re-verified live the same day. If you find an older
 note claiming the 345-file ground truth is short, it is wrong; that was my
 prediction, and the run refuted it.
-
-Next up, already decided and needing nobody: **Question 19**
-(`docs/sync-speed-model.md`) - Question 17's remaining tail, and the last
-unexplained real file loss. Under `course_concurrency=2` a paginated folder
-returns the same 41 rows it started with and drops six files, twice out of four
-runs; at `concurrency=1` the same node expands correctly to 44. Open question is
-whether the "show all" click is dropped or whether its answer arrives after the
-read. Needs click-level logging plus a contention run to reproduce, and the
-failure is intermittent so expect repeats. Prediction and failure criterion are
-already written down in the model file - read them before running, not after.

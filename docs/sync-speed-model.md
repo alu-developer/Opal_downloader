@@ -4,6 +4,11 @@
 das Archiv** — Messwerte und Friedhof, zum Nachschlagen, nicht zum Ableiten
 des nächsten Schritts.
 
+Seit 2026-08-03 gibt es keine eigene `opal-downloader-sync-speed`-Aufgabe mehr:
+`opal-downloader-autopilot` arbeitet erst den Backlog ab und landet hier, wenn
+dort nichts Unblockiertes mehr liegt. Ältere Einträge unten nennen noch die
+alte Aufgabe — das ist Historie, keine offene Zuständigkeit.
+
 Der Unterschied ist der Punkt: eine Liste von *Ansätzen* geht aus, und wenn
 sie ausgeht, sieht das aus wie "es geht nicht". Eine Liste offener *Fragen*
 geht nicht aus, weil jedes Experiment neue erzeugt. Angeordnet ist sie

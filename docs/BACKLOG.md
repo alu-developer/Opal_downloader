@@ -23,24 +23,8 @@ here is the failure mode to watch for.
 
 ## Now
 
-### Sync speed runs as an iteration loop again — reopened 2026-07-31
-The campaign was closed on the strength of "every lever measured". The
-maintainer's diagnosis is that the *working method* failed, not the levers:
-try an idea, it fails, drop it, with no step in between where anyone
-understands why. **`docs/sync-speed-model.md` is now the driver** — known
-numbers, ranked open questions, and one experiment at a time with its
-predicted number and kill criterion written down *before* the run.
-`docs/sync-speed-campaign.md` is the archive.
-
-Runs unattended as the `opal-downloader-sync-speed` scheduled task, one cycle
-per run, reporting every fifth cycle with a keep-going-or-stop recommendation.
-No cap on the campaign; the kill criterion sits per experiment. Nothing here
-changes a default — every experiment goes behind an env flag and is diffed
-byte-for-byte against the 345-file ground truth.
-
-The top open question is the one nobody ever asked: **OpenOLAT is open source
-and its source has never been read.** Ten days were spent guessing at the live
-server what the code says out loud.
+_Nothing here. When **Now**, **Next** and **Noticed** hold nothing unblocked,
+the work is the sync-speed campaign — see "Standing work" at the bottom._
 
 ---
 
@@ -125,7 +109,34 @@ Delete an entry when it is done, or when it turns out not to matter.
   exact failure mode isn't reproduced. No file loss and no bad data resulted
   (only a wasted 22 minutes and two orphaned processes), so this is not
   urgent, but it undermines the "safe to run several sessions at once"
-  assumption this whole autonomy setup leans on.
+  assumption this whole autonomy setup leans on. **Update 2026-08-03:** the
+  two scheduled tasks were merged into one, so Routine-against-Routine is no
+  longer a way to trigger this. The lock bug itself is untouched — a scheduled
+  run and one of the maintainer's own sessions can still collide — so the
+  options above stand.
+
+---
+
+## Standing work
+
+Not an item to finish — the work that fills a run when nothing above is
+unblocked. The `opal-downloader-autopilot` task reaches it as its phase 2.
+
+### Sync speed as an iteration loop — reopened 2026-07-31
+The campaign was closed on the strength of "every lever measured". The
+maintainer's diagnosis is that the *working method* failed, not the levers:
+try an idea, it fails, drop it, with no step in between where anyone
+understands why. **`docs/sync-speed-model.md` is now the driver** — known
+numbers, ranked open questions, and one experiment at a time with its
+predicted number and kill criterion written down *before* the run.
+`docs/sync-speed-campaign.md` is the archive.
+
+No cap on the campaign; the kill criterion sits per experiment. A report every
+fifth cycle carries a keep-going-or-stop recommendation, and the maintainer
+makes that call. Every experiment goes behind an env flag and is diffed
+byte-for-byte against the 345-file ground truth — but a default that has
+*passed* that diff may now be changed and shipped (decision 2026-08-03), so a
+measured win reaches the maintainer instead of sitting behind a flag.
 
 ---
 
@@ -136,6 +147,17 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The two unattended Routines merged into one** (2026-08-03): `-sync-speed`
+  is deleted; `opal-downloader-autopilot` now works the backlog first and falls
+  through to the sync-speed campaign. They had been firing milliseconds apart
+  (measured: 1 ms, 75 ms, 9 ms) because Routines only fire while the Desktop app
+  is open and missed runs catch up together — so the ~2h47m cron offset never
+  applied. Consequences: autopilot's backlog work had dried up (its only *Now*
+  item was sync-speed's own campaign), two runs aborted on collision, and one
+  Frage-15 attempt was lost to a 22-minute profile deadlock. Four rules changed
+  with the merge — no usage-limit gate at all, *Now*+*Next*+*Noticed* must be
+  clear of unblocked items before the handoff, a byte-diff-proven default may
+  now be shipped, and run length is left to judgement.
 - **Sync-speed Frage 16 answered by refutation: the contention baseline is
   itself unstable** (2026-08-03): four 2-course runs at `course_concurrency=2`
   split 248/242/242/248 — the same 6 files from one *paginated* course node

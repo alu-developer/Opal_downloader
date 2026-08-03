@@ -106,8 +106,12 @@ gate is live.
 Prefer the first-party feature over your own version of it. Unattended runs are
 first-party Claude Code Desktop scheduled tasks, not scripts: the prompts live
 in `~/.claude/scheduled-tasks/<name>/SKILL.md` (`opal-downloader-autopilot`,
-`-sync-speed`, `-weekly-review`) and everything else — schedule, model,
-permissions, run history — is managed in the Desktop app under **Routines**.
+`-weekly-review`) and everything else — schedule, model, permissions, run
+history — is managed in the Desktop app under **Routines**. Autopilot works the
+backlog first and falls through to the sync-speed campaign when nothing there
+is unblocked; it absorbed the separate `-sync-speed` task on 2026-08-03, after
+the two fired within milliseconds of each other and raced on the shared browser
+profile.
 They fire only while the app is open and the machine awake, which is the price
 of running locally; local is required because verification here needs the
 maintainer's real OPAL account and real files. **Wanting to build a gate is the

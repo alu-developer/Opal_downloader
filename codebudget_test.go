@@ -203,7 +203,27 @@ import (
 // against the real account without changing the shipped default (unset
 // behaves exactly as before). Off by default, only
 // debounceoverride_probe_test.go sets it.
-const codeLineBudget = 11898
+// Raised to 12027 on 2026-08-03 (was 11898) for three changes in one commit,
+// net +129 after the deletions below.
+//
+//   - internal/sessionstate (60 lines, a new package): reads the saved
+//     Playwright storage-state file and reports when the login actually
+//     expires, from OPAL's own authenticated-marker cookie. The landing page
+//     used to say "session saved <mtime>. May still need a fresh login if it
+//     expired" - a file timestamp and a shrug. It now says "valid until Thu 6
+//     Aug, 11:17 (2 days left)". Bought with real data: the cookie carries a
+//     72h lifetime, live-verified against the real state file.
+//   - Two GUI gimmicks (maintainer's request, 2026-08-03): a rotating line of
+//     flavour text during a sync, and a "that is roughly N clicks you did not
+//     make" tail on the summary. Roughly 45 lines of template/JS in sync.go
+//     plus the Konami handler in chrome.go. Pure decoration and the first
+//     thing to delete if this budget ever gets tight - recorded that way on
+//     purpose.
+//   - Against it: notify_on_scheduled_failure is gone entirely (config field,
+//     rawConfig key, GUI checkbox, saveNotifyPreference, and the settings
+//     carry-over), which is why +127 rather than +160. The failure toast is
+//     unconditional now - see docs/scheduled-sync-plan.md section 3.
+const codeLineBudget = 12027
 
 func TestCodeSizeStaysWithinBudget(t *testing.T) {
 	// --others --exclude-standard includes files that are new and not yet

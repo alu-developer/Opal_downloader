@@ -39,6 +39,23 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
+- **Answered, negatively: there is no 2FA-free app access to OPAL besides
+  WebDAV (2026-08-03).** Asked whether some other interface skips the
+  Shibboleth/2FA login the way WebDAV's own password does. Probed 15
+  unauthenticated paths at `bildungsportal.sachsen.de`: `/opal/webdav/` answers
+  `401 WWW-Authenticate: Basic realm="OPAL WebDAV"` (confirmed — plain Basic
+  auth, no IdP in the path), while `/opal/restapi/*` answers a bare **403 with
+  no auth challenge at all**, distinct from an unknown path, which redirects.
+  So the REST API is deployed but closed to us, and it does not even offer
+  credentials a chance. That matches this repo's own earlier finding — see
+  `docs/sync-speed-campaign.md`, "REST API 403 at the proxy" (2026-07-21) — so
+  it is two independent probes eleven days apart. BPS keeps the REST docs
+  password-protected behind an email request to support@bps-system.de and
+  describes it as a system-integration interface. Not worth pursuing: 2FA is
+  already solved unattended by TU-Fast, so any of this would be about speed,
+  not access, and WebDAV was measured and rejected on other grounds. Recorded
+  so nobody re-runs the search.
+
 - **The "one unexplained 300s login timeout" recurred a second time
   (2026-08-02), this time with no concurrent-process collision to blame.**
   After clearing the collision above and confirming no other opal-downloader
@@ -117,6 +134,20 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The session status says a date now, and the failure toast stopped being
+  optional** (2026-08-03): the landing page read "session saved <mtime>. May
+  still need a fresh login if it expired" — a file timestamp and a shrug. New
+  `internal/sessionstate` reads OPAL's own `authenticated-marker` cookie out of
+  the saved Playwright state; the page now says "valid until Thu 6 Aug, 11:17
+  (2 days left)". Live-verified against the real state file. It is an upper
+  bound, not a promise — OPAL's server-side session can die sooner, which the
+  wording says. Deliberately does *not* gate the Sync button: an expired
+  session is not a blocker (see CLAUDE.md). In the same commit,
+  `notify_on_scheduled_failure` was deleted outright — config key, GUI
+  checkbox and all — because there is no scenario for switching it off, and it
+  structurally could not fire for the failure that matters most (a run that
+  died before `config.Load`). Plus two bits of flavour on the sync page at the
+  maintainer's request, browser-walk tested.
 - **The two unattended Routines merged into one** (2026-08-03): `-sync-speed`
   is deleted; `opal-downloader-autopilot` now works the backlog first and falls
   through to the sync-speed campaign. They had been firing milliseconds apart

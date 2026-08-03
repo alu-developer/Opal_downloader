@@ -642,9 +642,7 @@ func runSync(args []string) (err error) {
 	// stats stays its zero value, and loaded stays its zero value for any
 	// early return before they're set (e.g. EnsureTUFastPresent or
 	// config.Load failing), which buildScheduledRunStatus already accounts
-	// for - and a zero-value loaded.App.NotifyOnScheduledFailure is false,
-	// so the notify step below is simply skipped in that case (opt-in
-	// preference can't be known if config never loaded).
+	// for.
 	//
 	// loaded is declared here (rather than at its original assignment
 	// point further down) specifically so this closure can reference it -
@@ -668,14 +666,25 @@ func runSync(args []string) (err error) {
 				fmt.Fprintln(os.Stderr, "Warning: failed to write scheduled-run status file:", writeErr)
 			}
 
-			// Toast notification: opt-in (config.yaml's
-			// notify_on_scheduled_failure / the GUI Settings "Notify me if
-			// a scheduled sync fails" checkbox), fires only on an actual
-			// failure outcome - never partial or success, so a routine
-			// file-error hiccup doesn't create notification fatigue. See
-			// internal/notify's package doc for the investigation behind
-			// this approach (no BurntToast/module dependency needed).
-			if status.Outcome == statuslog.OutcomeFailure && loaded.App.NotifyOnScheduledFailure {
+			// Toast notification on an actual failure outcome - never
+			// partial or success, so a routine file-error hiccup doesn't
+			// create notification fatigue. See internal/notify's package
+			// doc for the investigation behind this approach (no
+			// BurntToast/module dependency needed).
+			//
+			// Unconditional since 2026-08-03. It used to be opt-in behind
+			// config.yaml's notify_on_scheduled_failure and a GUI
+			// checkbox, which the maintainer read as nonsense and it is:
+			// the only run that fires this is one nobody watched, the
+			// notification is the entire mechanism by which they find out
+			// it broke, and it is not on any success path - so "off" only
+			// ever bought silence about a sync that is quietly not
+			// happening. Note there is deliberately no `loaded` check
+			// either: a run that died before config.Load (broken or
+			// missing config.yaml) is exactly a failure worth a toast, and
+			// the old opt-in could not fire for it at all, because the
+			// preference it needed lives in the file that failed to load.
+			if status.Outcome == statuslog.OutcomeFailure {
 				if notifyErr := notify.ScheduledSyncFailure(status.Message); notifyErr != nil && !errors.Is(notifyErr, notify.ErrUnsupported) {
 					fmt.Fprintln(os.Stderr, "Warning: failed to show scheduled-sync-failure toast notification:", notifyErr)
 				}

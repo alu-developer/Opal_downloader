@@ -74,14 +74,6 @@ type settingsViewData struct {
 	SectionFolderNames    []sectionFolderRow
 	SubfolderDestinations []subfolderDestinationRow
 
-	// NotifyOnScheduledFailure drives the "Notify me if a scheduled sync
-	// fails" checkbox (see internal/notify). Unlike the Schedule* fields
-	// below, this IS a plain config.yaml field (config.App.
-	// NotifyOnScheduledFailure) - saved/loaded through the main settings
-	// form the same way as Sync/UseSectionSubfolders, not queried live from
-	// an OS-level source.
-	NotifyOnScheduledFailure bool
-
 	// Schedule* fields drive the "Enable daily automatic sync" section (see
 	// schedule.go/applyScheduleStatus) - deliberately not part of
 	// config.yaml/config.App: the source of truth for whether scheduling is
@@ -172,8 +164,6 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 		UseSectionSubfolders:  loaded.App.UseSectionSubfolders,
 		SectionFolderNames:    sectionRows,
 		SubfolderDestinations: destRows,
-
-		NotifyOnScheduledFailure: loaded.App.NotifyOnScheduledFailure,
 	}
 }
 
@@ -273,13 +263,6 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	syncEnabled := r.FormValue("sync") == "on"
 	useSectionSubfolders := r.FormValue("use_section_subfolders") == "on"
 
-	// Carried over from what is already saved, never read from this form.
-	// The checkbox moved to /schedule when automatic sync got its own page,
-	// and an unchecked box is indistinguishable from an absent one in a form
-	// post - so reading it here would silently turn the preference off every
-	// single time anyone saved their folder settings.
-	notifyOnScheduledFailure := base.App.NotifyOnScheduledFailure
-
 	view := settingsViewData{
 		ConfigPath: configPath,
 
@@ -292,8 +275,6 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 		UseSectionSubfolders:  useSectionSubfolders,
 		SectionFolderNames:    sectionRows,
 		SubfolderDestinations: destRows,
-
-		NotifyOnScheduledFailure: notifyOnScheduledFailure,
 	}
 
 	loaded := base
@@ -305,7 +286,6 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	loaded.App.UseSectionSubfolders = useSectionSubfolders
 	loaded.App.SectionFolderNames = sectionFolderNames
 	loaded.App.SubfolderDestinations = subfolderDestinations
-	loaded.App.NotifyOnScheduledFailure = notifyOnScheduledFailure
 	loaded.Credentials.URL = config.DefaultOPALURL
 	loaded.Credentials.StateFile = config.DefaultStateFile
 

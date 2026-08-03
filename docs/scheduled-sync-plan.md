@@ -222,6 +222,20 @@ Filed as its own task specifically so it doesn't block the core log+banner
 mechanism from shipping, and so its dependency footprint gets evaluated on
 its own rather than bundled into the core task's scope.
 
+> **Shipped, then simplified (2026-08-03).** The toast exists
+> (`internal/notify`, direct Windows Runtime call — no BurntToast, no new
+> `go.mod` dependency). The failure-only rule above held up and still stands.
+> What did not was making it *opt-in*: it shipped behind a
+> `notify_on_scheduled_failure` config key and a GUI checkbox, and the
+> maintainer's read — correct — is that there is no scenario for switching it
+> off. An automatic run is by definition one nobody watched, so the toast is
+> the entire mechanism by which its failure is ever noticed; "off" only ever
+> bought silence about a sync that had quietly stopped happening. The key and
+> the checkbox are gone, the toast is unconditional, and it now also fires for
+> a run that died *before* `config.Load` — which the opt-in structurally could
+> not do, because the preference it needed lived in the file that failed to
+> load.
+
 Both mechanisms stay strictly local — no network call, no
 opal-downloader-operated backend involved anywhere, consistent with
 CLAUDE.md's "local-only tool" / "credentials and session data never leave

@@ -147,25 +147,3 @@ func applyScheduleRegistration(enable bool, at string, configPath string) error 
 	}
 	return scheduleEnableFunc(exePath, at)
 }
-
-// saveNotifyPreference persists just the "tell me if it failed" checkbox.
-//
-// It reads the config, changes one field and writes it back, rather than
-// going through the settings form's parser: that parser rebuilds the course
-// list and every folder mapping from submitted form rows, so handing it a
-// form that contains none of them would wipe all of it. This page has no
-// business touching any of those settings.
-func saveNotifyPreference(configPath string, notify bool) error {
-	loaded, err := config.Load(configPath)
-	if err != nil {
-		// No config yet means nothing to attach the preference to. The page
-		// already tells the user to set up first; silently creating a config
-		// from a notification checkbox would be worse than doing nothing.
-		return nil
-	}
-	if loaded.App.NotifyOnScheduledFailure == notify {
-		return nil
-	}
-	loaded.App.NotifyOnScheduledFailure = notify
-	return config.Save(configPath, loaded)
-}

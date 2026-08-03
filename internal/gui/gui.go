@@ -21,6 +21,7 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/report"
+	"github.com/alu-developer/opal-downloader/internal/sessionstate"
 	"github.com/alu-developer/opal-downloader/internal/updater"
 )
 
@@ -348,11 +349,15 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 	` + disclaimerHTML + `
 
 	{{if not .SetupNeeded}}
-	<div class="status {{if .LoggedIn}}ok{{else}}warn{{end}}">
-		{{if .LoggedIn}}
-			Logged in (session saved {{if .StateModified}}{{.StateModified}}{{else}}earlier{{end}}). May still need a fresh login if it expired.
-		{{else}}
+	<div class="status {{if not .LoggedIn}}warn{{else if .SessionStale}}neutral{{else}}ok{{end}}">
+		{{if not .LoggedIn}}
 			Not logged in yet.
+		{{else if not .SessionKnown}}
+			Logged in (session saved {{if .StateModified}}{{.StateModified}}{{else}}earlier{{end}}). How long it stays valid could not be read from the saved session.
+		{{else if .SessionStale}}
+			Your saved login expired on {{.SessionExpiry}}. The next sync just logs in again on its own &ndash; nothing for you to do.
+		{{else}}
+			Logged in, valid until {{.SessionExpiry}} ({{.SessionLeft}} left). OPAL can end it sooner; if it does, the next sync logs in again by itself.
 		{{end}}
 	</div>
 	{{end}}
@@ -399,6 +404,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			<li><a href="/feedback">Feedback / Problem melden</a></li>
 		</ul>
 	</nav>
+	` + konamiEasterEgg + `
 </body>
 </html>
 `))
@@ -407,6 +413,20 @@ type landingData struct {
 	LoggedIn      bool
 	StateFile     string
 	StateModified string
+
+	// Session* describe how much longer the saved login is good for, read
+	// from OPAL's authenticated-marker cookie (internal/sessionstate).
+	//
+	// SessionKnown false means the marker was not found and the page must
+	// fall back to the old "saved at <time>" wording - not to claiming the
+	// session is gone. SessionStale true is the one hard fact available
+	// here: past the marker's expiry the session is definitely dead. The
+	// reverse does not hold, which is why the "still valid" wording says
+	// "until" (a deadline) rather than "for" (a promise).
+	SessionKnown  bool
+	SessionStale  bool
+	SessionExpiry string
+	SessionLeft   string
 
 	// CourseCount/SyncAllCourses/SyncReady/SyncBlockedReason drive the
 	// landing page's primary "Sync now" action. SyncReady is false whenever
@@ -496,10 +516,20 @@ func (s *server) applySyncReadiness(data *landingData) {
 	data.SyncReady = true
 }
 
-// sessionStatus reports whether a session state file exists for the
-// configured credentials, and its modification time when available. This is
-// a cheap filesystem check only - it does not launch a browser or validate
-// the session against OPAL.
+// sessionStatus reports what the saved session state file says: whether one
+// exists for the configured credentials, when it was written, and - from
+// OPAL's own authenticated-marker cookie - when it stops being valid. This is
+// a cheap filesystem check only; it does not launch a browser or validate the
+// session against OPAL. See internal/sessionstate for what the marker can and
+// cannot establish.
+//
+// LoggedIn deliberately stays "a saved session exists" and is NOT ANDed with
+// "not expired". LoggedIn is what gates the Sync button in
+// applySyncReadiness, and an expired session is not a reason to stop someone
+// syncing: TU-Fast completes login and 2FA unattended, so a stale session
+// costs a sync one extra automated login, not a failure. Blocking the button
+// on it would reintroduce exactly the "expired session = blocker" belief
+// CLAUDE.md records as false. The expiry is display only.
 func (s *server) sessionStatus() landingData {
 	credentials, err := config.LoadCredentials(s.configPath)
 	stateFile := config.DefaultStateFile
@@ -507,13 +537,44 @@ func (s *server) sessionStatus() landingData {
 		stateFile = credentials.StateFile
 	}
 
-	data := landingData{StateFile: stateFile}
-	info, statErr := os.Stat(stateFile)
-	if statErr == nil && !info.IsDir() {
-		data.LoggedIn = true
-		data.StateModified = info.ModTime().Format("2006-01-02 15:04:05")
+	status := sessionstate.Inspect(stateFile)
+	data := landingData{
+		StateFile:     stateFile,
+		LoggedIn:      status.Present,
+		SessionKnown:  status.KnownExpiry,
+		SessionStale:  status.Expired,
+		SessionExpiry: status.ValidUntil.Format("Mon 2 Jan, 15:04"),
+		SessionLeft:   humanizeSessionRemaining(status.Remaining()),
+	}
+	if status.Present {
+		data.StateModified = status.Saved.Format("2006-01-02 15:04:05")
 	}
 	return data
+}
+
+// humanizeSessionRemaining renders a duration the way someone reads a
+// deadline, not the way Go prints one: "2 days", "16 hours", "40 minutes" -
+// never Go's default "40h13m54.9s". Rounding is downward at each unit on
+// purpose, so the page never promises more time than there is.
+func humanizeSessionRemaining(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return ""
+	case d < time.Hour:
+		minutes := int(d.Minutes())
+		if minutes <= 1 {
+			return "under a minute"
+		}
+		return fmt.Sprintf("%d minutes", minutes)
+	case d < 48*time.Hour:
+		hours := int(d.Hours())
+		if hours == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", hours)
+	default:
+		return fmt.Sprintf("%d days", int(d.Hours()/24))
+	}
 }
 
 // checkForUpdateOnce hits internal/updater's release-check endpoint exactly

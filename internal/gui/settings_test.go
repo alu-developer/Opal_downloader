@@ -212,24 +212,30 @@ session_state_file: ./state.json
 	}
 }
 
-// The "notify me if a scheduled sync fails" preference lives in config.yaml
-// but is edited on /schedule, because it is about automatic runs and nothing
-// else. That split creates a specific hazard, which is what this pins.
+// The failure notification stopped being a preference on 2026-08-03 - it
+// always fires. These two pin what that removal has to mean in the GUI:
+// nothing on either page offers it as a choice, and neither page save
+// resurrects the retired config key.
 //
-// parseSettingsForm rebuilds the config from the submitted form. An unchecked
-// checkbox and an absent one are indistinguishable in a form post - so reading
-// this field from the settings form, now that the input is no longer on that
-// page, would silently turn the preference off every single time anybody saved
-// their folder settings. It has to be carried over from what is on disk.
-func TestSavingSettingsDoesNotClearTheScheduledFailureNotification(t *testing.T) {
+// This replaces a pair of tests that existed to protect the old checkbox
+// from being silently cleared by an unrelated save (an unchecked box and an
+// absent one are indistinguishable in a form post). That hazard is gone with
+// the setting, but the "the schedule page must not touch settings it has no
+// inputs for" half of it is still real, so it is kept below.
+func TestNeitherPageOffersTheFailureNotificationAsAChoice(t *testing.T) {
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) { return scheduler.Info{Registered: false}, nil },
+		nil,
+		func() error { return nil },
+		func() (string, error) { return `C:\fake\opal-downloader.exe`, nil },
+	)
+
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
-
 	initialYAML := `download_path: ./downloads
 courses:
   - "*"
 sync: true
-notify_on_scheduled_failure: true
 opal_url: https://bildungsportal.sachsen.de/opal/
 session_state_file: ./state.json
 `
@@ -237,43 +243,30 @@ session_state_file: ./state.json
 		t.Fatalf("failed to write initial config: %v", err)
 	}
 
-	before, err := config.Load(configPath)
-	if err != nil {
-		t.Fatalf("failed to load initial config: %v", err)
-	}
-	if !before.App.NotifyOnScheduledFailure {
-		t.Fatalf("precondition failed: expected notify_on_scheduled_failure to start true")
-	}
+	for _, page := range []struct {
+		path    string
+		handler http.HandlerFunc
+	}{
+		{"/settings", handleSettings(configPath)},
+		{"/schedule", handleSchedulePage(configPath)},
+	} {
+		req := httptest.NewRequest(http.MethodGet, page.path, nil)
+		rec := httptest.NewRecorder()
+		page.handler(rec, req)
 
-	// A perfectly ordinary settings save, carrying no notification field -
-	// because the settings page no longer has one.
-	form := url.Values{}
-	form.Set("download_path", before.App.DownloadPath)
-	form.Set("sync_all_courses", "on")
-	form.Set("sync", "on")
-
-	req := httptest.NewRequest(http.MethodPost, "/settings", nil)
-	req.PostForm = form
-	req.Form = form
-	rec := httptest.NewRecorder()
-
-	handleSettings(configPath)(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK from settings POST, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	after, err := config.Load(configPath)
-	if err != nil {
-		t.Fatalf("failed to load config after save: %v", err)
-	}
-	if !after.App.NotifyOnScheduledFailure {
-		t.Error("saving folder settings silently switched off the scheduled-failure notification")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s: expected 200, got %d", page.path, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), `name="notify_on_scheduled_failure"`) {
+			t.Errorf("GET %s still renders a notify_on_scheduled_failure input", page.path)
+		}
 	}
 }
 
-// And the preference is genuinely editable where it now lives.
-func TestSchedulePageSavesTheFailureNotification(t *testing.T) {
+// The schedule page saves the schedule. It must not go anywhere near the
+// course list or the folder mappings, which it has no inputs for - the whole
+// reason it never went through parseSettingsForm.
+func TestSchedulePageSaveLeavesCoursesAndFoldersAlone(t *testing.T) {
 	withScheduleFakes(t,
 		func() (scheduler.Info, error) { return scheduler.Info{Registered: false}, nil },
 		nil,
@@ -297,7 +290,6 @@ session_state_file: ./state.json
 	}
 
 	form := url.Values{}
-	form.Set("notify_on_scheduled_failure", "on")
 	req := httptest.NewRequest(http.MethodPost, "/schedule", nil)
 	req.PostForm = form
 	req.Form = form
@@ -309,11 +301,6 @@ session_state_file: ./state.json
 	if err != nil {
 		t.Fatalf("load config after save: %v", err)
 	}
-	if !after.App.NotifyOnScheduledFailure {
-		t.Errorf("the schedule page did not save the notification preference, body:\n%s", rec.Body.String())
-	}
-	// The schedule page saves one field. It must not go anywhere near the
-	// course list or the folder mappings, which it has no inputs for.
 	if len(after.App.Courses) != 1 || after.App.Courses[0] != "Analysis I" {
 		t.Errorf("saving from the schedule page changed the course list: %#v", after.App.Courses)
 	}

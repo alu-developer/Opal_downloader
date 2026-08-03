@@ -578,6 +578,13 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	// nine in one section - "Übungsblätter", 29 files collapsing to 20, which
 	// is precisely one OPAL page. Nothing in the run said so; it reported
 	// success. See docs/sync-speed-campaign.md.
+	// Report the two lists themselves before reducing them to a comparison.
+	// See showAllProbe's doc comment (scraper.go) for why the counts alone
+	// were not enough to diagnose Question 18.
+	if s.showAllProbe != nil {
+		s.showAllProbe(currentURL, candidates, expanded)
+	}
+
 	if len(expanded) <= len(candidates) {
 		warnShowAllTruncated(currentURL, len(candidates),
 			fmt.Sprintf("expansion completed but added nothing (%d rows before, %d after)", len(candidates), len(expanded)))

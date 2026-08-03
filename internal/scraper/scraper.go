@@ -144,6 +144,21 @@ type OpalScraper struct {
 	// candidate count) correlation; nil in production (Question 10, sync-speed-model.md).
 	sectionProbe func(settle, stable time.Duration, candidates int)
 
+	// showAllProbe is a test-only hook reporting what a "show all" expansion
+	// actually did to a section's candidate list: the hrefs before the
+	// expansion and the hrefs after it, not just the counts. Nil in
+	// production (Question 18, sync-speed-model.md).
+	//
+	// Counts alone are what left Question 18 undiagnosed for two days.
+	// warnShowAllTruncated has been reporting "17 rows before, 14 after" on
+	// one node in every archived run since 2026-08-01, and a count going
+	// *down* has at least two very different explanations - the expansion
+	// dropped rows that were really there, or the collapsed list contained
+	// non-file rows (the show-all control itself is one of them) that stop
+	// matching once expanded. Those are indistinguishable without the hrefs,
+	// and they need opposite fixes.
+	showAllProbe func(sectionURL string, before, after []map[string]string)
+
 	// stall records when the crawl last made progress and what it was doing,
 	// so a run that wedges leaves behind the one thing that was missing the
 	// time this actually happened: which section it was on. See stallwatch.go.

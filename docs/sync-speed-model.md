@@ -206,17 +206,42 @@ Dateien am 2026-07-26). Das Projekt hält selbst schon 500ms/6000ms (statt
 ob eine gesenkte Serial-Debounce-Zeit diese Marge unterläuft, wenn der
 Override beide Werte gleich setzt statt nur den seriellen.
 
-**Vorhersage:** noch nicht geschrieben. Vor dem Schreiben nötig: ein Testaufbau,
-der echte Kontention erzeugt (mind. 2 Kurse tatsächlich gleichzeitig gecrawlt,
-nicht nur das Concurrency-Flag auf einen Einzelkurs gesetzt) - vermutlich
-`collectCourseFilesConcurrently` (`orchestrator.go` Zeile 437) direkt mit 2
-echten Kursen aufrufen, mit `OPAL_DEBOUNCE_MS_OVERRIDE` gesetzt, dann densel-
-ben Byte-für-Byte-Vergleich wie Frage 14/15 gegen eine bekannte Ground-Truth
-für beide Kurse zusammen. Teurer als Frage 15 (zwei Kurse gleichzeitig statt
-einer), und die erste Frage, bei der auch `mutationObserverConcurrentDebounceMs`
-selbst (nicht nur der Override-Wert) explizit gegenübergestellt werden sollte
-— vermutlich Override vs. unverändertes 500ms/6000ms-Konzept, nicht Override
-vs. 300ms/4000ms.
+**Referenzpunkt (gelesen vor der Vorhersage):** die Override senkt unter
+Kontention **zwei** Werte gleichzeitig, nicht einen. `contentSettleWaitBudget()`
+(`navigation.go` Zeile 397-405) gibt bei gesetzter Override
+`(ms, mutationObserverHardCapMs)` zurück — also den **seriellen** Hard Cap
+(4000ms), nicht den konkurrenten (6000ms). Ein Lauf mit
+`OPAL_DEBOUNCE_MS_OVERRIDE=150` unter `course_concurrency=2` fährt damit
+150ms/4000ms gegen die Vergleichsbasis 500ms/6000ms: Debounce auf 30%, Hard
+Cap auf 67%. Das ist ein schärferer Test als Frage 14/15 (dort nur
+150ms/4000ms gegen 300ms/4000ms, Hard Cap unverändert) und die Ursache muss
+bei einem Fehlschlag zwischen beiden Größen getrennt werden.
+
+**Vorhersage:** Alle vier Läufe (2× Override 150ms/4000ms unter echter
+Kontention, 2× unverändertes 500ms/6000ms) finden dieselbe Dateimenge — kein
+Selbst-Diff, kein Cross-Diff. Mechanismus: der Debounce misst *Ruhe nach der
+letzten Mutation*, nicht absolute Zeit. Kontention verzögert die Mutationen
+selbst, verschiebt also das Fenster nach hinten, statt es zu verkürzen; sie
+erzeugt nur dann einen Verlust, wenn sie *Lücken innerhalb* des Renderns über
+150ms aufreißt (Renderer bekommt die CPU für >150ms nicht, obwohl er noch
+nicht fertig ist). Frage 9 (Baum-Fragment strukturell auf offene Knoten
+begrenzt) sagt zusätzlich, dass die pro Sektion zu rendernde Menge unter
+Kontention nicht wächst. Zeitersparnis erwartet **unter** den 28,7% von Frage
+15 — unter Kontention sitzt mehr Zeit im tatsächlichen Rendern und im Hard
+Cap, wo die Override nichts spart.
+
+**Gescheitert ab:** Jede Datei-/Byte-Abweichung, egal in welcher Richtung —
+Selbst-Diff zwischen zwei Läufen derselben Bedingung oder Cross-Diff zwischen
+Override und Basis. Genau unter Kontention passierten alle echten
+Datenverluste dieser Kampagne (`course_concurrency=2` verlor am 2026-07-26
+9 Dateien), also ist hier eine einzelne fehlende Datei ein Nein, keine
+Messungenauigkeit. Bei Fehlschlag ist die nächste Frage nicht "150ms zu
+kurz?", sondern welcher der beiden gesenkten Werte es war: ein Wiederholungs-
+lauf mit 150ms-Debounce **und** explizit 6000ms Hard Cap trennt das.
+
+**Kosten:** Vier Läufe à zwei gleichzeitig gecrawlte Kurse (klein + groß, wie
+Frage 15). Kein Default ändert sich — die Override ist test-only und
+standardmäßig aus.
 
 ---
 

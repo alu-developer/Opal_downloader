@@ -25,6 +25,14 @@ on:
   push:
     tags:
       - "v*"
+  # Manual trigger, added 2026-08-03 so the installer can be *verified*
+  # without cutting a release. The Chromium-cache-path bug this branch fixes
+  # was unverifiable any other way: reproducing it needs Inno Setup plus a
+  # populated Playwright cache, and the only environment that has both
+  # already is this runner. A dispatch run builds and installs the installer
+  # and asserts where Chromium landed, then stops - the release step below
+  # is tag-only, so nothing is published.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -80,7 +88,13 @@ jobs:
         id: build
         shell: pwsh
         run: |
+          # On a tag push ref_name is the tag (v1.2.3). On workflow_dispatch
+          # it is the branch name, which is not a version and would end up
+          # in the installer's own version string - so dispatch runs build
+          # under a fixed placeholder instead. Dispatch runs never publish
+          # (see the tag-only condition on the release step).
           $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -ne "push") { $tag = "v0.0.0-ci" }
           ./scripts/build-installer.ps1 -Version $tag
 
           $exe = Join-Path $PWD "installer\output\opal-downloader-setup.exe"
@@ -102,7 +116,57 @@ jobs:
           "exe_path=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "sidecar_path=$sidecar" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: Verify the installer puts Chromium where the app looks for it
+        # This is the acceptance test for the bug this branch fixes: the
+        # installer bundled Chromium into %LOCALAPPDATA%\ms-playwright while
+        # EnsurePlaywrightBrowsersPath (internal/scraper/session.go) has read
+        # %USERPROFILE%\.opal-downloader\ms-playwright since b352143, so a
+        # fresh install silently shipped a Chromium the app never found.
+        #
+        # The "Fetch Playwright Chromium" step above already populated the
+        # target path on this runner - so asserting against it directly would
+        # pass no matter what the installer did. The cache is therefore moved
+        # aside FIRST (after the build has consumed it, before the install),
+        # which is what makes a green check here mean anything at all.
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright"
+          $stash  = Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright-prebuilt"
+          if (Test-Path $target) { Move-Item $target $stash }
+          if (Test-Path $target) { throw "could not clear $target before install" }
+
+          $exe = "${{ steps.build.outputs.exe_path }}"
+          $p = Start-Process -FilePath $exe `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/NOICONS" `
+            -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "silent install failed with exit code $($p.ExitCode)" }
+
+          # Both are required, not just chromium-*: a headless list/sync
+          # session resolves to chrome-headless-shell.exe, so an install
+          # missing the shell breaks the non-GUI path only (see
+          # installer/opal-downloader.iss's header comment).
+          foreach ($prefix in @("chromium-", "chromium_headless_shell-")) {
+            $found = Get-ChildItem -Path $target -Directory -Filter "$prefix*" -ErrorAction SilentlyContinue
+            if (-not $found) {
+              Write-Host "--- contents of $target ---"
+              Get-ChildItem -Path $target -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host
+              throw "installer did not place '$prefix*' under $target - this is the bug this workflow is meant to catch"
+            }
+            Write-Host "OK: $($found[0].Name) present under $target"
+          }
+
+          # The old, wrong location must stay empty of *our* doing. It is
+          # only checked when the build did not create it beforehand, since
+          # a dev runner image could legitimately carry one.
+          $wrong = Join-Path $env:LOCALAPPDATA "ms-playwright"
+          if (Test-Path $wrong) {
+            Write-Host "note: $wrong exists on this runner (not created by the install step)"
+          }
+
       - name: Create GitHub Release and upload assets
+        # Tag pushes only. A workflow_dispatch run exists to verify the
+        # installer, not to publish one.
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

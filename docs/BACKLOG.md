@@ -156,6 +156,14 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The code budget is gone** (2026-08-03, maintainer's call): `codebudget_test.go`
+  deleted. In its 7 days it never once refused a raise — 11181 → 11898 committed,
+  plus a pending raise to 12025 that died with it — and its comment had grown to
+  213 lines of justification over 84
+  lines of code, which is the "a number I defend is a paragraph I write" failure
+  it was explicitly built to avoid. It did earn two things worth remembering by
+  hand: lower the ceiling when you delete something, and try trimming before
+  growing. `git show 5153cb5:codebudget_test.go` has the file and its full ledger.
 - **The 150ms debounce shipped as the default** (2026-08-03, decision round):
   `mutationObserverDebounceMs` 300 → 150, the campaign's first user-visible win
   since it reopened. ~29% off the dominant component of a sync, on 8 byte-identical

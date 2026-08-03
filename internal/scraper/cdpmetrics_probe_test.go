@@ -1,11 +1,11 @@
 package scraper
 
-// docs/sync-speed-model.md, Frage 13 ("Nächstes Experiment", written
+// docs/sync-speed-model.md, Question 13 ("Next experiment", written
 // 2026-08-02): three independently measured candidates for the settle+stable
 // wait (network transfer 24-31%, section file count linear r=0.40-0.46,
 // section file count quadratic r=0.54) all land in the same "real but
 // minority" bucket - none dominant. This is the source-predicted next step
-// (Frage 7, Frage 10): real browser profiling instead of more source-reading
+// (Question 7, Question 10): real browser profiling instead of more source-reading
 // or network tracing.
 //
 // Full CDP Tracing.start (Chrome-Trace-JSON via Tracing.dataCollected/
@@ -18,16 +18,16 @@ package scraper
 // recalc, or none of those") without new parsing infrastructure.
 //
 // Targets the small course's already-known slowest section ("Vorlesung",
-// Algorithmen und Datenstrukturen, 44 candidates / 533 mutations per Frage
+// Algorithmen und Datenstrukturen, 44 candidates / 533 mutations per Question
 // 11) rather than a third big-course crawl today - no new server load beyond
 // what a 6-section BFS walk already costs (docs/server-load.md).
 //
-// Prediction (written before this ran, docs/sync-speed-model.md "Nächstes
-// Experiment"): LayoutDuration+RecalcStyleDuration+ScriptDuration together
+// Prediction (written before this ran, docs/sync-speed-model.md "Next
+// experiment"): LayoutDuration+RecalcStyleDuration+ScriptDuration together
 // make up a real but non-dominant 20-40% of settle+stable time for the
 // slowest section, in the same range as the already-measured network and
 // file-count candidates. Qualitative failure criterion (not just a
-// threshold, per Frage 12's lesson): >50% = CPU work is the previously
+// threshold, per Question 12's lesson): >50% = CPU work is the previously
 // missed dominant driver; ~20-40% = confirmed as another minority
 // explanation, pointing at the 300ms debounce constant itself as the
 // remaining suspect; <10% = strong case the time is the debounce constant,
@@ -49,7 +49,7 @@ import (
 // cdpPerformanceMetrics reads back Performance.getMetrics() as a name->value
 // map. CDPSession.Send returns `any` (a generic decoded JSON value), not a
 // typed struct - there is no generated binding for this raw protocol method,
-// same situation Frage 3 already found for Fetch.enable.
+// same situation Question 3 already found for Fetch.enable.
 func cdpPerformanceMetrics(session playwright.CDPSession) (map[string]float64, error) {
 	raw, err := session.Send("Performance.getMetrics", map[string]any{})
 	if err != nil {
@@ -80,7 +80,7 @@ func cdpPerformanceMetrics(session playwright.CDPSession) (map[string]float64, e
 
 func TestCDPPerformanceMetricsAcrossSections(t *testing.T) {
 	if os.Getenv("OPAL_CDP_METRICS_TRACE") == "" {
-		t.Skip("set OPAL_CDP_METRICS_TRACE=1 to run the real-account CDP performance-metrics probe (docs/sync-speed-model.md Frage 13)")
+		t.Skip("set OPAL_CDP_METRICS_TRACE=1 to run the real-account CDP performance-metrics probe (docs/sync-speed-model.md Question 13)")
 	}
 	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
 
@@ -244,7 +244,7 @@ func TestCDPPerformanceMetricsAcrossSections(t *testing.T) {
 		say("RESULT: no sections produced usable metrics - inconclusive.")
 	} else {
 		// The slowest section by settle+stable time is the one the
-		// prediction was written against ("Vorlesung", per Frage 11 the
+		// prediction was written against ("Vorlesung", per Question 11 the
 		// section with the most candidates/mutations in this course).
 		slowest := results[0]
 		for _, r := range results[1:] {

@@ -1,1170 +1,1043 @@
-# Sync speed: das Ursachenmodell
+# Sync speed: the causal model
 
-**Diese Datei treibt die Arbeit. `docs/sync-speed-campaign.md` ist ab jetzt
-das Archiv** — Messwerte und Friedhof, zum Nachschlagen, nicht zum Ableiten
-des nächsten Schritts.
+**This file drives the work. `docs/sync-speed-campaign.md` is the archive from
+here on** — measurements and graveyard, to look things up in, not to derive the
+next step from.
 
-Seit 2026-08-03 gibt es keine eigene `opal-downloader-sync-speed`-Aufgabe mehr:
-`opal-downloader-autopilot` arbeitet erst den Backlog ab und landet hier, wenn
-dort nichts Unblockiertes mehr liegt. Ältere Einträge unten nennen noch die
-alte Aufgabe — das ist Historie, keine offene Zuständigkeit.
+Since 2026-08-03 there is no separate `opal-downloader-sync-speed` task:
+`opal-downloader-autopilot` works the backlog first and lands here when nothing
+unblocked is left there. Older entries below still name the old task — that is
+history, not an open responsibility.
 
-Der Unterschied ist der Punkt: eine Liste von *Ansätzen* geht aus, und wenn
-sie ausgeht, sieht das aus wie "es geht nicht". Eine Liste offener *Fragen*
-geht nicht aus, weil jedes Experiment neue erzeugt. Angeordnet ist sie
-danach, wie sehr die Antwort alles ändern würde — nicht danach, wie leicht
-sie zu beantworten ist.
+The difference is the point: a list of *approaches* runs out, and when it does,
+it looks like "this can't be done". A list of open *questions* does not run out,
+because every experiment creates new ones. It is ordered by how much the answer
+would change everything — not by how easy it is to answer.
 
-Eingeführt am 2026-07-31, nachdem der Maintainer die Arbeitsweise als das
-eigentliche Problem benannt hat: *"Idee haben, Idee probieren, klappt nicht,
-Ansatz verwerfen"* — ohne den Schritt dazwischen, in dem man versteht, warum.
+Introduced 2026-07-31, after the maintainer named the working method as the real
+problem: *"have an idea, try the idea, it doesn't work, drop the approach"* —
+with no step in between where anyone understands why.
 
-## Die drei Regeln
+## The three rules
 
-1. **Jedes Experiment schreibt vorher auf: erwartete Zahl, vermuteter
-   Mechanismus, und ab welcher Zahl es gescheitert ist.** Danach ist ein
-   schlechtes Ergebnis kein Urteil, sondern eine Lücke zwischen Vorhersage
-   und Wirklichkeit — und die muss erklärt werden.
-2. **Ein Ansatz darf erst geschlossen werden, wenn die Erklärung so scharf
-   ist, dass sie das Scheitern vorher vorhergesagt hätte.** Ist da noch ein
-   Loch, bleibt er offen. ("HTTP verliert Kurse" ist eine Beschreibung;
-   "OpenOLAT-Bausteintyp X rendert client-seitig und ist in der Antwort an
-   Y erkennbar" wäre eine Ursache.)
-3. **Jedes Experiment muss mindestens eine neue offene Frage hinterlassen.**
-   Tut es das nicht, ist genau das die Meldung.
+1. **Every experiment writes down beforehand: expected number, suspected
+   mechanism, and the number at which it counts as failed.** After that a bad
+   result is not a verdict but a gap between prediction and reality — and that
+   gap has to be explained.
+2. **An approach may only be closed when the explanation is sharp enough that it
+   would have predicted the failure in advance.** If there is still a hole, it
+   stays open. ("HTTP loses courses" is a description; "OpenOLAT building-block
+   type X renders client-side and is recognisable in the response by Y" would be
+   a cause.)
+3. **Every experiment must leave at least one new open question.** If it does
+   not, that is exactly what gets reported.
 
-## Wenn die Ideen ausgehen
+## When ideas run out
 
-Kein Grund aufzuhören — ein lösbarer Zustand. Feste Züge, der Reihe nach:
+No reason to stop — a solvable state. Fixed moves, in order:
 
-- **Die Gegenseite lesen.** OPAL läuft auf OpenOLAT, das ist Open Source.
-  Bisher wurden nur die Handbücher gelesen und der Live-Server abgetastet.
-- **Nachsehen, wie andere dasselbe gelöst haben** (andere OPAL-/OpenOLAT-/
-  LMS-Downloader).
-- **Die Obergrenze ausrechnen, bevor gebaut wird.** Hat hier schon einmal
-  einen ganzen Build gespart (HTTP-Ceiling ~93s).
-- **Die Frage wechseln.** Das Ziel ist *"fühlt sich wie ein Klick an"*, nicht
-  "Discovery ist schnell". Vorabholen, Hintergrundlauf, Teilergebnisse sind
-  eine eigene Lösungsklasse und standen nie auf der Liste.
-- **Fragen, welche Randbedingung verhandelbar ist** — als Optionen an den
-  Maintainer, nicht als offene Frage.
-- **Messen statt argumentieren.**
+- **Read the other side.** OPAL runs on OpenOLAT, which is open source. So far
+  only the manuals have been read and the live server probed.
+- **Look at how others solved the same thing** (other OPAL/OpenOLAT/LMS
+  downloaders).
+- **Compute the ceiling before building.** That has already saved a whole build
+  here once (HTTP ceiling ~93s).
+- **Change the question.** The goal is *"feels like one click"*, not "discovery
+  is fast". Prefetching, background runs and partial results are a solution class
+  of their own and were never on the list.
+- **Ask which constraint is negotiable** — as options to the maintainer, not as
+  an open question.
+- **Measure instead of arguing.**
 
 ---
 
-## Was wir wissen (nur Zahlen, alles aus echten Läufen)
+## What we know (numbers only, all from real runs)
 
 | | |
 |---|---|
-| Ziel | **30s** für einen No-op-Sync |
-| Heutiger verlustfreier Boden | **~207s** (reiner Browser-Crawl, 282 Sektionen) |
-| Settle-Wait | 338ms/Sektion, **64%** der Zeit in Sektionen |
-| Stability-Poll | 172ms/Sektion, **32%** |
-| Echte Arbeit (Extraktion, Navigation) | 14ms/Sektion, **2%** |
-| Rate-Limiter | 0s gehalten — bremst nichts |
+| Target | **30s** for a no-op sync |
+| Today's lossless floor | **~207s** (pure browser crawl, 282 sections) |
+| Settle wait | 338ms/section, **64%** of the time in sections |
+| Stability poll | 172ms/section, **32%** |
+| Real work (extraction, navigation) | 14ms/section, **2%** |
+| Rate limiter | held 0s — slows nothing down |
 
-**96% der Zeit wartet das Werkzeug auf eigene Timer, und jedes Warten trägt.**
-Settle-Wait weglassen: 51% *langsamer*. Verdikt zusätzlich behaupten: immer
-noch 40% langsamer. Die Zeit braucht die Seite wirklich; der MutationObserver
-ist nur die billigste Art, sie abzusitzen.
+**96% of the time the tool is waiting on its own timers, and every wait carries
+its weight.** Dropping the settle wait: 51% *slower*. Additionally asserting the
+verdict: still 40% slower. The page really does need that time; the
+MutationObserver is just the cheapest way to sit it out.
 
-Weitere harte Befunde: kein positives Render-fertig-Signal im DOM gefunden.
-Kein AJAX beim initialen Sektionsaufbau (Netzwerk-Trace, 2 Kurse, 0
-unerklärt). `ctx.Route` kostet ~30% eines Laufs allein durch seine Existenz.
-HTTP-Fetch 315ms/Sektion, 91 KiB, ~93s seriell projiziert — parallel
-korrumpiert (OPAL serialisiert die Session serverseitig). Hybrid `mode=1`:
-254s gegen 207s, also langsamer, weil HTTP erst laufen kann, nachdem der
-Browser die URLs geliefert hat. Section-Hash-Cache: 3,9% Trefferquote, 13%
-langsamer. Inhalt wächst beim Rendern nur (278 Sektionen: nie leer, nie
-größer als am Ende).
+Further hard findings: no positive render-complete signal found in the DOM. No
+AJAX during the initial section build (network trace, 2 courses, 0 unexplained).
+`ctx.Route` costs ~30% of a run purely by existing. HTTP fetch 315ms/section,
+91 KiB, ~93s projected serially — corrupted in parallel (OPAL serialises the
+session server-side). Hybrid `mode=1`: 254s against 207s, i.e. slower, because
+HTTP can only start after the browser has delivered the URLs. Section hash cache:
+3.9% hit rate, 13% slower. Content only grows while rendering (278 sections:
+never empty, never larger than at the end).
 
-## Was wir nicht wissen (sortiert nach Hebelwirkung)
+## What we don't know (sorted by leverage)
 
-### 1. Was rendert OPAL da eigentlich? — jetzt nachgelesen, siehe unten
-~~OpenOLAT ist Open Source. Diese Kampagne hat zehn Tage lang am lebenden
-Server geraten, was er tut.~~ Beantwortet 2026-07-31, siehe "Nächstes
-Experiment" unten für die Belege. Kurzfassung: es gibt **keinen** Marker, weil
-es **nichts client-seitig Gerendertes gibt, das fertig werden müsste** —
-Baum und Dateitabelle sind reines Server-HTML. Das öffnet Frage 7.
+### 1. What is OPAL actually rendering? — now read up, see below
+~~OpenOLAT is open source. This campaign spent ten days guessing at the live
+server what it does.~~ Answered 2026-07-31, see "Next experiment" below for the
+evidence. Short version: there is **no** marker, because **nothing is rendered
+client-side that would have to finish** — tree and file table are pure server
+HTML. That opens Question 7.
 
-### 2. Warum war HTTP auf 2 von 6 Kursen leer?
-"Manche Bausteine rendern server-, manche client-seitig" ist die
-Beschreibung, nicht die Ursache. Welcher Bausteintyp, und woran ist er in
-der Antwort erkennbar? Vermutlich beantwortet durch (1). Dieser Ansatz war
-der schnellste, den es je gab (22s) — er wurde an Tag 1 verworfen, ohne dass
-je jemand die Ursache diagnostiziert hat.
+### 2. Why was HTTP empty on 2 of 6 courses?
+"Some building blocks render server-side, some client-side" is the description,
+not the cause. Which building-block type, and how is it recognisable in the
+response? Probably answered by (1). This approach was the fastest there ever was
+(22s) — it was dropped on day 1 without anyone ever diagnosing the cause.
 
-### 3. ~~Warum kostet `ctx.Route` 30%?~~ Beantwortet 2026-08-01, siehe Bericht unten
-Playwright installiert bei jeder Route, egal welches Pattern übergeben wird,
-CDP-seitig `Fetch.enable` mit `patterns: [{ urlPattern: "*", requestStage:
-"Request" }]` — jede einzelne Anfrage im Browser pausiert und braucht einen
-Roundtrip zum Driver-Prozess, bevor sie weiterläuft. Das aufrufer-seitige
-Pattern (z. B. `**/FolderResource/**`) wird erst danach, im Driver-Prozess,
-geprüft — zu spät, um den Pause/Resume-Roundtrip zu vermeiden. Das erklärt
-exakt den beobachteten Befund "Pattern, das nichts matcht, kostet trotzdem
-~30%" — der ist mit CDP-seitigem `"*"` unvermeidbar, keine Pattern-Wahl
-rettet ihn. Zusätzlich schaltet dieselbe Codestelle `Network.setCacheDisabled
-(true)` scharf, solange irgendeine Route aktiv ist — der komplette
-HTTP-Cache der Session ist aus, solange interceptiert wird, unabhängig vom
-Pattern.
+### 3. ~~Why does `ctx.Route` cost 30%?~~ Answered 2026-08-01, see report below
+On every route, whatever pattern is passed in, Playwright installs
+`Fetch.enable` on the CDP side with `patterns: [{ urlPattern: "*", requestStage:
+"Request" }]` — every single request in the browser pauses and needs a round trip
+to the driver process before it continues. The caller-side pattern (e.g.
+`**/FolderResource/**`) is only checked afterwards, in the driver process — too
+late to avoid the pause/resume round trip. That exactly explains the observed
+finding "a pattern that matches nothing still costs ~30%" — unavoidable with a
+CDP-side `"*"`, and no choice of pattern rescues it. On top of that, the same
+code path arms `Network.setCacheDisabled(true)` for as long as any route is
+active — the session's entire HTTP cache is off while interception runs,
+regardless of the pattern.
 
-### 4. _(aufgegangen in Frage 7 — siehe unten)_
+### 4. _(merged into Question 7 — see below)_
 
-### 5. Ist "30s" überhaupt an Discovery gebunden?
-Das Ziel ist *"fühlt sich wie ein Klick an"*. Nie geprüft: Hintergrundlauf
-vor dem Klick, Teilergebnisse während des Laufs, geänderte Kurse zuerst.
-Diese Klasse braucht keine schnellere Discovery, sondern eine, die nicht
-vor dem Nutzer steht.
+### 5. Is "30s" even tied to discovery?
+The goal is *"feels like one click"*. Never tested: a background run before the
+click, partial results during the run, changed courses first. This class does not
+need faster discovery, it needs discovery that does not stand in front of the
+user.
 
-**Entscheidung des Maintainers, 2026-08-03:** *"es soll immer noch an
-schneller discovery gearbeitet werden, aber der rest ist auch gut."* Die
-Kampagne wird also **nicht** auf die Verdeckungs-Klasse umgeschwenkt —
-schnellere Discovery bleibt die Hauptlinie und behält die Priorität in der
-Fragenliste. Hintergrundlauf/Teilergebnisse sind damit aber ausdrücklich
-zulässige Arbeit statt einer Ausweichbewegung: sie dürfen aufgegriffen
-werden, wenn die Discovery-Linie gerade auf eine Messung wartet oder eine
-Frage dort erschöpft ist. Diese Frage bleibt deshalb offen und wandert
-nicht nach oben.
+**Maintainer's decision, 2026-08-03:** *"work should still go into fast
+discovery, but the rest is fine too."* So the campaign is **not** pivoting to the
+concealment class — faster discovery stays the main line and keeps its priority
+in the question list. But background runs/partial results are explicitly
+permissible work rather than an evasive move: they may be picked up when the
+discovery line is waiting on a measurement or a question there is exhausted. This
+question therefore stays open and does not move up.
 
-### 6. Warum bleibt 1 von 12 Sektionen über Läufe hinweg instabil?
-Der Rest wurde auf Wicket-Bookkeeping zurückgeführt. Dieser eine nicht.
-Möglicherweise dieselbe Ursache wie Frage 17 — dort ist der instabile Knoten
-zum ersten Mal namentlich bekannt und als paginiert identifiziert.
+### 6. Why does 1 in 12 sections stay unstable across runs?
+The rest was traced back to Wicket bookkeeping. This one was not. Possibly the
+same cause as Question 17 — there the unstable node is known by name for the
+first time and identified as paginated.
 
-### 17. Warum verliert eine paginierte Sektion unter Kontention ihre zweite Seite? (neu aus Frage 16, 2026-08-03)
-Frage 16 hat einen reproduzierbaren Verlust gefunden, der **nicht** am
-Settle-Budget hängt: derselbe Kursbaustein (`CourseNode/1775615795226691003`,
-6 Dateien) fehlte in 2 von 4 Läufen, je einmal unter der unveränderten
-500ms/6000ms-Konfiguration und einmal unter 150ms/4000ms. Der Knoten ist
-paginiert (`offered a "show all" control` im Lauf-Log), und genau dieser
-Wicket-Klickpfad trägt die Verlustgeschichte der Kampagne.
+### 17. Why does a paginated section lose its second page under contention? (new from Question 16, 2026-08-03)
+Question 16 found a reproducible loss that does **not** hang on the settle
+budget: the same course building block (`CourseNode/1775615795226691003`, 6
+files) was missing in 2 of 4 runs, once under the unchanged 500ms/6000ms
+configuration and once under 150ms/4000ms. The node is paginated (`offered a
+"show all" control` in the run log), and that exact Wicket click path carries the
+campaign's history of losses.
 
-Offen ist der Mechanismus, und er ist mit einem billigen Lauf eingrenzbar,
-weil die Frage binär ist:
-- **Kandidat A: der „show all"-Klick wird unter Kontention gar nicht
-  ausgelöst** — der Control ist zum Zeitpunkt der Prüfung noch nicht da, die
-  Sektion gilt als einseitig und wird ohne zweite Seite abgehakt.
-- **Kandidat B: der Klick läuft, aber sein Ergebnis wird nicht abgewartet** —
-  die AJAX-Antwort trifft nach dem Stability-Poll ein.
-- **Kandidat C:** kein Kontentions-Effekt, sondern serverseitige Varianz an
-  diesem Baustein. Widerlegbar durch Läufe bei `concurrency=1`.
+The mechanism is open, and it can be narrowed down with one cheap run because the
+question is binary:
+- **Candidate A: under contention the "show all" click is never triggered at
+  all** — the control is not yet there when it is checked for, the section counts
+  as single-page and is ticked off without a second page.
+- **Candidate B: the click runs, but its result is not waited for** — the AJAX
+  response arrives after the stability poll.
+- **Candidate C:** not a contention effect but server-side variance at this
+  building block. Refutable by runs at `concurrency=1`.
 
-**Nächster Schritt, entschieden:** zuerst C ausschließen — dasselbe Kurspaar
-zweimal bei `course_concurrency=1`, gleiche Probe. Bleiben beide Läufe bei
-248 Dateien, ist Kontention die Ursache und das Settle-Budget vollständig
-entlastet; taucht der Verlust auch dort auf, ist es kein Concurrency-Thema
-und Frage 17 wird zu einem Bug-Report über den Paginierungspfad. A gegen B
-trennt danach ein Log am Klick selbst, nicht noch ein Timing-Lauf.
+**Next step, decided:** rule out C first — the same course pair twice at
+`course_concurrency=1`, same probe. If both runs stay at 248 files, contention is
+the cause and the settle budget is fully exonerated; if the loss shows up there
+too, it is not a concurrency matter and Question 17 becomes a bug report about
+the pagination path. A vs. B is then separated by a log at the click itself, not
+by another timing run.
 
-### 7. Wenn nichts client-seitig rendert — was füllt dann die 336ms? (ersetzt die alte Frage 4)
-Das Kampagnen-Fazit vom 2026-07-31 spät ("der Content-Tree ist auf jeder
-Ebene JS-gerendert") und der heutige Quellcode-Befund ("alles ist
-Server-HTML, kein Client-Rendering") widersprechen sich direkt — beide
-stützen sich auf echte Belege (Live-DOM-Probe vs. Java-Quellcode +
-OpenOLAT-eigene Doku), keiner ist bloße Behauptung. Das muss aufgelöst
-werden, nicht stillschweigend überschrieben:
-- **Kandidat A:** Settle-Zeit ist Netzwerk-/Transferzeit einer großen
-  Server-Antwort, keine JS-Bauzeit. Plausibel, weil jede Coursenode-Seite den
-  kompletten `o_tree` des Kurses mitliefert — bei 282 Sektionen potenziell ein
-  großes HTML-Dokument pro Request. **Live gemessen 2026-08-01 (siehe
-  "Nächstes Experiment" unten): widerlegt in der geprüften Form.** Bytes
-  wachsen bei 27x mehr Sektionen nur um 1,4x, Netzwerkanteil bleibt bei
-  25–31% — Minderheit, nicht Erklärung. Offen, warum die Bytes nicht
-  skalieren (→ Frage 9).
-- **Kandidat B:** Die Probe hat etwas anderes gemessen als Baum/Tabelle
-  selbst — z. B. wächst die Trefferzahl von `looksLikeSectionFolderLink`
-  einfach, weil der Browser ein großes statisches HTML-Dokument noch
-  parst/layoutet, nicht weil JS etwas nachbaut.
-- **Kandidat C:** Ein schmal begrenztes JS-Widget auf der Seite (nicht Baum
-  oder Tabelle selbst) ist verantwortlich — ungeprüft, welches.
+### 7. If nothing renders client-side — what fills the 336ms then? (replaces the old Question 4)
+The campaign's conclusion from late 2026-07-31 ("the content tree is JS-rendered
+at every level") and today's source-code finding ("everything is server HTML, no
+client rendering") directly contradict each other — both rest on real evidence
+(live DOM probe vs. Java source code + OpenOLAT's own docs), neither is a bare
+assertion. That has to be resolved, not silently overwritten:
+- **Candidate A:** settle time is network/transfer time of a large server
+  response, not JS build time. Plausible, because every course-node page ships
+  the course's complete `o_tree` — with 282 sections potentially a large HTML
+  document per request. **Measured live 2026-08-01 (see "Next experiment"
+  below): refuted in the form tested.** Bytes grow only 1.4x with 27x more
+  sections, network share stays at 25–31% — a minority, not the explanation. Open:
+  why the bytes do not scale (→ Question 9).
+- **Candidate B:** the probe measured something other than the tree/table itself
+  — e.g. the hit count of `looksLikeSectionFolderLink` simply grows because the
+  browser is still parsing/laying out a large static HTML document, not because
+  JS is building something.
+- **Candidate C:** a narrowly bounded JS widget on the page (not the tree or the
+  table itself) is responsible — untested which one.
 
-### 8. Welcher der beiden `ctx.Route`-Kosten dominiert — Cache-Aus oder Pause/Resume?
-Frage 3 fand zwei getrennte Mechanismen hinter derselben Zahl:
-`Network.setCacheDisabled(true)` (kein Browser-Cache mehr für die ganze
-Session) und der CDP-`Fetch`-Pause/Resume-Roundtrip pro Anfrage (immer `"*"`,
-unabhängig vom Pattern). Playwright koppelt beide fest — ein Aufrufer kann sie
-in dieser Driver-Version (1.61.1) nicht einzeln abschalten. Ungeprüft: wie
-viel der ~30% ist reines Cache-Aus (viele kleine statische Wicket-Assets pro
-Sektionsseite, die sonst aus dem Cache kämen) gegenüber reinem
-Pause/Resume-Overhead (ein CDP-Roundtrip pro Anfrage, unabhängig von der
-Antwortgröße)? Lokal reproduzierbar ohne Account — z. B. via `page.route` auf
-eine Seite mit vielen kleinen statischen Assets, einmal mit und einmal ohne
-zusätzlichen `CDPSession.send("Network.setCacheDisabled", {cacheDisabled:
-false})`-Override direkt nach `Fetch.enable`, falls das die Kopplung
-umgehen lässt. Wichtig für "previews.go ohne `ctx.Route` ausliefern"
-(Zeile 70ff. dort): wenn Cache-Aus der Haupttäter ist, reicht ein
-`page.on('request')`-Listener ohne Interception nicht als Ersatz, weil der
-nichts am Cache-Verhalten ändert — dann bräuchte es tatsächlich einen
-browser-seitigen Blockmechanismus ohne CDP-`Fetch`-Domain.
+### 8. Which of the two `ctx.Route` costs dominates — cache-off or pause/resume?
+Question 3 found two separate mechanisms behind the same number:
+`Network.setCacheDisabled(true)` (no browser cache for the whole session any
+more) and the CDP `Fetch` pause/resume round trip per request (always `"*"`,
+independent of the pattern). Playwright couples the two rigidly — a caller cannot
+switch them off individually in this driver version (1.61.1). Untested: how much
+of the ~30% is pure cache-off (many small static Wicket assets per section page
+that would otherwise come from cache) versus pure pause/resume overhead (one CDP
+round trip per request, independent of response size)? Reproducible locally
+without an account — e.g. via `page.route` on a page with many small static
+assets, once with and once without an additional
+`CDPSession.send("Network.setCacheDisabled", {cacheDisabled: false})` override
+right after `Fetch.enable`, if that lets the coupling be bypassed. Matters for
+"ship previews.go without `ctx.Route`" (line 70ff. there): if cache-off is the
+main culprit, a `page.on('request')` listener without interception is not enough
+as a replacement, because it changes nothing about cache behaviour — then it
+would actually take a browser-side blocking mechanism without the CDP `Fetch`
+domain.
 
-### 9. ~~Warum wächst die Sektionsseiten-Response kaum mit der Kursgröße?~~ Beantwortet 2026-08-01, siehe Bericht unten
-**Kandidat (a) bestätigt, mit Beleg — Regel 2 erfüllt.**
-`MenuTreeRenderer.isRenderChildren()` (OpenOLAT-Quelle, Methode ab Zeile 660)
-rekursiert nur in einen Kindknoten, wenn dessen `ident` in `openNodeIds`
-steht oder er auf dem Pfad zum aktuell selektierten Knoten liegt (`curSel ==
-curRoot`); sonst liefert die Methode `false` und `renderLevel()` (Zeile 232:
-`if (renderChildren) { renderChildren(...); }`) ruft für diesen Teilbaum
-gar nicht erst rekursiv auf. Der Baum-Fragment ist also strukturell auf
-"offene Knoten + Selektionspfad" begrenzt, nicht auf "alle Sektionen" — exakt
-der Mechanismus, der die gemessene 1,4x/27,3x-Diskrepanz vorhergesagt hätte.
-Kandidat (b) (Caching) ist damit nicht mehr nötig, um den Befund zu
-erklären, und wurde nicht separat geprüft.
+### 9. ~~Why does the section-page response barely grow with course size?~~ Answered 2026-08-01, see report below
+**Candidate (a) confirmed, with evidence — rule 2 satisfied.**
+`MenuTreeRenderer.isRenderChildren()` (OpenOLAT source, method from line 660)
+only recurses into a child node if its `ident` is in `openNodeIds` or it lies on
+the path to the currently selected node (`curSel == curRoot`); otherwise the
+method returns `false` and `renderLevel()` (line 232: `if (renderChildren) {
+renderChildren(...); }`) never even makes the recursive call for that subtree. So
+the tree fragment is structurally limited to "open nodes + selection path", not
+to "all sections" — exactly the mechanism that would have predicted the measured
+1.4x/27.3x discrepancy. Candidate (b) (caching) is therefore no longer needed to
+explain the finding, and was not tested separately.
 
-Was das für Kandidat A (Frage 7) bedeutet: **endgültig tot**, jetzt mit
-Mechanismus statt nur mit Gegenbeweis. Was offen bleibt: Wenn weder das
-Baum-Fragment noch die Übertragungszeit mit der Kursgröße skalieren, aber
-settle+stable trotzdem 511–525ms/Sektion braucht (Kandidat B/C, 69–75%
-unerklärt) — skaliert diese Zeit vielleicht mit etwas anderem als
-Kursgröße, z. B. der Dateizahl *innerhalb* der gerade besuchten Sektion,
-statt mit der Gesamtsektionszahl des Kurses? Ungeprüft, und das ist jetzt
-die konkrete nächste Frage vor dem in Frage 7 bereits angekündigten
-Browser-Profiling.
+What that means for Candidate A (Question 7): **finally dead**, now with a
+mechanism instead of just a counter-proof. What stays open: if neither the tree
+fragment nor the transfer time scales with course size, but settle+stable still
+takes 511–525ms/section (Candidate B/C, 69–75% unexplained) — does that time
+perhaps scale with something other than course size, e.g. the file count *inside*
+the section currently being visited, rather than the course's total section
+count? Untested, and that is now the concrete next question ahead of the browser
+profiling already announced in Question 7.
 
 ---
 
-## Nächstes Experiment
+## Next experiment
 
-**Frage:** (16, neu aus Frage 15) — hält die 150ms-`mutationObserverDebounceMs`
-auch unter echter `course_concurrency>1`-Kontention (mehrere Kurs-Tabs
-rendern gleichzeitig, konkurrieren um CPU/Event-Loop)? Frage 15 hat das
-bewusst nicht getestet (siehe deren "Referenzpunkt": `OPAL_DEBOUNCE_MS_OVERRIDE`
-kurzschließt die `effectiveCourseConcurrency() > 1`-Verzweigung in
-`contentSettleWaitBudget()` komplett, ein Solo-Kurs-Lauf mit
-`SetCourseConcurrency(2)` erzeugt also gar keine echte Konkurrenz). Genau
-unter Kontention passierten historisch alle echten Datenverluste dieser
-Kampagne (`docs/sync-speed-campaign.md`; `course_concurrency=2` verlor 9
-Dateien am 2026-07-26). Das Projekt hält selbst schon 500ms/6000ms (statt
-300ms/4000ms) für nötig, sobald Kontention vorliegt — die offene Frage ist,
-ob eine gesenkte Serial-Debounce-Zeit diese Marge unterläuft, wenn der
-Override beide Werte gleich setzt statt nur den seriellen.
+**Question:** (16, new from Question 15) — does the 150ms
+`mutationObserverDebounceMs` also hold under real `course_concurrency>1`
+contention (several course tabs rendering at the same time, competing for
+CPU/event loop)? Question 15 deliberately did not test that (see its "Reference
+point": `OPAL_DEBOUNCE_MS_OVERRIDE` short-circuits the
+`effectiveCourseConcurrency() > 1` branch in `contentSettleWaitBudget()`
+entirely, so a solo-course run with `SetCourseConcurrency(2)` produces no real
+concurrency at all). Contention is exactly where every real data loss in this
+campaign historically happened (`docs/sync-speed-campaign.md`;
+`course_concurrency=2` lost 9 files on 2026-07-26). The project itself already
+considers 500ms/6000ms (instead of 300ms/4000ms) necessary as soon as contention
+is present — the open question is whether a lowered serial debounce undercuts
+that margin when the override sets both values instead of only the serial one.
 
-**Referenzpunkt (gelesen vor der Vorhersage):** die Override senkt unter
-Kontention **zwei** Werte gleichzeitig, nicht einen. `contentSettleWaitBudget()`
-(`navigation.go` Zeile 397-405) gibt bei gesetzter Override
-`(ms, mutationObserverHardCapMs)` zurück — also den **seriellen** Hard Cap
-(4000ms), nicht den konkurrenten (6000ms). Ein Lauf mit
-`OPAL_DEBOUNCE_MS_OVERRIDE=150` unter `course_concurrency=2` fährt damit
-150ms/4000ms gegen die Vergleichsbasis 500ms/6000ms: Debounce auf 30%, Hard
-Cap auf 67%. Das ist ein schärferer Test als Frage 14/15 (dort nur
-150ms/4000ms gegen 300ms/4000ms, Hard Cap unverändert) und die Ursache muss
-bei einem Fehlschlag zwischen beiden Größen getrennt werden.
+**Reference point (read before the prediction):** under contention the override
+lowers **two** values at once, not one. `contentSettleWaitBudget()`
+(`navigation.go` lines 397-405) returns `(ms, mutationObserverHardCapMs)` when
+the override is set — i.e. the **serial** hard cap (4000ms), not the concurrent
+one (6000ms). A run with `OPAL_DEBOUNCE_MS_OVERRIDE=150` under
+`course_concurrency=2` therefore runs 150ms/4000ms against the comparison base of
+500ms/6000ms: debounce down to 30%, hard cap down to 67%. That is a sharper test
+than Question 14/15 (only 150ms/4000ms against 300ms/4000ms there, hard cap
+unchanged), and on failure the cause has to be separated between the two
+quantities.
 
-**Vorhersage:** Alle vier Läufe (2× Override 150ms/4000ms unter echter
-Kontention, 2× unverändertes 500ms/6000ms) finden dieselbe Dateimenge — kein
-Selbst-Diff, kein Cross-Diff. Mechanismus: der Debounce misst *Ruhe nach der
-letzten Mutation*, nicht absolute Zeit. Kontention verzögert die Mutationen
-selbst, verschiebt also das Fenster nach hinten, statt es zu verkürzen; sie
-erzeugt nur dann einen Verlust, wenn sie *Lücken innerhalb* des Renderns über
-150ms aufreißt (Renderer bekommt die CPU für >150ms nicht, obwohl er noch
-nicht fertig ist). Frage 9 (Baum-Fragment strukturell auf offene Knoten
-begrenzt) sagt zusätzlich, dass die pro Sektion zu rendernde Menge unter
-Kontention nicht wächst. Zeitersparnis erwartet **unter** den 28,7% von Frage
-15 — unter Kontention sitzt mehr Zeit im tatsächlichen Rendern und im Hard
-Cap, wo die Override nichts spart.
+**Prediction:** all four runs (2× override 150ms/4000ms under real contention, 2×
+unchanged 500ms/6000ms) find the same file set — no self-diff, no cross-diff.
+Mechanism: the debounce measures *quiet after the last mutation*, not absolute
+time. Contention delays the mutations themselves, so it shifts the window later
+rather than shortening it; it only produces a loss if it tears *gaps inside* the
+rendering wider than 150ms (the renderer does not get the CPU for >150ms even
+though it is not finished). Question 9 (tree fragment structurally limited to open
+nodes) additionally says the amount to be rendered per section does not grow under
+contention. Time saving expected **below** the 28.7% of Question 15 — under
+contention more of the time sits in actual rendering and in the hard cap, where
+the override saves nothing.
 
-**Gescheitert ab:** Jede Datei-/Byte-Abweichung, egal in welcher Richtung —
-Selbst-Diff zwischen zwei Läufen derselben Bedingung oder Cross-Diff zwischen
-Override und Basis. Genau unter Kontention passierten alle echten
-Datenverluste dieser Kampagne (`course_concurrency=2` verlor am 2026-07-26
-9 Dateien), also ist hier eine einzelne fehlende Datei ein Nein, keine
-Messungenauigkeit. Bei Fehlschlag ist die nächste Frage nicht "150ms zu
-kurz?", sondern welcher der beiden gesenkten Werte es war: ein Wiederholungs-
-lauf mit 150ms-Debounce **und** explizit 6000ms Hard Cap trennt das.
+**Counts as failed at:** any file/byte deviation in either direction — self-diff
+between two runs of the same condition, or cross-diff between override and
+baseline. Contention is exactly where every real data loss in this campaign
+happened (`course_concurrency=2` lost 9 files on 2026-07-26), so a single missing
+file here is a no, not measurement noise. On failure the next question is not "is
+150ms too short?" but which of the two lowered values it was: a repeat run with a
+150ms debounce **and** an explicit 6000ms hard cap separates that.
 
-**Kosten:** Vier Läufe à zwei gleichzeitig gecrawlte Kurse (klein + groß, wie
-Frage 15). Kein Default ändert sich — die Override ist test-only und
-standardmäßig aus.
+**Cost:** four runs of two courses crawled simultaneously (small + large, as in
+Question 15). No default changes — the override is test-only and off by default.
 
-**Ergebnis (2026-08-03): Vorhersage in beiden Teilen widerlegt — aber nicht
-dort, wo sie angegriffen wurde. Frage 16 ist so, wie sie gestellt war, nicht
-beantwortbar.** Rohdaten: `tmp/debounce-contention-probe.txt`.
+**Result (2026-08-03): prediction refuted in both parts — but not where it was
+attacked. Question 16 as posed is not answerable.** Raw data:
+`tmp/debounce-contention-probe.txt`.
 
-| Lauf | Dateien | settle+stable |
+| Run | Files | settle+stable |
 |---|---|---|
 | baseline-1 (500ms/6000ms) | **248** | 130362ms |
 | baseline-2 (500ms/6000ms) | **242** | 132070ms |
 | override-1 (150ms/4000ms) | **242** | 63769ms |
 | override-2 (150ms/4000ms) | **248** | 67055ms |
 
-Die Dateimengen weichen ab — aber **die Basis weicht von sich selbst ab**.
-`baseline-1` gegen `baseline-2` unterscheiden sich um exakt dieselben 6
-Dateien wie jeder andere Vergleich, und jede Bedingung lieferte einmal 248
-und einmal 242. Es gibt hier keine Bedingung, die stabil ist, und damit
-nichts, wogegen sich 150ms messen ließe: **die unveränderte, heute geltende
-Konfiguration verliert unter Kontention genauso.** Das entlastet die Override
-nicht, es entzieht dem Experiment die Vergleichsbasis. Ein Nachlauf mit
-150ms-Debounce und wiederhergestelltem 6000ms-Cap (der oben geplante
-Trennungsschritt) wäre jetzt sinnlos — er würde gegen dieselbe instabile Basis
-messen.
+The file sets differ — but **the baseline differs from itself**. `baseline-1`
+against `baseline-2` differ by exactly the same 6 files as every other
+comparison, and every condition produced 248 once and 242 once. There is no
+stable condition here, and therefore nothing to measure 150ms against: **the
+unchanged, currently shipping configuration loses just as much under
+contention.** That does not exonerate the override, it removes the experiment's
+comparison base. A follow-up run with a 150ms debounce and the 6000ms cap
+restored (the separation step planned above) would now be pointless — it would
+measure against the same unstable baseline.
 
-Die 6 Dateien sind immer dieselben, aus **einem** Kursbaustein
-(`CourseNode/1775615795226691003`, `Vorlesung_7`/`7p`/`8`/`8p`/`9_10`/`9_10p`)
-— und der Lauf-Log sagt über genau diesen Knoten `offered a "show all"
-control`, er ist also **paginiert**. Damit zeigt der Verlust nicht auf das
-Settle-Budget, sondern auf den Wicket-„show all"-Klickpfad (`crawl.go`), der
-die Verlustgeschichte dieser Kampagne ohnehin schon trägt: unter Kontention
-wird entweder der Klick nicht ausgeführt oder sein Ergebnis nicht gelesen,
-bevor die Sektion als fertig gilt. Ein Settle-Debounce, der Ruhe nach
-Mutationen misst, kann eine zweite Seite, die nie angefordert wurde, gar
-nicht abwarten.
+The 6 files are always the same, from **one** course building block
+(`CourseNode/1775615795226691003`, `Vorlesung_7`/`7p`/`8`/`8p`/`9_10`/`9_10p`) —
+and the run log says of exactly that node `offered a "show all" control`, so it is
+**paginated**. So the loss does not point at the settle budget but at the Wicket
+"show all" click path (`crawl.go`), which already carries this campaign's history
+of losses anyway: under contention either the click is not executed or its result
+is not read before the section counts as done. A settle debounce that measures
+quiet after mutations cannot possibly wait for a second page that was never
+requested.
 
-Der Zeitteil der Vorhersage ("Ersparnis unter 28,7%") war ebenfalls falsch,
-und aus einem uninteressanten Grund: gemessen wurden **50,1%**, weil die
-Basis hier 500ms ist und nicht die 300ms von Frage 15 — 150ms ist gegen 500ms
-ein viel größerer relativer Schnitt. Das war vor dem Lauf ableitbar und wurde
-beim Schreiben der Vorhersage übersehen. Wall clock spart deutlich weniger
-(169,1s → 151,4s), weil ein wachsender Teil der Laufzeit unter Kontention
-nicht im Settle-Wait sitzt.
+The timing part of the prediction ("saving below 28.7%") was also wrong, for an
+uninteresting reason: **50.1%** was measured, because the baseline here is 500ms
+and not the 300ms of Question 15 — 150ms is a much larger relative cut against
+500ms. That was derivable before the run and was overlooked while writing the
+prediction. Wall clock saves considerably less (169.1s → 151.4s), because a
+growing share of the runtime under contention does not sit in the settle wait.
 
-**Nicht betroffen sind heutige Nutzer:** `DefaultCourseConcurrency = 1`
-(`internal/config/config.go` Zeile 343), und bei `concurrency=1` fanden
-Frage 14 und 15 über vier bzw. vier Läufe identische Dateimengen. Der Befund
-schließt aber `course_concurrency>1` als Geschwindigkeitshebel weiter aus —
-und liefert erstmals einen benannten Mechanismus statt der bisherigen
-Beobachtung "course=2 verlor am 2026-07-26 9 Dateien".
+**Today's users are unaffected:** `DefaultCourseConcurrency = 1`
+(`internal/config/config.go` line 343), and at `concurrency=1` Questions 14 and 15
+found identical file sets over four and four runs respectively. But the finding
+rules out `course_concurrency>1` as a speed lever further — and for the first time
+delivers a named mechanism instead of the previous observation "course=2 lost 9
+files on 2026-07-26".
 
 ---
 
-## Vorheriges Experiment (Frage 15, abgeschlossen 2026-08-02)
+## Previous experiment (Question 15, closed 2026-08-02)
 
-**Frage:** (15, neu aus Frage 14) — Frage 14 bestätigte die gesenkte
-`mutationObserverDebounceMs` (150ms) nur auf dem **kleinen** Kurs (6
-Sektionen, 38 Dateien, `course_concurrency=1`, eine bereits vorher bekannte
-paginierte Sektion verhielt sich in allen 4 Läufen identisch). Die
-historischen Datenverlust-Vorfälle dieser Kampagne (Wicket-AJAX-Race,
-`docs/sync-speed-campaign.md`; `sectionContentRequiredStableReads`s eigene
-Historie, `crawl.go` Zeile 920ff.) passierten alle unter **Kontention**:
-großer Kurs mit vielen paginierten Sektionen, oft zusätzlich unter
-`course_concurrency>1`, wo der Renderer die Maschine nicht mehr für sich
-allein hat. Frage 14s Testfall deckt genau das nicht ab. Hält die gesenkte
-Debounce-Zeit auch auf dem großen Kurs (Softwaretechnologie, 164 Sektionen)
-und/oder unter `course_concurrency>1` — oder zeigt sich dort genau die
-Art von Verlust, die die bisherigen Vorsichtsmaßnahmen (separates,
-breiteres `mutationObserverConcurrentDebounceMs`-Budget) schon andeuten?
+**Question:** (15, new from Question 14) — Question 14 confirmed the lowered
+`mutationObserverDebounceMs` (150ms) only on the **small** course (6 sections, 38
+files, `course_concurrency=1`; one already-known paginated section behaved
+identically in all 4 runs). This campaign's historical data-loss incidents
+(Wicket AJAX race, `docs/sync-speed-campaign.md`;
+`sectionContentRequiredStableReads`'s own history, `crawl.go` line 920ff.) all
+happened under **contention**: a large course with many paginated sections, often
+additionally under `course_concurrency>1`, where the renderer no longer has the
+machine to itself. Question 14's test case covers exactly none of that. Does the
+lowered debounce also hold on the large course (Softwaretechnologie, 164
+sections) and/or under `course_concurrency>1` — or does exactly the kind of loss
+show up there that the existing safety measures (a separate, wider
+`mutationObserverConcurrentDebounceMs` budget) already hint at?
 
-**Referenzpunkt (gelesen vor der Vorhersage):** `mutationObserverConcurrentDebounceMs`
-(`navigation.go` Zeile 127) steht bei 500ms gegen 300ms seriell — das Projekt
-hält für Kontention selbst schon 67% mehr Sicherheitsspanne für nötig. Aber
-`contentSettleWaitBudget()` (Zeile 397-401) prüft `OPAL_DEBOUNCE_MS_OVERRIDE`
-**vor** der `effectiveCourseConcurrency() > 1`-Verzweigung — ist die Override
-gesetzt, kommt sie unabhängig von Concurrency zurück, die 500/300-Marge
-existiert für den Override-Pfad also gar nicht. Damit lässt sich mit dem
-bestehenden Probe (`debounceoverride_probe_test.go`, nur `sc.collectCourseFiles`
-auf einen Einzelkurs) echte Concurrency-Kontention (konkurrierende Tabs, die
-sich CPU/Event-Loop teilen) gar nicht testen — `SetCourseConcurrency(2)` auf
-einen Solo-Kurs-Lauf würde nur den ungenutzten Zweig anders belegen, ohne dass
-je ein zweiter Tab tatsächlich mitrendert. Diese Runde testet deshalb bewusst
-nur die Kursgröße (großer Kurs, `course_concurrency=1`); echte
-Mehr-Kurs-Konkurrenz bleibt Frage 16.
+**Reference point (read before the prediction):**
+`mutationObserverConcurrentDebounceMs` (`navigation.go` line 127) stands at 500ms
+against 300ms serial — the project itself already considers 67% more safety
+margin necessary for contention. But `contentSettleWaitBudget()` (lines 397-401)
+checks `OPAL_DEBOUNCE_MS_OVERRIDE` **before** the `effectiveCourseConcurrency() >
+1` branch — if the override is set it comes back regardless of concurrency, so
+the 500/300 margin does not exist for the override path at all. That means real
+concurrency contention (competing tabs sharing CPU/event loop) cannot be tested
+with the existing probe (`debounceoverride_probe_test.go`, only
+`sc.collectCourseFiles` on a single course) — `SetCourseConcurrency(2)` on a
+solo-course run would only populate the unused branch differently, without a
+second tab ever actually rendering alongside. This round therefore deliberately
+tests course size only (large course, `course_concurrency=1`); real multi-course
+concurrency remains Question 16.
 
-**Vorhersage:** Zwei Läufe des bestehenden Probes gegen den großen Kurs
-(`Softwaretechnologie (SoSe 26)`, 164 Sektionen) bei 150ms-Override finden
-dieselbe Dateimenge in beiden Läufen (Selbstkonsistenz) — der in Frage 9
-gefundene Mechanismus (Baum-Fragment strukturell auf offene Knoten begrenzt,
-nicht auf Kursgröße) sagt voraus, dass der Debounce pro Sektion unabhängig
-von der Gesamtsektionszahl wirkt, also überträgt sich Frage 14s
-Korrektheits-Befund vom kleinen auf den großen Kurs. Ein frischer
-300ms-Baseline-Lauf auf diesem Kurs wird bewusst NICHT wiederholt: der
-2026-07-16-Livetest (`navigation.go` Zeile 91-100) hat 300ms auf exakt
-diesem Kurs bereits gegen eine 344/344-Ground-Truth bestätigt — ein neuer
-Baseline-Lauf heute wäre eine dritte Bestätigung derselben, längst
-etablierten Zahl, nicht neue Evidenz. Verglichen wird stattdessen gegen
-die historische 198-Datei-Zahl dieses Kurses.
+**Prediction:** two runs of the existing probe against the large course
+(`Softwaretechnologie (SoSe 26)`, 164 sections) at a 150ms override find the same
+file set in both runs (self-consistency) — the mechanism found in Question 9 (tree
+fragment structurally limited to open nodes, not to course size) predicts that the
+debounce acts per section independently of the total section count, so Question
+14's correctness finding transfers from the small to the large course. A fresh
+300ms baseline run on this course is deliberately NOT repeated: the 2026-07-16
+live test (`navigation.go` lines 91-100) already confirmed 300ms on exactly this
+course against a 344/344 ground truth — a new baseline run today would be a third
+confirmation of the same long-established number, not new evidence. The comparison
+is instead against this course's historical 198-file number.
 
-**Gescheitert ab:** Jede Datei-/Byte-Abweichung zwischen den beiden
-150ms-Läufen, oder gegen die historische 198-Datei-Zahl (gleiches Kriterium
-wie Frage 14: ein einzelner sauberer Lauf reicht laut eigener Historie nicht,
-zwei sind das Minimum). Zusätzlich: wenn die Ersparnis auf dem großen Kurs
-deutlich unter den ~29,6% liegt, die Frage 14 auf dem kleinen Kurs gemessen
-hat (z. B. <15%), widerlegt das nicht die Korrektheit, aber die Annahme
-"Mechanismus ist kursgrößen-unabhängig".
+**Counts as failed at:** any file/byte deviation between the two 150ms runs, or
+against the historical 198-file number (same criterion as Question 14: by our own
+history a single clean run is not enough, two are the minimum). Additionally: if
+the saving on the large course is far below the ~29.6% Question 14 measured on the
+small course (e.g. <15%), that does not refute correctness, but it does refute the
+assumption "the mechanism is independent of course size".
 
-**Kosten:** Zwei volle Crawls des großen Kurses (164 Sektionen) statt der
-vollen Vier-Läufe-Probe (Baseline entfällt aus obigem Grund) — bei ~230s/Lauf
-bei 300ms historisch, bei 150ms schneller, geschätzt ~5-6 Minuten Gesamtlauf,
-passt in ein einzelnes Zeitfenster. Kein Produktionscode-Änderung nötig
-(`OPAL_DEBOUNCE_MS_OVERRIDE` existiert schon). `course_concurrency>1` bleibt
-unbeantwortet (siehe Referenzpunkt oben) — das ist die neue Frage 16, und sie
-braucht andere Werkzeuge (echter Zwei-Kurse-Parallel-Crawl), nicht nur diesen
-Probe mit einem anderen Flag.
+**Cost:** two full crawls of the large course (164 sections) instead of the full
+four-run probe (baseline dropped for the reason above) — at ~230s/run at 300ms
+historically, faster at 150ms, estimated ~5-6 minutes total, fits in a single time
+window. No production code change needed (`OPAL_DEBOUNCE_MS_OVERRIDE` already
+exists). `course_concurrency>1` stays unanswered (see reference point above) —
+that is the new Question 16, and it needs different tools (a real two-course
+parallel crawl), not just this probe with a different flag.
 
-**Erster Versuch (2026-08-02, `opal-downloader-autopilot`): kein Ergebnis,
-Kollision mit einem zweiten gleichzeitig laufenden Routine-Run, nicht der
-getestete Mechanismus.** `docs/BACKLOG.md`'s Noticed-Eintrag hat die Details.
-Zwei Prozesse griffen im selben Realzeit-Fenster auf `login-profile` zu; der
-andere Lauf scheiterte mit einem rohen Playwright-Launch-Timeout, dieser Lauf
-hing 22 Minuten, bis der eigene `go test -timeout 20m` ihn tötete — beides
-ohne das saubere `ErrProfileLocked`, das `acquireSessionLock` eigentlich
-liefern soll. Kein Datei-Befund, keine Regression gemessen — die Frage ist
-offen geblieben, nicht beantwortet.
+**First attempt (2026-08-02, `opal-downloader-autopilot`): no result, collision
+with a second routine run going at the same time, not the mechanism under test.**
+`docs/BACKLOG.md`'s Noticed entry has the details. Two processes accessed
+`login-profile` in the same real-time window; the other run failed with a raw
+Playwright launch timeout, this run hung for 22 minutes until its own `go test
+-timeout 20m` killed it — both without the clean `ErrProfileLocked` that
+`acquireSessionLock` is supposed to deliver. No file finding, no regression
+measured — the question was left open, not answered.
 
-**Zweiter Versuch (2026-08-02, direkt danach, verifiziert kein anderer
-opal-downloader-Prozess lief): wieder kein Ergebnis, diesmal die
-2026-07-31-Altlast des 300s-Course-List-Timeouts, ohne erkennbare Kollision.**
-`ensureSession: timed out after 300000ms waiting for the OPAL course list
-after login` nach 305,98s — TU-Fast öffnete das Loginfenster, aber die
-Kursliste erschien nie. Kein Debug-Flag war an, also nichts Konkretes
-mitgeschnitten. Behoben für das nächste Mal: `waitForLoggedInCourseLink`
-(`session.go`) faltet die Seiten-URL beim Timeout jetzt direkt in den
-zurückgegebenen Fehler, unbedingt, nicht hinter `--debug-clicks` versteckt.
+**Second attempt (2026-08-02, right afterwards, verified no other
+opal-downloader process was running): no result again, this time the 2026-07-31
+legacy 300s course-list timeout, with no detectable collision.** `ensureSession:
+timed out after 300000ms waiting for the OPAL course list after login` after
+305.98s — TU-Fast opened the login window, but the course list never appeared. No
+debug flag was on, so nothing concrete was captured. Fixed for next time:
+`waitForLoggedInCourseLink` (`session.go`) now folds the page URL directly into
+the returned error on timeout, unconditionally, not hidden behind
+`--debug-clicks`.
 
-**Dritter Versuch (2026-08-02): lief mechanisch durch, aber mit einer
-Diskrepanz, die eine weitere Runde nötig machte.** `OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE`
-(kein frischer 300ms-Lauf, nur gegen die historische 198-Datei-Zahl vom
-2026-07-16 verglichen): 210 Dateien, selbstkonsistent über beide
-150ms-Läufe — aber 210 ≠ 198. Zwei Erklärungen wären damit vereinbar
-gewesen: (a) der Kurs ist ein aktiver SoSe-26-Kurs und hat in 2,5 Wochen
-echt 12 Dateien dazubekommen, oder (b) die Override tut etwas Falsches. Das
-Skip-Baseline-Design konnte die beiden nicht unterscheiden — genau die
-Lücke, die ein frischer Vergleich am selben Tag schließt.
+**Third attempt (2026-08-02): ran through mechanically, but with a discrepancy
+that made another round necessary.** `OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE` (no
+fresh 300ms run, compared only against the historical 198-file number from
+2026-07-16): 210 files, self-consistent across both 150ms runs — but 210 ≠ 198.
+Two explanations were compatible with that: (a) the course is an active SoSe 26
+course and genuinely gained 12 files in 2.5 weeks, or (b) the override is doing
+something wrong. The skip-baseline design could not distinguish the two — exactly
+the gap a fresh comparison on the same day closes.
 
-**Vierter Versuch (2026-08-02), vollständiger Probe (2 Baseline + 2
-Override, kein Skip): Vorhersage bestätigt, Diskrepanz aufgelöst.**
+**Fourth attempt (2026-08-02), full probe (2 baseline + 2 override, no skip):
+prediction confirmed, discrepancy resolved.**
 
-| Lauf | Dateien | settle+stable |
+| Run | Files | settle+stable |
 |---|---:|---:|
 | baseline-1 (300ms) | 210 | 86670ms |
 | baseline-2 (300ms) | 210 | 86376ms |
 | override-1 (150ms) | 210 | 61583ms |
 | override-2 (150ms) | 210 | 61837ms |
 
-Der frische Baseline-Lauf findet selbst 210 Dateien, nicht 198 — die
-Diskrepanz aus dem dritten Versuch war Kursinhalt-Drift (Erklärung a),
-keine Override-Nebenwirkung. Alle drei Vergleiche (Baseline-Selbstkonsistenz,
-Override-Selbstkonsistenz, Baseline-vs-Override) sind **exakt identisch**,
-210 Dateien in allen 4 Läufen. Ersparnis: Ø-settle+stable sinkt von 86523ms
-auf 61710ms, **28,7%** — praktisch identisch zur 29,6% des kleinen Kurses
-(Frage 14), trotz eines 35x größeren Kurses (210 vs. 6 Sektionen betroffene
-Größenordnung nach Dateizahl). Das ist die Signatur, die Regel 2 verlangt:
-wäre die Ersparnis kursgrößenabhängig gewesen, hätten die beiden Kurse nicht
-auf 1 Prozentpunkt genau übereingestimmt.
+The fresh baseline run itself finds 210 files, not 198 — the discrepancy in the
+third attempt was course-content drift (explanation a), not an override side
+effect. All three comparisons (baseline self-consistency, override
+self-consistency, baseline vs. override) are **exactly identical**, 210 files in
+all 4 runs. Saving: mean settle+stable drops from 86523ms to 61710ms, **28.7%** —
+practically identical to the small course's 29.6% (Question 14), despite a 35x
+larger course (210 vs. 6 sections' worth of affected magnitude by file count).
+That is the signature rule 2 demands: had the saving been course-size dependent,
+the two courses would not have agreed to within one percentage point.
 
-**Frage 15 damit beantwortet, mit Einschränkung:** Für `course_concurrency=1`
-hält die 150ms-Debounce-Korrektheit auf beiden geprüften Kursen (klein: 6
-Sektionen/38 Dateien, groß: 164 Sektionen/210 Dateien), mit praktisch
-identischer Ersparnis (29,6%/28,7%) — der Mechanismus (300ms ist die
-bindende Konstante, nicht kursgrößenabhängige Render-Arbeit, siehe Frage 9
-und Frage 13) sagt genau dieses Ergebnis vorher und wird durch beide Läufe
-bestätigt, nicht nur durch Zufallstreffer. **Ausdrücklich nicht geprüft:**
-`course_concurrency>1` — siehe "Referenzpunkt" oben, wieso der bestehende
-Probe das gar nicht messen kann. Genau dort lagen historisch alle echten
-Datenverluste dieser Kampagne, also ist die Korrektheit unter Kontention die
-Voraussetzung für einen echten Default-Wechsel, nicht diese Runde — Frage 16.
+**Question 15 answered, with a caveat:** for `course_concurrency=1` the 150ms
+debounce's correctness holds on both courses tested (small: 6 sections/38 files,
+large: 164 sections/210 files), with practically identical savings (29.6%/28.7%) —
+the mechanism (300ms is the binding constant, not course-size dependent render
+work, see Question 9 and Question 13) predicts exactly this result and is
+confirmed by both runs, not just by a lucky hit. **Explicitly not tested:**
+`course_concurrency>1` — see "Reference point" above for why the existing probe
+cannot measure it at all. That is precisely where every real data loss in this
+campaign historically sat, so correctness under contention is the precondition for
+a real default change, not this round — Question 16.
 
 ---
 
-## Vorheriges Experiment (Frage 14, abgeschlossen 2026-08-02)
+## Previous experiment (Question 14, closed 2026-08-02)
 
-**Frage:** (14, neu aus Frage 13) — `mutationObserverDebounceMs` (300ms,
-`navigation.go` Zeile 99) und `sectionContentPollIntervalMs` (150ms,
-`crawl.go` Zeile 982) sind feste Konstanten. Frage 13 fand, dass die
-gemessene settle-Zeit (Ø 326ms/Sektion) fast exakt der 300ms-Konstante
-entspricht und die stable-Zeit (Ø 193ms) nahe an einem einzelnen
-150ms-Poll-Intervall liegt — mit CPU-Arbeit (selbst großzügig über
-`TaskDuration` gerechnet) als Erklärung für höchstens ~24 % der Zeit. Kann
-`mutationObserverDebounceMs` sicher gesenkt werden, ohne Dateiverlust zu
-riskieren?
+**Question:** (14, new from Question 13) — `mutationObserverDebounceMs` (300ms,
+`navigation.go` line 99) and `sectionContentPollIntervalMs` (150ms, `crawl.go`
+line 982) are fixed constants. Question 13 found that the measured settle time
+(mean 326ms/section) matches the 300ms constant almost exactly and the stable time
+(mean 193ms) lies close to a single 150ms poll interval — with CPU work (even
+generously computed via `TaskDuration`) explaining at most ~24% of the time. Can
+`mutationObserverDebounceMs` be lowered safely without risking file loss?
 
-**Vorrecherche (2026-08-02, Quellcode-Lesen, kein Live-Lauf):**
-`sectionContentPollIntervalMs` selbst wurde bereits einmal genau in diese
-Richtung verändert — 400→150ms am 2026-07-21 (`crawl.go` Zeile 965ff.),
-explizit als *Sampling-Rate-Senkung, keine Geduld-Kürzung* (Gesamtbudget
-`sectionContentMaxPolls` gleichzeitig angehoben, damit die Gesamtwartezeit
-gleich bleibt). Live gemessen: 322/322 Dateien bei 150ms, kein Regression.
-Aber derselbe Kommentar trägt eine explizite, bis heute unaufgelöste
-Warnung: *"1 of 3 runs at the OLD 400ms setting silently lost 15 files
-(...). That intermittent loss is NOT proven fixed by this change; three
-clean runs are not enough to prove absence."* `mutationObserverDebounceMs`
-selbst wurde dagegen nie in diese Richtung getestet — der einzige
-dokumentierte Live-Test (2026-07-16, `navigation.go` Zeile 89ff.) validierte
-300ms als korrekt gegen die alte fixe 1100ms-Wartezeit, probierte aber nie
-einen niedrigeren Wert.
+**Pre-research (2026-08-02, source reading, no live run):**
+`sectionContentPollIntervalMs` itself has already been changed in exactly this
+direction once — 400→150ms on 2026-07-21 (`crawl.go` line 965ff.), explicitly as a
+*sampling-rate reduction, not a patience cut* (the overall budget
+`sectionContentMaxPolls` was raised at the same time so total wait time stayed the
+same). Measured live: 322/322 files at 150ms, no regression. But the same comment
+carries an explicit warning still unresolved today: *"1 of 3 runs at the OLD 400ms
+setting silently lost 15 files (...). That intermittent loss is NOT proven fixed by
+this change; three clean runs are not enough to prove absence."*
+`mutationObserverDebounceMs` itself, by contrast, was never tested in this
+direction — the only documented live test (2026-07-16, `navigation.go` line 89ff.)
+validated 300ms as correct against the old fixed 1100ms wait, but never tried a
+lower value.
 
-**Vorhersage:** Eine Senkung von `mutationObserverDebounceMs` auf 150ms
-(gleiches Sampling-Muster wie die bereits bewährte Poll-Interval-Senkung,
-`mutationObserverHardCapMs` unverändert lassen, damit die Gesamt-Geduld für
-langsame Sektionen gleich bleibt) verliert bei wiederholten Läufen gegen den
-345-Datei-Ground-Truth keine Dateien und spart durchschnittlich ~150ms/
-Sektion (≈46 % der aktuellen Ø-326ms-settle-Zeit, ≈29 % von settle+stable).
+**Prediction:** lowering `mutationObserverDebounceMs` to 150ms (the same sampling
+pattern as the already-proven poll-interval reduction, leaving
+`mutationObserverHardCapMs` unchanged so total patience for slow sections stays the
+same) loses no files against the 345-file ground truth over repeated runs, and
+saves an average of ~150ms/section (≈46% of the current mean 326ms settle time,
+≈29% of settle+stable).
 
-**Gescheitert ab:** Jede Datei-/Byte-Abweichung gegen den Ground-Truth bei
-**mindestens 2–3 wiederholten** Läufen (ein einzelner sauberer Lauf ist laut
-der eigenen Historie oben *keine* ausreichende Evidenz für Verlustfreiheit).
-Auch ein Lauf, der zwar alle Dateien findet, aber die Ø-Ersparnis unter
-~50ms/Sektion bleibt, widerlegt den behaupteten Mechanismus (dann wäre
-300ms nicht die bindende Grenze, MutationObserver würde real länger
-brauchen als die Konstante vorgibt, und die Ø-326ms wären Zufall, kein
-Beleg).
+**Counts as failed at:** any file/byte deviation against the ground truth over
+**at least 2–3 repeated** runs (per our own history above, a single clean run is
+*not* sufficient evidence of losslessness). Also, a run that finds all files but
+where the mean saving stays under ~50ms/section refutes the claimed mechanism (then
+300ms would not be the binding limit, the MutationObserver would really take longer
+than the constant allows, and the mean 326ms would be coincidence, not evidence).
 
-**Kosten:** höher als jedes bisherige Frage-13-und-früher-Experiment — dies
-ist die erste Frage der Kampagne, die tatsächlich Scraper-Verhalten ändert,
-nicht nur misst. Muss laut Aufgaben-Policy hinter einem Env-Flag liegen,
-off by default (`docs/RESUME.md`/Scheduled-Task-Regeln: "Anything touching
-discovery goes behind an env flag"). Braucht `scripts/compare-visit-runs.ps1`
-und mehrere Live-Läufe gegen den echten Account — genau das
-Wicket-AJAX-Race-Risiko, das diese Kampagne schon zweimal real getroffen hat
-(`docs/sync-speed-campaign.md`, `sectionContentRequiredStableReads`s eigene
-Historie oben).
+**Cost:** higher than any Question-13-and-earlier experiment — this is the
+campaign's first question that actually changes scraper behaviour rather than only
+measuring. Per task policy it has to sit behind an env flag, off by default
+(`docs/RESUME.md`/scheduled-task rules: "Anything touching discovery goes behind an
+env flag"). Needs `scripts/compare-visit-runs.ps1` and several live runs against the
+real account — exactly the Wicket AJAX race risk this campaign has already been hit
+by twice for real (`docs/sync-speed-campaign.md`,
+`sectionContentRequiredStableReads`'s own history above).
 
-**Umsetzung, abweichend von der Kostenschätzung:** `OPAL_DEBOUNCE_MS_OVERRIDE`
-(neu, `navigation.go`s `contentSettleWaitBudget`, off by default — bei
-gesetztem Wert ersetzt sie sowohl den seriellen als auch den
-Concurrency>1-Debounce-Wert, `mutationObserverHardCapMs` bleibt in jedem
-Fall unverändert, wie vorhergesagt). `scripts/compare-visit-runs.ps1`
-wurde nicht gebraucht — ein neuer Probe-Test (`debounceoverride_probe_test.go`)
-vergleicht Datei-URL-Mengen direkt in Go, ohne den Umweg über einen echten
-`sync`/`list`-Lauf und dessen Visit-Log. Vier Läufe gegen den kleinen Kurs
-(Baseline×2, 150ms×2 — bewusst nicht nur Baseline-vs-Override, siehe oben),
-`course_concurrency=1` (Default).
+**Implementation, deviating from the cost estimate:** `OPAL_DEBOUNCE_MS_OVERRIDE`
+(new, in `navigation.go`'s `contentSettleWaitBudget`, off by default — when set it
+replaces both the serial and the concurrency>1 debounce value;
+`mutationObserverHardCapMs` stays unchanged in every case, as predicted).
+`scripts/compare-visit-runs.ps1` was not needed — a new probe test
+(`debounceoverride_probe_test.go`) compares file-URL sets directly in Go, without
+the detour through a real `sync`/`list` run and its visit log. Four runs against the
+small course (baseline×2, 150ms×2 — deliberately not just baseline-vs-override, see
+above), `course_concurrency=1` (the default).
 
-**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus,
-Live-Lauf, `tmp/debounce-override-probe.txt`): Vorhersage bestätigt, auf
-diesem Kurs, mit dieser Wiederholungszahl.**
+**Result (2026-08-02, `opal-downloader-sync-speed`, this cycle, live run,
+`tmp/debounce-override-probe.txt`): prediction confirmed, on this course, at this
+repeat count.**
 
-| Lauf | Dateien | settle+stable |
+| Run | Files | settle+stable |
 |---|---:|---:|
 | baseline-1 | 38 | 3094ms |
 | baseline-2 | 38 | 3135ms |
 | override-1 (150ms) | 38 | 2205ms |
 | override-2 (150ms) | 38 | 2180ms |
 
-Alle drei Vergleiche (Baseline-Selbstkonsistenz, Override-Selbstkonsistenz,
-Baseline-vs-Override) sind **exakt identisch** — gleiche 38 Datei-URLs in
-allen 4 Läufen, keine Abweichung. Eine bereits vorher bekannte, vom
-Debounce unabhängige Paginierungs-Lücke (eine Sektion bleibt bei 17 von
-tatsächlich mehr Zeilen hängen, `show all`-Klick ohne Wirkung) trat in
-allen 4 Läufen identisch auf — kein neues Symptom, keine Verschlechterung
-durch die Änderung.
+All three comparisons (baseline self-consistency, override self-consistency,
+baseline vs. override) are **exactly identical** — the same 38 file URLs in all 4
+runs, no deviation. An already-known pagination gap independent of the debounce (one
+section stops at 17 of what are actually more rows, the `show all` click having no
+effect) occurred identically in all 4 runs — no new symptom, no degradation from the
+change.
 
-Zeitersparnis: Ø-settle+stable sinkt von 3114ms auf 2192ms, **29,6 %** —
-extrem nah an der vorab berechneten Schätzung (≈29 % von settle+stable,
-≈150ms/Sektion: gemessen 922ms/6 Sektionen = 154ms/Sektion). Das ist die
-Signatur, die Regel 2 verlangt: die Ersparnis trifft die Arithmetik-
-Vorhersage fast exakt, was bestätigt, dass die 300ms-Konstante tatsächlich
-die bindende Grenze war, kein Zufall in der Ø-326ms-Beobachtung aus Frage
-13.
+Time saving: mean settle+stable drops from 3114ms to 2192ms, **29.6%** — extremely
+close to the estimate computed in advance (≈29% of settle+stable, ≈150ms/section:
+measured 922ms/6 sections = 154ms/section). That is the signature rule 2 demands: the
+saving hits the arithmetic prediction almost exactly, which confirms that the 300ms
+constant really was the binding limit, not a coincidence in the mean-326ms
+observation from Question 13.
 
-**Warum das trotzdem nicht "Frage 14 gelöst, Default ändern" bedeutet
-(Regel 2, Umfang der Vorhersage ernst nehmen):** Die Vorhersage war
-ausdrücklich auf Korrektheit *ohne Kontention* begrenzt — kleiner Kurs, 6
-Sektionen, `course_concurrency=1`. Jeder historische Datenverlust dieser
-Kampagne trat unter Kontention auf (großer Kurs, viele paginierte
-Sektionen, teils `course_concurrency>1`) — genau der Fall, den dieser Lauf
-nicht testet. Vier identische Läufe auf einem Kurs, an einem Tag, sind
-außerdem wörtlich die Größenordnung, die der eigene 2026-07-21-Kommentar zu
-`sectionContentPollIntervalMs` schon als unzureichend markiert hat ("three
-clean runs are not enough to prove absence"). Frage 14 ist damit **für den
-getesteten Fall (klein, seriell) mit Mechanismus beantwortet**, aber nicht
-allgemein geschlossen — neue, schärfere Frage: Frage 15 oben (großer Kurs,
-ggf. Concurrency).
+**Why this still does not mean "Question 14 solved, change the default" (rule 2,
+taking the prediction's scope seriously):** the prediction was explicitly limited to
+correctness *without contention* — small course, 6 sections, `course_concurrency=1`.
+Every historical data loss in this campaign occurred under contention (large course,
+many paginated sections, partly `course_concurrency>1`) — exactly the case this run
+does not test. Four identical runs on one course, on one day, are also literally the
+order of magnitude our own 2026-07-21 comment on `sectionContentPollIntervalMs`
+already marked as insufficient ("three clean runs are not enough to prove absence").
+Question 14 is therefore **answered with a mechanism for the case tested (small,
+serial)**, but not closed in general — new, sharper question: Question 15 above
+(large course, possibly concurrency).
 
 ---
 
-## Vorheriges Experiment (Frage 13, abgeschlossen 2026-08-02)
+## Previous experiment (Question 13, closed 2026-08-02)
 
-**Frage:** (13, neu aus Frage 12) — wo sitzt die verbleibende, unerklärte
-Settle-Zeit tatsächlich (CPU/Layout/Paint), wenn drei unabhängige Kandidaten
-(Netzwerktransfer 24–31 %, Sektions-Dateizahl linear ~16–21 % Varianz,
-Sektions-Dateizahl quadratisch ~29 % Varianz) alle nur Minderheiten
-erklären? Dies ist der in Frage 7 und Frage 10 schon vorhergesagte
-"nächste Schritt braucht echtes Browser-Profiling" — jetzt nicht mehr
-optional, weil die einzige noch ungeprüfte Erklärungsklasse.
+**Question:** (13, new from Question 12) — where does the remaining, unexplained
+settle time actually sit (CPU/layout/paint), when three independent candidates
+(network transfer 24–31%, section file count linear ~16–21% variance, section file
+count quadratic ~29% variance) all explain only minorities? This is the "next step
+needs real browser profiling" already predicted in Question 7 and Question 10 — now
+no longer optional, because it is the only untested class of explanation left.
 
-**Vorhersage (geschrieben vor dem Lauf):** `Performance.enable` +
-`Performance.getMetrics()` (leichter als volles `Tracing.start`, ein
-synchroner CDP-Call statt Stream-Auswertung) gemessen an der schon aus
-Frage 11 bekannten langsamsten Sektion des kleinen Kurses ("Vorlesung",
-44 Kandidaten) zeigt LayoutDuration+RecalcStyleDuration+ScriptDuration als
-realen, aber nicht dominanten Anteil von settle+stable — geschätzt 20–40 %.
+**Prediction (written before the run):** `Performance.enable` +
+`Performance.getMetrics()` (lighter than a full `Tracing.start`, one synchronous CDP
+call instead of stream evaluation), measured on the small course's slowest section
+already known from Question 11 ("Vorlesung", 44 candidates), shows
+LayoutDuration+RecalcStyleDuration+ScriptDuration as a real but not dominant share of
+settle+stable — estimated 20–40%.
 
-**Gescheitert ab / erfüllt ab:** >50 % = CPU dominant (Vorhersage falsch,
-aber informativ); ~20–40 % = Vorhersage bestätigt, Debounce-Konstante wird
-Hauptverdächtiger für den Rest; <10 % = starker Fall für "Zeit ist die
-Konstante, nicht Arbeit".
+**Counts as failed / satisfied at:** >50% = CPU dominant (prediction wrong, but
+informative); ~20–40% = prediction confirmed, the debounce constant becomes the prime
+suspect for the rest; <10% = strong case for "the time is the constant, not work".
 
-**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus,
-Live-Lauf gegen den kleinen Kurs, 6 Sektionen,
-`tmp/cdp-performance-metrics-probe.txt`): Vorhersage im wörtlichen Sinne
-weder bestätigt noch klar widerlegt (11,4 % Aggregat, 14,5 % für die
-langsamste Sektion — zwischen den beiden Schwellenwerten), aber eine
-zusätzliche, ungeplante Auswertung derselben Daten liefert eine schärfere,
-konvergente Erklärung.**
+**Result (2026-08-02, `opal-downloader-sync-speed`, this cycle, live run against the
+small course, 6 sections, `tmp/cdp-performance-metrics-probe.txt`): prediction
+literally neither confirmed nor clearly refuted (11.4% aggregate, 14.5% for the
+slowest section — between the two thresholds), but an additional, unplanned analysis
+of the same data delivers a sharper, convergent explanation.**
 
-| Sektion | Kandidaten | settle+stable | Script+Layout+RecalcStyle | % davon | TaskDuration | % davon |
+| Section | Candidates | settle+stable | Script+Layout+RecalcStyle | % of it | TaskDuration | % of it |
 |---|---:|---:|---:|---:|---:|---:|
-| Algorithmen (Root) | 12 | 482ms | 37.5ms | 7.8% | 83.6ms | 17.3% |
+| Algorithmen (root) | 12 | 482ms | 37.5ms | 7.8% | 83.6ms | 17.3% |
 | Übungseinschreibung | 14 | 501ms | 90.3ms | 18.0% | 199.8ms | 39.9% |
 | Materialien | 18 | 505ms | 63.8ms | 12.6% | 103.0ms | 20.4% |
 | Probeklausur | 17 | 504ms | 35.1ms | 7.0% | 59.3ms | 11.8% |
 | Übungsblätter | 27 | 532ms | 43.8ms | 8.2% | 88.5ms | 16.6% |
 | Vorlesung | 44 | 588ms | 85.5ms | 14.5% | 226.8ms | 38.6% |
-| **Summe/Aggregat** | | **3112ms** | **356.1ms** | **11.4%** | **761.0ms** | **24.4%** |
+| **Total/aggregate** | | **3112ms** | **356.1ms** | **11.4%** | **761.0ms** | **24.4%** |
 
-Die im Voraus benannte Metrik (Script+Layout+RecalcStyle) liegt bei 11,4 %
-— knapp über der <10 %-Schwelle, klar unter dem vorhergesagten 20–40 %-Band.
-`TaskDuration` (Chromes eigene, umfassendere Haupt-Thread-Beschäftigt-Zeit —
-ein Superset, das Script/Layout/RecalcStyle **und** alles andere enthält,
-was der Browser als "Task" auf dem Haupt-Thread zählt: GC, Parsing, Paint-
-Vorbereitung, Compositing-Anmeldung) liegt bei 24,4 % — im vorhergesagten
-Band, aber als **obere Schranke**, nicht als Bestätigung der spezifischen
-Kandidat-C-Hypothese (quadratische `tr`-Mutation → Layout/Style-Recalc):
-Script+Layout+RecalcStyle machen selbst von diesem großzügigsten Wert nur
-weniger als die Hälfte aus (356 von 761ms) — der Rest von `TaskDuration` ist
-unbenannte Haupt-Thread-Arbeit, kein bestätigter Mechanismus.
+The metric named in advance (Script+Layout+RecalcStyle) comes in at 11.4% — just
+above the <10% threshold, clearly below the predicted 20–40% band. `TaskDuration`
+(Chrome's own, more comprehensive main-thread busy time — a superset containing
+Script/Layout/RecalcStyle **and** everything else the browser counts as a "task" on
+the main thread: GC, parsing, paint preparation, compositing registration) comes in
+at 24.4% — inside the predicted band, but as an **upper bound**, not as confirmation
+of the specific Candidate C hypothesis (quadratic `tr` mutation → layout/style
+recalc): even of this most generous figure, Script+Layout+RecalcStyle make up less
+than half (356 of 761ms) — the rest of `TaskDuration` is unnamed main-thread work,
+not a confirmed mechanism.
 
-**Methodischer Vorbehalt, gegen die eigene Messung gerichtet:** das
-CDP-Metrik-Fenster spannt sich über `visitSection` insgesamt (Navigation +
-settle + stable), das `settleStable`-Nenner-Fenster nur über settle+stable.
-Ein Teil der gemessenen CPU-Zeit fällt also vermutlich in die
-Navigation/Initial-Parse-Phase, nicht in die settle+stable-Phase selbst —
-die hier berichteten 11,4 %/24,4 % sind damit eher eine **Überschätzung**
-des CPU-Anteils an settle+stable, nicht eine Unterschätzung. Das verschärft
-den Befund, statt ihn zu relativieren.
+**Methodological caveat, aimed at our own measurement:** the CDP metric window spans
+`visitSection` as a whole (navigation + settle + stable), while the `settleStable`
+denominator window covers only settle+stable. So part of the measured CPU time
+presumably falls in the navigation/initial-parse phase, not in the settle+stable
+phase itself — the 11.4%/24.4% reported here are therefore more likely an
+**overestimate** of CPU's share of settle+stable than an underestimate. That sharpens
+the finding rather than qualifying it.
 
-**Was das für Regel 2 bedeutet — Mechanismus statt nur Zahl:** selbst mit
-diesem Vorbehalt zugunsten von "mehr CPU" bleibt Browser-Arbeit (jede Form,
-die CDP sehen kann) eine Minderheit. Zwei bereits im Code stehende
-Konstanten erklären, wohin die Mehrheit sonst geht: `mutationObserverDebounceMs
-= 300` (`navigation.go` Zeile 99) liegt fast exakt bei der gemessenen
-durchschnittlichen settle-Zeit dieses Laufs (326ms, `section timing`-Log-
-Zeile des Testlaufs) — 26ms Differenz, 8,7 % Abweichung. `sectionContentPollIntervalMs
-= 150` (`crawl.go` Zeile 982) liegt in derselben Größenordnung wie die
-gemessene durchschnittliche stable-Zeit (193ms, gut erklärt durch einen
-einzelnen Poll-Zyklus plus etwas Overhead, wenn `initialStableReads`
-niedrig ist). Das ist die Signatur, die Regel 2 verlangt: **die settle+stable-
-Zeit sieht nicht nach variabler Render-Arbeit aus, sondern nach zwei festen
-Warte-Konstanten, die zufällig fast die gesamte Zeit ausmachen** — CPU-Arbeit
-ist real (11–24 %), aber sie sitzt *innerhalb* dieser Fenster, treibt sie
-nicht.
+**What that means for rule 2 — mechanism instead of just a number:** even with this
+caveat in favour of "more CPU", browser work (in any form CDP can see) remains a
+minority. Two constants already in the code explain where the majority goes instead:
+`mutationObserverDebounceMs = 300` (`navigation.go` line 99) sits almost exactly at
+this run's measured mean settle time (326ms, the `section timing` log line of the test
+run) — 26ms difference, 8.7% deviation. `sectionContentPollIntervalMs = 150`
+(`crawl.go` line 982) is in the same order of magnitude as the measured mean stable
+time (193ms, well explained by a single poll cycle plus some overhead when
+`initialStableReads` is low). That is the signature rule 2 demands: **the
+settle+stable time does not look like variable render work but like two fixed wait
+constants that happen to make up almost all of the time** — CPU work is real
+(11–24%), but it sits *inside* those windows, it does not drive them.
 
-**Kandidat B/C (Frage 7, Frage 11) damit endgültig als Nebenerklärung
-eingeordnet, nicht mehr offen als "die noch fehlende Mehrheit":** vier
-unabhängig geprüfte Erklärungen (Netzwerk 24–31 %, Dateizahl linear 16–21 %,
-Dateizahl quadratisch 29 %, jetzt CPU 11–24 %) sind alle Minderheiten, aber
-zwei bekannte, fest im Code stehende Wartekonstanten passen numerisch fast
-exakt auf die verbleibende Zeit. Das ist ein Erklärungswechsel, kein
-weiterer ausgeschlossener Kandidat: die Frage ist nicht mehr "was baut der
-Browser da", sondern "sind 300ms/150ms die richtige Sicherheitsspanne, oder
-mehr als nötig" — Frage 14 oben.
+**Candidate B/C (Question 7, Question 11) hereby filed as a secondary explanation
+rather than still open as "the missing majority":** four independently tested
+explanations (network 24–31%, file count linear 16–21%, file count quadratic 29%, now
+CPU 11–24%) are all minorities, but two known wait constants fixed in the code fit the
+remaining time almost exactly in numeric terms. That is a change of explanation, not
+another eliminated candidate: the question is no longer "what is the browser building
+there" but "are 300ms/150ms the right safety margin, or more than needed" — Question
+14 above.
 
-**Vorab geprüft (2026-08-02, Quellcode-Lesen, kein Live-Lauf, kein
-Serverkontakt):** Playwright Go's eigene `Tracing`-API
-(`playwright-go@v0.6100.0/tracing.go`) produziert nur den Playwright-
-eigenen Trace Viewer (Screenshots/Snapshots/Netzwerk/Aktionen) — kein
-CPU-/Layout-Profil im Chrome-DevTools-Sinn. Aber `BrowserContext.
-NewCDPSession(page)` existiert bereits (`browser_context.go` Zeile 88,
-`CDPSession.Send(method string, params map[string]any)
-(any, error)`, `generated-interfaces.go` Zeile 630) — dieselbe rohe
-CDP-Andockstelle, über die Frage 3 schon `Fetch.enable` gefunden hat, nur
-diesmal selbst aufgerufen statt nur gelesen.
+**Checked in advance (2026-08-02, source reading, no live run, no server contact):**
+Playwright Go's own `Tracing` API (`playwright-go@v0.6100.0/tracing.go`) produces only
+Playwright's own trace viewer (screenshots/snapshots/network/actions) — no CPU/layout
+profile in the Chrome DevTools sense. But `BrowserContext.NewCDPSession(page)` already
+exists (`browser_context.go` line 88, `CDPSession.Send(method string, params
+map[string]any) (any, error)`, `generated-interfaces.go` line 630) — the same raw CDP
+attachment point through which Question 3 already found `Fetch.enable`, only called by
+us this time instead of merely read.
 
-**Methode präzisiert (2026-08-02, vor dem Lauf):** volles `Tracing.start`
-(Chrome-Trace-JSON, Stream-Events über `Tracing.dataCollected`/
-`tracingComplete`, kein fertiger Parser im Projekt) ist mehr Werkzeug, als
-die Frage braucht. `Performance.enable` + `Performance.getMetrics()` ist
-ein leichteres Mitglied derselben CDP-Domain-Familie: ein einzelner
-synchroner Call ohne Stream, liefert kumulative Sekundenzähler
-(`ScriptDuration`, `LayoutDuration`, `RecalcStyleDuration`,
-`TaskDuration` seit `enable`). Diff vor/nach einer Sektions-Navigation
-beantwortet dieselbe qualitative Frage ("sitzt die Zeit in Skript, Layout,
-Style-Recalc, oder in keinem davon") ohne Offline-Trace-Auswertung.
+**Method refined (2026-08-02, before the run):** a full `Tracing.start` (Chrome trace
+JSON, stream events via `Tracing.dataCollected`/`tracingComplete`, no ready-made parser
+in the project) is more tool than the question needs. `Performance.enable` +
+`Performance.getMetrics()` is a lighter member of the same CDP domain family: a single
+synchronous call without a stream, returning cumulative second counters
+(`ScriptDuration`, `LayoutDuration`, `RecalcStyleDuration`, `TaskDuration` since
+`enable`). A before/after diff around one section navigation answers the same
+qualitative question ("does the time sit in script, layout, style recalc, or in none of
+them") without offline trace analysis.
 
-**Vorhersage:** Für die in Frage 11 bereits identifizierte langsamste
-Sektion des *kleinen* Kurses ("Vorlesung", Algorithmen und Datenstrukturen,
-44 Kandidaten, 533 Mutationen — kein dritter Crawl des großen Kurses an
-einem Tag nötig) macht die Summe aus LayoutDuration + RecalcStyleDuration +
-ScriptDuration einen realen, aber nicht dominanten Anteil der gemessenen
-settle+stable-Zeit aus — geschätzt 20–40%, in derselben Größenordnung wie
-die bereits gemessenen Kandidaten Netzwerk (24–31%, Frage 7) und
-Sektions-Dateizahl (16–29%, Frage 10/12), nicht die fehlenden 70%+ allein
-auffangend. Mechanismus: die in Frage 11 gefundene quadratische
-`tr`-Mutation sollte, wenn sie echte Style-Recalcs/Layout-Passes auslöst,
-in LayoutDuration/RecalcStyleDuration sichtbar sein — aber Browser-
-Style-Recalc für ein paar Dutzend Attribut-Änderungen auf `tr`-Elementen
-ist typischerweise Mikrosekunden- bis niedriger Millisekundenbereich,
-nicht Hunderte ms.
+**Prediction:** for the small course's slowest section already identified in Question
+11 ("Vorlesung", Algorithmen und Datenstrukturen, 44 candidates, 533 mutations — no
+third crawl of the large course needed in one day), the sum of LayoutDuration +
+RecalcStyleDuration + ScriptDuration makes up a real but not dominant share of the
+measured settle+stable time — estimated 20–40%, in the same order of magnitude as the
+already measured candidates network (24–31%, Question 7) and section file count
+(16–29%, Question 10/12), not absorbing the missing 70%+ on its own. Mechanism: the
+quadratic `tr` mutation found in Question 11 should, if it triggers real style
+recalcs/layout passes, be visible in LayoutDuration/RecalcStyleDuration — but browser
+style recalc for a few dozen attribute changes on `tr` elements is typically in the
+microsecond to low-millisecond range, not hundreds of ms.
 
-**Scheitern-Kriterium (qualitativ, nicht nur ein Schwellenwert — Lehre aus
-Frage 12s zu laschem Kriterium):**
-- **>50%** der settle+stable-Zeit in Layout+RecalcStyle+Script: Vorhersage
-  widerlegt, aber im guten Sinn — CPU-Arbeit ist der bisher übersehene
-  dominante Treiber, Frage 13 schließt mit Mechanismus, neue Frage: welche
-  der drei Metriken konkret und warum.
-- **~20–40%** (Vorhersage bestätigt): eine reale, aber weitere Minderheits-
-  Erklärung neben Netzwerk und Dateizahl — dann ist nach vier geprüften
-  Kandidaten (Netzwerk, Dateizahl linear, Dateizahl quadratisch, jetzt CPU)
-  keiner dominant, und die verbleibende Mehrheit der Zeit ist vermutlich
-  **reine Wartezeit ohne messbare Browser-Arbeit** — der 300ms-Debounce in
-  `waitForInteractiveLinks` selbst wird dann verdächtig, nicht mehr das,
-  worauf er wartet.
-- **<10%** (nahe Null): stärkster Fall für "die Zeit ist die
-  Debounce-Konstante, nicht Arbeit" — nächste Frage wäre dann, ob die
-  300ms-Konstante zu konservativ ist, nicht mehr, was in dieser Zeit läuft.
+**Failure criterion (qualitative, not just a threshold — lesson from Question 12's
+too-lax criterion):**
+- **>50%** of settle+stable time in Layout+RecalcStyle+Script: prediction refuted, but
+  in the good sense — CPU work is the previously overlooked dominant driver, Question 13
+  closes with a mechanism, new question: which of the three metrics specifically, and
+  why.
+- **~20–40%** (prediction confirmed): a real but further minority explanation alongside
+  network and file count — then after four tested candidates (network, file count
+  linear, file count quadratic, now CPU) none is dominant, and the remaining majority of
+  the time is presumably **pure waiting with no measurable browser work** — the 300ms
+  debounce in `waitForInteractiveLinks` itself then becomes the suspect, no longer what
+  it is waiting for.
+- **<10%** (near zero): strongest case for "the time is the debounce constant, not
+  work" — the next question would then be whether the 300ms constant is too
+  conservative, no longer what runs during that time.
 
-**Kosten:** niedriger als ursprünglich angenommen — kein Trace-Parsing,
-nur eine CDP-Session pro Seite plus zwei `Performance.getMetrics()`-Calls
-pro Sektion. Lauf gegen den bereits für Frage 11 benutzten kleinen Kurs
-(6 Sektionen, keine neue Serverlast über das hinaus, was ein
-Sektions-BFS-Walk ohnehin kostet), kein Diff gegen Ground-Truth nötig
-(kein Sync-Verhalten geändert).
+**Cost:** lower than originally assumed — no trace parsing, only one CDP session per
+page plus two `Performance.getMetrics()` calls per section. Run against the small course
+already used for Question 11 (6 sections, no extra server load beyond what a section BFS
+walk costs anyway), no diff against ground truth needed (no sync behaviour changed).
 
 ---
 
-## Vorheriges Experiment (Frage 12, abgeschlossen 2026-08-02)
+## Previous experiment (Question 12, closed 2026-08-02)
 
-**Frage:** (12, neu aus Frage 11) — skaliert die settle+stable-**Wartezeit**
-(nicht nur die Mutationszahl) mit der quadrierten Kandidatenzahl besser als
-mit der linearen (Frage 10: r=0,40 linear) — und erklärt das den bisher
-schwachen linearen Befund als ein quadratisches Verhältnis, das ein lineares
-Modell unterschätzt?
+**Question:** (12, new from Question 11) — does the settle+stable **wait time** (not
+just the mutation count) scale better with the squared candidate count than with the
+linear one (Question 10: r=0.40 linear) — and does that explain the weak linear finding
+so far as a quadratic relationship that a linear model underestimates?
 
-**Vorhersage:** Ein erneuter Lauf der bereits bestehenden Frage-10-Probe
-(`network_timing_probe_test.go`, `sectionProbe`-Hook, unverändert bis auf
-eine zusätzliche Pearson-r-Berechnung gegen `candidates²`) gegen denselben
-großen Kurs (Softwaretechnologie, 164 Sektionen) zeigt einen deutlich
-höheren Pearson-r zwischen Kandidatenzahl² und settle+stable-Zeit als der
-bereits gemessene r=0,40 für die lineare Kandidatenzahl.
+**Prediction:** another run of the existing Question 10 probe
+(`network_timing_probe_test.go`, `sectionProbe` hook, unchanged apart from an additional
+Pearson r computed against `candidates²`) against the same large course
+(Softwaretechnologie, 164 sections) shows a markedly higher Pearson r between candidate
+count² and settle+stable time than the already measured r=0.40 for the linear candidate
+count.
 
-**Gescheitert ab:** Wenn r für Kandidatenzahl² nicht spürbar über r=0,40
-liegt (z. B. unter ~0,5 bleibt), erklärt der in Frage 11 gefundene
-quadratische Mutations-Zusammenhang nicht die pro-Sektion-Wartezeit — dann
-bleibt der Haupttreiber der Wartezeit weiterhin offen, und der nächste
-Schritt ist das in Frage 7/10 schon vorhergesagte echte
-Browser-Profiling (CPU/Layout/Paint), nicht mehr Zählen von Mutationen.
+**Counts as failed at:** if r for candidate count² is not noticeably above r=0.40 (e.g.
+stays below ~0.5), the quadratic mutation relationship found in Question 11 does not
+explain the per-section wait time — then the main driver of the wait time remains open,
+and the next step is the real browser profiling already predicted in Question 7/10
+(CPU/layout/paint), not more counting of mutations.
 
-**Kosten:** Eine Zeile Ergänzung an der bestehenden Frage-10-Probe (Pearson-r
-zusätzlich gegen `candidates²` statt nur `candidates`), ein Live-Lauf gegen
-denselben großen Kurs wie Frage 10 — heute noch kein zweiter Crawl dieses
-Kurses, also kein Grund, ihn zu vermeiden (`docs/server-load.md`: ein Crawl
-pro Tag ist vernachlässigbar). Kein Diff gegen Ground-Truth nötig, da nichts
-am Sync-Verhalten geändert wird.
+**Cost:** a one-line addition to the existing Question 10 probe (Pearson r additionally
+against `candidates²` instead of just `candidates`), one live run against the same large
+course as Question 10 — no second crawl of that course today yet, so no reason to avoid
+it (`docs/server-load.md`: one crawl a day is negligible). No diff against ground truth
+needed, since nothing about sync behaviour changes.
 
-**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus,
-direkt im Anschluss an Frage 11 mit derselben noch gültigen Session:
-Vorhersage nicht bestätigt — nur eine geringe Verbesserung, kein
-"deutlich höher".**
+**Result (2026-08-02, `opal-downloader-sync-speed`, this cycle, directly following
+Question 11 with the same still-valid session): prediction not confirmed — only a small
+improvement, not "markedly higher".**
 
-Live-Lauf gegen denselben Kurs wie Frage 10 (Softwaretechnologie, 164
-Sektionen, `tmp/settle-timing-network-trace.txt`): linear r=0,46 (leicht
-über dem archivierten 0,40 aus Frage 10 — Lauf-zu-Lauf-Streuung eines
-realen Servers, keine Regression), quadratisch (Kandidatenzahl²) r=0,54.
-r² (erklärte Varianz) steigt damit von 21 % auf 29 % — ein realer, aber
-kleiner Unterschied, keiner, der die "schwache Korrelation" von Frage 10
-erklärt.
+Live run against the same course as Question 10 (Softwaretechnologie, 164 sections,
+`tmp/settle-timing-network-trace.txt`): linear r=0.46 (slightly above the archived 0.40
+from Question 10 — run-to-run scatter of a real server, not a regression), quadratic
+(candidate count²) r=0.54. r² (explained variance) therefore rises from 21% to 29% — a
+real but small difference, not one that explains Question 10's "weak correlation".
 
-**Ehrliche Einordnung des eigenen Scheitern-Kriteriums:** wörtlich genommen
-("unter ~0,5 bleibt") ist das Kriterium mit r=0,54 knapp nicht erfüllt —
-aber das Kriterium war zu lasch formuliert. Der Geist der Vorhersage war
-"erklärt die schwache lineare Korrelation", nicht "liegt algebraisch über
-0,5". Eine Verbesserung von 8 Prozentpunkten erklärter Varianz ist das
-nicht. Lehre für künftige Kriterien in dieser Datei: ein Schwellenwert
-allein reicht nicht, das Kriterium braucht auch eine qualitative Formulierung
-("verdoppelt die erklärte Varianz" statt nur "über x").
+**Honest assessment of our own failure criterion:** taken literally ("stays below ~0.5")
+the criterion is narrowly unmet at r=0.54 — but the criterion was formulated too
+loosely. The spirit of the prediction was "explains the weak linear correlation", not
+"is algebraically above 0.5". An improvement of 8 percentage points of explained
+variance is not that. Lesson for future criteria in this file: a threshold alone is not
+enough, the criterion also needs a qualitative formulation ("doubles the explained
+variance" rather than just "above x").
 
-**Was das für das Gesamtbild bedeutet:** drei unabhängig geprüfte Kandidaten
-für die Settle-Zeit landen jetzt alle im selben Bereich "real, aber
-Minderheit": Netzwerktransfer 24–31 % (Frage 7), Sektions-Dateizahl linear
-r=0,40–0,46 / ~16–21 % Varianz (Frage 10, hier bestätigt), Sektions-
-Dateizahl quadratisch r=0,54 / ~29 % Varianz (hier). Keiner davon ist
-dominant. Der in Frage 7 und Frage 10 schon vorhergesagte nächste Schritt
-ist damit nicht mehr optional, sondern die einzige noch ungeprüfte Klasse:
-echtes Browser-Profiling (CPU/Layout/Paint) einer einzelnen Sektions-
-Navigation, um zu sehen, wo die verbleibenden 70+ % der Zeit tatsächlich
-sitzen.
+**What that means for the overall picture:** three independently tested candidates for
+the settle time now all land in the same "real, but a minority" range: network transfer
+24–31% (Question 7), section file count linear r=0.40–0.46 / ~16–21% variance (Question
+10, confirmed here), section file count quadratic r=0.54 / ~29% variance (here). None of
+them is dominant. The next step already predicted in Question 7 and Question 10 is
+therefore no longer optional but the only class left untested: real browser profiling
+(CPU/layout/paint) of a single section navigation, to see where the remaining 70+% of
+the time actually sits.
 
 ---
 
-## Vorheriges Experiment (Frage 11, abgeschlossen 2026-08-02)
+## Previous experiment (Question 11, closed 2026-08-02)
 
-**Frage:** (11, neu aus Frage 10) — was mutiert während des
-~338ms-Settle-Fensters tatsächlich im DOM, wenn weder Netzwerktransfer
-(24%) noch Sektions-Dateizahl (r=0,40, ~16% Varianz) die Mehrheit
-erklären?
+**Question:** (11, new from Question 10) — what actually mutates in the DOM during the
+~338ms settle window, when neither network transfer (24%) nor section file count (r=0.40,
+~16% variance) explains the majority?
 
-**Präzisiert (2026-08-01, nach Quellcode-Lesen statt Raten):** Der erste
-Entwurf dieser Frage nannte "CPU-/Layout-Profiling" als nötiges nächstes
-Werkzeug, ungeprüft teuer. `contentSettleWaitScript`
-(`internal/scraper/navigation.go` Zeile ~452) zeigt den Mechanismus
-direkt: ein `MutationObserver` auf dem Content-Root mit
-`{childList, subtree, attributes, characterData}` — **jede** Mutation,
-egal wie klein, setzt den Debounce-Timer zurück. Settle-Zeit misst also
-nicht "wie lange bis der Inhalt fertig ist", sondern "wie lange bis
-irgendwo im Root-Element gar nichts mehr passiert". Das ist direkt
-beobachtbar, ohne CPU-Profiling: die Mutation-Records selbst mitschneiden
-(Ziel-Element, Typ, `attributeName`) statt nur ihre Häufigkeit.
+**Refined (2026-08-01, after reading the source instead of guessing):** the first draft
+of this question named "CPU/layout profiling" as the necessary next tool, untested and
+expensive. `contentSettleWaitScript` (`internal/scraper/navigation.go` line ~452) shows
+the mechanism directly: a `MutationObserver` on the content root with `{childList,
+subtree, attributes, characterData}` — **every** mutation, however small, resets the
+debounce timer. So settle time does not measure "how long until the content is finished"
+but "how long until nothing at all happens anywhere in the root element". That is
+directly observable without CPU profiling: record the mutation records themselves (target
+element, type, `attributeName`) rather than just their frequency.
 
-**Vorhersage:** Ein Live-Mitschnitt der Mutation-Records während echter
-Sektions-Visits zeigt, dass die Mutationen auf wenige, eng begrenzte
-Elemente konzentriert sind (z. B. ein wiederkehrendes Widget, ein
-Attribut-Toggle, eine Live-Anzeige) — nicht breit verteilt über
-Baum/Dateitabelle, die laut Frage 1/9 beim initialen Laden bereits
-fertiges Server-HTML sind und keinen Grund zum Nachmutieren hätten.
+**Prediction:** a live recording of the mutation records during real section visits shows
+that the mutations are concentrated on a few, tightly bounded elements (e.g. a recurring
+widget, an attribute toggle, a live display) — not spread broadly over tree/file table,
+which per Questions 1/9 are already finished server HTML on initial load and would have
+no reason to mutate afterwards.
 
-**Gescheitert ab:** Wenn die Mutationen breit über viele verschiedene,
-nicht wiederkehrende Elemente verteilt sind (kein klar abgrenzbarer
-Verursacher erkennbar), ist die Hypothese eines engen Kandidat-C-Widgets
-widerlegt — dann bleibt nur eine diffuse Erklärung, und erst dann wird
-echtes CPU-/Layout-Profiling nötig, nicht vorher.
+**Counts as failed at:** if the mutations are spread broadly over many different,
+non-recurring elements (no clearly delimitable originator), the hypothesis of a narrow
+Candidate C widget is refuted — then only a diffuse explanation remains, and only then
+does real CPU/layout profiling become necessary, not before.
 
-**Kosten:** Test-seitige Instrumentierung (Kopie von
-`contentSettleWaitScript` mit Mutation-Logging statt nur Debounce), Live-
-Lauf gegen wenige Sektionen des kleinen Kurses (Algorithmen, 6 Sektionen —
-bewusst nicht wieder der große, dritter Live-Crawl desselben Kurses an
-einem Tag wäre unnötige Serverlast, docs/server-load.md), keine
-Produktionscode-Änderung nötig, kein neues Werkzeug.
+**Cost:** test-side instrumentation (a copy of `contentSettleWaitScript` with mutation
+logging instead of just debouncing), a live run against a few sections of the small course
+(Algorithmen, 6 sections — deliberately not the large one again, a third live crawl of the
+same course in one day would be unnecessary server load, docs/server-load.md), no
+production code change needed, no new tooling.
 
-**Ergebnis (2026-08-02, `opal-downloader-sync-speed`, dieser Zyklus):
-Vorhersage teilweise bestätigt, aber mit einer Verschiebung, die Regel 2
-noch nicht ganz erfüllt — Kandidat C in seiner engen Form widerlegt,
-abgelöst durch eine schärfere Frage 12.**
+**Result (2026-08-02, `opal-downloader-sync-speed`, this cycle): prediction partly
+confirmed, but with a shift that does not quite satisfy rule 2 — Candidate C refuted in its
+narrow form, superseded by a sharper Question 12.**
 
 `TestMutationConcentrationAcrossSections`
-(`internal/scraper/mutationmarker_probe_test.go`) erweitert die bestehende
-`mutationObserverInitScript`-Probe (bislang nur Root + eine Sektion, nur
-letzte 8 Records von Hand gelesen) auf einen vollständigen BFS-Walk aller 6
-Sektionen des kleinen Kurses, mit Aggregation aller Mutationen nach
-Ziel-Element. Live-Lauf gegen den echten Account, `tmp/mutation-
-concentration-probe.txt`:
+(`internal/scraper/mutationmarker_probe_test.go`) extends the existing
+`mutationObserverInitScript` probe (previously only root + one section, only the last 8
+records read by hand) to a complete BFS walk of all 6 sections of the small course, with
+all mutations aggregated by target element. Live run against the real account,
+`tmp/mutation-concentration-probe.txt`:
 
-| Sektion | Kandidaten | Mutationen | Mutationen/Kandidat |
+| Section | Candidates | Mutations | Mutations/candidate |
 |---|---:|---:|---:|
-| Algorithmen u. Datenstrukturen (Root) | 12 | 43 | 3.58 |
+| Algorithmen u. Datenstrukturen (root) | 12 | 43 | 3.58 |
 | Übungseinschreibung | 14 | 52 | 3.71 |
 | Probeklausur | 17 | 64 | 3.76 |
 | Materialien | 18 | 84 | 4.67 |
 | Übungsblätter | 27 | 164 | 6.07 |
 | Vorlesung | 44 | 533 | 12.11 |
 
-**Konzentration bestätigt:** über alle 6 Sektionen (940 Mutationen, 36
-distinkte Element-Keys) tragen die Top-3-Keys 79,8 % bei — das erfüllt das
-Scheitern-Kriterium nicht (keine diffuse Verteilung), die Vorhersage
-"konzentriert auf wenige" hält.
+**Concentration confirmed:** across all 6 sections (940 mutations, 36 distinct element
+keys) the top 3 keys contribute 79.8% — that does not meet the failure criterion (no
+diffuse distribution), the "concentrated on a few" prediction holds.
 
-**Aber die dominante Ursache widerspricht der Kandidat-C-Prämisse:** der
-mit Abstand größte Key ist ein namenloses `tr` (70,2 % aller Mutationen,
-Attribut-Mutationen direkt auf Datei-Tabellenzeilen ohne id/class) — nicht
-ein "schmal begrenztes Widget außerhalb von Baum/Tabelle", wie Kandidat C
-explizit forderte ("nicht Baum oder Tabelle selbst"). Die beiden 2026-07-30
-per Hand vermuteten Kandidaten (`#veil`, Wicket-AJAX-Overlay; `#MathJax_
-Message`) sind real, aber mit 0,9 % bzw. 1,3 % eine kleine Minderheit, nicht
-die Erklärung — die damalige Vermutung entstand aus dem Lesen von nur 8
-Tail-Records einer einzigen (noch dazu ungewöhnlich langsamen) Sektion, hier
-widerlegt durch die vollständige Aggregation über 940 Records.
+**But the dominant cause contradicts the Candidate C premise:** by far the largest key is
+an unnamed `tr` (70.2% of all mutations, attribute mutations directly on file table rows
+without id/class) — not a "narrowly bounded widget outside tree/table", as Candidate C
+explicitly required ("not the tree or the table itself"). The two candidates guessed by
+hand on 2026-07-30 (`#veil`, the Wicket AJAX overlay; `#MathJax_Message`) are real, but at
+0.9% and 1.3% a small minority, not the explanation — that earlier guess came from reading
+only 8 tail records of a single (and unusually slow) section, and is refuted here by the
+complete aggregation over 940 records.
 
-**Neuer, schärferer Befund (nicht Teil der ursprünglichen Vorhersage):** das
-Verhältnis Mutationen/Kandidat ist nicht konstant, sondern wächst von 3,58
-(12 Kandidaten) auf 12,11 (44 Kandidaten) — ein 3,4-facher Anstieg der
-Rate bei nur 3,7-fach mehr Kandidaten. Regression über die 6 Punkte:
-Kandidatenzahl vs. Mutationen linear r=0,976, Kandidatenzahl² vs.
-Mutationen r=0,997, log-log-Exponent 1,96 (r=0,993) — die Daten passen
-deutlich besser zu einer quadratischen als zu einer linearen Beziehung.
-Das ist die konkrete, prüfbare Signatur, die Regel 2 verlangt: irgendetwas
-touched Datei-Tabellenzeilen mit einem Gesamtaufwand, der eher mit
-Zeilenzahl² als mit Zeilenzahl wächst — z. B. eine paarweise Zeilen-
-Vergleichsoperation (Duplikat-/Sortier-/Highlight-Logik), nicht eine reine
-Pro-Zeile-Initialisierung. Welches konkrete Attribut auf `tr` wechselt
-(nur der Tag wurde aggregiert, nicht `attr`/`attrVal`) ist noch nicht
-untersucht.
+**New, sharper finding (not part of the original prediction):** the mutations/candidate
+ratio is not constant but grows from 3.58 (12 candidates) to 12.11 (44 candidates) — a
+3.4x rise in the rate for only 3.7x more candidates. Regression over the 6 points:
+candidate count vs. mutations linear r=0.976, candidate count² vs. mutations r=0.997,
+log-log exponent 1.96 (r=0.993) — the data fit a quadratic relationship considerably
+better than a linear one. That is the concrete, testable signature rule 2 demands:
+something touches file table rows with a total effort that grows more like row count²
+than like row count — e.g. a pairwise row comparison (duplicate/sort/highlight logic),
+not a plain per-row initialisation. Which concrete attribute changes on `tr` (only the tag
+was aggregated, not `attr`/`attrVal`) has not been investigated yet.
 
-**Warum Frage 11 trotzdem nicht einfach geschlossen ist:** Kandidat C ist in
-seiner ursprünglichen, engen Form ("Widget außerhalb von Baum/Tabelle")
-widerlegt, mit Mechanismus (die Aggregation zeigt klar: es ist die Tabelle
-selbst). Aber das ist noch keine vollständige Erklärung für die
-Settle-Zeit — nur für die Mutations*zahl*. Ob der quadratische
-Mutations-Befund auch die tatsächliche Wartezeit erklärt (die eigentliche
-Zielgröße, nicht nur ein Proxy dafür), ist ungeprüft und genau die neue
-Frage 12 oben.
+**Why Question 11 is nevertheless not simply closed:** Candidate C is refuted in its
+original, narrow form ("widget outside tree/table"), with a mechanism (the aggregation
+shows clearly: it is the table itself). But that is not yet a complete explanation for the
+settle *time* — only for the mutation *count*. Whether the quadratic mutation finding also
+explains the actual wait time (the real target quantity, not just a proxy for it) is
+untested, and is exactly the new Question 12 above.
 
 ---
 
-## Vorheriges Experiment (Frage 10, abgeschlossen 2026-08-01)
+## Previous experiment (Question 10, closed 2026-08-01)
 
-**Frage:** (10, neu aus Frage 9) — skaliert settle+stable pro Sektion mit
-der Dateizahl *in der gerade besuchten Sektion*, statt mit der
-Gesamtsektionszahl des Kurses?
+**Question:** (10, new from Question 9) — does settle+stable per section scale with the
+file count *in the section currently being visited*, rather than with the course's total
+section count?
 
-**Vorhersage:** Innerhalb desselben großen Kurses (Softwaretechnologie, 164
-Sektionen) korreliert die pro-Sektion settle+stable-Zeit mit der Dateizahl
-dieser einen Sektion — Sektionen mit vielen Dateien brauchen spürbar länger
-als leere/dateiarme Sektionen.
+**Prediction:** within the same large course (Softwaretechnologie, 164 sections), the
+per-section settle+stable time correlates with that one section's file count — sections
+with many files take noticeably longer than empty/file-poor ones.
 
-**Gescheitert ab:** Wenn settle+stable pro Sektion auch bei stark
-unterschiedlicher Dateizahl (z. B. 0 vs. 20+ Dateien) im selben Kurs flach
-bleibt, ist Dateizahl nicht die erklärende Variable — dann ist die
-verbleibende Zeit ein fixer Overhead pro Sektionsseite (Navigation,
-Wicket-Bookkeeping, Layout/Parsing einer im Wesentlichen konstant großen
-Seite), und das braucht laut Modell (Frage 7) echtes Browser-Profiling,
-nicht mehr Quellcode-Lesen oder Netzwerk-Tracing.
+**Counts as failed at:** if settle+stable per section stays flat within the same course
+even across very different file counts (e.g. 0 vs. 20+ files), file count is not the
+explanatory variable — then the remaining time is a fixed overhead per section page
+(navigation, Wicket bookkeeping, layout/parsing of an essentially constant-sized page),
+and per the model (Question 7) that needs real browser profiling, no more source reading
+or network tracing.
 
-**Kosten:** Erweiterung der bestehenden Probe
-(`network_timing_probe_test.go`) um Dateizahl pro Sektion neben
-`sectionTiming`, ein Live-Lauf gegen den echten Account (nur der bereits
-gecrawlte große Kurs), kein Diff gegen Ground-Truth nötig.
+**Cost:** extending the existing probe (`network_timing_probe_test.go`) with a file count
+per section alongside `sectionTiming`, one live run against the real account (only the
+large course already crawled), no diff against ground truth needed.
 
-**Ergebnis (2026-08-01, `opal-downloader-sync-speed`, dieser Zyklus):
-weder bestätigt noch sauber widerlegt — schwacher, nicht dominanter
-Zusammenhang.** `OpalScraper.sectionProbe` (neuer Hook, nil in Produktion,
-`internal/scraper/scraper.go`/`crawl.go`) misst pro Sektion settle+stable
-gegen die Kandidatenzahl (`candidateStabilityPoll`-Trefferzahl, Proxy für
-Dateizahl). Live-Lauf, nur der große Kurs (164 Sektionen, Kandidatenzahl
-21–72): **Pearson r = 0,40** zwischen Kandidatenzahl und settle+stable-Zeit
-pro Sektion. Das ist real (nicht 0, also nicht "flach" im Sinne des
-Scheitern-Kriteriums), aber schwach — r²≈16% der Varianz erklärt, weit
-entfernt von "spürbar länger bei vielen Dateien" als Haupterklärung.
+**Result (2026-08-01, `opal-downloader-sync-speed`, this cycle): neither confirmed nor
+cleanly refuted — a weak, non-dominant relationship.** `OpalScraper.sectionProbe` (new
+hook, nil in production, `internal/scraper/scraper.go`/`crawl.go`) measures settle+stable
+per section against the candidate count (`candidateStabilityPoll` hit count, a proxy for
+file count). Live run, large course only (164 sections, candidate count 21–72): **Pearson
+r = 0.40** between candidate count and settle+stable time per section. That is real (not
+0, so not "flat" in the sense of the failure criterion), but weak — r²≈16% of variance
+explained, far from "noticeably longer with many files" as the main explanation.
 
-Zusammen mit Frage 7 (Netzwerk erklärt 24% dieses Laufs) bleibt der
-Großteil der settle+stable-Zeit unerklärt durch beide bisher geprüften
-Kandidaten (Netzwerkbytes, Sektions-Dateizahl). Das deckt sich mit der im
-Modell schon vor diesem Zyklus benannten Konsequenz: die verbleibende Zeit
-sieht nach einem weitgehend **fixen Overhead pro Sektionsseite** aus, nicht
-nach etwas, das mit Inhaltsmenge (Baum oder Datei-Tabelle) skaliert — egal
-ob gemessen über Kursgröße (Frage 9) oder Sektions-Dateizahl (hier).
-Reines Quellcode-Lesen und Netzwerk-Tracing sind damit als Werkzeuge für
-diese Frage ausgereizt; der nächste Schritt braucht echtes
-Browser-Profiling (CPU/Layout/Paint), wie Frage 7 das schon vorhergesagt
-hatte.
+Together with Question 7 (network explains 24% of this run), the bulk of the
+settle+stable time remains unexplained by both candidates tested so far (network bytes,
+section file count). That matches the consequence already named in the model before this
+cycle: the remaining time looks like a largely **fixed overhead per section page**, not
+like something that scales with content volume (tree or file table) — whether measured
+via course size (Question 9) or section file count (here). Pure source reading and
+network tracing are therefore exhausted as tools for this question; the next step needs
+real browser profiling (CPU/layout/paint), as Question 7 had already predicted.
 
 ---
 
-## Vorheriges Experiment (Frage 9, abgeschlossen 2026-08-01, reines Quellcode-Lesen)
+## Previous experiment (Question 9, closed 2026-08-01, pure source reading)
 
-**Frage:** (9) — serialisiert `MenuTreeRenderer` den ganzen Kursbaum auf
-jeder Sektionsseite, oder nur den sichtbaren/aufgeklappten Teilbaum?
+**Question:** (9) — does `MenuTreeRenderer` serialise the whole course tree on every
+section page, or only the visible/expanded subtree?
 
-**Vorhersage:** Der Quellcode zeigt bedingte Rekursion (z. B. ein
-`if (node.isOpen())`-artiger Check vor dem rekursiven Aufruf für
-Kindknoten), die erklärt, warum die gemessene Response-Größe nicht mit der
-Gesamtsektionszahl skaliert.
+**Prediction:** the source shows conditional recursion (e.g. an `if (node.isOpen())`-style
+check before the recursive call for child nodes) that explains why the measured response
+size does not scale with the total section count.
 
-**Gescheitert ab:** Wenn der Code unbedingt über alle Kindknoten
-rekursiert (kein Open/Closed-Gate erkennbar), ist (a) widerlegt und es
-bleibt nur (b) (Caching) oder eine dritte, noch nicht benannte Erklärung —
-dann zurück zu reinem Messen: Response-Bytes zweier verschiedener
-Sektionsseiten *innerhalb desselben großen Kurses* vergleichen (variieren
-sie mit der angeklickten Sektion, oder sind sie auch dort flach?).
+**Counts as failed at:** if the code recurses unconditionally over all child nodes (no
+open/closed gate visible), (a) is refuted and only (b) (caching) or a third, not yet named
+explanation remains — then back to pure measurement: compare response bytes of two
+different section pages *within the same large course* (do they vary with the section
+clicked, or are they flat there too?).
 
-**Kosten:** Quellcode-Lesen (`gh search code --repo OpenOLAT/OpenOLAT`),
-kein Build, kein Live-Lauf nötig.
+**Cost:** source reading (`gh search code --repo OpenOLAT/OpenOLAT`), no build, no live run
+needed.
 
-**Ergebnis (2026-08-01, `opal-downloader-sync-speed`, dieser Zyklus):
-Vorhersage bestätigt, mit Beleg — Kandidat (a) erwiesen.**
-`isRenderChildren()` (`MenuTreeRenderer.java`, ab Zeile 660) gibt `true`
-nur zurück, wenn der Knoten in `openNodeIds` steht oder auf dem
-Selektionspfad liegt (`curSel == curRoot`); sonst `false`, und
-`renderLevel()` (Zeile 232) ruft `renderChildren(...)` dann gar nicht erst
-auf — der rekursive Abstieg endet strukturell an jedem nicht offenen,
-nicht selektierten Knoten. Das ist die scharfe Erklärung, die Regel 2
-verlangt: der Baum-Fragment-Anteil der Response ist auf offene Knoten +
-Selektionspfad begrenzt, nicht auf die Gesamtsektionszahl — exakt das
-Muster, das die 1,4x/27,3x-Diskrepanz aus dem vorherigen Experiment
-vorhersagt. Kandidat A (Frage 7) ist damit nicht nur widerlegt, sondern mit
-Mechanismus geschlossen. Neue Frage (Regel 3): Frage 10 oben.
+**Result (2026-08-01, `opal-downloader-sync-speed`, this cycle): prediction confirmed, with
+evidence — candidate (a) proven.** `isRenderChildren()` (`MenuTreeRenderer.java`, from line
+660) returns `true` only if the node is in `openNodeIds` or lies on the selection path
+(`curSel == curRoot`); otherwise `false`, and `renderLevel()` (line 232) then never even
+calls `renderChildren(...)` — the recursive descent ends structurally at every node that is
+neither open nor selected. That is the sharp explanation rule 2 demands: the tree fragment
+share of the response is limited to open nodes + selection path, not to the total section
+count — exactly the pattern that predicts the 1.4x/27.3x discrepancy from the previous
+experiment. Candidate A (Question 7) is therefore not merely refuted but closed with a
+mechanism. New question (rule 3): Question 10 above.
 
 ---
 
-## Vorheriges Experiment (Frage 7, abgeschlossen 2026-08-01)
+## Previous experiment (Question 7, closed 2026-08-01)
 
-**Frage:** (7) — erklärt Netzwerk-/Transferzeit einer großen
-Server-HTML-Antwort die 336ms Settle-Wait, statt Client-JS?
+**Question:** (7) — does the network/transfer time of a large server HTML response explain
+the 336ms settle wait, rather than client JS?
 
-**Vorhersage:** Response-Größe (Content-Length) und Time-to-last-byte einer
-Coursenode-Seite korrelieren mit der Kursgröße (Sektionsanzahl im Baum), und
-"Netzwerk fertig" fällt zeitlich nah mit "Kandidatenzahl stabil" zusammen.
+**Prediction:** response size (Content-Length) and time-to-last-byte of a course-node page
+correlate with course size (number of sections in the tree), and "network done" coincides
+in time with "candidate count stable".
 
-**Gescheitert ab:** Wenn die Antwortkörper klein sind (wenige KB,
-Transfer < 50ms) während Settle/Stability weiter 300ms+ braucht, ist Transfer
-nicht die Erklärung — dann bleibt offen, was in der Zeit läuft (zurück zu
-Kandidat B/C), und das braucht ein echtes Browser-Profiling, kein Quellcode-
-Lesen mehr.
+**Counts as failed at:** if the response bodies are small (a few KB, transfer < 50ms) while
+settle/stability still needs 300ms+, transfer is not the explanation — then what runs during
+that time stays open (back to Candidate B/C), and that needs real browser profiling, no more
+source reading.
 
-**Kosten:** Ein Live-Lauf gegen den echten Account (Netzwerk-Timing pro
-Sektion mitschneiden), kein Build-Risiko — rein lesende Instrumentierung,
-kein Diff gegen den Ground-Truth-Sync nötig, weil nichts am Sync-Verhalten
-geändert wird.
+**Cost:** one live run against the real account (recording network timing per section), no
+build risk — purely read-only instrumentation, no diff against the ground-truth sync needed,
+because nothing about sync behaviour changes.
 
-**Ergebnis (2026-08-01, `opal-downloader-sync-speed`, dieser Zyklus):
-Live-Lauf durchgeführt, Vorhersage widerlegt — Kandidat A (Baumgröße treibt
-Response-Größe) ist tot, aber mit einer neuen, engeren Frage statt
-geschlossen (Regel 2 noch nicht erfüllt, siehe unten).**
+**Result (2026-08-01, `opal-downloader-sync-speed`, this cycle): live run performed,
+prediction refuted — Candidate A (tree size drives response size) is dead, but with a new,
+narrower question rather than closed (rule 2 not yet satisfied, see below).**
 
-Ergebnis (`tmp/settle-timing-network-trace.txt`):
+Result (`tmp/settle-timing-network-trace.txt`):
 
-| | Algorithmen u. Datenstrukturen (6 Sektionen) | Softwaretechnologie (164 Sektionen) |
+| | Algorithmen u. Datenstrukturen (6 sections) | Softwaretechnologie (164 sections) |
 |---|---|---|
-| avg. Dokument-Response | 5604 Bytes / 79ms | 7789 Bytes / 65ms |
-| settle+stable pro Sektion | 511ms | 525ms |
-| Netzwerkanteil an settle+stable | 31% | 25% |
+| avg. document response | 5604 bytes / 79ms | 7789 bytes / 65ms |
+| settle+stable per section | 511ms | 525ms |
+| network share of settle+stable | 31% | 25% |
 
-Byteverhältnis (größer/kleiner) **1,4x** bei einem Sektionsverhältnis von
-**27,3x**. Die Vorhersage verlangte, dass Response-Größe mit der Kursgröße
-mitwächst (Begründung: `MenuTreeRenderer` liefert den kompletten `o_tree`
-auf jeder Sektionsseite mit). Das ist nicht eingetreten — die Bytes bleiben
-über einen 27-fachen Größenunterschied praktisch flach, die Transferdauer
-sinkt sogar leicht. Deckt sich mit dem Scheitern-Kriterium: kleine Bodies
-(5,6–7,8 KB), Transfer im Bereich 65–130ms/Sektion (2 Dokument-Requests je
-Sektion), während settle+stable bei 511–525ms/Sektion bleibt — Netzwerk
-erklärt höchstens 25–31%, nie die Mehrheit.
+Byte ratio (larger/smaller) **1.4x** at a section ratio of **27.3x**. The prediction
+required response size to grow with course size (rationale: `MenuTreeRenderer` ships the
+complete `o_tree` on every section page). That did not happen — the bytes stay practically
+flat across a 27-fold size difference, and the transfer duration even drops slightly.
+Matches the failure criterion: small bodies (5.6–7.8 KB), transfer in the 65–130ms/section
+range (2 document requests per section), while settle+stable stays at 511–525ms/section —
+network explains at most 25–31%, never the majority.
 
-Nebenbefund, nicht Teil der Vorhersage, aber informativ: settle+stable
-pro Sektion ist zwischen den beiden Kursen fast identisch (511 vs. 525ms) —
-deckt sich mit dem bereits bekannten Aggregat aus der Tabelle oben
-(338+172=510ms/Sektion). Das Timing selbst skaliert also so oder so nicht
-mit der Kursgröße; nur die Vorhersage, *warum* es das nicht tut (Bytes
-skalieren auch nicht), ist neu.
+Side finding, not part of the prediction but informative: settle+stable per section is
+almost identical between the two courses (511 vs. 525ms) — matching the already known
+aggregate from the table above (338+172=510ms/section). So the timing itself does not scale
+with course size either way; only the prediction of *why* it does not (bytes do not scale
+either) is new.
 
-**Warum Kandidat A trotzdem offen bleibt (Regel 2):** Widerlegt ist nur die
-Vorhersage "Response wächst mit Kursgröße", nicht der Mechanismus dahinter.
-Es gibt zwei unbestätigte Erklärungen, warum `MenuTreeRenderer` trotz
-27x mehr Sektionen kaum mehr Bytes schickt:
-- **(a)** Der Renderer serialisiert nicht den ganzen Baum, sondern nur den
-  sichtbaren/aufgeklappten Teilbaum (Tiefe/offene Knoten statt
-  Gesamtsektionszahl) — dann wäre Kursgröße die falsche unabhängige
-  Variable, nicht die Baumgröße als solche widerlegt.
-- **(b)** Der Baum wird serverseitig irgendwo gecached/wiederverwendet und
-  nur ein Diff oder Verweis geschickt.
-Keine davon ist geprüft. Ungeprüft, auch: die 25–31% Netzwerkanteil sind
-real, aber Minderheit — was füllt die restlichen 69–75%, wenn nicht
-Client-JS (Frage 1, beantwortet) und nicht Netzwerktransfer (jetzt
-größtenteils widerlegt)? Das war schon vor diesem Lauf Kandidat B/C und
-bleibt es.
+**Why Candidate A nevertheless stays open (rule 2):** only the prediction "response grows
+with course size" is refuted, not the mechanism behind it. There are two unconfirmed
+explanations for why `MenuTreeRenderer` sends barely more bytes despite 27x more sections:
+- **(a)** the renderer does not serialise the whole tree but only the visible/expanded
+  subtree (depth/open nodes instead of total section count) — then course size would be the
+  wrong independent variable, and tree size as such would not be refuted.
+- **(b)** the tree is cached/reused somewhere server-side and only a diff or a reference is
+  sent.
+Neither is tested. Also untested: the 25–31% network share is real, but a minority — what
+fills the remaining 69–75%, if not client JS (Question 1, answered) and not network transfer
+(now largely refuted)? That was Candidate B/C before this run and remains so.
 
-Die Probe (`internal/scraper/network_timing_probe_test.go`,
-`OPAL_SETTLE_TIMING_TRACE=1`) crawlt die kleinste und die größte
-Content-Kurs im Account nacheinander und stellt pro Kurs Bytes/Dauer der
-Section-Seiten-Dokumentresponses (`Request.Sizes()`/`Request.Timing()`)
-neben `sectionTiming` (settle+stable, diese Datei kannte den Mechanismus
-schon, siehe oben).
+The probe (`internal/scraper/network_timing_probe_test.go`, `OPAL_SETTLE_TIMING_TRACE=1`)
+crawls the smallest and the largest content course in the account one after the other and,
+per course, puts bytes/duration of the section pages' document responses
+(`Request.Sizes()`/`Request.Timing()`) next to `sectionTiming` (settle+stable; this document
+already knew the mechanism, see above).
 
-Vor dem ersten Live-Lauf ein Blick in den bereits archivierten Trace vom
-2026-07-27 (`tmp/network-trace-Softwaretechnologie (SoSe 26).txt`, aus einer
-anderen Probe): 324 Hauptframe-Dokumentresponses, **0 bytes
-content-length-Summe**. Ein Java/Wicket-Servlet, das eine Seite dynamisch
-baut, puffert sie nicht komplett, um vorher `Content-Length` auszurechnen —
-es schickt Chunked Transfer-Encoding, das den Header ganz weglässt. Die
-erste Fassung dieser Probe hätte also für jede Section-Seite in beiden
-Kursen "0 bytes" gemeldet und Kandidat A fälschlich für widerlegt gehalten —
-nicht weil die Antwort klein war, sondern weil das Instrument blind war.
-Umgestellt auf `Request.Sizes()` (echte transferierte Bytes, nicht der
-Header) — das braucht einen Round-Trip in den Browser-Prozess, deshalb
-absichtlich *nicht* im `OnResponse`/`OnRequestFinished`-Handler aufgerufen
-(derselbe Deadlock, den `network_trace_probe_test.go` am 2026-07-27 schon
-55 Minuten lang live hatte), sondern danach, wenn die Dispatch-Loop wieder
-frei ist.
+Before the first live run, a look at the already archived trace from 2026-07-27
+(`tmp/network-trace-Softwaretechnologie (SoSe 26).txt`, from a different probe): 324 main
+frame document responses, **0 bytes content-length total**. A Java/Wicket servlet that builds
+a page dynamically does not buffer it completely in order to compute `Content-Length`
+beforehand — it sends chunked transfer encoding, which omits the header entirely. The first
+version of this probe would therefore have reported "0 bytes" for every section page in both
+courses and wrongly considered Candidate A refuted — not because the response was small, but
+because the instrument was blind. Switched to `Request.Sizes()` (real transferred bytes, not
+the header) — that needs a round trip into the browser process, which is why it is
+deliberately *not* called in the `OnResponse`/`OnRequestFinished` handler (the same deadlock
+`network_trace_probe_test.go` already had live for 55 minutes on 2026-07-27), but afterwards,
+when the dispatch loop is free again.
 
-**Live-Lauf blockiert:** gespeicherte Session war abgelaufen
-(`ensureSession: timed out after 300000ms waiting for the OPAL course list
-after login`). Die damalige Begründung — "Login braucht 2FA im geöffneten
-Browserfenster, unbeaufsichtigt nicht überbrückbar" — **war falsch** und wird
-hier stehen gelassen, weil sie einen ganzen Zyklus gekostet hat. TU-Fast im
-dedizierten Profil erledigt Login und 2FA selbst; eine abgelaufene Session ist
-kein Blocker. Nachgemessen 2026-08-01: `list` mit abgelaufenem State →
-Auto-Login → 8 Kurse in 3,7 s, ohne Klick. Der 300-s-Timeout am 2026-07-31 war
-also ein echter Fehlschlag mit unbekannter Ursache, keine strukturelle Grenze —
-beim nächsten Auftreten die Fehlermeldung untersuchen, nicht die Person rufen.
-Browser/Profil wurden sauber geschlossen (`sc.Close()` lief über den
-regulären `defer`, `rate ceiling: 2 navigation(s), 0 delayed` bestätigt
-es), nichts blieb hängen.
+**Live run blocked:** the saved session had expired (`ensureSession: timed out after
+300000ms waiting for the OPAL course list after login`). The rationale given at the time —
+"login needs 2FA in an open browser window, cannot be bridged unattended" — **was wrong** and
+is left standing here because it cost a whole cycle. TU-Fast in the dedicated profile handles
+login and 2FA itself; an expired session is not a blocker. Re-measured 2026-08-01: `list`
+with expired state → auto-login → 8 courses in 3.7s, no click. So the 300s timeout on
+2026-07-31 was a real failure with an unknown cause, not a structural limit — next time it
+happens, investigate the error message, do not call the maintainer. Browser/profile were
+closed cleanly (`sc.Close()` ran via the regular `defer`, `rate ceiling: 2 navigation(s), 0
+delayed` confirms it), nothing was left hanging.
 
-Frage 7 bleibt offen — keine neue Live-Messung diesmal. Aber die Probe ist
-jetzt lauffähig und der Bytes-Messweg schon gegen einen echten Bug
-verifiziert; der nächste Zyklus mit valider Session kann direkt messen statt
-erst zu bauen.
+Question 7 stays open — no new live measurement this time. But the probe now runs, and the
+byte measurement path is already verified against a real bug; the next cycle with a valid
+session can measure directly instead of building first.
 
 ---
 
-## Berichte
+## Reports
 
-Alle 5 Zyklen, jeder endet mit einer Empfehlung: weitermachen oder aufhören,
-und warum. Die Stopp-Entscheidung trifft der Maintainer, nicht ein Zähler —
-kein Deckel auf die Kampagne, das Kill-Kriterium sitzt pro Experiment
-(Entscheidung vom 2026-07-31, Gegenargumente in derselben Sitzung notiert:
-jede Abbruchbedingung, die dieses Repo je hatte, wurde zu dem, woran die
-Arbeit aufhörte).
+Every 5 cycles, each ending with a recommendation: keep going or stop, and why. The stop
+decision is the maintainer's, not a counter's — no cap on the campaign, the kill criterion
+sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
+every abort condition this repo ever had became the thing the work stopped at).
 
-### 2026-08-02 (opal-downloader-sync-speed): erster Bericht dieser Aufgabe, Frage 11 geschlossen mit Verschiebung
+### 2026-08-02 (opal-downloader-sync-speed): first report of this task, Question 11 closed with a shift
 
-Der erste Bericht **dieser** geplanten Aufgabe (`opal-downloader-sync-speed`)
-— frühere Zyklen (Frage 3, 7-Bau, 7-Live, 9, 10, 11) liefen ohne einen. Fällig
-seit mehr als 5 Zyklen.
+The first report of **this** scheduled task (`opal-downloader-sync-speed`) — earlier cycles
+(Question 3, 7-build, 7-live, 9, 10, 11) ran without one. Overdue by more than 5 cycles.
 
-**Bekannt seit dem letzten (nicht existenten) Bericht, also seit Kampagnenstart
-2026-07-31:** `ctx.Route` kostet ~30 % (CDP-Pause/Resume, unvermeidbar,
-Frage 3 geschlossen). Der Baum-Fragment-Anteil einer Sektionsseite ist auf
-offene Knoten + Selektionspfad begrenzt, nicht auf die Kursgröße
-(`MenuTreeRenderer.isRenderChildren`, Frage 9 geschlossen). Netzwerktransfer
-erklärt nur 24–31 % der Settle-Zeit (Frage 7). Sektions-Dateizahl erklärt sie
-linear nur schwach (r=0,40, Frage 10). Heute (Frage 11): DOM-Mutationen
-während der Settle-Zeit sind konzentriert (Top-3-Elemente = 79,8 %), aber die
-Ursache ist die Datei-Tabelle selbst (`tr`, 70 %), nicht ein externes Widget
-— und die Mutationszahl wächst mit dem Quadrat der Zeilenzahl (Exponent
-≈1,96, r=0,997), nicht linear.
+**Known since the last (non-existent) report, i.e. since the campaign started 2026-07-31:**
+`ctx.Route` costs ~30% (CDP pause/resume, unavoidable, Question 3 closed). The tree fragment
+share of a section page is limited to open nodes + selection path, not to course size
+(`MenuTreeRenderer.isRenderChildren`, Question 9 closed). Network transfer explains only
+24–31% of the settle time (Question 7). Section file count explains it only weakly in linear
+terms (r=0.40, Question 10). Today (Question 11): DOM mutations during the settle time are
+concentrated (top 3 elements = 79.8%), but the cause is the file table itself (`tr`, 70%),
+not an external widget — and the mutation count grows with the square of the row count
+(exponent ≈1.96, r=0.997), not linearly.
 
-**Was das für den Zustand des Modells bedeutet:** vier von fünf geprüften
-Erklärungen für die Settle-Zeit sind jetzt einzeln entweder geschlossen
-(Frage 3, 9) oder als Nebenerklärung quantifiziert und verworfen (Frage 7:
-24–31 %; Frage 10: r=0,40). Frage 11 liefert zum ersten Mal eine Erklärung,
-die stark genug aussieht, um dominant zu sein (quadratisches Wachstum statt
-schwacher linearer Korrelation) — aber sie ist bisher nur für die
-Mutations*zahl* gezeigt, nicht für die tatsächliche Wartezeit. Das ist Frage
-12, bereits als nächstes Experiment aufgesetzt.
+**What that means for the state of the model:** four of five tested explanations for the
+settle time are now individually either closed (Questions 3, 9) or quantified and dismissed
+as secondary (Question 7: 24–31%; Question 10: r=0.40). Question 11 delivers, for the first
+time, an explanation that looks strong enough to be dominant (quadratic growth instead of a
+weak linear correlation) — but so far it is shown only for the mutation *count*, not for the
+actual wait time. That is Question 12, already set up as the next experiment.
 
-**Noch offen:** Frage 12 (skaliert die Wartezeit selbst quadratisch mit der
-Zeilenzahl?), Frage 8 (Cache-Aus vs. Pause/Resume-Anteil an den 30 % aus
-Frage 3, lokal ohne Account reproduzierbar, noch nie angefasst), Frage 5 (ist
-"30s" überhaupt an Discovery gebunden, oder löst Hintergrundlauf/
-Teilergebnisse das eigentliche Ziel "fühlt sich wie ein Klick an" ohne
-schnellere Discovery?), Frage 6 (1 von 12 Sektionen bleibt über Läufe hinweg
-instabil, ungeklärt warum).
+**Still open:** Question 12 (does the wait time itself scale quadratically with row count?),
+Question 8 (cache-off vs. pause/resume share of the 30% from Question 3, reproducible locally
+without an account, never touched), Question 5 (is "30s" even tied to discovery, or do
+background runs/partial results solve the real goal "feels like one click" without faster
+discovery?), Question 6 (1 in 12 sections stays unstable across runs, unexplained why).
 
-**Empfehlung: weitermachen.** Zum ersten Mal seit Kampagnenbeginn gibt es eine
-Erklärung mit einer klaren quantitativen Signatur (quadratisch, nicht nur
-"nicht Netzwerk, nicht Dateizahl linear") statt einer Liste ausgeschlossener
-Kandidaten. Frage 12 entscheidet in einem einzigen billigen Lauf (keine neue
-Instrumentierung, nur eine zusätzliche Korrelation auf bereits vorhandenem
-Code), ob das die Wartezeit selbst erklärt oder nicht — in beiden Fällen ein
-scharfes Ergebnis, kein weiterer Rateversuch.
+**Recommendation: keep going.** For the first time since the campaign began there is an
+explanation with a clear quantitative signature (quadratic, not just "not network, not file
+count linear") instead of a list of eliminated candidates. Question 12 decides it in a single
+cheap run (no new instrumentation, only an additional correlation on code that already
+exists), whether that explains the wait time itself or not — a sharp result either way, not
+another guess.
 
-### 2026-07-31 (autopilot): Frage 1 gelesen, nicht gemessen
+### 2026-07-31 (autopilot): Question 1 read, not measured
 
-**Quellen (primär, `gh search code --repo OpenOLAT/OpenOLAT`):**
-- `src/main/java/org/olat/core/gui/components/tree/MenuTreeRenderer.java` —
-  baut `.o_tree`/`.o_tree_l{n}` als Java-`StringBuilder`-HTML, synchron,
-  serverseitig. Kein JS-Templating.
-- `src/main/java/org/olat/core/gui/components/table/TableRenderer.java` +
-  die FlexiTable-Renderer (`.o_table_wrapper`, `.o_table_flexi`) — dasselbe
-  Muster: Java-Renderer erzeugt komplettes Tabellen-HTML inkl. Paging-Links.
-- Die alte `Table`-Klasse (`org.olat.core.gui.components.table.Table`,
-  vermutlich NICHT die für Kursordner verwendete — das ist FlexiTable) kennt
-  einen URL-Parameter `COMMAND_PAGEACTION_SHOWALL="a"`. Nicht live geprüft,
-  ob die Kursordner-Dateiliste diesen Pfad überhaupt nutzt — der bestehende
-  Wicket-AJAX-Klick in `wicket.go` ist bereits live vermessen (0 Fehler,
-  byte-identische Parität) und wurde hierdurch **nicht** ersetzt.
-- REST-API (`/repo/courses/{id}/elements/folder/{nodeId}/files`,
-  `VFSWebservice`) existiert im Quellcode — aber am Reverse-Proxy bereits mit
-  403 gemessen (`docs/sync-speed-campaign.md` Zeile 899), unabhängig
-  bestätigt tot. WebDAV ebenso bereits mit blankem 200 gemessen (dead
-  backend) — `docs/webdav-propfind-research.md`. Beides nicht neu getestet,
-  nur der Quellcode-Fund gegen die schon vorliegenden Messungen abgeglichen.
-- Sekundär, zur Bestätigung: OpenOLATs eigene `.claude/openolat-frontend-
-  knowledge.md` im selben Repo sagt wörtlich "No client-side framework (no
-  React/Angular/Vue). All state lives on the server."
+**Sources (primary, `gh search code --repo OpenOLAT/OpenOLAT`):**
+- `src/main/java/org/olat/core/gui/components/tree/MenuTreeRenderer.java` — builds
+  `.o_tree`/`.o_tree_l{n}` as Java `StringBuilder` HTML, synchronously, server-side. No JS
+  templating.
+- `src/main/java/org/olat/core/gui/components/table/TableRenderer.java` + the FlexiTable
+  renderers (`.o_table_wrapper`, `.o_table_flexi`) — the same pattern: a Java renderer
+  produces complete table HTML including paging links.
+- The old `Table` class (`org.olat.core.gui.components.table.Table`, probably NOT the one
+  used for course folders — that is FlexiTable) knows a URL parameter
+  `COMMAND_PAGEACTION_SHOWALL="a"`. Not verified live whether the course-folder file list uses
+  that path at all — the existing Wicket AJAX click in `wicket.go` is already measured live (0
+  errors, byte-identical parity) and was **not** replaced by this.
+- The REST API (`/repo/courses/{id}/elements/folder/{nodeId}/files`, `VFSWebservice`) exists
+  in the source — but was already measured at the reverse proxy as 403
+  (`docs/sync-speed-campaign.md` line 899), independently confirmed dead. WebDAV likewise
+  already measured with a blank 200 (dead backend) — `docs/webdav-propfind-research.md`.
+  Neither was retested, the source finding was only reconciled against the measurements
+  already on hand.
+- Secondary, for confirmation: OpenOLAT's own `.claude/openolat-frontend-knowledge.md` in the
+  same repo says literally "No client-side framework (no React/Angular/Vue). All state lives
+  on the server."
 
-**Ergebnis: Vorhersage (60% Tabellen-Zustandsklasse) widerlegt, aber mit
-Erklärung, die das Fehlen vorhersagt (Regel 2 erfüllt) — kein Marker,
-weil nichts client-seitig aufgebaut wird, das einen Marker bräuchte.**
-Deckt sich mit dem bereits bekannten "Dateizeilen sind in der initialen
-Antwort server-gerendert, null Wicket-AJAX" aus `wicket.go`. Frage (1c,
-Pager-Parameter) bleibt unklar, ändert aber nichts am bestehenden,
-funktionierenden Wicket-Signal-Ansatz. Frage (1b, alternative View) bleibt
-verneint — beide bekannten Alternativen sind bereits unabhängig als tot
-gemessen.
+**Result: prediction (60% table-state class) refuted, but with an explanation that predicts
+the absence (rule 2 satisfied) — no marker, because nothing is built client-side that would
+need one.** Matches the already known "file rows are server-rendered in the initial response,
+zero Wicket AJAX" from `wicket.go`. Question (1c, pager parameter) stays unclear, but changes
+nothing about the existing, working Wicket signal approach. Question (1b, alternative view)
+stays answered no — both known alternatives have already been independently measured as dead.
 
-**Neue offene Frage (Regel 3):** Frage 7 oben — der Quellcode-Befund
-widerspricht der Live-DOM-Probe vom 2026-07-31, die zum Verwerfen des
-Nav-Walk-Hebels führte. Nicht aufgelöst, nur präzise benannt.
+**New open question (rule 3):** Question 7 above — the source finding contradicts the live DOM
+probe of 2026-07-31 that led to dropping the nav-walk lever. Not resolved, only named
+precisely.
 
-**Nicht ausgeführt in diesem Zyklus:** das oben definierte nächste
-Experiment (Netzwerk-Timing live messen) — das ist ein Lauf gegen den echten
-Account, nicht mehr Lesen, und gehört in einen `opal-downloader-sync-speed`-
-Zyklus mit dessen eigener Berichts-Kadenz statt in diesen allgemeinen
-Autopilot-Lauf.
+**Not executed in this cycle:** the next experiment defined above (measuring network timing
+live) — that is a run against the real account, no longer reading, and belongs in an
+`opal-downloader-sync-speed` cycle with its own reporting cadence rather than in this general
+autopilot run.

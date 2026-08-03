@@ -264,8 +264,8 @@ func TestMutationMarkerAtSectionSettle(t *testing.T) {
 	}
 }
 
-// TestMutationConcentrationAcrossSections is docs/sync-speed-model.md Frage
-// 11 (the "Nächstes Experiment" written 2026-08-01): TestMutationMarkerAtSectionSettle
+// TestMutationConcentrationAcrossSections is docs/sync-speed-model.md Question
+// 11 (the "Next experiment" written 2026-08-01): TestMutationMarkerAtSectionSettle
 // above already showed, for exactly two sections, that the mutation tail is
 // dominated by named elements (#veil, a Wicket AJAX busy-overlay; MathJax_Message,
 // a math-rendering widget) rather than by the content itself - but that was
@@ -283,7 +283,7 @@ func TestMutationMarkerAtSectionSettle(t *testing.T) {
 // Usage: OPAL_MUTATION_CONCENTRATION_TRACE=1 go test ./internal/scraper/ -run TestMutationConcentrationAcrossSections -v -timeout 5m
 func TestMutationConcentrationAcrossSections(t *testing.T) {
 	if os.Getenv("OPAL_MUTATION_CONCENTRATION_TRACE") == "" {
-		t.Skip("set OPAL_MUTATION_CONCENTRATION_TRACE=1 to run the real-account mutation-concentration probe (docs/sync-speed-model.md Frage 11)")
+		t.Skip("set OPAL_MUTATION_CONCENTRATION_TRACE=1 to run the real-account mutation-concentration probe (docs/sync-speed-model.md Question 11)")
 	}
 	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
 
@@ -432,9 +432,9 @@ func TestMutationConcentrationAcrossSections(t *testing.T) {
 		top3Pct := float64(top3Sum) / float64(totalMutations) * 100
 		say("RESULT: top-3 element keys account for %.1f%% of all %d mutations, out of %d distinct keys total.", top3Pct, totalMutations, len(sorted))
 		if top3Pct >= 50 {
-			say("VERDICT: concentrated - a small number of recurring elements dominate, consistent with the Kandidat-C prediction (docs/sync-speed-model.md Frage 11).")
+			say("VERDICT: concentrated - a small number of recurring elements dominate, consistent with the Candidate-C prediction (docs/sync-speed-model.md Question 11).")
 		} else {
-			say("VERDICT: diffuse - no small set of elements dominates; the Kandidat-C narrow-widget prediction is not supported by this run's failure criterion.")
+			say("VERDICT: diffuse - no small set of elements dominates; the Candidate-C narrow-widget prediction is not supported by this run's failure criterion.")
 		}
 	} else {
 		say("RESULT: no mutations recorded across %d sections - inconclusive, not a diffuse/concentrated verdict.", sectionsWalked)

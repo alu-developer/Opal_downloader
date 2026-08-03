@@ -42,7 +42,7 @@ Delete an entry when it is done, or when it turns out not to matter.
 - **The "one unexplained 300s login timeout" recurred a second time
   (2026-08-02), this time with no concurrent-process collision to blame.**
   After clearing the collision above and confirming no other opal-downloader
-  process was running, the Frage 15 retry hit `ensureSession: timed out after
+  process was running, the Question 15 retry hit `ensureSession: timed out after
   300000ms waiting for the OPAL course list after login` on its own - TU-Fast
   opened the login window but the course list never appeared within 5
   minutes. No debug flag was on, so nothing was captured. Fixed the capture
@@ -54,7 +54,7 @@ Delete an entry when it is done, or when it turns out not to matter.
   unknown; next recurrence should at least say where the page was stuck.
 - **Two concurrent Routines colliding on the shared browser profile produced a
   hard failure, not the clean serialization `acquireSessionLock` is supposed
-  to give (2026-08-02).** Running the Frage 15 sync-speed probe manually
+  to give (2026-08-02).** Running the Question 15 sync-speed probe manually
   overlapped in real time with a separately-scheduled run (`last-scheduled-run.json`,
   timestamp `2026-08-02T11:22:51+02:00`): that run failed with `playwright:
   timeout: Timeout 180000ms exceeded` while launching Chrome against
@@ -124,7 +124,7 @@ move the rest across.
   is open and missed runs catch up together — so the ~2h47m cron offset never
   applied. Consequences: autopilot's backlog work had dried up (its only *Now*
   item was sync-speed's own campaign), two runs aborted on collision, and one
-  Frage-15 attempt was lost to a 22-minute profile deadlock. Four rules changed
+  Question-15 attempt was lost to a 22-minute profile deadlock. Four rules changed
   with the merge — no usage-limit gate at all, *Now*+*Next*+*Noticed* must be
   clear of unblocked items before the handoff, a byte-diff-proven default may
   now be shipped, and run length is left to judgement.
@@ -139,23 +139,23 @@ move the rest across.
   recorded in `docs/installer-plan.md`. Not verified: that the installed app
   launches the browser end-to-end — that needs an OPAL account the runner
   does not have.
-- **Sync-speed Frage 16 answered by refutation: the contention baseline is
+- **Sync-speed Question 16 answered by refutation: the contention baseline is
   itself unstable** (2026-08-03): four 2-course runs at `course_concurrency=2`
   split 248/242/242/248 — the same 6 files from one *paginated* course node
   vanished in one run of each condition, including the unchanged
   500ms/6000ms one. So a tighter debounce could not be tested: there was no
   stable baseline to test it against, and the finger points at the Wicket
   "show all" path, not the settle budget. Users unaffected
-  (`DefaultCourseConcurrency = 1`). Opened Frage 17 with a decided next step.
-- **Sync-speed Frage 15 closed: 150ms debounce holds on the large course too**
+  (`DefaultCourseConcurrency = 1`). Opened Question 17 with a decided next step.
+- **Sync-speed Question 15 closed: 150ms debounce holds on the large course too**
   (2026-08-02, autopilot): same file-set, 210/210, across 2 baseline (300ms)
   and 2 override (150ms) runs against Softwaretechnologie (164 sections);
-  savings 28.7%, matching the small course's 29.6% (Frage 14) almost exactly
+  savings 28.7%, matching the small course's 29.6% (Question 14) almost exactly
   — took 3 failed attempts first (a Routine collision, then a recurrence of
   the 300s login timeout, now diagnosed with a page-URL fix in `session.go`).
   Course-size dimension answered; `course_concurrency>1` contention is not,
   and can't be with the current probe design — see `docs/sync-speed-model.md`
-  Frage 16.
+  Question 16.
 - **Scheduler disable-path "no guard" Noticed item closed as investigated,
   not fixed** (2026-08-01, autopilot): `scheduler.Disable()` itself still
   performs no ownership check (it deletes whatever `schtasks` has under

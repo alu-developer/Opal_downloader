@@ -141,7 +141,7 @@ type OpalScraper struct {
 	sectionTiming *sectionTiming
 
 	// sectionProbe is a test-only hook for per-section (settle+stable,
-	// candidate count) correlation; nil in production (Frage 10, sync-speed-model.md).
+	// candidate count) correlation; nil in production (Question 10, sync-speed-model.md).
 	sectionProbe func(settle, stable time.Duration, candidates int)
 
 	// stall records when the crawl last made progress and what it was doing,

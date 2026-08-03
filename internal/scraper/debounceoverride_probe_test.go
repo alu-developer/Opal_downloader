@@ -1,7 +1,7 @@
 package scraper
 
-// docs/sync-speed-model.md, Frage 14 ("Nächstes Experiment", written
-// 2026-08-02, after Frage 13 found real browser CPU work explains at most
+// docs/sync-speed-model.md, Question 14 ("Next experiment", written
+// 2026-08-02, after Question 13 found real browser CPU work explains at most
 // ~24% of settle+stable time and the measured settle-wait average (326ms)
 // sits almost exactly on the mutationObserverDebounceMs constant (300ms,
 // navigation.go)): can that constant be lowered - the same shape change
@@ -38,7 +38,7 @@ import (
 
 func TestDebounceOverrideCorrectness(t *testing.T) {
 	if os.Getenv("OPAL_DEBOUNCE_OVERRIDE_TRACE") == "" {
-		t.Skip("set OPAL_DEBOUNCE_OVERRIDE_TRACE=1 to run the real-account debounce-override probe (docs/sync-speed-model.md Frage 14)")
+		t.Skip("set OPAL_DEBOUNCE_OVERRIDE_TRACE=1 to run the real-account debounce-override probe (docs/sync-speed-model.md Question 14)")
 	}
 	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
 
@@ -134,7 +134,7 @@ func TestDebounceOverrideCorrectness(t *testing.T) {
 		return lines
 	}
 
-	// OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE: docs/sync-speed-model.md Frage 15
+	// OPAL_DEBOUNCE_OVERRIDE_SKIP_BASELINE: docs/sync-speed-model.md Question 15
 	// (2026-08-02) - re-running the 300ms baseline on a course that already
 	// has a historical live-verified baseline (navigation.go's 2026-07-16
 	// doc comment: 344/344 across all 9 courses including this one) is a
@@ -216,7 +216,7 @@ func TestDebounceOverrideCorrectness(t *testing.T) {
 	}
 
 	if len(baseSelfDiff) == 0 && len(overSelfDiff) == 0 && len(crossDiff) == 0 && !historicalMismatch {
-		say("VERDICT: no file-count or file-identity regression found - correctness prediction holds for this course on this run. NOT sufficient alone to change the production default (single course, single day, per this project's own repeated-loss history) - see docs/sync-speed-model.md Frage 14/15 for what would be.")
+		say("VERDICT: no file-count or file-identity regression found - correctness prediction holds for this course on this run. NOT sufficient alone to change the production default (single course, single day, per this project's own repeated-loss history) - see docs/sync-speed-model.md Question 14/15 for what would be.")
 	} else {
 		say("VERDICT: at least one difference found somewhere above - do not treat the override as safe without reading exactly which section(s) differed and why.")
 	}

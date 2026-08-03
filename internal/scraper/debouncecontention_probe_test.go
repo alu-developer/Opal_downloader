@@ -1,16 +1,16 @@
 package scraper
 
-// docs/sync-speed-model.md, Frage 16 (prediction written 2026-08-03, before
-// this file existed - see that document's "Nächstes Experiment").
+// docs/sync-speed-model.md, Question 16 (prediction written 2026-08-03, before
+// this file existed - see that document's "Next experiment").
 //
-// Frage 14 and 15 validated a 150ms mutationObserverDebounceMs against the
+// Question 14 and 15 validated a 150ms mutationObserverDebounceMs against the
 // small and then the large course, both at course_concurrency=1, with
 // byte-identical file sets. Neither tested contention, and contention is
 // where every real data loss in this campaign happened
 // (docs/sync-speed-campaign.md: course_concurrency=2 lost 9 files on
 // 2026-07-26).
 //
-// Frage 15 could not test it, and the reason is a property of the override
+// Question 15 could not test it, and the reason is a property of the override
 // rather than of the probe: contentSettleWaitBudget() (navigation.go line
 // 397) checks OPAL_DEBOUNCE_MS_OVERRIDE *before* the
 // effectiveCourseConcurrency() > 1 branch, so setting SetCourseConcurrency(2)
@@ -57,7 +57,7 @@ import (
 
 func TestDebounceOverrideUnderContention(t *testing.T) {
 	if os.Getenv("OPAL_DEBOUNCE_CONTENTION_TRACE") == "" {
-		t.Skip("set OPAL_DEBOUNCE_CONTENTION_TRACE=1 to run the real-account contention probe (docs/sync-speed-model.md Frage 16)")
+		t.Skip("set OPAL_DEBOUNCE_CONTENTION_TRACE=1 to run the real-account contention probe (docs/sync-speed-model.md Question 16)")
 	}
 	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
 
@@ -66,7 +66,7 @@ func TestDebounceOverrideUnderContention(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
-	// Small + large on purpose, the same pair Frage 15 used: two courses of
+	// Small + large on purpose, the same pair Question 15 used: two courses of
 	// very different section counts keep both workers busy for an overlapping
 	// stretch instead of one finishing before the other has opened its tab,
 	// which is what makes the contention real rather than nominal.
@@ -229,7 +229,7 @@ func TestDebounceOverrideUnderContention(t *testing.T) {
 	say("avg wall clock: baseline=%.1fs, override=%.1fs", avgBaseWall, avgOverWall)
 
 	if len(baseSelfDiff) == 0 && len(overSelfDiff) == 0 && len(crossDiff) == 0 {
-		say("VERDICT: no difference under real contention - Frage 16's correctness prediction holds for this course pair on this run.")
+		say("VERDICT: no difference under real contention - Question 16's correctness prediction holds for this course pair on this run.")
 	} else {
 		say("VERDICT: at least one difference found. Before concluding '150ms is too short', rerun with the debounce lowered but the hard cap restored to 6000ms - the override lowers both at once (see this file's header comment), and the two have different fixes.")
 	}
@@ -239,7 +239,7 @@ func TestDebounceOverrideUnderContention(t *testing.T) {
 		t.Logf("could not create %s, result is in this log only: %v", outDir, err)
 	} else {
 		outPath := filepath.Join(outDir, "debounce-contention-probe.txt")
-		header := "debounce contention probe (Frage 16) recorded " + time.Now().Format(time.RFC3339) + "\n\n"
+		header := "debounce contention probe (Question 16) recorded " + time.Now().Format(time.RFC3339) + "\n\n"
 		if err := os.WriteFile(outPath, []byte(header+strings.Join(report, "\n")+"\n"), 0o644); err != nil {
 			t.Logf("could not write %s, result is in this log only: %v", outPath, err)
 		} else {

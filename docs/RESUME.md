@@ -20,7 +20,7 @@ here sends an unattended run after work that is already done. Clear it.
 
 _Nothing in flight._
 
-Next up, already decided and needing nobody: Frage 17's concurrency=1 control
+Next up, already decided and needing nobody: Question 17's concurrency=1 control
 run (`docs/sync-speed-model.md`) - the same course pair, same probe, twice at
 `course_concurrency=1`, to rule out plain server-side variance before
 blaming contention for the lost paginated section. `OPAL_DEBOUNCE_CONTENTION_COURSES`

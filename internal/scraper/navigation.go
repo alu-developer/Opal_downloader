@@ -386,7 +386,7 @@ func isExecutionContextDestroyedError(err error) bool {
 // time.
 func (s *OpalScraper) contentSettleWaitBudget() (debounceMs, hardCapMs float64) {
 	// OPAL_DEBOUNCE_MS_OVERRIDE: test-only escape hatch for
-	// docs/sync-speed-model.md Frage 14 (2026-08-02) - is 300ms more
+	// docs/sync-speed-model.md Question 14 (2026-08-02) - is 300ms more
 	// settle-debounce margin than section rendering actually needs?
 	// mutationObserverHardCapMs deliberately stays untouched, so a
 	// genuinely slow section still gets its full patience; only the

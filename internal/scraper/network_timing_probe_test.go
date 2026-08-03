@@ -1,7 +1,7 @@
 package scraper
 
-// docs/sync-speed-model.md, Frage 7 ("Nächstes Experiment", written
-// 2026-07-31): source-reading (Frage 1) found OPAL builds its section
+// docs/sync-speed-model.md, Question 7 ("Next experiment", written
+// 2026-07-31): source-reading (Question 1) found OPAL builds its section
 // tree/file table as plain server HTML with no client-side templating - so
 // there is nothing for the debounced MutationObserver wait
 // (waitForContentSettled) to be waiting *for* in a "JS still assembling the
@@ -14,8 +14,8 @@ package scraper
 // settle-wait actually spent waiting for bytes rather than for anything to
 // render.
 //
-// Prediction (written before this ran, docs/sync-speed-model.md "Nächstes
-// Experiment"): a section-page document response's size and Playwright-
+// Prediction (written before this ran, docs/sync-speed-model.md "Next
+// experiment"): a section-page document response's size and Playwright-
 // measured transfer duration correlate with course size (section count),
 // and network time is a non-trivial share of the settle+stability wait
 // actually spent inside the same course. Failed if response bodies stay
@@ -42,7 +42,7 @@ package scraper
 // buffer the whole body just to compute a Content-Length header first - it
 // sends chunked transfer-encoding instead, which omits that header
 // entirely. Reading it would have silently reported "0 bytes" for every
-// section page in both courses and made Kandidat A look refuted by an
+// section page in both courses and made Candidate A look refuted by an
 // instrument that was never measuring anything.
 //
 // Sizes() does its own channel.Send RPC back into the browser process,
@@ -101,8 +101,8 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 	defer sc.Close()
 
 	// sectionSamples collects one (settle+stable, candidateCount) tuple per
-	// section across the whole run - docs/sync-speed-model.md Frage 10,
-	// added after Frage 9 (2026-08-01) showed MenuTreeRenderer only
+	// section across the whole run - docs/sync-speed-model.md Question 10,
+	// added after Question 9 (2026-08-01) showed MenuTreeRenderer only
 	// serializes open/selected-path tree nodes, not the whole course, so
 	// "does settle-wait scale with course size" was answered (no) but
 	// "does it scale with the file count of the section actually visited"
@@ -207,14 +207,14 @@ func TestSettleTimingAgainstNetworkTransfer(t *testing.T) {
 				xsSquared = append(xsSquared, float64(sample.candidates*sample.candidates))
 				ys = append(ys, float64(sample.settleStable.Milliseconds()))
 			}
-			say("  Frage 10: %d sections, candidate count range %d-%d, settle+stable-vs-candidates Pearson r=%.2f",
+			say("  Question 10: %d sections, candidate count range %d-%d, settle+stable-vs-candidates Pearson r=%.2f",
 				len(courseSections), minC, maxC, pearsonR(xs, ys))
-			// Frage 12 (docs/sync-speed-model.md, born from Frage 11's finding
+			// Question 12 (docs/sync-speed-model.md, born from Question 11's finding
 			// that mutation COUNT scales roughly with candidates^2, not
 			// candidates): does settle+stable TIME follow the same quadratic
-			// shape, which would explain Frage 10's own weak linear r=0.40 as a
+			// shape, which would explain Question 10's own weak linear r=0.40 as a
 			// linear model underfitting a real quadratic relationship?
-			say("  Frage 12: settle+stable-vs-candidates^2 Pearson r=%.2f", pearsonR(xsSquared, ys))
+			say("  Question 12: settle+stable-vs-candidates^2 Pearson r=%.2f", pearsonR(xsSquared, ys))
 		}
 		// The dispatch loop is idle here (collectCourseFiles has returned), so
 		// the Sizes() round trip below is safe - see the doc comment above.

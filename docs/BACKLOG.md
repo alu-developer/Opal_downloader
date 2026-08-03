@@ -23,8 +23,22 @@ here is the failure mode to watch for.
 
 ## Now
 
-_Nothing here. When **Now**, **Next** and **Noticed** hold nothing unblocked,
-the work is the sync-speed campaign — see "Standing work" at the bottom._
+- **A section is truncated in every run we have on record, at the default
+  setting — files are probably missing from every sync this project has ever
+  done.** `CourseNode/1775529461522481011` (Algorithmen und Datenstrukturen)
+  emits `warnShowAllTruncated` in all 11 archived run logs, at
+  `course_concurrency=1` and 2 alike: it offers a "show all" control, the
+  expansion runs, and the row count comes back the same (17→17) or *lower*
+  (17→14). Found 2026-08-03 while explaining the Question 16 loss. Not caught
+  earlier because every correctness gate here is a diff, and a section that
+  loses the same rows every time is identical to itself — all 8 runs of
+  Questions 14/15 passed while this was happening in all 8, and the 345-file
+  ground truth is probably short by the same rows rather than a baseline
+  against them. Full write-up and the decided next step: `docs/sync-speed-model.md`
+  Question 18. Next step is cheap and needs no full crawl — log the candidate
+  hrefs before/after expansion for that one node, and open the section by hand
+  to count the real files. Establish whether files are lost, and how many,
+  before designing a fix.
 
 ---
 
@@ -108,6 +122,31 @@ byte-for-byte against the 345-file ground truth — but a default that has
 *passed* that diff may now be changed and shipped (decision 2026-08-03), so a
 measured win reaches the maintainer instead of sitting behind a flag.
 
+**Correctness goes ahead of speed in this loop (decision 2026-08-03, after the
+five-cycle report).** Keep-going was confirmed, but the next cycles go to
+Question 18 rather than to another timing lever: the round produced the first
+correctness bug the campaign has found rather than caused, and it is losing
+files today at the default setting. The remaining discovery levers (the 4000ms
+hard cap, the 150ms poll interval) are both smaller than the one just taken, and
+even a perfect result there leaves ~150s against a 30s target.
+
+**A byte-for-byte diff is not proof of losslessness (learned 2026-08-03).** It
+only catches losses that *vary* between runs. A section truncated identically on
+every run is identical to itself and to the ground truth, and passes every gate
+this project has — which is exactly what Question 18 turned out to be, through
+all 8 runs of Questions 14 and 15. Do not read "all runs agreed" as "no files
+lost"; `warnShowAllTruncated` in the run log is currently the only signal that
+sees this class, and nothing consumes it.
+
+**Do not convert a measured effect into a rule without a mechanism (2026-08-03).**
+Question 16 measured file loss at `course_concurrency>1` and went straight to
+proposing the setting be clamped away. The maintainer refused the exclusion and
+asked why the loss was consistently *six* files — which turned out to be
+answerable from an archived log in minutes, and re-classified the whole thing
+from "concurrency loses files" to "a known expansion bug fires more often under
+load". Rule 2 of the model applies to the campaign's own conclusions, not only
+to its experiments.
+
 ---
 
 ## Done recently
@@ -117,6 +156,19 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The 150ms debounce shipped as the default** (2026-08-03, decision round):
+  `mutationObserverDebounceMs` 300 → 150, the campaign's first user-visible win
+  since it reopened. ~29% off the dominant component of a sync, on 8 byte-identical
+  live runs across two courses 27x apart in size. The "also prove it under
+  contention" precondition was dropped as unmeetable — Question 16 showed the
+  unchanged config already differs from itself there.
+- **Question 17 answered without a live run, and `course_concurrency>1` was NOT
+  clamped** (2026-08-03, decision round): the maintainer rejected the proposed
+  exclusion and asked for the mechanism first. `warnShowAllTruncated` had already
+  fired in the archived log on exactly the two runs that lost files (4/4
+  correlation), naming the branch — so it is a "show all" expansion bug that
+  contention makes more likely, not a property of concurrency. The setting keeps
+  its default of 1 and stays available.
 - **The two unattended Routines merged into one** (2026-08-03): `-sync-speed`
   is deleted; `opal-downloader-autopilot` now works the backlog first and falls
   through to the sync-speed campaign. They had been firing milliseconds apart

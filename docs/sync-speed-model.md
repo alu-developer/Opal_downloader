@@ -266,6 +266,23 @@ cannot be caught by a self-diff, so "all runs agree" must stop being read as "no
 files lost". `warnShowAllTruncated`'s output is currently the only signal that
 sees it, and nothing consumes that warning.
 
+### 19. ~~Does the "show all" click get its Wicket signal under contention, or not?~~ Answered 2026-08-04 — the signal never arrives. Candidate A re-opens.
+**Prediction refuted, on its own failure criterion.** The prediction (see the
+closed "Previous experiment" write-up below) was that the failing runs would
+show `expansionSignalled=true` — Wicket says the call finished, the rows just
+are not there yet. Instead, both runs that reproduced the loss showed
+`expansionSignalled=false`: the click was dispatched (`watchArmed=true`, no
+"control could not be activated" warning — the Playwright-level click check
+Candidate A was ruled out on before), but `AJAX_CALL_DONE` never arrived
+within the 4000ms budget at all.
+
+That is exactly the failure criterion's own re-opening clause: *"if the
+failing runs show no signal at all... it is Candidate A after all and the fix
+is at the click, not the wait."* Full data and the new open question (does a
+longer budget catch it, or does the signal never come no matter how long you
+wait) are in "Previous experiment (Question 19, closed 2026-08-04)" below —
+that split is now Question 20, the next experiment.
+
 ### 7. If nothing renders client-side — what fills the 336ms then? (replaces the old Question 4)
 The campaign's conclusion from late 2026-07-31 ("the content tree is JS-rendered
 at every level") and today's source-code finding ("everything is server HTML, no
@@ -330,37 +347,102 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Question 19 — does the "show all" click get dropped, or does its answer
-arrive too late?** This is Question 17's remaining A-vs-B tail, now the oldest
-unresolved *correctness* item in the file. Question 18's run confirmed the
-expansion works at `course_concurrency=1` (41 raw rows → 44, gaining 8 real
-files); Question 16 caught it returning 41→41 twice under contention, losing the
-same six files both times.
+**Question 20 — is the missing signal a matter of budget, or does it never
+come?** Question 19 found `expansionSignalled=false` in both runs that lost
+the Vorlesung tail: the click was dispatched, but Wicket's `AJAX_CALL_DONE`
+never arrived inside `wicketExpansionSignalTimeoutMs` (4000ms,
+`crawl.go`). Two mechanisms are still compatible with that one fact, and they
+need opposite fixes:
 
-**Prediction (write the number before the run):** instrumenting the click itself
-— arm time, dispatch time, whether `AJAX_CALL_DONE` arrived, and the row count at
-the moment of the read — will show the failing runs *do* get their signal, and
-the read happens after it, with the rows simply not there yet. Mechanism: this
-repo already recorded on 2026-07-21 that `AJAX_CALL_DONE` marks a call finished
-without marking the DOM complete (it cost 52 files then), and
-`expandShowAllInSection` skips the settle wait entirely when the signal arrives
-(`crawl.go`, `if !expansionSignalled`). Under contention that skip removes the
-only remaining patience.
+- **Candidate A1 (pure delay):** under two-course contention the AJAX
+  round-trip, or Wicket's own client-side event dispatch, genuinely takes
+  longer than 4000ms — the call does complete, just later. Fix: raise the
+  timeout (a budget problem, same shape as the settle-wait/hard-cap tuning
+  already done elsewhere in this file).
+- **Candidate A2 (never issued/never delivered):** the click reaches the DOM
+  element, but under contention no AJAX request is ever made (e.g. Wicket's
+  own click handler was not yet attached when Playwright's `.Click()` fired —
+  a stale-element/race condition, not a timing budget), or the response never
+  reaches this page's Wicket runtime (session/channel confusion between the
+  two concurrently open course tabs). Fix: at the click/arm sequence itself,
+  not the wait afterward — raising the timeout would not help at all.
 
-**Counts as failed at:** if the failing runs show no signal at all, or no click
-dispatched, it is Candidate A after all and the fix is at the click, not the
-wait. If the signal arrives *and* the rows are present at read time, then the
-loss happens after this function returns and the whole diagnosis moves
-downstream.
+**Prediction:** re-running the same contention condition with
+`wicketExpansionSignalTimeoutMs` raised well past 4000ms (e.g. 15000ms, purely
+for this diagnostic — not a proposed default) on a run that reproduces the
+loss will still show `expansionSignalled=false` at the *original* 4000ms mark
+but flip to `true` before the raised ceiling, i.e. the call does complete, it
+is just slow under contention. Mechanism: this campaign's own Question 15/16
+already established that *nothing* about this app requests less network or
+CPU work under contention, only that the same work is delayed by competing for
+the event loop — a delayed AJAX response is the same shape, not a new one.
 
-**Cost:** click-level logging behind the existing probe pattern, plus a
-contention run (2 courses, `course_concurrency=2`) to reproduce — the only
-condition known to trigger it. Higher than Question 18's, because the failure is
-intermittent: expect to need repeats.
+**Counts as failed at:** if a failing run still shows no signal even against
+the raised ceiling, Candidate A1 is refuted and the mechanism moves to A2 —
+then the next step is instrumenting whether a network request is made at all
+(`page.on('request')`/`page.on('response')` around the click), not more
+timeout tuning.
 
-**Note on the gate this needs:** the `warnShowAllTruncated` fix from Question 18
-is what makes this practical. Before it, the warning fired on every run and could
-not distinguish a real loss from an enrolment table.
+**Cost:** one code change (temporarily raise the constant, or add an env
+override matching the `OPAL_DEBOUNCE_MS_OVERRIDE` pattern), plus a contention
+run — expect to need repeats, same as Question 19 (2 of 3 this cycle).
+
+---
+
+## Previous experiment (Question 19, closed 2026-08-04)
+
+**Result: prediction refuted, on its own failure criterion — the failing
+runs got no signal at all, not a late-but-real one.** Raw data:
+`tmp/showall-signal-probe.txt` (not committed, `tmp/` is gitignored, same as
+every other probe's raw output in this file).
+
+Implementation: `expandShowAllInSection` (`crawl.go`) now logs
+`expansionSignalled` itself via `auditLog("wicket-expand-signal", ...)` —
+previously this value was only ever observable indirectly, through whether
+the settle wait got skipped. A new probe
+(`internal/scraper/showallsignal_probe_test.go`,
+`TestShowAllSignalUnderContention`, `OPAL_SHOWALL_SIGNAL_TRACE=1`) ran the
+known-failing condition — Algorithmen und Datenstrukturen + Softwaretechnologie
+at `course_concurrency=2`, unchanged/default debounce — 3 times, greeping the
+captured `--debug-clicks` output for the Vorlesung node
+(`CourseNode/1775615795226691003`) each run.
+
+| Run | Files | Vorlesung node | `warnShowAllTruncated`? |
+|---|---:|---|---|
+| 1 | 205 | `expansionSignalled=true` | no |
+| 2 | 199 | **`expansionSignalled=false`** | **yes** |
+| 3 | 223 | **`expansionSignalled=false`** | **yes** |
+
+Reproduced the loss in 2 of 3 runs — consistent with the 2-of-4 rate in the
+archived Question 16/17 data, so this cycle's sample is in line with prior
+ones, not an outlier. In both losing runs the click was dispatched (no
+"control could not be activated" warning, `watchArmed=true`, 41 candidates
+seen before the click, matching every other run) but Wicket's
+`AJAX_CALL_DONE` never fired within the 4000ms
+`wicketExpansionSignalTimeoutMs` budget. The one clean run (run 1) shows the
+signal arriving normally (`expansionSignalled=true`).
+
+**What that settles:** Candidate B (the prediction — "the signal arrives, the
+read is just too early") is refuted outright: there is no late signal to be
+too early for, because none arrived in the failing runs within the budget
+this code actually waits on. **Candidate A re-opens**, but in a sharper form
+than the original Question 17 framing: it is not "the click never registers"
+(already ruled out — the Playwright-level click succeeds every time, in
+failing and clean runs alike) but "the click's AJAX call does not signal
+completion in time" — which could still be pure delay under contention (an
+honest budget problem) or a call that is never actually issued/received (a
+race at the click/arm boundary, not a timing one). Those two need opposite
+fixes, which is why this closes into Question 20 rather than straight into
+a fix.
+
+**One loose end, explicitly not resolved by this run:** `waitForStableExpandedCandidates`
+still runs its full poll budget (up to 15 × 400ms = 6s, 3 consecutive stable
+reads required under contention) after `expansionSignalled=false`, and *still*
+reads back 41 unchanged rows for the whole budget in both failing runs — so
+whatever is happening to the AJAX call, it is not resolving somewhere in that
+extra 6 seconds either. That rules out "the poll's own budget is merely too
+short" as a fix on its own; the loss is upstream of the poll, at the signal
+itself.
 
 ---
 

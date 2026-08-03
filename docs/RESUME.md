@@ -18,31 +18,27 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight: Question 19** (`docs/sync-speed-model.md`) - does the Vorlesung
-folder's "show all" click get its Wicket `AJAX_CALL_DONE` signal under
-`course_concurrency=2` contention, or not? Landed so far (both committed,
-`git log` has the exact commits): (1) `expandShowAllInSection` (crawl.go) now
-logs `expansionSignalled` itself via `auditLog("wicket-expand-signal", ...)`
-- previously only observable indirectly through whether the settle wait got
-skipped; (2) `internal/scraper/showallsignal_probe_test.go`
-(`TestShowAllSignalUnderContention`, gated on `OPAL_SHOWALL_SIGNAL_TRACE=1`)
-runs the known-failing contention condition (Algorithmen und
-Datenstrukturen + Softwaretechnologie, `course_concurrency=2`, default
-debounce) N times (default 3, `OPAL_SHOWALL_SIGNAL_RUNS` to change it),
-greps the captured `--debug-clicks` output for the Vorlesung node
-(`CourseNode/1775615795226691003`) and reports, per run, whether
-`expansionSignalled` was true/false and whether `warnShowAllTruncated` fired
-for it. Output also goes to `tmp/showall-signal-probe.txt`.
+_Nothing in flight._
 
-**Not yet done: actually running it.** The failure is intermittent (2 of 4 in
-the archived Question 16/17 data), so a run that reproduces nothing is not a
-result - rerun with `OPAL_SHOWALL_SIGNAL_RUNS` raised rather than concluding
-it's fixed. Read the test file's header comment for the prediction and
-failure criterion before running - they're written down there, not repeated
-here. Once a real result lands (reproduced at least once, or genuinely
-exhausted several rounds with nothing), write it into
-`docs/sync-speed-model.md`'s Question 19 section and clear this note back to
-the placeholder.
+**Question 19 is closed (2026-08-04), and its own prediction was wrong.**
+`expansionSignalled` (now logged, `crawl.go`/`wicket-expand-signal`) came back
+**false** in both runs that lost the Vorlesung tail - Wicket's `AJAX_CALL_DONE`
+never arrived within the 4000ms budget at all, not late. That refutes
+Candidate B (the signal arrives, the read is just early) and re-opens
+Candidate A in a sharper form: pure delay under contention vs. a call that is
+never actually issued/received. Full data and the split are in
+`docs/sync-speed-model.md`'s Question 19 write-up.
+
+Next up, already decided: **Question 20** (`docs/sync-speed-model.md`,
+"Next experiment") - raise `wicketExpansionSignalTimeoutMs` well past 4000ms
+for one diagnostic run and see whether a failing run's signal shows up before
+the raised ceiling (pure delay, fix is a bigger budget) or never shows up at
+all (fix is at the click/arm sequence, not the wait). Prediction and failure
+criterion are already written down there - read them before running, not
+after. Same contention condition as Question 19
+(`internal/scraper/showallsignal_probe_test.go` is the probe to extend or
+copy), same "expect repeats" caveat (2 of 3 this cycle, consistent with prior
+cycles).
 
 ---
 

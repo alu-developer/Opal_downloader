@@ -23,14 +23,14 @@ here is the failure mode to watch for.
 
 ## Now
 
-- **Find out whether the "show all" click is dropped or just answered too
-  late** (`docs/sync-speed-model.md` Question 19). The last unexplained real
-  file loss: under `course_concurrency=2` a paginated folder returns the same
-  41 rows it started with and drops six files, twice out of four runs, while at
-  `concurrency=1` the same node expands correctly to 44. Prediction and failure
-  criterion are already written down — read them before running, not after.
-  Needs click-level logging plus a contention run to reproduce, and expect
-  repeats because the failure is intermittent.
+- **Find out whether the missing Wicket signal is a budget problem or a
+  never-issued/never-delivered call** (`docs/sync-speed-model.md` Question 20).
+  Question 19 (2026-08-04) found the click is dispatched but
+  `AJAX_CALL_DONE` never arrives within the current 4000ms budget in the
+  runs that lose the Vorlesung folder's tail — not late, absent. Prediction
+  and failure criterion are already written down — read them before running,
+  not after. Same contention condition as Question 19, expect repeats (the
+  failure is intermittent, 2 of 3 last cycle).
 
 ---
 
@@ -165,6 +165,14 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 19 closed, its own prediction wrong: the Wicket signal doesn't
+  arrive late, it doesn't arrive at all** (2026-08-04): new
+  `wicket-expand-signal` audit line (`crawl.go`) plus a contention probe
+  (`showallsignal_probe_test.go`) caught `expansionSignalled=false` in both
+  runs that lost the Vorlesung folder's tail — the click fires, Wicket's
+  `AJAX_CALL_DONE` just never shows up within the 4000ms budget. Refutes
+  Candidate B (late signal), reopens Candidate A split into "pure delay" vs.
+  "never issued" — Question 20.
 - **The truncation alarm was a broken detector, not a truncation** (2026-08-03,
   Question 18): the warning that had fired on every run for two days was
   counting raw table rows, so it flagged the tutorial *enrolment* table — which

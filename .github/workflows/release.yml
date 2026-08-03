@@ -169,15 +169,25 @@ jobs:
               throw "$($dir.Name) exists but contains no $($b.Exe) - the bundle is incomplete, not merely misplaced"
             }
 
-            # --version starts the real binary and exits; it needs no
-            # display, no network and no OPAL account, so it is the cheapest
-            # evidence that what shipped is a runnable browser rather than a
-            # truncated copy.
-            $v = & $exe.FullName --version 2>&1
-            if ($LASTEXITCODE -ne 0) {
-              throw "$($exe.Name) is present at $($exe.FullName) but failed to run (exit $LASTEXITCODE): $v"
+            # Read the PE version resource and the size rather than
+            # executing the binary. `& chrome.exe --version` was tried first
+            # (run 30805565453) and fails here for a reason that says nothing
+            # about the installer: chrome.exe is a Windows GUI-subsystem
+            # binary, so it detaches without writing to the console and
+            # leaves $LASTEXITCODE unset, which the check then read as a
+            # non-zero exit. Version resource + size is deterministic, needs
+            # no process launch, and still distinguishes a complete binary
+            # from the truncated or empty copy this check exists to catch -
+            # it does NOT claim the browser was started.
+            $ver = $exe.VersionInfo.ProductVersion
+            if ([string]::IsNullOrWhiteSpace($ver)) {
+              throw "$($exe.Name) at $($exe.FullName) has no version resource - not a complete executable"
             }
-            Write-Host "OK: $($dir.Name) -> $($exe.Name) runs: $v"
+            if ($exe.Length -lt 1MB) {
+              throw "$($exe.Name) at $($exe.FullName) is only $($exe.Length) bytes - truncated copy"
+            }
+            $mb = [math]::Round($exe.Length / 1MB, 1)
+            Write-Host "OK: $($dir.Name) -> $($exe.Name) v$ver, ${mb}MB"
           }
 
           # The old, wrong location must stay empty of *our* doing. It is

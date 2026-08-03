@@ -151,9 +151,13 @@ jobs:
           # exactly the shape a half-copied install leaves behind - and the
           # point of the bundle is a browser the app can start, not a
           # correctly named folder.
+          # MinMB is a floor on the real shipped size, not a guess: chrome.exe
+          # is ~3.9MB (a launcher stub next to its DLLs) and
+          # chrome-headless-shell.exe is ~194MB (statically linked). Both
+          # numbers come from a working install.
           foreach ($b in @(
-            @{ Prefix = "chromium-";                Exe = "chrome.exe" },
-            @{ Prefix = "chromium_headless_shell-"; Exe = "chrome-headless-shell.exe" }
+            @{ Prefix = "chromium-";                Exe = "chrome.exe";                MinMB = 1 },
+            @{ Prefix = "chromium_headless_shell-"; Exe = "chrome-headless-shell.exe"; MinMB = 50 }
           )) {
             $dir = Get-ChildItem -Path $target -Directory -Filter "$($b.Prefix)*" -ErrorAction SilentlyContinue | Select-Object -First 1
             if (-not $dir) {
@@ -179,15 +183,20 @@ jobs:
             # no process launch, and still distinguishes a complete binary
             # from the truncated or empty copy this check exists to catch -
             # it does NOT claim the browser was started.
-            $ver = $exe.VersionInfo.ProductVersion
-            if ([string]::IsNullOrWhiteSpace($ver)) {
-              throw "$($exe.Name) at $($exe.FullName) has no version resource - not a complete executable"
-            }
-            if ($exe.Length -lt 1MB) {
-              throw "$($exe.Name) at $($exe.FullName) is only $($exe.Length) bytes - truncated copy"
-            }
             $mb = [math]::Round($exe.Length / 1MB, 1)
-            Write-Host "OK: $($dir.Name) -> $($exe.Name) v$ver, ${mb}MB"
+            if ($mb -lt $b.MinMB) {
+              throw "$($exe.Name) at $($exe.FullName) is ${mb}MB, below the $($b.MinMB)MB floor for this binary - truncated or partial copy"
+            }
+
+            # Version resource is reported when present but NOT required:
+            # run 30806301216 failed on exactly that, and checking a working
+            # local install showed why - the 194MB chrome-headless-shell.exe
+            # that this project uses for every headless session carries no
+            # ProductVersion at all. Absence proves nothing, so it cannot be
+            # an assertion.
+            $ver = $exe.VersionInfo.ProductVersion
+            $shown = if ([string]::IsNullOrWhiteSpace($ver)) { "no version resource" } else { "v$ver" }
+            Write-Host "OK: $($dir.Name) -> $($exe.Name) ${mb}MB, $shown"
           }
 
           # The old, wrong location must stay empty of *our* doing. It is

@@ -294,7 +294,41 @@ const faviconLink = `<link rel="icon" href="/logo.svg" type="image/svg+xml">`
 
 // logoMark is the inline mark next to the landing page's <h1>. Decorative
 // only (the heading already says the name), hence the empty alt.
-const logoMark = `<img src="/logo.svg" alt="" width="30" height="30" style="vertical-align: -5px; margin-right: 0.5rem;">`
+//
+// The id is for konamiEasterEgg, which is the only thing that ever looks it
+// up.
+const logoMark = `<img id="logo-mark" src="/logo.svg" alt="" width="30" height="30" style="vertical-align: -5px; margin-right: 0.5rem;">`
+
+// konamiEasterEgg spins the landing page's logo when someone types the
+// Konami code. Landing page only, and nothing else in the program knows it
+// exists.
+//
+// It touches only a CSS transform on one decorative <img>, so the worst case
+// if it misbehaves is a crooked logo. Deliberately no sound, no persisted
+// state, no network call, and no interference with typing: the sequence is
+// arrow keys and two letters, and the handler bails out the moment focus is
+// in a field, so it cannot eat a keystroke meant for a folder path.
+const konamiEasterEgg = `<script>
+(function () {
+	var CODE = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+	var at = 0;
+	var logo = document.getElementById('logo-mark');
+	if (!logo) { return; }
+	logo.style.transition = 'transform 1.2s cubic-bezier(.2,.8,.2,1)';
+	document.addEventListener('keydown', function (ev) {
+		var tag = (ev.target && ev.target.tagName) || '';
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return; }
+		var want = CODE[at];
+		var got = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+		at = (got === want) ? at + 1 : (got === CODE[0] ? 1 : 0);
+		if (at < CODE.length) { return; }
+		at = 0;
+		var turns = (parseInt(logo.dataset.turns || '0', 10) + 3);
+		logo.dataset.turns = turns;
+		logo.style.transform = 'rotate(' + (turns * 360) + 'deg)';
+	});
+})();
+</script>`
 
 // pageStyle is the shared look for every GUI page (landing, login, update,
 // settings, sync): same fonts/spacing/colors for headings, status boxes,

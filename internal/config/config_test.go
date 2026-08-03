@@ -149,11 +149,18 @@ skip_enrollment_sections: false
 	}
 }
 
-func TestLoadNotifyOnScheduledFailureDefaultsFalse(t *testing.T) {
+// TestLoadIgnoresRetiredNotifyKey guards the migration path for the removed
+// notify_on_scheduled_failure setting (2026-08-03, now always on - see
+// cmd/opal-downloader's scheduled-run defer). Every config.yaml written
+// before that carries the key, so the thing that must not happen is a hard
+// load failure on an existing install; the key is simply ignored, and the
+// next Save drops it. It fails if anyone reintroduces strict YAML decoding.
+func TestLoadIgnoresRetiredNotifyKey(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	content := `download_path: "./downloads"
 opal_url: "https://bildungsportal.sachsen.de/opal/"
+notify_on_scheduled_failure: false
 `
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
@@ -161,55 +168,21 @@ opal_url: "https://bildungsportal.sachsen.de/opal/"
 
 	loaded, err := Load(configPath)
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("Load() with retired notify_on_scheduled_failure key errored = %v", err)
 	}
-	if loaded.App.NotifyOnScheduledFailure {
-		t.Fatal("expected NotifyOnScheduledFailure to default to false when unset in config.yaml")
-	}
-}
-
-func TestLoadNotifyOnScheduledFailureExplicitTrue(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	content := `download_path: "./downloads"
-opal_url: "https://bildungsportal.sachsen.de/opal/"
-notify_on_scheduled_failure: true
-`
-	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
+	if loaded.App.DownloadPath == "" {
+		t.Fatal("expected the rest of the config to load normally alongside the retired key")
 	}
 
-	loaded, err := Load(configPath)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if !loaded.App.NotifyOnScheduledFailure {
-		t.Fatal("expected NotifyOnScheduledFailure to be true when explicitly set in config.yaml")
-	}
-}
-
-func TestSaveRoundTripsNotifyOnScheduledFailure(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-
-	cfg := Loaded{
-		App: App{
-			DownloadPath:             "./downloads",
-			Courses:                  []string{"*"},
-			NotifyOnScheduledFailure: true,
-		},
-		Credentials: Credentials{URL: DefaultOPALURL, StateFile: DefaultStateFile},
-	}
-	if err := Save(configPath, cfg); err != nil {
+	if err := Save(configPath, loaded); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
-
-	loaded, err := Load(configPath)
+	saved, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("failed to read saved config: %v", err)
 	}
-	if !loaded.App.NotifyOnScheduledFailure {
-		t.Fatal("expected NotifyOnScheduledFailure=true to round-trip through Save/Load")
+	if strings.Contains(string(saved), "notify_on_scheduled_failure") {
+		t.Fatalf("expected Save to drop the retired key, got:\n%s", saved)
 	}
 }
 

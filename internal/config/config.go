@@ -454,17 +454,6 @@ type App struct {
 	// investigation that justified the default and
 	// --no-skip-enrollment-sections for the escape hatch.
 	SkipEnrollmentSections bool
-
-	// NotifyOnScheduledFailure controls whether `sync --scheduled` shows a
-	// native Windows toast notification when a run's outcome is "failure"
-	// (never "partial" or "success" - see internal/statuslog.Outcome and
-	// cmd/opal-downloader's buildScheduledRunStatus). Deliberately separate
-	// from whether scheduled sync itself is enabled (internal/scheduler,
-	// queried live from Task Scheduler rather than stored in config.yaml): a
-	// user can want scheduled sync without wanting a desktop notification.
-	// Defaults to false (off) when unset - opt-in, same as scheduled sync
-	// itself. See internal/notify for the toast implementation.
-	NotifyOnScheduledFailure bool
 }
 
 type Loaded struct {
@@ -472,22 +461,27 @@ type Loaded struct {
 	Credentials Credentials
 }
 
+// rawConfig is the on-disk YAML shape. yaml.Unmarshal is deliberately
+// non-strict (see loadYAML), so a key that used to exist and no longer does
+// is ignored rather than failing the load - which is what retires a setting
+// safely: `notify_on_scheduled_failure` was removed in favour of always
+// notifying (see internal/notify), and an existing config.yaml that still
+// carries it loads fine and simply drops the key the next time it is saved.
 type rawConfig struct {
-	DownloadPath             string            `yaml:"download_path"`
-	Courses                  []string          `yaml:"courses"`
-	Sync                     *bool             `yaml:"sync"`
-	DefaultCourseFolder      string            `yaml:"default_course_folder"`
-	CourseFolders            map[string]string `yaml:"course_folders"`
-	UseSectionSubfolders     bool              `yaml:"use_section_subfolders"`
-	SectionFolderNames       map[string]string `yaml:"section_folder_names"`
-	SubfolderDestinations    map[string]string `yaml:"subfolder_destinations"`
-	OPALURL                  string            `yaml:"opal_url"`
-	SessionStateFile         string            `yaml:"session_state_file"`
-	DownloadConcurrency      int               `yaml:"download_concurrency"`
-	CourseConcurrency        int               `yaml:"course_concurrency"`
-	SectionConcurrency       int               `yaml:"section_concurrency"`
-	SkipEnrollmentSections   *bool             `yaml:"skip_enrollment_sections"`
-	NotifyOnScheduledFailure bool              `yaml:"notify_on_scheduled_failure"`
+	DownloadPath           string            `yaml:"download_path"`
+	Courses                []string          `yaml:"courses"`
+	Sync                   *bool             `yaml:"sync"`
+	DefaultCourseFolder    string            `yaml:"default_course_folder"`
+	CourseFolders          map[string]string `yaml:"course_folders"`
+	UseSectionSubfolders   bool              `yaml:"use_section_subfolders"`
+	SectionFolderNames     map[string]string `yaml:"section_folder_names"`
+	SubfolderDestinations  map[string]string `yaml:"subfolder_destinations"`
+	OPALURL                string            `yaml:"opal_url"`
+	SessionStateFile       string            `yaml:"session_state_file"`
+	DownloadConcurrency    int               `yaml:"download_concurrency"`
+	CourseConcurrency      int               `yaml:"course_concurrency"`
+	SectionConcurrency     int               `yaml:"section_concurrency"`
+	SkipEnrollmentSections *bool             `yaml:"skip_enrollment_sections"`
 }
 
 func LoadCredentials(configPath string) (Credentials, error) {
@@ -591,19 +585,18 @@ func Load(configPath string) (Loaded, error) {
 
 	return Loaded{
 		App: App{
-			DownloadPath:             expandHome(downloadPath),
-			Courses:                  courses,
-			Sync:                     syncEnabled,
-			DefaultCourseFolder:      strings.TrimSpace(cfg.DefaultCourseFolder),
-			CourseFolders:            courseFolders,
-			UseSectionSubfolders:     cfg.UseSectionSubfolders,
-			SectionFolderNames:       sectionFolderNames,
-			SubfolderDestinations:    subfolderDestinations,
-			DownloadConcurrency:      downloadConcurrency,
-			CourseConcurrency:        courseConcurrency,
-			SectionConcurrency:       sectionConcurrency,
-			SkipEnrollmentSections:   skipEnrollmentSections,
-			NotifyOnScheduledFailure: cfg.NotifyOnScheduledFailure,
+			DownloadPath:           expandHome(downloadPath),
+			Courses:                courses,
+			Sync:                   syncEnabled,
+			DefaultCourseFolder:    strings.TrimSpace(cfg.DefaultCourseFolder),
+			CourseFolders:          courseFolders,
+			UseSectionSubfolders:   cfg.UseSectionSubfolders,
+			SectionFolderNames:     sectionFolderNames,
+			SubfolderDestinations:  subfolderDestinations,
+			DownloadConcurrency:    downloadConcurrency,
+			CourseConcurrency:      courseConcurrency,
+			SectionConcurrency:     sectionConcurrency,
+			SkipEnrollmentSections: skipEnrollmentSections,
 		},
 		Credentials: credentials,
 	}, nil
@@ -805,21 +798,20 @@ func toRawConfig(cfg Loaded) rawConfig {
 	sync := cfg.App.Sync
 	skipEnrollmentSections := cfg.App.SkipEnrollmentSections
 	return rawConfig{
-		DownloadPath:             cfg.App.DownloadPath,
-		Courses:                  cfg.App.Courses,
-		Sync:                     &sync,
-		DefaultCourseFolder:      cfg.App.DefaultCourseFolder,
-		CourseFolders:            cfg.App.CourseFolders,
-		UseSectionSubfolders:     cfg.App.UseSectionSubfolders,
-		SectionFolderNames:       cfg.App.SectionFolderNames,
-		SubfolderDestinations:    cfg.App.SubfolderDestinations,
-		OPALURL:                  cfg.Credentials.URL,
-		SessionStateFile:         cfg.Credentials.StateFile,
-		DownloadConcurrency:      cfg.App.DownloadConcurrency,
-		CourseConcurrency:        cfg.App.CourseConcurrency,
-		SectionConcurrency:       cfg.App.SectionConcurrency,
-		SkipEnrollmentSections:   &skipEnrollmentSections,
-		NotifyOnScheduledFailure: cfg.App.NotifyOnScheduledFailure,
+		DownloadPath:           cfg.App.DownloadPath,
+		Courses:                cfg.App.Courses,
+		Sync:                   &sync,
+		DefaultCourseFolder:    cfg.App.DefaultCourseFolder,
+		CourseFolders:          cfg.App.CourseFolders,
+		UseSectionSubfolders:   cfg.App.UseSectionSubfolders,
+		SectionFolderNames:     cfg.App.SectionFolderNames,
+		SubfolderDestinations:  cfg.App.SubfolderDestinations,
+		OPALURL:                cfg.Credentials.URL,
+		SessionStateFile:       cfg.Credentials.StateFile,
+		DownloadConcurrency:    cfg.App.DownloadConcurrency,
+		CourseConcurrency:      cfg.App.CourseConcurrency,
+		SectionConcurrency:     cfg.App.SectionConcurrency,
+		SkipEnrollmentSections: &skipEnrollmentSections,
 	}
 }
 

@@ -30,18 +30,25 @@ import (
 //     page because nobody split them.
 //   - "Notify me if a scheduled sync fails" was stranded under a
 //     "Notifications" heading in the *settings* form, about a feature
-//     configured further down the page in the *other* form. It belongs here,
-//     and now saves with the thing it is about.
+//     configured further down the page in the *other* form. It moved here
+//     with automatic sync, and then stopped being a choice at all - see
+//     below.
 //
 // One form, one save button, and everything on the page is about the same
-// question: should this run by itself, and what should happen if it fails.
+// question: should this run by itself.
+//
+// The failure notification is no longer a checkbox (2026-08-03). It always
+// fires, and the page states that as a fact rather than offering it as a
+// preference: an automatic run is by definition one nobody watched, so the
+// notification is the only way its failure is ever noticed, and turning it
+// off only buys silence about a sync that has quietly stopped happening.
+// Removed from config.yaml too (internal/config's rawConfig), not just
+// hidden here.
 
 type schedulePageData struct {
 	Supported bool
 	Enabled   bool
 	Time      string
-
-	NotifyOnFailure bool
 
 	Error  string
 	Saved  bool
@@ -72,11 +79,10 @@ func handleSchedulePage(configPath string) http.HandlerFunc {
 	}
 }
 
-// loadSchedulePageData reads the live Task Scheduler state and the saved
-// notification preference. The schedule itself is deliberately re-queried
-// every render rather than persisted: the registered task is the source of
-// truth, and it can be changed or removed in Windows' own Task Scheduler UI
-// without this program knowing.
+// loadSchedulePageData reads the live Task Scheduler state. It is
+// deliberately re-queried every render rather than persisted: the registered
+// task is the source of truth, and it can be changed or removed in Windows'
+// own Task Scheduler UI without this program knowing.
 func loadSchedulePageData(configPath string) schedulePageData {
 	view := applyScheduleStatus(settingsViewData{})
 
@@ -93,47 +99,34 @@ func loadSchedulePageData(configPath string) schedulePageData {
 		data.Time = scheduler.SuggestedTime()
 	}
 
-	loaded, err := config.Load(configPath)
-	if err != nil {
+	if _, err := config.Load(configPath); err != nil {
 		data.SetupNeeded = true
-		return data
 	}
-	data.NotifyOnFailure = loaded.App.NotifyOnScheduledFailure
 	return data
 }
 
-// applyScheduleForm performs both halves of the one save button: register or
-// remove the scheduled task, and persist the notification preference.
-//
-// The notification preference is saved even when the scheduling half fails.
-// They are independent settings that happen to share a page, and losing a
-// checkbox because an unrelated Task Scheduler call errored would be its own
-// small betrayal.
+// applyScheduleForm registers or removes the scheduled task. It is the whole
+// of the save button now that the notification preference is gone.
 func applyScheduleForm(configPath string, r *http.Request) schedulePageData {
 	_ = r.ParseForm()
 
 	enable := r.FormValue("schedule_enabled") == "on"
-	notify := r.FormValue("notify_on_scheduled_failure") == "on"
 	at := strings.TrimSpace(r.FormValue("schedule_time"))
 	if at == "" {
 		at = scheduler.DefaultTime
 	}
 
 	scheduleErr := applyScheduleRegistration(enable, at, configPath)
-	notifyErr := saveNotifyPreference(configPath, notify)
 
 	data := loadSchedulePageData(configPath)
-	switch {
-	case scheduleErr != nil:
+	if scheduleErr != nil {
 		data.Error = scheduleErr.Error()
 		// The live re-query above reflects reality, but the user's unsaved
 		// intent is what they should see in the control they just used.
 		data.Time = at
-	case notifyErr != nil:
-		data.Error = notifyErr.Error()
-	default:
-		data.Saved = true
+		return data
 	}
+	data.Saved = true
 	return data
 }
 
@@ -205,16 +198,10 @@ var schedulePageTemplate = template.Must(template.New("schedule").Parse(`<!DOCTY
 	unattended run stops and waits for a 2FA click that nobody is there to
 	make, so it fails fast instead.</p>
 
-	<h2>If it fails</h2>
-
-	<div class="field checkbox-row">
-		<input type="checkbox" id="notify_on_scheduled_failure" name="notify_on_scheduled_failure" {{if .NotifyOnFailure}}checked{{end}}>
-		<label for="notify_on_scheduled_failure">Show me a notification</label>
-	</div>
-	<p class="hint">A Windows notification when an automatic run fails outright.
-	Not for a run that downloaded some files and had trouble with others, and
-	not when it succeeds. You can want this without the daily schedule, and the
-	other way round.</p>
+	<p class="hint">If an automatic run fails outright, Windows shows you a
+	notification. Nothing pops up for a run that succeeded, or for one that
+	downloaded some files and had trouble with others &ndash; only for a run
+	that got nowhere.</p>
 
 	<button type="submit" class="save-btn">Save</button>
 	</form>

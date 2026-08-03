@@ -309,6 +309,10 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	label.opt { font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; margin: 0.5rem 0 0.15rem; }
 	input[type=text] { padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
 	#status { font-weight: 600; margin: 0.5rem 0; }
+	/* Deliberately unlike #status: lighter, italic, no weight. A run's real
+	   state has to stay the one bold line on the page - see the quip script
+	   below for why this is allowed to exist at all. */
+	#quip { color: #777; font-style: italic; font-size: 0.85rem; margin: -0.25rem 0 0.5rem; min-height: 1.2em; }
 	#summary { margin: 0.5rem 0 1rem; }
 	#log { border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem 0.75rem; max-height: 24rem; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.85rem; background: #fafafa; }
 	.row { padding: 0.15rem 0; border-bottom: 1px solid #eee; }
@@ -346,6 +350,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	<label class="opt"><input type="checkbox" id="opt-dev"> dev mode (visible browser)</label>
 
 	<div id="status">Idle.</div>
+	<div id="quip"></div>
 	<div id="stale" class="warning" style="display:none;"></div>
 	<div id="summary"></div>
 	<div id="log"></div>
@@ -366,6 +371,10 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			btnSync.disabled = running || syncBlocked;
 			btnList.disabled = running || syncBlocked;
 			btnCancel.disabled = !running;
+			// Defined further down; both the function declaration and the
+			// state it touches are hoisted, and nothing calls setRunning
+			// before connect() at the end of this script.
+			setQuipsRunning(running);
 		}
 
 		function addRow(kind, text) {
@@ -440,8 +449,25 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				parts.push(errors + ' could not be downloaded - see the log above');
 			}
 			if (!parts.length) { return 'Nothing to download.'; }
-			if (!downloaded && !errors) { return 'Everything was already up to date (' + skipped + ' files checked).'; }
-			return parts.join(', ') + '.';
+			if (!downloaded && !errors) { return 'Everything was already up to date (' + skipped + ' files checked).' + spared(skipped); }
+			return parts.join(', ') + '.' + spared(downloaded + skipped);
+		}
+
+		// spared is the small reward at the end of a run: what the run just
+		// saved you, in the unit you'd have paid it in.
+		//
+		// The number is honest rather than flattering. Fetching one file by
+		// hand in OPAL is open the course, open the section, open the file,
+		// save it - four, and that is the optimistic count that assumes you
+		// never went to the wrong section. It is deliberately attached to
+		// files *checked*, not files downloaded: checking is the part nobody
+		// would do by hand, and it is what makes a 0-download run feel like
+		// something happened rather than like a wasted three minutes.
+		function spared(filesChecked) {
+			if (!filesChecked) { return ''; }
+			var clicks = filesChecked * 4;
+			if (clicks < 100) { return ' That is about ' + clicks + ' clicks you did not make.'; }
+			return ' That is roughly ' + (Math.round(clicks / 100) * 100).toLocaleString() + ' clicks you did not make.';
 		}
 
 		function runningTotals(course) {
@@ -463,6 +489,12 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			// page connected, and that run is exactly the one worth watching.
 			if (e.kind !== 'done' && e.kind !== 'cancelled' && e.kind !== 'failed') {
 				running = true;
+				// Events arriving is the only signal for a run that started
+				// after this page connected - the "state" frame is sent once,
+				// on connect, and never again. setQuipsRunning is idempotent,
+				// so calling it per event just keeps an already-running
+				// rotation running.
+				setQuipsRunning(true);
 			}
 
 			if (e.kind === 'discovery') {
@@ -491,6 +523,64 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			}
 			if (e.kind === 'done' && (e.downloaded || e.skipped || e.errors)) {
 				summaryEl.textContent = summarize(e);
+			}
+		}
+
+		// --- something to read while it grinds ------------------------------
+		// A sync takes minutes and the status line, correctly, spends most of
+		// them repeating a number. This is the one bit of the UI that exists
+		// purely to be nice to look at.
+		//
+		// Two rules keep it from becoming a liability, both encoded below:
+		// it never writes to #status (the stall detector's evidence lives
+		// there, and a rotating line would make a hung run look busy), and
+		// every quip describes something the program genuinely does. Nothing
+		// here invents an activity - "asking Wicket nicely" is a joke about a
+		// real fight with a real framework, and a user who reads it and then
+		// greps the code finds internal/scraper/wicket.go.
+		var QUIPS = [
+			'Opening tabs so you do not have to.',
+			'Asking Wicket nicely to render the tree.',
+			'Waiting for a page that swears it is nearly done.',
+			'Counting PDFs. There are always more PDFs.',
+			'Politely, one request at a time. OPAL has other students.',
+			'Reading section names nobody has read since the semester started.',
+			'Checking files that have not changed since 2019.',
+			'Clicking "show all", because 25 per page is a choice someone made.',
+			'Being patient at OPAL, so you can be impatient here.',
+			'Somewhere in here is the slide deck you actually need.'
+		];
+		// Read off window for the same reason STALE_AFTER_MS is (see below):
+		// so the browser walk can rotate ten lines in a second instead of
+		// sitting through 90 real ones. Nothing sensitive, nothing else
+		// reads it.
+		var QUIP_EVERY_MS = window.OPAL_QUIP_EVERY_MS || 9000;
+		var quipEl = document.getElementById('quip');
+		var quipOrder = [];
+		var quipTimer = null;
+
+		// Shuffled rather than random-each-tick, so a long run shows all ten
+		// before repeating any - drawing independently would show the same
+		// line twice in a row often enough to look broken.
+		function nextQuip() {
+			if (!quipOrder.length) {
+				quipOrder = QUIPS.slice();
+				for (var i = quipOrder.length - 1; i > 0; i--) {
+					var j = Math.floor(Math.random() * (i + 1));
+					var tmp = quipOrder[i]; quipOrder[i] = quipOrder[j]; quipOrder[j] = tmp;
+				}
+			}
+			quipEl.textContent = quipOrder.pop();
+		}
+
+		function setQuipsRunning(on) {
+			if (on) {
+				if (quipTimer) { return; }
+				nextQuip();
+				quipTimer = setInterval(nextQuip, QUIP_EVERY_MS);
+			} else {
+				if (quipTimer) { clearInterval(quipTimer); quipTimer = null; }
+				quipEl.textContent = '';
 			}
 		}
 

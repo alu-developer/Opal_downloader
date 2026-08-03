@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -493,7 +495,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		}
 
 		if watchArmed {
-			signalled, failed := awaitWicketExpansionDone(page, wicketExpansionSignalTimeoutMs)
+			signalled, failed := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
 			switch {
 			case signalled && failed:
 				// A REAL failure signal from the framework, replacing the
@@ -507,7 +509,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 					return s.recoverAndReturnToSection(page, currentURL)
 				}
 				if reclicked && rearmed {
-					retrySignalled, retryFailed := awaitWicketExpansionDone(page, wicketExpansionSignalTimeoutMs)
+					retrySignalled, retryFailed := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
 					expansionSignalled = retrySignalled && !retryFailed
 				}
 			case signalled:
@@ -759,6 +761,27 @@ func expandedPageURLAfterClick(page playwright.Page, currentURL string) string {
 // spending a few extra seconds on a rare section is strictly preferable to
 // concluding an expansion finished when it did not.
 const wicketExpansionSignalTimeoutMs = 4000.0
+
+// effectiveWicketExpansionSignalTimeoutMs returns wicketExpansionSignalTimeoutMs,
+// or OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE when set - a diagnostic-only escape
+// hatch for docs/sync-speed-model.md Question 20 (2026-08-04). Question 19
+// found expansionSignalled=false in the runs that lose the Vorlesung folder's
+// tail under course_concurrency=2 contention - the signal never arrives within
+// the current 4000ms budget. Raising the ceiling for one diagnostic run
+// separates "the call is just slow under contention" (signal shows up before
+// a much larger ceiling - fix is a bigger budget) from "it never shows up no
+// matter how long you wait" (fix is at the click/arm sequence, not the wait).
+// Off by default - unset means the unchanged, live-tested 4000ms above; this
+// does not change shipping behaviour on its own the way OPAL_DEBOUNCE_MS_OVERRIDE
+// (navigation.go, contentSettleWaitBudget) doesn't either.
+func effectiveWicketExpansionSignalTimeoutMs() float64 {
+	if v := os.Getenv("OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE"); v != "" {
+		if ms, err := strconv.ParseFloat(v, 64); err == nil && ms > 0 {
+			return ms
+		}
+	}
+	return wicketExpansionSignalTimeoutMs
+}
 
 // attemptShowAllExpandClick tries to click the "show all"/"Alle anzeigen" pagination
 // control on page (already navigated to sectionURL), trying the confirmed structural CSS

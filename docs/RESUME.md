@@ -18,7 +18,21 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**In flight: Question 20** (`docs/sync-speed-model.md`) - landed so far (both
+committed): (1) `effectiveWicketExpansionSignalTimeoutMs` (crawl.go) reads
+`OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE`, off by default, unchanged 4000ms
+otherwise; (2) `internal/scraper/showallsignaltimeout_probe_test.go`
+(`TestShowAllSignalTimeoutOverride`, gated `OPAL_SHOWALL_SIGNAL_TIMEOUT_TRACE=1`)
+reruns Question 19's contention condition with the ceiling raised to 15000ms
+(default) and checks whether a failing run's Vorlesung-node signal still
+comes back false even against that much patience.
+
+**Not yet done: actually running it.** Read the test file's header comment
+for the prediction and failure criterion before running - they're written
+down there. Once a real result lands, write it into
+`docs/sync-speed-model.md`'s Question 20 section and clear this note.
+
+---
 
 **Question 19 is closed (2026-08-04), and its own prediction was wrong.**
 `expansionSignalled` (now logged, `crawl.go`/`wicket-expand-signal`) came back

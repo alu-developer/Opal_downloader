@@ -23,14 +23,16 @@ here is the failure mode to watch for.
 
 ## Now
 
-- **Find out whether the missing Wicket signal is a budget problem or a
-  never-issued/never-delivered call** (`docs/sync-speed-model.md` Question 20).
-  Question 19 (2026-08-04) found the click is dispatched but
-  `AJAX_CALL_DONE` never arrives within the current 4000ms budget in the
-  runs that lose the Vorlesung folder's tail — not late, absent. Prediction
-  and failure criterion are already written down — read them before running,
-  not after. Same contention condition as Question 19, expect repeats (the
-  failure is intermittent, 2 of 3 last cycle).
+- **Time the click-to-signal latency itself, not just a threshold**
+  (`docs/sync-speed-model.md` Question 21). Question 20 (2026-08-04) raised
+  the signal-wait budget to 15000ms and got 3 clean runs in a row — not proof
+  of "pure delay" at this condition's ~33-50% historical failure rate, just a
+  plausible outcome either way. A real latency distribution (bimodal =
+  something drops/blocks outright; smooth spread = ordinary queueing delay)
+  is the next thing that would actually distinguish the two. Prediction and
+  failure criterion are already written down — read them before running.
+  **Explicitly needs spreading across more than one cycle**: Questions 19+20
+  already spent 6 two-course contention crawls against the real account today.
 
 ---
 
@@ -165,6 +167,15 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 20 closed inconclusive, and said so plainly** (2026-08-04):
+  raising the Wicket signal-wait ceiling to 15000ms produced 3 clean
+  contention runs in a row (248/248/248 files) — but at this condition's
+  ~33-50% historical failure rate that is not proof of "pure delay", just a
+  plausible outcome either way. The diagnostic tool
+  (`OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE`) is built and reusable; what's
+  missing is an actual latency distribution, not another blind batch —
+  Question 21, deliberately spread across more than one cycle to bound
+  today's live server load (6 contention crawls already).
 - **Question 19 closed, its own prediction wrong: the Wicket signal doesn't
   arrive late, it doesn't arrive at all** (2026-08-04): new
   `wicket-expand-signal` audit line (`crawl.go`) plus a contention probe
@@ -248,87 +259,3 @@ move the rest across.
   stable baseline to test it against, and the finger points at the Wicket
   "show all" path, not the settle budget. Users unaffected
   (`DefaultCourseConcurrency = 1`). Opened Question 17 with a decided next step.
-- **Sync-speed Question 15 closed: 150ms debounce holds on the large course too**
-  (2026-08-02, autopilot): same file-set, 210/210, across 2 baseline (300ms)
-  and 2 override (150ms) runs against Softwaretechnologie (164 sections);
-  savings 28.7%, matching the small course's 29.6% (Question 14) almost exactly
-  — took 3 failed attempts first (a Routine collision, then a recurrence of
-  the 300s login timeout, now diagnosed with a page-URL fix in `session.go`).
-  Course-size dimension answered; `course_concurrency>1` contention is not,
-  and can't be with the current probe design — see `docs/sync-speed-model.md`
-  Question 16.
-- **Scheduler disable-path "no guard" Noticed item closed as investigated,
-  not fixed** (2026-08-01, autopilot): `scheduler.Disable()` itself still
-  performs no ownership check (it deletes whatever `schtasks` has under
-  `TaskName`), but both real callers — the CLI's `schedule disable` and the
-  GUI's Settings form handler — are reachable only via explicit user action,
-  and no installer/uninstaller script or background path calls it. The actual
-  residual risk is dev/test sessions in this repo, already mitigated by
-  `live_schedule_guard_test.go`'s env-var gating and the `scheduleDisableFunc`
-  test double. Left a doc comment on `Disable()` spelling out the obligation
-  for future callers instead of adding speculative validation logic.
-- **Installer's Chromium-bundling path bug found and a fix opened as a PR**
-  (2026-08-01, autopilot): see Next — `%LOCALAPPDATA%` vs
-  `EnsurePlaywrightBrowsersPath`'s actual `%USERPROFILE%\.opal-downloader`
-  default. UNVERIFIED (no Inno Setup / local Chromium cache available here),
-  so it's a PR (#131), not a merge.
-- **Two "your call" backlog items closed on their own stated recommendation**
-  (2026-08-01, autopilot): the 2026-07-26 feedback-batch visual-check and the
-  first-run-journey dogfood item both said "can be closed without you,
-  recommended: close on the strength of existing automated coverage" — acted
-  on that instead of leaving it sitting. The `internal/scraper/crawl.go`
-  stays-unsplit decision they recorded stands. The scheduler-disable-path gap
-  they surfaced moved to Noticed.
-- **Weekly-review pass's two Next items closed** (2026-07-31, autopilot):
-  `pre-push-gate.ps1`'s stale test-suite comment fixed, and both settings
-  course-list visibility bugs (opacity-stacking contrast, note flash) fixed.
-- **Sync-speed campaign closed for real this time** (2026-07-31): reopened
-  autonomously via the ground-truth diff instead of needing a live human
-  (confirmed `internal/syncer` never deletes files, so a regression here is
-  recoverable and the byte-for-byte diff is a sufficient check); built and
-  ran the tree-walk-only wait against the real account, diagnosed it as a
-  measurement artifact (the content tree is JS-rendered at *every* level, not
-  just the dashboard), then measured the HTTP mode=1 alternative live (47s
-  slower, not faster). 30s stays unreachable loss-free; ~207s is the real
-  ceiling. Full trail in `docs/sync-speed-campaign.md`.
-- **The .exe has its own Explorer icon** (2026-07-31): `rsrc_windows_amd64.syso`
-  is generated from `internal/gui/assets/icon.ico` and checked in, so building
-  needs no new tool and `go.mod` is untouched — which is what the "needs the
-  maintainer's OK for a build-time dependency" block was really about.
-- **The course list is always on the settings page now** (2026-07-31):
-  "Sync all courses" still starts ticked, but it mutes the list and says the
-  ticks are inactive instead of hiding it. Folder inputs stay live, because
-  `course_folders` applies under the wildcard too.
-- **Deleted the self-built autonomy machinery** (2026-07-31): ten of twelve
-  PowerShell files, the `OpalDownloader-ResumeRunner` Windows task, the
-  keep-warm process, and every accumulated file in `.claude/queue/`. Replaced by
-  first-party Claude Code Desktop scheduled tasks. Kept only the two hooks that
-  *enforce* (pre-push gate, turn-failure checkpoint — which still writes
-  `LAST_FAILURE.json` there). Trigger: 102 of 193 commits in seven days touched
-  only `docs/`, `.claude/` or `scripts/`. The follow-up on 2026-07-31 deleted
-  `docs/agent-operating-model.md` and `docs/agent-incidents.md` too: of 189
-  lines, one section was neither duplicated in `CLAUDE.md` nor describing
-  deleted scripts. Survivors folded into `CLAUDE.md` and
-  `docs/work-quality.md`.
-- Closed the last Noticed item (the User-Agent-fix theory) with a decision
-  rather than another probe — a higher-volume burst at the real OPAL server is
-  what `docs/server-load.md` exists to prevent, curiosity included.
-- Closed the "unattended run can't wait for a background job" item as a rule,
-  not a detector: behaviour lives in the prompt, hooks enforce only.
-- Fixed a stdin BOM silently breaking JSON parsing in 5 hooks (2026-07-31).
-- **Closed the sync-speed campaign's remaining question with a decision:** the
-  verified HTTP-hybrid (diff=0, all 6 courses) ships as an opt-in diagnostic;
-  the actual speedup would need an unreviewed change to the crawl's
-  highest-risk code for an estimated ~60-90s that still misses the 30s target.
-  Reliability outranks features. Reopen only with the maintainer watching the
-  diff live, not by re-measuring. Reasoning in `docs/sync-speed-campaign.md`.
-- Corrected two of my own same-session claims with real evidence: the Logon
-  trigger did fire (Task Scheduler event 119), and the "overlapping launches"
-  I had called confirmed were the cheap gate script, not real launches.
-- Moved 678 lines of closed work into `docs/BACKLOG-archive.md` (2026-07-31).
-- Routed every live probe's diagnostic logs somewhere visible.
-- Found a real completion-signal candidate: jsTree's `aria-busy`, across 4
-  courses.
-- Wired the app icon into the running window (WM_SETICON), rasterised from
-  logoSVG.
-- Deleted the section change-detection cache, budget and all.

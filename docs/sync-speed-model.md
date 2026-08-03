@@ -347,45 +347,82 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Question 20 — is the missing signal a matter of budget, or does it never
-come?** Question 19 found `expansionSignalled=false` in both runs that lost
-the Vorlesung tail: the click was dispatched, but Wicket's `AJAX_CALL_DONE`
-never arrived inside `wicketExpansionSignalTimeoutMs` (4000ms,
-`crawl.go`). Two mechanisms are still compatible with that one fact, and they
-need opposite fixes:
+**Question 21 — how long does the signal actually take to arrive, on every
+run, not just the failing ones?** Question 20 raised the ceiling to 15000ms
+and got 3 clean runs in a row (248/248/248 files, `expansionSignalled=true`
+every time) — consistent with Candidate A1 (pure delay, the wider budget
+masks it) but, by its own written failure criterion, *not proof*: at the
+observed ~33-50% base failure rate (2 of 3 in Question 19, 2 of 4 in Question
+16/17), 3 clean runs in a row happen by chance alone something like 1-in-3 to
+1-in-8 of the time. A boolean (did it signal within N ms) cannot separate "it
+always takes ~150ms and this run was just lucky" from "it usually takes
+~150ms but occasionally spikes past 4000ms under load, and this run's spikes
+happened to land under 15000ms" — both produce the exact same observation.
 
-- **Candidate A1 (pure delay):** under two-course contention the AJAX
-  round-trip, or Wicket's own client-side event dispatch, genuinely takes
-  longer than 4000ms — the call does complete, just later. Fix: raise the
-  timeout (a budget problem, same shape as the settle-wait/hard-cap tuning
-  already done elsewhere in this file).
-- **Candidate A2 (never issued/never delivered):** the click reaches the DOM
-  element, but under contention no AJAX request is ever made (e.g. Wicket's
-  own click handler was not yet attached when Playwright's `.Click()` fired —
-  a stale-element/race condition, not a timing budget), or the response never
-  reaches this page's Wicket runtime (session/channel confusion between the
-  two concurrently open course tabs). Fix: at the click/arm sequence itself,
-  not the wait afterward — raising the timeout would not help at all.
+**Prediction:** instrumenting the actual elapsed time from click dispatch to
+`AJAX_CALL_DONE` (not just a threshold boolean) across many runs — clean and
+failing alike — of the Vorlesung node under contention shows a **bimodal**
+distribution: a tight cluster near the previously-measured 156-184ms
+(`wicket.go`'s doc comment, measured serially in 2026-07-21), plus a small
+number of outliers stretching into the seconds, rather than a smooth spread
+that would suggest ordinary queueing delay. Mechanism: Question 15/16 already
+found contention shifts *when* a debounce-style wait's window closes without
+tearing the window itself apart — a bimodal "usually instant, sometimes stuck"
+shape would be a different mechanism from that (something occasionally blocks
+outright, e.g. a dropped/never-retried XHR), while a smooth spread would
+support the delay explanation Question 20 could not confirm.
 
-**Prediction:** re-running the same contention condition with
-`wicketExpansionSignalTimeoutMs` raised well past 4000ms (e.g. 15000ms, purely
-for this diagnostic — not a proposed default) on a run that reproduces the
-loss will still show `expansionSignalled=false` at the *original* 4000ms mark
-but flip to `true` before the raised ceiling, i.e. the call does complete, it
-is just slow under contention. Mechanism: this campaign's own Question 15/16
-already established that *nothing* about this app requests less network or
-CPU work under contention, only that the same work is delayed by competing for
-the event loop — a delayed AJAX response is the same shape, not a new one.
+**Counts as failed at:** a smooth, unimodal distribution with no outliers
+beyond ~500ms-1s refutes the bimodal-block hypothesis and reopens the
+question of what specifically the extra time is spent on under contention
+(back toward Candidate A1's original "just slow" framing, but now with a
+number instead of a guess).
 
-**Counts as failed at:** if a failing run still shows no signal even against
-the raised ceiling, Candidate A1 is refuted and the mechanism moves to A2 —
-then the next step is instrumenting whether a network request is made at all
-(`page.on('request')`/`page.on('response')` around the click), not more
-timeout tuning.
+**Cost:** timestamp two more points around the existing `armWicketExpansionWatch`/
+`awaitWicketExpansionDone` calls (arm time, DONE time) and log the delta
+unconditionally in the existing `wicket-expand-signal` audit line rather than
+just the boolean — cheap, no new mechanism. Needs enough contention runs to
+collect a real distribution (more than 3), which is more live server load
+than any single cycle so far in this sub-thread (Questions 19-20 already spent
+6 two-course contention crawls today) — worth spacing across more than one
+cycle rather than one large batch, per `docs/server-load.md`.
 
-**Cost:** one code change (temporarily raise the constant, or add an env
-override matching the `OPAL_DEBOUNCE_MS_OVERRIDE` pattern), plus a contention
-run — expect to need repeats, same as Question 19 (2 of 3 this cycle).
+---
+
+## Previous experiment (Question 20, closed 2026-08-04)
+
+**Result: inconclusive by its own failure criterion — 0 of 3 runs reproduced
+the loss even with the ceiling raised to 15000ms, but the report said in
+advance that a clean result here would not be proof on its own.** Raw data:
+`tmp/showall-signal-timeout-probe.txt`.
+
+| Run | Files | Vorlesung node (15000ms budget) |
+|---|---:|---|
+| 1 | 248 | `expansionSignalled=true` |
+| 2 | 248 | `expansionSignalled=true` |
+| 3 | 248 | `expansionSignalled=true` |
+
+248 is the known "nothing lost" file count for this course pair (Question
+16's clean runs). All three runs signalled cleanly, well inside even the
+original 4000ms window judging by the total run time — no evidence of a
+near-miss that the wider budget rescued.
+
+**Why this is not the same as confirming Candidate A1.** The test file's own
+verdict logic said so before the run: at a ~33-50% historical failure rate for
+this exact condition, 3 clean runs in a row is not a rare event by chance
+alone. A boolean pass/fail at one threshold cannot distinguish "the call is
+always fast and this was luck" from "the call is fast until it occasionally
+stalls past 4000ms, and today's stalls (if any) happened to land under
+15000ms" — both look identical from outside. Rule 2 applies against our own
+result here, not just against the original prediction: neither this run nor
+Question 19's counts as a mechanism yet, only as two data points.
+
+**What actually moved:** the diagnostic tool itself now exists and works
+(`OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE`, `effectiveWicketExpansionSignalTimeoutMs`,
+`crawl.go`) — off by default, ready for reuse. What is missing is not more
+runs at a single threshold but the actual timing distribution, which needs one
+more small instrumentation step (timestamping the arm/signal calls) rather
+than another blind contention batch. That is Question 21.
 
 ---
 

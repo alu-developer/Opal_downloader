@@ -18,19 +18,25 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight: Question 20** (`docs/sync-speed-model.md`) - landed so far (both
-committed): (1) `effectiveWicketExpansionSignalTimeoutMs` (crawl.go) reads
-`OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE`, off by default, unchanged 4000ms
-otherwise; (2) `internal/scraper/showallsignaltimeout_probe_test.go`
-(`TestShowAllSignalTimeoutOverride`, gated `OPAL_SHOWALL_SIGNAL_TIMEOUT_TRACE=1`)
-reruns Question 19's contention condition with the ceiling raised to 15000ms
-(default) and checks whether a failing run's Vorlesung-node signal still
-comes back false even against that much patience.
+_Nothing in flight._
 
-**Not yet done: actually running it.** Read the test file's header comment
-for the prediction and failure criterion before running - they're written
-down there. Once a real result lands, write it into
-`docs/sync-speed-model.md`'s Question 20 section and clear this note.
+**Question 20 is closed (2026-08-04): inconclusive, honestly reported as
+such.** Raising the signal-wait ceiling to 15000ms produced 3 clean runs in a
+row (248/248/248 files) - but the test's own pre-written verdict logic says
+that is not proof of "pure delay" at this condition's ~33-50% historical
+failure rate; 3 clean runs happen by chance often enough not to count. Full
+data in `docs/sync-speed-model.md`'s Question 20 write-up.
+
+Next up, already decided: **Question 21** - timestamp the click-to-signal
+latency itself (not just a threshold boolean) across many contention runs,
+to see whether it's bimodal (usually ~150ms, occasionally stuck for seconds -
+points at something dropping/blocking outright) or a smooth spread (points at
+ordinary queueing delay under load). Cheap instrumentation, but needs more
+than 3 runs to see a real distribution - **note it explicitly asks to be
+spread across more than one cycle**, since Questions 19+20 already spent 6
+two-course contention crawls against the real account today
+(`docs/server-load.md`). Prediction and failure criterion are in the model
+file's "Next experiment" - read them before running.
 
 ---
 

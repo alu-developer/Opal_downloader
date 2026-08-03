@@ -20,9 +20,17 @@ here sends an unattended run after work that is already done. Clear it.
 
 _Nothing in flight._
 
-Next up, already decided and needing nobody: Question 17's concurrency=1 control
-run (`docs/sync-speed-model.md`) - the same course pair, same probe, twice at
-`course_concurrency=1`, to rule out plain server-side variance before
-blaming contention for the lost paginated section. `OPAL_DEBOUNCE_CONTENTION_COURSES`
-already lets the probe take the pair; the concurrency it uses is hardcoded to
-2 and needs a small env knob first.
+**Do not run Question 17's concurrency=1 control run.** It was the "next up" here
+until 2026-08-03 and is now unnecessary: Question 17 was answered from the
+archived run log instead (`tmp/frage16-run.log`, 4/4 correlation with
+`warnShowAllTruncated`). Server-side variance is refuted, so there is nothing for
+that run to rule out. No env knob needed, no probe change needed.
+
+Next up, already decided and needing nobody: **Question 18**
+(`docs/sync-speed-model.md`) - `CourseNode/1775529461522481011` warns
+`warnShowAllTruncated` in every archived run at every concurrency setting, so
+files are probably missing from every sync ever done here, including the 345-file
+ground truth. Two cheap steps, neither a full crawl: log the candidate hrefs
+before and after expansion for that one node, and open the section by hand in the
+login profile to count the real files. Prediction and failure criterion are
+already written down in the model file - read them before running, not after.

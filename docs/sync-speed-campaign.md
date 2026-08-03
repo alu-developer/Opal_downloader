@@ -451,9 +451,9 @@ Two things worth keeping from this:
   reason this project refuses file counts as evidence, now with an instance
   attached to it rather than only a principle.
 
-The probe was deleted again after reporting (see `codebudget_test.go`); it was
-written with an expiry and the expiry was honoured. `git show 76a71fa` restores
-it if anyone wants to re-measure.
+The probe was deleted again after reporting; it was written with an expiry and
+the expiry was honoured. `git show 76a71fa` restores it if anyone wants to
+re-measure.
 
 **So the ~30s target needs the debounce itself to get cheaper, not skipped.**
 The 300ms is spent proving silence on a page that finishes in ~36ms, and that

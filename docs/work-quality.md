@@ -23,7 +23,6 @@ Correct, and it is structural. Everything this project currently checks is a
 |---|---|
 | `go test ./...` | nothing I wrote today contradicts something I wrote earlier |
 | `go vet`, `gofmt` | the code is syntactically unremarkable |
-| `codebudget_test.go` | the repo did not get much bigger |
 | `pre-push-gate.ps1` | the above ran before a push |
 
 None of them can fail because the work is mediocre, incomplete against its own

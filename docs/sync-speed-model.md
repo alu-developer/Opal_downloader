@@ -125,30 +125,103 @@ The rest was traced back to Wicket bookkeeping. This one was not. Possibly the
 same cause as Question 17 — there the unstable node is known by name for the
 first time and identified as paginated.
 
-### 17. Why does a paginated section lose its second page under contention? (new from Question 16, 2026-08-03)
+### 17. ~~Why does a paginated section lose its second page under contention?~~ Answered 2026-08-03 from data already on disk — and it is a bug, not a speed question
 Question 16 found a reproducible loss that does **not** hang on the settle
 budget: the same course building block (`CourseNode/1775615795226691003`, 6
 files) was missing in 2 of 4 runs, once under the unchanged 500ms/6000ms
-configuration and once under 150ms/4000ms. The node is paginated (`offered a
-"show all" control` in the run log), and that exact Wicket click path carries the
-campaign's history of losses.
+configuration and once under 150ms/4000ms.
 
-The mechanism is open, and it can be narrowed down with one cheap run because the
-question is binary:
-- **Candidate A: under contention the "show all" click is never triggered at
-  all** — the control is not yet there when it is checked for, the section counts
-  as single-page and is ticked off without a second page.
-- **Candidate B: the click runs, but its result is not waited for** — the AJAX
-  response arrives after the stability poll.
-- **Candidate C:** not a contention effect but server-side variance at this
-  building block. Refutable by runs at `concurrency=1`.
+The plan below was to spend a live run ruling out Candidate C. That run was not
+needed. **The maintainer's objection was the reason (2026-08-03): "it is very
+weird that consistently 6 files go missing — shouldn't the campaign explain why
+that is, before ruling the option out?"** That is Rule 2 applied to our own work:
+Question 16 had measured an effect and converted it straight into an exclusion
+without ever naming the mechanism. Re-reading the archived run log instead of
+launching a new run answered it in minutes, because the crawler had already
+detected and reported the failure itself — `warnShowAllTruncated` (`crawl.go`)
+exists for exactly this and had fired.
 
-**Next step, decided:** rule out C first — the same course pair twice at
-`course_concurrency=1`, same probe. If both runs stay at 248 files, contention is
-the cause and the settle budget is fully exonerated; if the loss shows up there
-too, it is not a concurrency matter and Question 17 becomes a bug report about
-the pagination path. A vs. B is then separated by a log at the click itself, not
-by another timing run.
+**The correlation in `tmp/frage16-run.log` is 4 of 4:**
+
+| Run | `warnShowAllTruncated` for the Vorlesung node? | Files |
+|---|---|---:|
+| baseline-1 (500ms/6000ms) | no | **248** |
+| baseline-2 (500ms/6000ms) | **yes** | 242 |
+| override-1 (150ms/4000ms) | **yes** | 242 |
+| override-2 (150ms/4000ms) | no | **248** |
+
+The warning appears in exactly the two runs that lost the six files and in
+neither of the two that did not. Its wording pins the branch down: *"expansion
+completed but added nothing (41 rows before, 41 after)"*.
+
+**What that settles:**
+- **Candidate C (server-side variance) is refuted.** The content did not vary —
+  the crawler's own expansion of that section failed, in those runs and not the
+  others, and said so at the time.
+- **Candidate A ("the click is never triggered") is refuted.** That path exits
+  earlier through a different message, *"the control could not be activated"*,
+  which does not appear. The control was found and the click was dispatched.
+- **Candidate B stands:** the click is dispatched and reports done, then
+  `waitForStableExpandedCandidates` reads back the same 41 rows it started with.
+  Either Wicket dropped the expansion request, or its response landed after the
+  read. Those two are separable by logging at the click itself — but note this is
+  the same shape as the already-recorded 2026-07-21 finding that
+  `AJAX_CALL_DONE` marks a call finished without marking the DOM complete.
+
+Why exactly 6 and always the same 6: the lost files are `Vorlesung_7`, `_7p`,
+`_8`, `_8p`, `_9_10`, `_9_10p` — the tail of one folder, i.e. one OPAL page
+boundary. A failed expansion does not lose a random subset, it caps the section
+at page 1. The consistency the maintainer flagged as weird is the strongest clue
+in the data: intermittent *timing* producing an exact, repeatable *file set* is
+the signature of a page boundary, not of a race that eats arbitrary rows.
+
+**Consequence for `course_concurrency>1`: not ruled out, re-classified.** It is
+not "concurrency loses files"; it is "an already-known expansion bug fires more
+often when the renderer is under load". Fixing the expansion is the prerequisite,
+and until then the setting stays as it is — untouched default of 1, no clamp, no
+removal (maintainer's decision, 2026-08-03).
+
+### 18. Why is one section permanently truncated at every concurrency, in every run? (new from Question 17, 2026-08-03)
+Found while answering Question 17, and more serious than Question 17 itself,
+because it is not intermittent and it hits the **shipping default**.
+
+`CourseNode/1775529461522481011` (Algorithmen und Datenstrukturen) emits
+`warnShowAllTruncated` in **every single archived run** — all 4 of Question 16 at
+`course_concurrency=2`, all 4 of Question 14 at `course_concurrency=1`
+(`tmp/debounce-override-run.log`), plus `tmp/cdp-metrics-run.log`,
+`tmp/settle-timing-run.log` and `tmp/mutation-concentration-run2.log`. Question
+14 had already noticed this section and set it aside as "an already-known
+pagination gap independent of the debounce"; what was not drawn from it is that
+a *permanent* truncation is invisible to every check this project has.
+
+**Why our own methodology could not see it.** Every correctness gate in this
+campaign is a diff — run against run, or run against a stored ground truth. A
+section that loses the same rows on every run is byte-identical to itself and to
+the ground truth, so all 8 runs of Questions 14 and 15 reported "no deviation"
+while this section was truncated in all 8. The 345-file ground truth is very
+likely short by the same rows, which would make it a record of the bug rather
+than a baseline against it.
+
+**Second, sharper oddity:** the reason string alternates between *"17 rows
+before, 17 after"* and *"17 rows before, **14** after"*. The expansion sometimes
+comes back with *fewer* rows than the collapsed page had — and
+`expandShowAllInSection` returns `expanded` unconditionally (`crawl.go` line
+600), which the caller then assigns over the candidate list (line 386-388). So on
+those runs a 14-row result replaces a 17-row one. Part of that drop is expected
+(the show-all control is itself one of the candidates and disappears once
+expanded), but that accounts for one row, not three.
+
+**Next step, decided, and it is not a timing run:** the question is what those 17
+rows actually are and what the section holds in a browser. Concretely — (a) log
+the candidate hrefs before and after expansion for this one node, rather than
+just the counts, and (b) open the section by hand in the login profile and count
+the real files. That establishes whether files are being lost, and how many,
+before any fix is designed. Cheap, one section, no full crawl.
+
+**Open regardless of the fix:** a truncation that reproduces identically forever
+cannot be caught by a self-diff, so "all runs agree" must stop being read as "no
+files lost". `warnShowAllTruncated`'s output is currently the only signal that
+sees it, and nothing consumes that warning.
 
 ### 7. If nothing renders client-side — what fills the 336ms then? (replaces the old Question 4)
 The campaign's conclusion from late 2026-07-31 ("the content tree is JS-rendered
@@ -213,6 +286,36 @@ profiling already announced in Question 7.
 ---
 
 ## Next experiment
+
+**Question 18 — is a section being silently truncated on every run, at the
+default setting?** Full statement, evidence and the decided method are in
+Question 18 above; not restated here to keep one copy of it.
+
+**Prediction (written before the run):** opening
+`CourseNode/1775529461522481011` by hand in the login profile shows **more than
+17 files**, and the hrefs logged before/after expansion show the post-expansion
+list is a subset of the pre-expansion one plus nothing — i.e. real files are
+missing from every sync this project has ever done, including the 345-file
+ground truth. Mechanism: the section advertises a "show all" control, so OPAL
+itself says there is more than one page; an expansion that returns the same or
+fewer rows therefore leaves page 2 unread.
+
+**Counts as failed at:** if the browser shows exactly 17 files, nothing is being
+lost and the warning is a false positive on a section whose control is
+decorative — then the finding inverts into "`warnShowAllTruncated` over-reports",
+which matters just as much, because it is the only signal that sees this class at
+all. Either outcome is worth the run; there is no result here that wastes it.
+
+**Cost:** one section, opened once, plus href-level logging on that one node. No
+full crawl, no repeated runs, negligible server load.
+
+**Why this goes ahead of any remaining speed lever:** it is a correctness
+question about the shipping default, and this repo puts reliability over
+features. It is also the cheapest open question in the file.
+
+---
+
+## Previous experiment (Question 16, closed 2026-08-03)
 
 **Question:** (16, new from Question 15) — does the 150ms
 `mutationObserverDebounceMs` also hold under real `course_concurrency>1`
@@ -966,6 +1069,57 @@ Every 5 cycles, each ending with a recommendation: keep going or stop, and why. 
 decision is the maintainer's, not a counter's — no cap on the campaign, the kill criterion
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
+
+### 2026-08-03 (decision round): five cycles, Questions 12-16 — keep going, and the first shipped win
+
+Cycles since the last report: Questions 12, 13, 14, 15, 16. Report due on the
+five-cycle cadence, and the keep-or-stop call is the maintainer's.
+
+**What changed since the last report.** The settle time was traced to its cause
+and then cut. Question 12 killed the quadratic-mutation explanation as a driver
+of wait time (r² rose only 21%→29%). Question 13 measured browser work at
+11-24% of settle+stable and named the real mechanism: the time is not work, it
+is two fixed constants — measured mean settle 326ms against a 300ms constant.
+Questions 14 and 15 tested that directly and held it, byte-identical across 8
+live runs on two courses 27x apart in size, saving 29.6% and 28.7%. Question 16
+tried to extend that to `course_concurrency>1` and could not, because the
+unchanged baseline turned out to differ from itself.
+
+**Shipped this round (maintainer's decision, 2026-08-03):**
+`mutationObserverDebounceMs` 300 → 150 is now the default, not an env flag. That
+is the campaign's first user-visible improvement since it reopened on 2026-07-31
+— roughly 29% off the dominant component of a sync.
+
+**The correction that matters more than the win.** Question 16's exclusion of
+`course_concurrency>1` was overturned in this round, on the maintainer's
+objection that a consistent 6-file loss demands an explanation before it is
+converted into a rule. It did, and the explanation was already sitting in the
+archived run log: `warnShowAllTruncated` had fired on exactly the two runs that
+lost files, 4/4 correlation, naming the branch. See Question 17 above. This is
+the failure Rule 2 was written to prevent, committed by the campaign against
+itself — a measured effect promoted straight to a verdict without a mechanism —
+and it survived a whole cycle before an outside question caught it.
+
+That find then produced Question 18, which is the more serious one: a section
+that is truncated in **every archived run at every concurrency setting**,
+including the shipping default. It is invisible to every gate this campaign has,
+because all of them are diffs and a permanently truncated section is identical to
+itself. "All 8 runs agreed" was accepted as proof of losslessness in Questions 14
+and 15 while this was happening in all 8.
+
+**Still open:** Question 18 (permanent truncation — a correctness bug, now ahead
+of everything else), Question 17's A-vs-B tail, Question 8 (cache-off vs.
+pause/resume, locally testable without an account, never touched), Question 5
+(is 30s tied to discovery at all), Question 6 (1 in 12 sections unstable).
+
+**Recommendation: keep going — and the maintainer chose to keep going.** The
+reason is not the 29%: it is that this round produced the first correctness bug
+the campaign has found rather than caused, and one of them (Question 18) is
+losing files today at the default setting. Speed work has also stopped being the
+best use of the loop — the remaining discovery levers are the 4000ms hard cap and
+the 150ms poll interval, both smaller than the one just taken, and even a perfect
+result there leaves ~150s against a 30s target. Next cycles go to Question 18
+first, correctness before speed, consistent with this repo's stated order.
 
 ### 2026-08-02 (opal-downloader-sync-speed): first report of this task, Question 11 closed with a shift
 

@@ -427,3 +427,40 @@ this is long-term/low-priority and should not block other in-flight work.
 Follow-up tasks (1–4, 6 first; 7–8 later) should be captured separately in
 the local task queue (`.claude/queue/`) rather than implemented as part of
 this planning task.
+
+## Addendum (2026-08-01): the bundled Chromium landed where nothing looked
+
+Every `%LOCALAPPDATA%\ms-playwright` reference in Sections 1–9 above was
+correct when written, but the ground under it moved on 2026-07-13
+(`EnsurePlaywrightBrowsersPath`, `internal/scraper/session.go`, commit
+`b352143`) and this plan was never updated: `PLAYWRIGHT_BROWSERS_PATH`
+defaults to `%USERPROFILE%\.opal-downloader\ms-playwright` now, to dodge an
+NTFS-junction failure seen under `%LOCALAPPDATA%` on at least one machine
+(`docs/OPERATIONS.md`). The installer chain still copied Chromium to, and
+probed for it at, the old `%LOCALAPPDATA%` path — so a fresh install's
+bundled ~680MB landed where the running app never reads, and
+`NeedsPlaywrightSetup`'s stale probe found it "present" there anyway and
+skipped the one fallback (`opal-downloader.exe setup`) that would have
+recovered. That defeated Section 3's entire bundling decision without ever
+failing loudly.
+
+Fixed (not yet verified against a built `setup.exe` — no Windows Chromium
+cache was available to stage in the environment that made this fix):
+`installer/opal-downloader.iss` (`[Files]` DestDir and `NeedsPlaywrightSetup`
+now both point at `{%USERPROFILE}\.opal-downloader\ms-playwright`),
+`scripts/build-installer.ps1` (`$ChromiumCacheSrc` default moved to match),
+and `.github/workflows/release.yml`'s "Fetch Playwright Chromium" step (now
+sets `PLAYWRIGHT_BROWSERS_PATH` explicitly before the bare `playwright
+install` CLI call, which otherwise still falls back to *its own*
+`%LOCALAPPDATA%` default since it never goes through
+`EnsurePlaywrightBrowsersPath`). Also fixed in passing: the `[Run]` fallback
+and `build-installer.ps1`'s missing-cache warning both still said the
+`setup` fallback needs a Go toolchain — it hasn't since `runSetup` switched
+to calling `playwright.Install()` directly (Section 9 task 1).
+
+**Still needs a real verification pass**, ideally the next time an actual
+release is cut: confirm a locally-built `setup.exe` stages Chromium into the
+new path, that `NeedsPlaywrightSetup` correctly finds it, and that a tag
+push through `release.yml` produces an installer with Chromium bundled
+(check the resulting `.exe`'s size — a few hundred KB means the cache
+silently didn't stage, ~250-300MB means it did).

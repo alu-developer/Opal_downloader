@@ -7,10 +7,19 @@
 ;   - Installs opal-downloader.exe, config.example.yaml, and LICENSE to a
 ;     per-user install directory (no admin rights required).
 ;   - Bundles a pre-staged copy of Playwright's Chromium cache into
-;     %LOCALAPPDATA%\ms-playwright, matching the pinned playwright-go
-;     version (v0.6100.0 as of this writing - see go.mod), instead of
-;     fetching it over the network at install time (Section 3, revised
-;     2026-07-09).
+;     {%USERPROFILE}\.opal-downloader\ms-playwright, matching the pinned
+;     playwright-go version (v0.6100.0 as of this writing - see go.mod),
+;     instead of fetching it over the network at install time (Section 3,
+;     revised 2026-07-09). This is NOT %LOCALAPPDATA%\ms-playwright -
+;     EnsurePlaywrightBrowsersPath (internal/scraper/session.go) has
+;     defaulted PLAYWRIGHT_BROWSERS_PATH to the user-profile path since
+;     commit b352143 (2026-07-13), to dodge an NTFS-junction failure under
+;     %LOCALAPPDATA% on at least one machine. Found 2026-07-31: this script
+;     had not followed that move, so a fresh install staged the bundled
+;     Chromium where opal-downloader never looks, and NeedsPlaywrightSetup's
+;     own probe (also pointed at %LOCALAPPDATA%) found it "present" there
+;     and skipped the one fallback that would have recovered - see
+;     docs/installer-plan.md's addendum for the write-up.
 ;   - Does NOT collect config.yaml fields (download path, course patterns,
 ;     browser profile, etc.) - that's deferred entirely to the GUI's
 ;     existing first-run settings page (Section 4). The only installer-
@@ -26,11 +35,11 @@
 ; separate task's job (a build step producing a known local directory).
 ; For local development/testing, stage it manually by copying the browser
 ; folder(s) matching go.mod's playwright-go version out of your own
-; %LOCALAPPDATA%\ms-playwright, e.g.:
+; %USERPROFILE%\.opal-downloader\ms-playwright, e.g.:
 ;
 ;   mkdir installer\chromium-cache
-;   xcopy /E /I "%LOCALAPPDATA%\ms-playwright\chromium-1228" installer\chromium-cache\chromium-1228
-;   xcopy /E /I "%LOCALAPPDATA%\ms-playwright\chromium_headless_shell-1228" installer\chromium-cache\chromium_headless_shell-1228
+;   xcopy /E /I "%USERPROFILE%\.opal-downloader\ms-playwright\chromium-1228" installer\chromium-cache\chromium-1228
+;   xcopy /E /I "%USERPROFILE%\.opal-downloader\ms-playwright\chromium_headless_shell-1228" installer\chromium-cache\chromium_headless_shell-1228
 ;
 ; Both "chromium-<rev>" AND "chromium_headless_shell-<rev>" are required -
 ; opal-downloader never launches Firefox/WebKit so ffmpeg-*/firefox-*/
@@ -63,8 +72,8 @@
 ; Directory containing a staged copy of the Playwright Chromium cache,
 ; expected to contain one or more "chromium-<rev>" (and optionally
 ; "chromium_headless_shell-<rev>") subfolders, exactly as they appear
-; under %LOCALAPPDATA%\ms-playwright. Override at compile time with
-; /DChromiumSrcDir=<path> if staged elsewhere.
+; under %USERPROFILE%\.opal-downloader\ms-playwright. Override at compile
+; time with /DChromiumSrcDir=<path> if staged elsewhere.
 #ifndef ChromiumSrcDir
   #define ChromiumSrcDir SourcePath + "chromium-cache"
 #endif
@@ -117,7 +126,7 @@ Source: "{#RepoRoot}LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 ; installer just won't bundle Chromium in that case, and
 ; NeedsPlaywrightSetup below will fall back to "opal-downloader.exe setup"
 ; post-install.
-Source: "{#ChromiumSrcDir}\*"; DestDir: "{localappdata}\ms-playwright"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall skipifsourcedoesntexist
+Source: "{#ChromiumSrcDir}\*"; DestDir: "{%USERPROFILE}\.opal-downloader\ms-playwright"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"
@@ -125,13 +134,11 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; Tasks: desktopicon
 
 [Run]
-; Fallback: only runs "setup" (Playwright driver install, which today
-; shells out to "go run ...playwright install" - see runSetup in
-; cmd/opal-downloader/root.go - so this fallback currently still requires
-; a Go toolchain on PATH; fixing that is a separate task, see
-; docs/installer-plan.md Section 9 task 1) if the bundled Chromium cache
+; Fallback: only runs "setup" (Playwright browser install via playwright-go's
+; own Install() API - see runSetup in cmd/opal-downloader/root.go - no Go
+; toolchain needed, just network access) if the bundled Chromium cache
 ; wasn't detected at its expected path after install.
-Filename: "{app}\{#MyAppExeName}"; Parameters: "setup"; StatusMsg: "Bundled Chromium not found - attempting to install Playwright browsers (requires internet and Go)..."; Flags: runhidden skipifsilent; Check: NeedsPlaywrightSetup
+Filename: "{app}\{#MyAppExeName}"; Parameters: "setup"; StatusMsg: "Bundled Chromium not found - attempting to install Playwright browsers (requires internet)..."; Flags: runhidden skipifsilent; Check: NeedsPlaywrightSetup
 ; Primary post-install action: launch the GUI. Chromium-only login (queue
 ; task chromium-only-login-remove-real-browser, 2026-07-14) means
 ; opal-downloader never launches a real installed Brave/Chrome executable
@@ -148,7 +155,7 @@ var
   Found: Boolean;
 begin
   Found := False;
-  if FindFirst(ExpandConstant('{localappdata}\ms-playwright\chromium-*'), FindRec) then
+  if FindFirst(ExpandConstant('{%USERPROFILE}\.opal-downloader\ms-playwright\chromium-*'), FindRec) then
   begin
     Found := True;
     FindClose(FindRec);

@@ -25,6 +25,14 @@ on:
   push:
     tags:
       - "v*"
+  # Manual trigger, added 2026-08-03 so the installer can be *verified*
+  # without cutting a release. The Chromium-cache-path bug this branch fixes
+  # was unverifiable any other way: reproducing it needs Inno Setup plus a
+  # populated Playwright cache, and the only environment that has both
+  # already is this runner. A dispatch run builds and installs the installer
+  # and asserts where Chromium landed, then stops - the release step below
+  # is tag-only, so nothing is published.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -52,26 +60,41 @@ jobs:
       - name: Fetch Playwright Chromium
         # A fresh windows-latest runner has no local Playwright cache at
         # all, unlike a dev machine that may have already run
-        # `opal-downloader.exe setup`. This populates
-        # %LOCALAPPDATA%\ms-playwright the same way that command does
-        # (it shells out to the same `playwright install` driver command -
-        # see runSetup in cmd/opal-downloader/root.go), using the exact
-        # playwright-go version pinned in go.mod so the fetched Chromium
-        # revision matches what the built opal-downloader.exe expects at
-        # runtime. Installing the full driver (not just "chromium") is
-        # intentional: it's what guarantees both "chromium-<rev>" AND
-        # "chromium_headless_shell-<rev>" land in the cache - see
-        # installer/opal-downloader.iss's header comment for why both are
-        # required (headless list/sync session reuse resolves to
-        # chrome-headless-shell.exe, not chrome.exe).
-        run: go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
+        # `opal-downloader.exe setup`. This shells out to the same
+        # `playwright install` driver command runSetup uses (see
+        # cmd/opal-downloader/root.go), using the exact playwright-go
+        # version pinned in go.mod so the fetched Chromium revision matches
+        # what the built opal-downloader.exe expects at runtime. Installing
+        # the full driver (not just "chromium") is intentional: it's what
+        # guarantees both "chromium-<rev>" AND "chromium_headless_shell-<rev>"
+        # land in the cache - see installer/opal-downloader.iss's header
+        # comment for why both are required (headless list/sync session
+        # reuse resolves to chrome-headless-shell.exe, not chrome.exe).
+        #
+        # PLAYWRIGHT_BROWSERS_PATH is set explicitly here to match
+        # EnsurePlaywrightBrowsersPath's default (internal/scraper/
+        # session.go) - the same path the running app and
+        # build-installer.ps1's ChromiumCacheSrc default expect. Without
+        # this, the bare `playwright install` CLI falls back to its own
+        # default (%LOCALAPPDATA%\ms-playwright), which is not where
+        # anything else in this chain looks (found 2026-07-31, see
+        # docs/installer-plan.md's addendum).
+        run: |
+          $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright"
+          go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 install
         shell: pwsh
 
       - name: Build installer
         id: build
         shell: pwsh
         run: |
+          # On a tag push ref_name is the tag (v1.2.3). On workflow_dispatch
+          # it is the branch name, which is not a version and would end up
+          # in the installer's own version string - so dispatch runs build
+          # under a fixed placeholder instead. Dispatch runs never publish
+          # (see the tag-only condition on the release step).
           $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -ne "push") { $tag = "v0.0.0-ci" }
           ./scripts/build-installer.ps1 -Version $tag
 
           $exe = Join-Path $PWD "installer\output\opal-downloader-setup.exe"
@@ -93,7 +116,101 @@ jobs:
           "exe_path=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "sidecar_path=$sidecar" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: Verify the installer puts Chromium where the app looks for it
+        # This is the acceptance test for the bug this branch fixes: the
+        # installer bundled Chromium into %LOCALAPPDATA%\ms-playwright while
+        # EnsurePlaywrightBrowsersPath (internal/scraper/session.go) has read
+        # %USERPROFILE%\.opal-downloader\ms-playwright since b352143, so a
+        # fresh install silently shipped a Chromium the app never found.
+        #
+        # The "Fetch Playwright Chromium" step above already populated the
+        # target path on this runner - so asserting against it directly would
+        # pass no matter what the installer did. The cache is therefore moved
+        # aside FIRST (after the build has consumed it, before the install),
+        # which is what makes a green check here mean anything at all.
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright"
+          $stash  = Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright-prebuilt"
+          if (Test-Path $target) { Move-Item $target $stash }
+          if (Test-Path $target) { throw "could not clear $target before install" }
+
+          $exe = "${{ steps.build.outputs.exe_path }}"
+          $p = Start-Process -FilePath $exe `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/NOICONS" `
+            -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "silent install failed with exit code $($p.ExitCode)" }
+
+          # Both are required, not just chromium-*: a headless list/sync
+          # session resolves to chrome-headless-shell.exe, so an install
+          # missing the shell breaks the non-GUI path only (see
+          # installer/opal-downloader.iss's header comment).
+          # Checked per browser: the directory exists, it actually contains
+          # the executable, and that executable runs. A directory-only check
+          # would go green on an empty chromium-1228\ folder, which is
+          # exactly the shape a half-copied install leaves behind - and the
+          # point of the bundle is a browser the app can start, not a
+          # correctly named folder.
+          # MinMB is a floor on the real shipped size, not a guess: chrome.exe
+          # is ~3.9MB (a launcher stub next to its DLLs) and
+          # chrome-headless-shell.exe is ~194MB (statically linked). Both
+          # numbers come from a working install.
+          foreach ($b in @(
+            @{ Prefix = "chromium-";                Exe = "chrome.exe";                MinMB = 1 },
+            @{ Prefix = "chromium_headless_shell-"; Exe = "chrome-headless-shell.exe"; MinMB = 50 }
+          )) {
+            $dir = Get-ChildItem -Path $target -Directory -Filter "$($b.Prefix)*" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $dir) {
+              Write-Host "--- contents of $target ---"
+              Get-ChildItem -Path $target -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host
+              throw "installer did not place '$($b.Prefix)*' under $target - this is the bug this workflow is meant to catch"
+            }
+
+            $exe = Get-ChildItem -Path $dir.FullName -Recurse -Filter $b.Exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $exe) {
+              Write-Host "--- contents of $($dir.FullName) ---"
+              Get-ChildItem -Path $dir.FullName -Recurse -Depth 1 -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host
+              throw "$($dir.Name) exists but contains no $($b.Exe) - the bundle is incomplete, not merely misplaced"
+            }
+
+            # Read the PE version resource and the size rather than
+            # executing the binary. `& chrome.exe --version` was tried first
+            # (run 30805565453) and fails here for a reason that says nothing
+            # about the installer: chrome.exe is a Windows GUI-subsystem
+            # binary, so it detaches without writing to the console and
+            # leaves $LASTEXITCODE unset, which the check then read as a
+            # non-zero exit. Version resource + size is deterministic, needs
+            # no process launch, and still distinguishes a complete binary
+            # from the truncated or empty copy this check exists to catch -
+            # it does NOT claim the browser was started.
+            $mb = [math]::Round($exe.Length / 1MB, 1)
+            if ($mb -lt $b.MinMB) {
+              throw "$($exe.Name) at $($exe.FullName) is ${mb}MB, below the $($b.MinMB)MB floor for this binary - truncated or partial copy"
+            }
+
+            # Version resource is reported when present but NOT required:
+            # run 30806301216 failed on exactly that, and checking a working
+            # local install showed why - the 194MB chrome-headless-shell.exe
+            # that this project uses for every headless session carries no
+            # ProductVersion at all. Absence proves nothing, so it cannot be
+            # an assertion.
+            $ver = $exe.VersionInfo.ProductVersion
+            $shown = if ([string]::IsNullOrWhiteSpace($ver)) { "no version resource" } else { "v$ver" }
+            Write-Host "OK: $($dir.Name) -> $($exe.Name) ${mb}MB, $shown"
+          }
+
+          # The old, wrong location must stay empty of *our* doing. It is
+          # only checked when the build did not create it beforehand, since
+          # a dev runner image could legitimately carry one.
+          $wrong = Join-Path $env:LOCALAPPDATA "ms-playwright"
+          if (Test-Path $wrong) {
+            Write-Host "note: $wrong exists on this runner (not created by the install step)"
+          }
+
       - name: Create GitHub Release and upload assets
+        # Tag pushes only. A workflow_dispatch run exists to verify the
+        # installer, not to publish one.
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

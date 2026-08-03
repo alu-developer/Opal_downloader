@@ -98,7 +98,36 @@ const contentFallbackWaitMs = 1100.0
 // course). That live test used course_concurrency=1 only - see
 // mutationObserverConcurrentDebounceMs/mutationObserverConcurrentHardCapMs
 // below for the wider budget used at course_concurrency>1.
-const mutationObserverDebounceMs = 300.0
+//
+// Lowered 300 -> 150 on 2026-08-03 (maintainer's decision), on the evidence
+// of docs/sync-speed-model.md Questions 14 and 15. Eight live runs at
+// course_concurrency=1 - four against the small course (Algorithmen, 6
+// sections, 38 files) and four against the large one (Softwaretechnologie,
+// 164 sections, 210 files), each split baseline/override - produced
+// byte-identical file-URL sets in every single comparison: baseline against
+// itself, override against itself, and baseline against override. Mean
+// settle+stable fell 29.6% on the small course and 28.7% on the large one.
+// That the two agree to within a percentage point is the load-bearing part,
+// not the size of the win: had the saving been course-size dependent, 300ms
+// would not have been the binding constant and the agreement would not have
+// happened. Question 13 predicted exactly this - measured mean settle time
+// was 326ms against a 300ms constant, an 8.7% gap, i.e. the wait was the
+// constant rather than work waiting to finish.
+//
+// What this is NOT evidence for: correctness at course_concurrency>1. The
+// campaign originally set that as the precondition for changing this default
+// and then found (Question 16) that it cannot be established either way -
+// under contention the *unchanged* 500ms/6000ms configuration already
+// differs from itself by 6 files, so there is no stable baseline left to
+// measure any debounce against. Those losses trace to one paginated node's
+// Wicket "show all" path, not to this budget; that is Question 17, still
+// open, and it is a bug hunt rather than a blocker on this constant.
+//
+// Note for anyone re-running debounceoverride_probe_test.go: its "baseline"
+// arm reads this constant, so with OPAL_DEBOUNCE_MS_OVERRIDE=150 it now
+// compares 150ms against 150ms and proves nothing. Pick a different override
+// value, or compare against 300 explicitly.
+const mutationObserverDebounceMs = 150.0
 const mutationObserverHardCapMs = 4000.0
 
 // mutationObserverConcurrentDebounceMs/mutationObserverConcurrentHardCapMs

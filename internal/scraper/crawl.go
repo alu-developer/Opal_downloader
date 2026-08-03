@@ -514,6 +514,15 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 				expansionSignalled = true
 			}
 		}
+		// Question 19 (docs/sync-speed-model.md): the only way to tell "the
+		// click was dropped" from "the signal arrived but the DOM lagged
+		// behind it" is to log expansionSignalled itself - previously it was
+		// only ever observed indirectly, through whether the settle wait below
+		// got skipped. watchArmed=false means no watch could be attached at
+		// all (falls straight through to the poll-only path further down).
+		s.auditLog("wicket-expand-signal", page, "", fmt.Sprintf(
+			"section %s: watchArmed=%v expansionSignalled=%v (%d candidates before expansion)",
+			currentURL, watchArmed, expansionSignalled, len(candidates)))
 	}
 
 	// A successful AJAX_CALL_DONE means the expansion call has completed, so

@@ -1,5 +1,12 @@
 # Research: why did WebDAV/PROPFIND against OPAL fail?
 
+> **Superseded in part, 2026-08-04.** Finding 6's conclusion — "the backend
+> WebDAV servlet has been decommissioned behind a live auth gate" — is wrong.
+> BPS documents the empty result as expected for non-owners, and shipped a
+> WebDAV bugfix in OPAL 2025.12.1. The cause is ownership/role gating (the
+> demoted Finding 2). See
+> [`opal-webdav-student-access.md`](opal-webdav-student-access.md).
+
 **Status:** research only, no code changes. Written in response to a queued
 task investigating commit `0cf0e07` ("Removed WebDAV, because it didn't
 work. Propfind requests didn't work. Change to scraping with Playwright").

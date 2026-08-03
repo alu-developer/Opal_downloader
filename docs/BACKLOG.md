@@ -47,6 +47,13 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
+- **OPAL's WebDAV isn't broken — it never mapped participant course content
+  (2026-08-04).** Full write-up in `docs/opal-webdav-student-access.md`,
+  including a send-ready letter to BPS. Two loose ends worth remembering: (a)
+  OPAL hands *students* a token-authenticated personal RSS feed covering
+  subscribed folders — a possible cheap change-detector that needs no browser;
+  (b) if BPS ever answers the letter, the answer belongs in that doc.
+
 - **Answered, negatively: there is no 2FA-free app access to OPAL besides
   WebDAV (2026-08-03).** Asked whether some other interface skips the
   Shibboleth/2FA login the way WebDAV's own password does. Probed 15

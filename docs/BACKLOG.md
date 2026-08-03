@@ -29,19 +29,7 @@ the work is the sync-speed campaign — see "Standing work" at the bottom._
 ---
 
 ## Next
-
-### The installer bundles Chromium into a directory the app never reads
-Fix proposed in [PR #131](https://github.com/alu-developer/Opal_downloader/pull/131)
-(branch `fix-installer-playwright-cache-path`) — **UNVERIFIED, not merged**.
-`opal-downloader.iss`, `build-installer.ps1`, and `release.yml` all pointed at
-`%LOCALAPPDATA%\ms-playwright`, which stopped matching
-`EnsurePlaywrightBrowsersPath`'s actual default
-(`%USERPROFILE%\.opal-downloader\ms-playwright`, since commit `b352143`,
-2026-07-13) — so a fresh install's bundled Chromium landed where the app never
-looks. PR moves all three to the correct path. Needs a real build (Inno Setup
-+ a populated local Chromium cache, neither available in the environment that
-made the fix) before it can merge — see the PR's test plan and
-`docs/installer-plan.md`'s 2026-08-01 addendum.
+_Nothing queued._
 
 ---
 
@@ -140,6 +128,25 @@ move the rest across.
   with the merge — no usage-limit gate at all, *Now*+*Next*+*Noticed* must be
   clear of unblocked items before the handoff, a byte-diff-proven default may
   now be shipped, and run length is left to judgement.
+- **Installer's Chromium-cache-path fix verified in CI and merged** (2026-08-03,
+  PR #131): `release.yml` gained a `workflow_dispatch` trigger and a step that
+  silently installs the built installer and asserts both browser binaries land
+  under `%USERPROFILE%\.opal-downloader\ms-playwright` — with the runner's own
+  cache moved aside first, without which the check passes regardless. Took
+  three revisions of the *check* (chrome.exe is GUI-subsystem so `--version`
+  leaves `$LASTEXITCODE` unset; chrome-headless-shell.exe carries no version
+  resource at all, confirmed against a working local install), which is
+  recorded in `docs/installer-plan.md`. Not verified: that the installed app
+  launches the browser end-to-end — that needs an OPAL account the runner
+  does not have.
+- **Sync-speed Frage 16 answered by refutation: the contention baseline is
+  itself unstable** (2026-08-03): four 2-course runs at `course_concurrency=2`
+  split 248/242/242/248 — the same 6 files from one *paginated* course node
+  vanished in one run of each condition, including the unchanged
+  500ms/6000ms one. So a tighter debounce could not be tested: there was no
+  stable baseline to test it against, and the finger points at the Wicket
+  "show all" path, not the settle budget. Users unaffected
+  (`DefaultCourseConcurrency = 1`). Opened Frage 17 with a decided next step.
 - **Sync-speed Frage 15 closed: 150ms debounce holds on the large course too**
   (2026-08-02, autopilot): same file-set, 210/210, across 2 baseline (300ms)
   and 2 override (150ms) runs against Softwaretechnologie (164 sections);

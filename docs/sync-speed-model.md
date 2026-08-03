@@ -116,8 +116,45 @@ vor dem Klick, Teilergebnisse während des Laufs, geänderte Kurse zuerst.
 Diese Klasse braucht keine schnellere Discovery, sondern eine, die nicht
 vor dem Nutzer steht.
 
+**Entscheidung des Maintainers, 2026-08-03:** *"es soll immer noch an
+schneller discovery gearbeitet werden, aber der rest ist auch gut."* Die
+Kampagne wird also **nicht** auf die Verdeckungs-Klasse umgeschwenkt —
+schnellere Discovery bleibt die Hauptlinie und behält die Priorität in der
+Fragenliste. Hintergrundlauf/Teilergebnisse sind damit aber ausdrücklich
+zulässige Arbeit statt einer Ausweichbewegung: sie dürfen aufgegriffen
+werden, wenn die Discovery-Linie gerade auf eine Messung wartet oder eine
+Frage dort erschöpft ist. Diese Frage bleibt deshalb offen und wandert
+nicht nach oben.
+
 ### 6. Warum bleibt 1 von 12 Sektionen über Läufe hinweg instabil?
 Der Rest wurde auf Wicket-Bookkeeping zurückgeführt. Dieser eine nicht.
+Möglicherweise dieselbe Ursache wie Frage 17 — dort ist der instabile Knoten
+zum ersten Mal namentlich bekannt und als paginiert identifiziert.
+
+### 17. Warum verliert eine paginierte Sektion unter Kontention ihre zweite Seite? (neu aus Frage 16, 2026-08-03)
+Frage 16 hat einen reproduzierbaren Verlust gefunden, der **nicht** am
+Settle-Budget hängt: derselbe Kursbaustein (`CourseNode/1775615795226691003`,
+6 Dateien) fehlte in 2 von 4 Läufen, je einmal unter der unveränderten
+500ms/6000ms-Konfiguration und einmal unter 150ms/4000ms. Der Knoten ist
+paginiert (`offered a "show all" control` im Lauf-Log), und genau dieser
+Wicket-Klickpfad trägt die Verlustgeschichte der Kampagne.
+
+Offen ist der Mechanismus, und er ist mit einem billigen Lauf eingrenzbar,
+weil die Frage binär ist:
+- **Kandidat A: der „show all"-Klick wird unter Kontention gar nicht
+  ausgelöst** — der Control ist zum Zeitpunkt der Prüfung noch nicht da, die
+  Sektion gilt als einseitig und wird ohne zweite Seite abgehakt.
+- **Kandidat B: der Klick läuft, aber sein Ergebnis wird nicht abgewartet** —
+  die AJAX-Antwort trifft nach dem Stability-Poll ein.
+- **Kandidat C:** kein Kontentions-Effekt, sondern serverseitige Varianz an
+  diesem Baustein. Widerlegbar durch Läufe bei `concurrency=1`.
+
+**Nächster Schritt, entschieden:** zuerst C ausschließen — dasselbe Kurspaar
+zweimal bei `course_concurrency=1`, gleiche Probe. Bleiben beide Läufe bei
+248 Dateien, ist Kontention die Ursache und das Settle-Budget vollständig
+entlastet; taucht der Verlust auch dort auf, ist es kein Concurrency-Thema
+und Frage 17 wird zu einem Bug-Report über den Paginierungspfad. A gegen B
+trennt danach ein Log am Klick selbst, nicht noch ein Timing-Lauf.
 
 ### 7. Wenn nichts client-seitig rendert — was füllt dann die 336ms? (ersetzt die alte Frage 4)
 Das Kampagnen-Fazit vom 2026-07-31 spät ("der Content-Tree ist auf jeder
@@ -201,17 +238,90 @@ Dateien am 2026-07-26). Das Projekt hält selbst schon 500ms/6000ms (statt
 ob eine gesenkte Serial-Debounce-Zeit diese Marge unterläuft, wenn der
 Override beide Werte gleich setzt statt nur den seriellen.
 
-**Vorhersage:** noch nicht geschrieben. Vor dem Schreiben nötig: ein Testaufbau,
-der echte Kontention erzeugt (mind. 2 Kurse tatsächlich gleichzeitig gecrawlt,
-nicht nur das Concurrency-Flag auf einen Einzelkurs gesetzt) - vermutlich
-`collectCourseFilesConcurrently` (`orchestrator.go` Zeile 437) direkt mit 2
-echten Kursen aufrufen, mit `OPAL_DEBOUNCE_MS_OVERRIDE` gesetzt, dann densel-
-ben Byte-für-Byte-Vergleich wie Frage 14/15 gegen eine bekannte Ground-Truth
-für beide Kurse zusammen. Teurer als Frage 15 (zwei Kurse gleichzeitig statt
-einer), und die erste Frage, bei der auch `mutationObserverConcurrentDebounceMs`
-selbst (nicht nur der Override-Wert) explizit gegenübergestellt werden sollte
-— vermutlich Override vs. unverändertes 500ms/6000ms-Konzept, nicht Override
-vs. 300ms/4000ms.
+**Referenzpunkt (gelesen vor der Vorhersage):** die Override senkt unter
+Kontention **zwei** Werte gleichzeitig, nicht einen. `contentSettleWaitBudget()`
+(`navigation.go` Zeile 397-405) gibt bei gesetzter Override
+`(ms, mutationObserverHardCapMs)` zurück — also den **seriellen** Hard Cap
+(4000ms), nicht den konkurrenten (6000ms). Ein Lauf mit
+`OPAL_DEBOUNCE_MS_OVERRIDE=150` unter `course_concurrency=2` fährt damit
+150ms/4000ms gegen die Vergleichsbasis 500ms/6000ms: Debounce auf 30%, Hard
+Cap auf 67%. Das ist ein schärferer Test als Frage 14/15 (dort nur
+150ms/4000ms gegen 300ms/4000ms, Hard Cap unverändert) und die Ursache muss
+bei einem Fehlschlag zwischen beiden Größen getrennt werden.
+
+**Vorhersage:** Alle vier Läufe (2× Override 150ms/4000ms unter echter
+Kontention, 2× unverändertes 500ms/6000ms) finden dieselbe Dateimenge — kein
+Selbst-Diff, kein Cross-Diff. Mechanismus: der Debounce misst *Ruhe nach der
+letzten Mutation*, nicht absolute Zeit. Kontention verzögert die Mutationen
+selbst, verschiebt also das Fenster nach hinten, statt es zu verkürzen; sie
+erzeugt nur dann einen Verlust, wenn sie *Lücken innerhalb* des Renderns über
+150ms aufreißt (Renderer bekommt die CPU für >150ms nicht, obwohl er noch
+nicht fertig ist). Frage 9 (Baum-Fragment strukturell auf offene Knoten
+begrenzt) sagt zusätzlich, dass die pro Sektion zu rendernde Menge unter
+Kontention nicht wächst. Zeitersparnis erwartet **unter** den 28,7% von Frage
+15 — unter Kontention sitzt mehr Zeit im tatsächlichen Rendern und im Hard
+Cap, wo die Override nichts spart.
+
+**Gescheitert ab:** Jede Datei-/Byte-Abweichung, egal in welcher Richtung —
+Selbst-Diff zwischen zwei Läufen derselben Bedingung oder Cross-Diff zwischen
+Override und Basis. Genau unter Kontention passierten alle echten
+Datenverluste dieser Kampagne (`course_concurrency=2` verlor am 2026-07-26
+9 Dateien), also ist hier eine einzelne fehlende Datei ein Nein, keine
+Messungenauigkeit. Bei Fehlschlag ist die nächste Frage nicht "150ms zu
+kurz?", sondern welcher der beiden gesenkten Werte es war: ein Wiederholungs-
+lauf mit 150ms-Debounce **und** explizit 6000ms Hard Cap trennt das.
+
+**Kosten:** Vier Läufe à zwei gleichzeitig gecrawlte Kurse (klein + groß, wie
+Frage 15). Kein Default ändert sich — die Override ist test-only und
+standardmäßig aus.
+
+**Ergebnis (2026-08-03): Vorhersage in beiden Teilen widerlegt — aber nicht
+dort, wo sie angegriffen wurde. Frage 16 ist so, wie sie gestellt war, nicht
+beantwortbar.** Rohdaten: `tmp/debounce-contention-probe.txt`.
+
+| Lauf | Dateien | settle+stable |
+|---|---|---|
+| baseline-1 (500ms/6000ms) | **248** | 130362ms |
+| baseline-2 (500ms/6000ms) | **242** | 132070ms |
+| override-1 (150ms/4000ms) | **242** | 63769ms |
+| override-2 (150ms/4000ms) | **248** | 67055ms |
+
+Die Dateimengen weichen ab — aber **die Basis weicht von sich selbst ab**.
+`baseline-1` gegen `baseline-2` unterscheiden sich um exakt dieselben 6
+Dateien wie jeder andere Vergleich, und jede Bedingung lieferte einmal 248
+und einmal 242. Es gibt hier keine Bedingung, die stabil ist, und damit
+nichts, wogegen sich 150ms messen ließe: **die unveränderte, heute geltende
+Konfiguration verliert unter Kontention genauso.** Das entlastet die Override
+nicht, es entzieht dem Experiment die Vergleichsbasis. Ein Nachlauf mit
+150ms-Debounce und wiederhergestelltem 6000ms-Cap (der oben geplante
+Trennungsschritt) wäre jetzt sinnlos — er würde gegen dieselbe instabile Basis
+messen.
+
+Die 6 Dateien sind immer dieselben, aus **einem** Kursbaustein
+(`CourseNode/1775615795226691003`, `Vorlesung_7`/`7p`/`8`/`8p`/`9_10`/`9_10p`)
+— und der Lauf-Log sagt über genau diesen Knoten `offered a "show all"
+control`, er ist also **paginiert**. Damit zeigt der Verlust nicht auf das
+Settle-Budget, sondern auf den Wicket-„show all"-Klickpfad (`crawl.go`), der
+die Verlustgeschichte dieser Kampagne ohnehin schon trägt: unter Kontention
+wird entweder der Klick nicht ausgeführt oder sein Ergebnis nicht gelesen,
+bevor die Sektion als fertig gilt. Ein Settle-Debounce, der Ruhe nach
+Mutationen misst, kann eine zweite Seite, die nie angefordert wurde, gar
+nicht abwarten.
+
+Der Zeitteil der Vorhersage ("Ersparnis unter 28,7%") war ebenfalls falsch,
+und aus einem uninteressanten Grund: gemessen wurden **50,1%**, weil die
+Basis hier 500ms ist und nicht die 300ms von Frage 15 — 150ms ist gegen 500ms
+ein viel größerer relativer Schnitt. Das war vor dem Lauf ableitbar und wurde
+beim Schreiben der Vorhersage übersehen. Wall clock spart deutlich weniger
+(169,1s → 151,4s), weil ein wachsender Teil der Laufzeit unter Kontention
+nicht im Settle-Wait sitzt.
+
+**Nicht betroffen sind heutige Nutzer:** `DefaultCourseConcurrency = 1`
+(`internal/config/config.go` Zeile 343), und bei `concurrency=1` fanden
+Frage 14 und 15 über vier bzw. vier Läufe identische Dateimengen. Der Befund
+schließt aber `course_concurrency>1` als Geschwindigkeitshebel weiter aus —
+und liefert erstmals einen benannten Mechanismus statt der bisherigen
+Beobachtung "course=2 verlor am 2026-07-26 9 Dateien".
 
 ---
 

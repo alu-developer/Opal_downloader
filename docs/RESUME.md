@@ -18,35 +18,11 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-## In flight (2026-08-03): Frage 16 live run + PR #131 CI verification
+_Nothing in flight._
 
-**Frage 16 (sync speed, the main line).** Prediction is written and committed
-*before* the probe existed (`docs/sync-speed-model.md`, "Nächstes
-Experiment"): no file difference across four runs, savings below Frage 15's
-28.7%. Probe is `internal/scraper/debouncecontention_probe_test.go`, driving
-`collectCourseFilesConcurrently` with two real courses so the contention is
-real rather than nominal.
-
-Command:
-
-    OPAL_DEBOUNCE_CONTENTION_TRACE=1 go test ./internal/scraper/ \
-      -run TestDebounceOverrideUnderContention -v -timeout 60m
-
-**The result lands in `tmp/debounce-contention-probe.txt`** (written by the
-probe itself, so a killed session does not lose it). Four runs: baseline
-500ms/6000ms twice, then override 150ms/4000ms twice - baseline first on
-purpose, so a run that dies partway still leaves the unchanged configuration
-measured.
-
-Watch for the two known live hazards, both in `docs/BACKLOG.md` under
-Noticed: a concurrent Routine colliding on the shared browser profile (hangs
-rather than surfacing `ErrProfileLocked`), and the unexplained 300s login
-timeout, which now folds the stuck page URL into its error.
-
-**PR #131.** `release.yml` on `fix-installer-playwright-cache-path` got a
-`workflow_dispatch` trigger plus a step that silently installs the built
-installer and asserts Chromium lands under
-`%USERPROFILE%\.opal-downloader\ms-playwright`. Run 30801186431 was dispatched
-against that branch. Green means the installer bug is exercised, not merely
-reviewed, and the PR can merge; the branch/PR trigger for it was "could not
-verify", so the verification is exactly what removes it.
+Next up, already decided and needing nobody: Frage 17's concurrency=1 control
+run (`docs/sync-speed-model.md`) - the same course pair, same probe, twice at
+`course_concurrency=1`, to rule out plain server-side variance before
+blaming contention for the lost paginated section. `OPAL_DEBOUNCE_CONTENTION_COURSES`
+already lets the probe take the pair; the concurrency it uses is hardcoded to
+2 and needs a small env knob first.

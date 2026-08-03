@@ -47,8 +47,17 @@ server what the code says out loud.
 ## Next
 
 ### The installer bundles Chromium into a directory the app never reads
-Fix proposed in [PR #131](https://github.com/alu-developer/Opal_downloader/pull/131)
-(branch `fix-installer-playwright-cache-path`) — **UNVERIFIED, not merged**.
+Fix in [PR #131](https://github.com/alu-developer/Opal_downloader/pull/131)
+(branch `fix-installer-playwright-cache-path`) — **jetzt verifiziert, wartet
+auf den Merge durch den Maintainer**. Run
+[30801186431](https://github.com/alu-developer/Opal_downloader/actions/runs/30801186431)
+baute den Installer, installierte ihn still und fand `chromium-1228` **und**
+`chromium_headless_shell-1228` unter
+`%USERPROFILE%\.opal-downloader\ms-playwright` — nachdem der vorhandene Cache
+des Runners vorher weggeräumt wurde, ohne das wäre der grüne Haken
+bedeutungslos gewesen. Der PR ging unter dem „konnte ich nicht verifizieren"-
+Trigger auf; `CLAUDE.md` sagt für diesen Fall ausdrücklich, dass ich ihn nicht
+selbst merge, damit jemand draufschaut.
 `opal-downloader.iss`, `build-installer.ps1`, and `release.yml` all pointed at
 `%LOCALAPPDATA%\ms-playwright`, which stopped matching
 `EnsurePlaywrightBrowsersPath`'s actual default
@@ -127,6 +136,14 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Sync-speed Frage 16 answered by refutation: the contention baseline is
+  itself unstable** (2026-08-03): four 2-course runs at `course_concurrency=2`
+  split 248/242/242/248 — the same 6 files from one *paginated* course node
+  vanished in one run of each condition, including the unchanged
+  500ms/6000ms one. So a tighter debounce could not be tested: there was no
+  stable baseline to test it against, and the finger points at the Wicket
+  "show all" path, not the settle budget. Users unaffected
+  (`DefaultCourseConcurrency = 1`). Opened Frage 17 with a decided next step.
 - **Sync-speed Frage 15 closed: 150ms debounce holds on the large course too**
   (2026-08-02, autopilot): same file-set, 210/210, across 2 baseline (300ms)
   and 2 override (150ms) runs against Softwaretechnologie (164 sections);

@@ -123,6 +123,33 @@ nicht nach oben.
 
 ### 6. Warum bleibt 1 von 12 Sektionen über Läufe hinweg instabil?
 Der Rest wurde auf Wicket-Bookkeeping zurückgeführt. Dieser eine nicht.
+Möglicherweise dieselbe Ursache wie Frage 17 — dort ist der instabile Knoten
+zum ersten Mal namentlich bekannt und als paginiert identifiziert.
+
+### 17. Warum verliert eine paginierte Sektion unter Kontention ihre zweite Seite? (neu aus Frage 16, 2026-08-03)
+Frage 16 hat einen reproduzierbaren Verlust gefunden, der **nicht** am
+Settle-Budget hängt: derselbe Kursbaustein (`CourseNode/1775615795226691003`,
+6 Dateien) fehlte in 2 von 4 Läufen, je einmal unter der unveränderten
+500ms/6000ms-Konfiguration und einmal unter 150ms/4000ms. Der Knoten ist
+paginiert (`offered a "show all" control` im Lauf-Log), und genau dieser
+Wicket-Klickpfad trägt die Verlustgeschichte der Kampagne.
+
+Offen ist der Mechanismus, und er ist mit einem billigen Lauf eingrenzbar,
+weil die Frage binär ist:
+- **Kandidat A: der „show all"-Klick wird unter Kontention gar nicht
+  ausgelöst** — der Control ist zum Zeitpunkt der Prüfung noch nicht da, die
+  Sektion gilt als einseitig und wird ohne zweite Seite abgehakt.
+- **Kandidat B: der Klick läuft, aber sein Ergebnis wird nicht abgewartet** —
+  die AJAX-Antwort trifft nach dem Stability-Poll ein.
+- **Kandidat C:** kein Kontentions-Effekt, sondern serverseitige Varianz an
+  diesem Baustein. Widerlegbar durch Läufe bei `concurrency=1`.
+
+**Nächster Schritt, entschieden:** zuerst C ausschließen — dasselbe Kurspaar
+zweimal bei `course_concurrency=1`, gleiche Probe. Bleiben beide Läufe bei
+248 Dateien, ist Kontention die Ursache und das Settle-Budget vollständig
+entlastet; taucht der Verlust auch dort auf, ist es kein Concurrency-Thema
+und Frage 17 wird zu einem Bug-Report über den Paginierungspfad. A gegen B
+trennt danach ein Log am Klick selbst, nicht noch ein Timing-Lauf.
 
 ### 7. Wenn nichts client-seitig rendert — was füllt dann die 336ms? (ersetzt die alte Frage 4)
 Das Kampagnen-Fazit vom 2026-07-31 spät ("der Content-Tree ist auf jeder
@@ -242,6 +269,54 @@ lauf mit 150ms-Debounce **und** explizit 6000ms Hard Cap trennt das.
 **Kosten:** Vier Läufe à zwei gleichzeitig gecrawlte Kurse (klein + groß, wie
 Frage 15). Kein Default ändert sich — die Override ist test-only und
 standardmäßig aus.
+
+**Ergebnis (2026-08-03): Vorhersage in beiden Teilen widerlegt — aber nicht
+dort, wo sie angegriffen wurde. Frage 16 ist so, wie sie gestellt war, nicht
+beantwortbar.** Rohdaten: `tmp/debounce-contention-probe.txt`.
+
+| Lauf | Dateien | settle+stable |
+|---|---|---|
+| baseline-1 (500ms/6000ms) | **248** | 130362ms |
+| baseline-2 (500ms/6000ms) | **242** | 132070ms |
+| override-1 (150ms/4000ms) | **242** | 63769ms |
+| override-2 (150ms/4000ms) | **248** | 67055ms |
+
+Die Dateimengen weichen ab — aber **die Basis weicht von sich selbst ab**.
+`baseline-1` gegen `baseline-2` unterscheiden sich um exakt dieselben 6
+Dateien wie jeder andere Vergleich, und jede Bedingung lieferte einmal 248
+und einmal 242. Es gibt hier keine Bedingung, die stabil ist, und damit
+nichts, wogegen sich 150ms messen ließe: **die unveränderte, heute geltende
+Konfiguration verliert unter Kontention genauso.** Das entlastet die Override
+nicht, es entzieht dem Experiment die Vergleichsbasis. Ein Nachlauf mit
+150ms-Debounce und wiederhergestelltem 6000ms-Cap (der oben geplante
+Trennungsschritt) wäre jetzt sinnlos — er würde gegen dieselbe instabile Basis
+messen.
+
+Die 6 Dateien sind immer dieselben, aus **einem** Kursbaustein
+(`CourseNode/1775615795226691003`, `Vorlesung_7`/`7p`/`8`/`8p`/`9_10`/`9_10p`)
+— und der Lauf-Log sagt über genau diesen Knoten `offered a "show all"
+control`, er ist also **paginiert**. Damit zeigt der Verlust nicht auf das
+Settle-Budget, sondern auf den Wicket-„show all"-Klickpfad (`crawl.go`), der
+die Verlustgeschichte dieser Kampagne ohnehin schon trägt: unter Kontention
+wird entweder der Klick nicht ausgeführt oder sein Ergebnis nicht gelesen,
+bevor die Sektion als fertig gilt. Ein Settle-Debounce, der Ruhe nach
+Mutationen misst, kann eine zweite Seite, die nie angefordert wurde, gar
+nicht abwarten.
+
+Der Zeitteil der Vorhersage ("Ersparnis unter 28,7%") war ebenfalls falsch,
+und aus einem uninteressanten Grund: gemessen wurden **50,1%**, weil die
+Basis hier 500ms ist und nicht die 300ms von Frage 15 — 150ms ist gegen 500ms
+ein viel größerer relativer Schnitt. Das war vor dem Lauf ableitbar und wurde
+beim Schreiben der Vorhersage übersehen. Wall clock spart deutlich weniger
+(169,1s → 151,4s), weil ein wachsender Teil der Laufzeit unter Kontention
+nicht im Settle-Wait sitzt.
+
+**Nicht betroffen sind heutige Nutzer:** `DefaultCourseConcurrency = 1`
+(`internal/config/config.go` Zeile 343), und bei `concurrency=1` fanden
+Frage 14 und 15 über vier bzw. vier Läufe identische Dateimengen. Der Befund
+schließt aber `course_concurrency>1` als Geschwindigkeitshebel weiter aus —
+und liefert erstmals einen benannten Mechanismus statt der bisherigen
+Beobachtung "course=2 verlor am 2026-07-26 9 Dateien".
 
 ---
 

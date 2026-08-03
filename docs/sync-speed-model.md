@@ -111,6 +111,16 @@ vor dem Klick, Teilergebnisse während des Laufs, geänderte Kurse zuerst.
 Diese Klasse braucht keine schnellere Discovery, sondern eine, die nicht
 vor dem Nutzer steht.
 
+**Entscheidung des Maintainers, 2026-08-03:** *"es soll immer noch an
+schneller discovery gearbeitet werden, aber der rest ist auch gut."* Die
+Kampagne wird also **nicht** auf die Verdeckungs-Klasse umgeschwenkt —
+schnellere Discovery bleibt die Hauptlinie und behält die Priorität in der
+Fragenliste. Hintergrundlauf/Teilergebnisse sind damit aber ausdrücklich
+zulässige Arbeit statt einer Ausweichbewegung: sie dürfen aufgegriffen
+werden, wenn die Discovery-Linie gerade auf eine Messung wartet oder eine
+Frage dort erschöpft ist. Diese Frage bleibt deshalb offen und wandert
+nicht nach oben.
+
 ### 6. Warum bleibt 1 von 12 Sektionen über Läufe hinweg instabil?
 Der Rest wurde auf Wicket-Bookkeeping zurückgeführt. Dieser eine nicht.
 

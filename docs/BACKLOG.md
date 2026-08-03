@@ -54,10 +54,19 @@ Fix proposed in [PR #131](https://github.com/alu-developer/Opal_downloader/pull/
 `EnsurePlaywrightBrowsersPath`'s actual default
 (`%USERPROFILE%\.opal-downloader\ms-playwright`, since commit `b352143`,
 2026-07-13) — so a fresh install's bundled Chromium landed where the app never
-looks. PR moves all three to the correct path. Needs a real build (Inno Setup
-+ a populated local Chromium cache, neither available in the environment that
-made the fix) before it can merge — see the PR's test plan and
-`docs/installer-plan.md`'s 2026-08-01 addendum.
+looks. PR moves all three to the correct path.
+
+**Verifikationsweg entschieden (Maintainer, 2026-08-03): in CI, nicht auf dem
+Rechner des Maintainers.** `release.yml` installiert Inno Setup ohnehin per
+`choco` auf dem Windows-Runner, feuert aber nur auf ein `v*`-Tag — also bekommt
+der Workflow einen `workflow_dispatch`-Trigger plus eine Assertion, die den
+gebauten Installer still installiert und prüft, dass Chromium unter
+`%USERPROFILE%\.opal-downloader\ms-playwright` landet. Damit wird genau der
+Bug ausgeübt, ohne dass jemand lokal Inno Setup installiert und ohne dass eine
+Testinstallation die echte Installation des Maintainers überschreibt. Abgelehnt
+wurde die lokale Variante (Inno Setup hier installieren): sie prüft dasselbe,
+kostet den Maintainer einen Setup-Schritt und fasst seine laufende Installation
+an. Kontext: `docs/installer-plan.md`'s 2026-08-01 addendum.
 
 ---
 

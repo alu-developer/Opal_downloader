@@ -145,14 +145,39 @@ jobs:
           # session resolves to chrome-headless-shell.exe, so an install
           # missing the shell breaks the non-GUI path only (see
           # installer/opal-downloader.iss's header comment).
-          foreach ($prefix in @("chromium-", "chromium_headless_shell-")) {
-            $found = Get-ChildItem -Path $target -Directory -Filter "$prefix*" -ErrorAction SilentlyContinue
-            if (-not $found) {
+          # Checked per browser: the directory exists, it actually contains
+          # the executable, and that executable runs. A directory-only check
+          # would go green on an empty chromium-1228\ folder, which is
+          # exactly the shape a half-copied install leaves behind - and the
+          # point of the bundle is a browser the app can start, not a
+          # correctly named folder.
+          foreach ($b in @(
+            @{ Prefix = "chromium-";                Exe = "chrome.exe" },
+            @{ Prefix = "chromium_headless_shell-"; Exe = "chrome-headless-shell.exe" }
+          )) {
+            $dir = Get-ChildItem -Path $target -Directory -Filter "$($b.Prefix)*" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $dir) {
               Write-Host "--- contents of $target ---"
               Get-ChildItem -Path $target -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host
-              throw "installer did not place '$prefix*' under $target - this is the bug this workflow is meant to catch"
+              throw "installer did not place '$($b.Prefix)*' under $target - this is the bug this workflow is meant to catch"
             }
-            Write-Host "OK: $($found[0].Name) present under $target"
+
+            $exe = Get-ChildItem -Path $dir.FullName -Recurse -Filter $b.Exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $exe) {
+              Write-Host "--- contents of $($dir.FullName) ---"
+              Get-ChildItem -Path $dir.FullName -Recurse -Depth 1 -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host
+              throw "$($dir.Name) exists but contains no $($b.Exe) - the bundle is incomplete, not merely misplaced"
+            }
+
+            # --version starts the real binary and exits; it needs no
+            # display, no network and no OPAL account, so it is the cheapest
+            # evidence that what shipped is a runnable browser rather than a
+            # truncated copy.
+            $v = & $exe.FullName --version 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              throw "$($exe.Name) is present at $($exe.FullName) but failed to run (exit $LASTEXITCODE): $v"
+            }
+            Write-Host "OK: $($dir.Name) -> $($exe.Name) runs: $v"
           }
 
           # The old, wrong location must stay empty of *our* doing. It is

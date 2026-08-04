@@ -52,6 +52,12 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
+- **TU-Fast's stored credentials are obfuscated, not encrypted (2026-08-04).**
+  Its AES key is derived from CPU/platform metadata only — no secret — and the
+  store holds password *and* TOTP seed, which the transplant step then copies
+  to a second profile. Accepted trade for unattended sync, but now written
+  down: `docs/tufast-security.md`, incl. the mitigations that actually apply.
+
 - **OPAL's WebDAV isn't broken — it never mapped participant course content
   (2026-08-04).** Full write-up in `docs/opal-webdav-student-access.md`,
   including a send-ready letter to BPS. Two loose ends worth remembering: (a)

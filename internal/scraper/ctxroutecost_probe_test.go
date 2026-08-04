@@ -223,7 +223,18 @@ func TestCtxRouteCostSplit(t *testing.T) {
 				if requestID == "" {
 					return
 				}
-				_, _ = session.Send("Fetch.continueRequest", map[string]any{"requestId": requestID})
+				// Must not call session.Send synchronously from inside this
+				// handler: it runs on the connection's own dispatch loop, and
+				// Send blocks waiting for a reply by re-entering that same
+				// loop. With routeCostAssetCount requests pausing at once,
+				// that recurses one dispatch call deep per pending request -
+				// observed hanging outright on the 3rd of 3 repeats in the
+				// first version of this probe (2 requests handled fine, then
+				// the 3rd run's recursion never resolved). A goroutine keeps
+				// the reply off the dispatch loop's own stack.
+				go func() {
+					_, _ = session.Send("Fetch.continueRequest", map[string]any{"requestId": requestID})
+				}()
 			})
 			_, err = session.Send("Fetch.enable", map[string]any{
 				"patterns": []map[string]any{{"urlPattern": "*", "requestStage": "Request"}},

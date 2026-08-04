@@ -137,7 +137,7 @@ func TestAwaitWicketExpansionDoneSeparatesCompletionFromFailure(t *testing.T) {
 				page.evalErrs = []error{tc.failedErr}
 			}
 
-			signalled, failed := awaitWicketExpansionDone(page, 4000)
+			signalled, failed, _ := awaitWicketExpansionDone(page, 4000)
 			if signalled != tc.wantSignalled {
 				t.Errorf("signalled = %v, want %v", signalled, tc.wantSignalled)
 			}
@@ -152,7 +152,7 @@ func TestAwaitWicketExpansionDoneDoesNotReadFailureFlagAfterTimeout(t *testing.T
 	// On timeout there is no completed call to ask about; evaluating anyway
 	// would be a wasted round-trip against a page that may be mid-navigation.
 	page := &wicketFakePage{waitErr: errors.New("timeout")}
-	if signalled, _ := awaitWicketExpansionDone(page, 4000); signalled {
+	if signalled, _, _ := awaitWicketExpansionDone(page, 4000); signalled {
 		t.Fatal("signalled = true after a wait timeout")
 	}
 	if page.evalCalls != 0 {
@@ -161,9 +161,9 @@ func TestAwaitWicketExpansionDoneDoesNotReadFailureFlagAfterTimeout(t *testing.T
 }
 
 func TestAwaitWicketExpansionDoneHandlesNilPage(t *testing.T) {
-	signalled, failed := awaitWicketExpansionDone(nil, 4000)
-	if signalled || failed {
-		t.Fatalf("awaitWicketExpansionDone(nil) = (%v, %v), want (false, false)", signalled, failed)
+	signalled, failed, waitErr := awaitWicketExpansionDone(nil, 4000)
+	if signalled || failed || waitErr != nil {
+		t.Fatalf("awaitWicketExpansionDone(nil) = (%v, %v, %v), want (false, false, nil)", signalled, failed, waitErr)
 	}
 }
 

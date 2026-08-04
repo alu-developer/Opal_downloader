@@ -57,9 +57,12 @@ const vorlesungNodeID = "1775615795226691003"
 
 // Capture groups: 1=section URL, 2=watchArmed, 3=expansionSignalled,
 // 4=signalMs (Question 21 - the elapsed time from arm to resolve, -1 when
-// watchArmed=false; a timeout still produces a number here, capped at the
-// budget, not a real latency), 5=candidates before expansion.
-var wicketSignalLineRE = regexp.MustCompile(`\[audit\] .*kind=wicket-expand-signal.*reason="section ([^"]*): watchArmed=(\w+) expansionSignalled=(\w+) signalMs=(-?\d+) \((\d+) candidates before expansion\)"`)
+// watchArmed=false; do NOT assume this is the timeout budget when
+// expansionSignalled=false - live data shows the wait can also error out
+// fast, see signalWaitErr), 5=signalWaitErr (classifyWicketWaitError,
+// wicket.go - "none"/"timeout"/"context-destroyed"/"navigation"/"closed"/
+// "other"), 6=candidates before expansion.
+var wicketSignalLineRE = regexp.MustCompile(`\[audit\] .*kind=wicket-expand-signal.*reason="section ([^"]*): watchArmed=(\w+) expansionSignalled=(\w+) signalMs=(-?\d+) signalWaitErr=(\S+) \((\d+) candidates before expansion\)"`)
 
 func TestShowAllSignalUnderContention(t *testing.T) {
 	if os.Getenv("OPAL_SHOWALL_SIGNAL_TRACE") == "" {
@@ -158,7 +161,7 @@ func TestShowAllSignalUnderContention(t *testing.T) {
 		var vorlesungSignal string
 		for _, m := range signalLines {
 			if strings.Contains(m[1], vorlesungNodeID) {
-				vorlesungSignal = fmt.Sprintf("watchArmed=%s expansionSignalled=%s signalMs=%s (%s candidates before expansion)", m[2], m[3], m[4], m[5])
+				vorlesungSignal = fmt.Sprintf("watchArmed=%s expansionSignalled=%s signalMs=%s signalWaitErr=%s (%s candidates before expansion)", m[2], m[3], m[4], m[5], m[6])
 			}
 		}
 

@@ -23,16 +23,21 @@ here is the failure mode to watch for.
 
 ## Now
 
-- **Time the click-to-signal latency itself, not just a threshold**
-  (`docs/sync-speed-model.md` Question 21). Question 20 (2026-08-04) raised
-  the signal-wait budget to 15000ms and got 3 clean runs in a row — not proof
-  of "pure delay" at this condition's ~33-50% historical failure rate, just a
-  plausible outcome either way. A real latency distribution (bimodal =
-  something drops/blocks outright; smooth spread = ordinary queueing delay)
-  is the next thing that would actually distinguish the two. Prediction and
-  failure criterion are already written down — read them before running.
-  **Explicitly needs spreading across more than one cycle**: Questions 19+20
-  already spent 6 two-course contention crawls against the real account today.
+- **Read the Wicket wait's actual error, not just its timing**
+  (`docs/sync-speed-model.md` Question 22). Question 21's first cycle
+  (2026-08-04) found both contention failures resolved in ~200ms — nowhere
+  near the 4000ms timeout — which only an early error (not a real timeout)
+  can produce. `awaitWicketExpansionDone` now surfaces that error as
+  `signalWaitErr` on the `wicket-expand-signal` audit line
+  (`none`/`timeout`/`context-destroyed`/`navigation`/`closed`/`other`), not
+  yet run live. Prediction: `context-destroyed`, tying this to the same
+  mechanism `waitForInteractiveLinks`'s `contextWasDestroyed` fallback
+  already handles downstream. Failure criterion and full reasoning are
+  written down — read before running.
+  **Real-account load caution stands**: this sub-thread (Questions 19-21) has
+  already spent 8 two-course contention crawls today
+  (`docs/server-load.md`); a couple of runs on a later cycle is enough to
+  read the new field, no need for a large batch.
 
 ---
 
@@ -174,6 +179,17 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 21's first cycle caught its own wrong assumption within the same
+  day** (2026-08-04): timestamped the Wicket signal wait (`signalMs` on the
+  `wicket-expand-signal` audit line) expecting to distinguish a bimodal
+  latency distribution from a smooth one; 2 live samples were too few for
+  that, but both showed `expansionSignalled=false` resolving in ~200ms — the
+  same order as a successful signal, not the 4000ms timeout the code's own
+  comment (written hours earlier, same commit's predecessor) assumed a
+  failure would consume. `awaitWicketExpansionDone` was discarding the actual
+  wait error; now it returns and classifies it (`signalWaitErr`). Opens
+  Question 22: does it say `context-destroyed`, tying this to the fallback
+  `waitForInteractiveLinks` already has for exactly that.
 - **Question 20 closed inconclusive, and said so plainly** (2026-08-04):
   raising the Wicket signal-wait ceiling to 15000ms produced 3 clean
   contention runs in a row (248/248/248 files) — but at this condition's

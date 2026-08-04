@@ -18,73 +18,32 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight (2026-08-04, autopilot): Question 21 instrumentation built, not yet run.**
-`expandShowAllInSection` (`crawl.go`) now times the delta from arming the
-Wicket watch to it resolving and logs it unconditionally as `signalMs` on the
-existing `wicket-expand-signal` audit line (was previously just the
-`expansionSignalled` boolean). `-1` means `watchArmed=false` (not
-applicable); when `expansionSignalled=false` the number is the timeout
-ceiling itself, not a real latency - don't read it as a fast value. Updated
-`wicketSignalLineRE` (`showallsignal_probe_test.go`) and its two existing
-consumers to the new 5-group format. New probe
-`internal/scraper/showallsignallatency_probe_test.go`
-(`TestWicketExpandSignalLatencyDistribution`,
-`OPAL_SIGNAL_LATENCY_TRACE=1`) collects the Vorlesung node's `signalMs`
-across repeated contention runs and appends (not overwrites) to
-`tmp/signal-latency-probe.log`, since the model file explicitly asks for this
-to be spread across more than one cycle rather than one big batch. Defaults
-to 2 runs per invocation, override with `OPAL_SIGNAL_LATENCY_RUNS`.
+_Nothing in flight._
 
-Next: run it (2 runs is a light touch given today's already-spent 6
-two-course contention crawls), read the appended log, and either add a
-result write-up to `docs/sync-speed-model.md` if the sample is big enough to
-say something, or leave it running and accumulating across future cycles.
-Nothing here changes production defaults - purely additive audit logging
-plus a new opt-in test file.
+**Question 21's first cycle is done (2026-08-04): too few samples to call
+bimodal-vs-smooth, but it caught a wrong assumption the same day it was
+written.** 2 live contention runs both showed `expansionSignalled=false`
+resolving in ~200ms - the same order as a successful signal, not anywhere
+near the 4000ms timeout the instrumentation's own comment (written a few
+hours earlier) assumed a failure would consume. That is only possible if the
+wait errored out fast rather than genuinely timing out - and the error text
+was being discarded. Fixed: `awaitWicketExpansionDone` (`wicket.go`) now
+returns the real error, classified via `classifyWicketWaitError` into
+`signalWaitErr` (`none`/`timeout`/`context-destroyed`/`navigation`/`closed`/
+`other`) on the `wicket-expand-signal` audit line. Full write-up in
+`docs/sync-speed-model.md`'s Question 21 section.
 
----
-
-_Nothing else in flight._
-
-**Question 20 is closed (2026-08-04): inconclusive, honestly reported as
-such.** Raising the signal-wait ceiling to 15000ms produced 3 clean runs in a
-row (248/248/248 files) - but the test's own pre-written verdict logic says
-that is not proof of "pure delay" at this condition's ~33-50% historical
-failure rate; 3 clean runs happen by chance often enough not to count. Full
-data in `docs/sync-speed-model.md`'s Question 20 write-up.
-
-Next up, already decided: **Question 21** - timestamp the click-to-signal
-latency itself (not just a threshold boolean) across many contention runs,
-to see whether it's bimodal (usually ~150ms, occasionally stuck for seconds -
-points at something dropping/blocking outright) or a smooth spread (points at
-ordinary queueing delay under load). Cheap instrumentation, but needs more
-than 3 runs to see a real distribution - **note it explicitly asks to be
-spread across more than one cycle**, since Questions 19+20 already spent 6
-two-course contention crawls against the real account today
-(`docs/server-load.md`). Prediction and failure criterion are in the model
-file's "Next experiment" - read them before running.
-
----
-
-**Question 19 is closed (2026-08-04), and its own prediction was wrong.**
-`expansionSignalled` (now logged, `crawl.go`/`wicket-expand-signal`) came back
-**false** in both runs that lost the Vorlesung tail - Wicket's `AJAX_CALL_DONE`
-never arrived within the 4000ms budget at all, not late. That refutes
-Candidate B (the signal arrives, the read is just early) and re-opens
-Candidate A in a sharper form: pure delay under contention vs. a call that is
-never actually issued/received. Full data and the split are in
-`docs/sync-speed-model.md`'s Question 19 write-up.
-
-Next up, already decided: **Question 20** (`docs/sync-speed-model.md`,
-"Next experiment") - raise `wicketExpansionSignalTimeoutMs` well past 4000ms
-for one diagnostic run and see whether a failing run's signal shows up before
-the raised ceiling (pure delay, fix is a bigger budget) or never shows up at
-all (fix is at the click/arm sequence, not the wait). Prediction and failure
-criterion are already written down there - read them before running, not
-after. Same contention condition as Question 19
-(`internal/scraper/showallsignal_probe_test.go` is the probe to extend or
-copy), same "expect repeats" caveat (2 of 3 this cycle, consistent with prior
-cycles).
+Next up, already decided: **Question 22** (`docs/sync-speed-model.md`, "Next
+experiment") - read `signalWaitErr` on a failing run. Prediction:
+`context-destroyed`, tying this to the same mechanism
+`waitForInteractiveLinks`'s `contextWasDestroyed` fallback already handles a
+few lines below in `crawl.go`. Not yet run live. Reuses Question 21's probe
+(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`) as-is -
+the new field is already wired into its output and into
+`tmp/signal-latency-probe.log`. **Real-account load caution stands**: this
+sub-thread has spent 8 two-course contention crawls today
+(`docs/server-load.md`) - a couple more on a later cycle is enough, no need
+for a large batch.
 
 ---
 

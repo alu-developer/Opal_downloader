@@ -497,12 +497,22 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 
 		// signalElapsedMs (Question 21, docs/sync-speed-model.md): the delta
 		// from arming to the watch resolving, logged unconditionally rather
-		// than just the boolean signalled/not. When expansionSignalled is
-		// false this is not a real latency - it is the timeout budget itself
-		// (the watch gave up), and must not be read as a fast value.
+		// than just the boolean signalled/not.
+		//
+		// Live finding (2026-08-04, first Question 21 run): this is NOT
+		// reliably the timeout budget when expansionSignalled=false. Two
+		// contention runs both resolved in ~200ms - the same order as a
+		// successful signal, nowhere near the 4000ms ceiling - which is only
+		// possible if the wait itself errored out early (e.g. the page's
+		// execution context was destroyed by a navigation) rather than
+		// genuinely timing out. signalWaitErr below exists precisely to tell
+		// "errored fast" from "waited the full budget" apart; do not assume
+		// one or the other from signalElapsedMs alone.
 		signalElapsedMs := int64(-1)
+		signalWaitErr := "none"
 		if watchArmed {
-			signalled, failed := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
+			signalled, failed, waitErr := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
+			signalWaitErr = classifyWicketWaitError(waitErr)
 			switch {
 			case signalled && failed:
 				// A REAL failure signal from the framework, replacing the
@@ -516,8 +526,9 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 					return s.recoverAndReturnToSection(page, currentURL)
 				}
 				if reclicked && rearmed {
-					retrySignalled, retryFailed := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
+					retrySignalled, retryFailed, retryWaitErr := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
 					expansionSignalled = retrySignalled && !retryFailed
+					signalWaitErr = classifyWicketWaitError(retryWaitErr)
 				}
 			case signalled:
 				expansionSignalled = true
@@ -531,8 +542,8 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		// got skipped. watchArmed=false means no watch could be attached at
 		// all (falls straight through to the poll-only path further down).
 		s.auditLog("wicket-expand-signal", page, "", fmt.Sprintf(
-			"section %s: watchArmed=%v expansionSignalled=%v signalMs=%d (%d candidates before expansion)",
-			currentURL, watchArmed, expansionSignalled, signalElapsedMs, len(candidates)))
+			"section %s: watchArmed=%v expansionSignalled=%v signalMs=%d signalWaitErr=%s (%d candidates before expansion)",
+			currentURL, watchArmed, expansionSignalled, signalElapsedMs, signalWaitErr, len(candidates)))
 	}
 
 	// A successful AJAX_CALL_DONE means the expansion call has completed, so

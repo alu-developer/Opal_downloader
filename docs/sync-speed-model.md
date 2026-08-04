@@ -347,45 +347,115 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Question 21 — how long does the signal actually take to arrive, on every
-run, not just the failing ones?** Question 20 raised the ceiling to 15000ms
-and got 3 clean runs in a row (248/248/248 files, `expansionSignalled=true`
-every time) — consistent with Candidate A1 (pure delay, the wider budget
-masks it) but, by its own written failure criterion, *not proof*: at the
-observed ~33-50% base failure rate (2 of 3 in Question 19, 2 of 4 in Question
-16/17), 3 clean runs in a row happen by chance alone something like 1-in-3 to
-1-in-8 of the time. A boolean (did it signal within N ms) cannot separate "it
-always takes ~150ms and this run was just lucky" from "it usually takes
-~150ms but occasionally spikes past 4000ms under load, and this run's spikes
-happened to land under 15000ms" — both produce the exact same observation.
+**Question 22 — when the wait fails, what does it actually fail *with*?**
+Opened by Question 21's first live cycle (below): the elapsed-time
+instrumentation revealed that a failing wait does not reliably consume the
+timeout budget at all, which the original Question 21 framing (and the
+`signalMs` doc comment written earlier the same day) both assumed without
+checking. Two contention runs both resolved in ~200ms with
+`expansionSignalled=false` — the same order of magnitude as a successful
+signal, nowhere near the 4000ms ceiling. The only way `WaitForFunction` exits
+that fast without the predicate becoming true is an error, and the error text
+itself was being discarded, so its cause was invisible.
 
-**Prediction:** instrumenting the actual elapsed time from click dispatch to
-`AJAX_CALL_DONE` (not just a threshold boolean) across many runs — clean and
-failing alike — of the Vorlesung node under contention shows a **bimodal**
-distribution: a tight cluster near the previously-measured 156-184ms
-(`wicket.go`'s doc comment, measured serially in 2026-07-21), plus a small
-number of outliers stretching into the seconds, rather than a smooth spread
-that would suggest ordinary queueing delay. Mechanism: Question 15/16 already
-found contention shifts *when* a debounce-style wait's window closes without
-tearing the window itself apart — a bimodal "usually instant, sometimes stuck"
-shape would be a different mechanism from that (something occasionally blocks
-outright, e.g. a dropped/never-retried XHR), while a smooth spread would
-support the delay explanation Question 20 could not confirm.
+**Cost paid already, ahead of the run:** `awaitWicketExpansionDone` (`wicket.go`)
+now returns the real error instead of swallowing it, and `classifyWicketWaitError`
+buckets it into a grep-stable category (`none`/`timeout`/`context-destroyed`/
+`navigation`/`closed`/`other`) logged as `signalWaitErr` on the existing
+`wicket-expand-signal` audit line. Not yet run live — this is the instrumentation
+for the next cycle, the same pattern Question 20/21 used (build, predict, then
+run next time).
+
+**Prediction:** failing runs (expansionSignalled=false, signalMs well under
+the 4000ms budget) show `signalWaitErr=context-destroyed` — i.e. the page's
+execution context is invalidated by something (most likely a navigation)
+shortly after the click, which is also the exact mechanism `waitForInteractiveLinks`'s
+`contextWasDestroyed` fallback (`crawl.go`, a few lines below this code) already
+exists to catch downstream. If that fallback is in fact already catching most
+of these cases, this closes the causal chain Questions 17-21 have been
+chasing since Question 16: contention → something destroys the section page's
+execution context around click time → the in-flight AJAX response (if any)
+has nowhere to land → `expansionSignalled=false`, fast, not slow.
+
+**Counts as failed at:** `signalWaitErr=timeout` in a failing run — that would
+mean the wait genuinely does consume the full budget sometimes (reviving
+Candidate A1, pure delay) and the two ~200ms samples so far were a
+coincidence, not the dominant shape. `signalWaitErr=other` with a wait
+duration close to signalMs's earlier fast values, but no recognizable
+navigation/context-destruction wording, would mean a third, not-yet-named
+failure mode.
+
+**Cost:** reuses the same probe and condition as Question 21 (below) — no new
+run type needed, just read the new field once the next contention cycle runs.
+Given today's already-heavy real-account load from this sub-thread (8
+two-course contention crawls across Questions 19-21, see `docs/server-load.md`),
+this explicitly waits for a later cycle rather than running immediately.
+
+---
+
+## Previous experiment (Question 21, first cycle 2026-08-04 — inconclusive on
+its own question, but surfaced a sharper one)
+
+**Question 21 asked:** how long does the signal actually take to arrive, on
+every run, not just the failing ones? Question 20 raised the ceiling to
+15000ms and got 3 clean runs in a row (248/248/248 files,
+`expansionSignalled=true` every time) — consistent with Candidate A1 (pure
+delay, the wider budget masks it) but, by its own written failure criterion,
+*not proof*: at the observed ~33-50% base failure rate, 3 clean runs in a row
+happen by chance alone something like 1-in-3 to 1-in-8 of the time. A boolean
+(did it signal within N ms) cannot separate "it always takes ~150ms and this
+run was just lucky" from "it usually takes ~150ms but occasionally spikes past
+4000ms under load, and this run's spikes happened to land under 15000ms" —
+both produce the exact same observation.
+
+**Prediction (written before this cycle's run):** instrumenting the actual
+elapsed time from click dispatch to `AJAX_CALL_DONE` (not just a threshold
+boolean) across many runs — clean and failing alike — of the Vorlesung node
+under contention shows a **bimodal** distribution: a tight cluster near the
+previously-measured 156-184ms, plus a small number of outliers stretching
+into the seconds, rather than a smooth spread that would suggest ordinary
+queueing delay.
 
 **Counts as failed at:** a smooth, unimodal distribution with no outliers
-beyond ~500ms-1s refutes the bimodal-block hypothesis and reopens the
-question of what specifically the extra time is spent on under contention
-(back toward Candidate A1's original "just slow" framing, but now with a
-number instead of a guess).
+beyond ~500ms-1s.
 
-**Cost:** timestamp two more points around the existing `armWicketExpansionWatch`/
-`awaitWicketExpansionDone` calls (arm time, DONE time) and log the delta
-unconditionally in the existing `wicket-expand-signal` audit line rather than
-just the boolean — cheap, no new mechanism. Needs enough contention runs to
-collect a real distribution (more than 3), which is more live server load
-than any single cycle so far in this sub-thread (Questions 19-20 already spent
-6 two-course contention crawls today) — worth spacing across more than one
-cycle rather than one large batch, per `docs/server-load.md`.
+**Result of this cycle (2 runs, `tmp/signal-latency-probe.log`): too few
+samples to call bimodal-vs-smooth either way — but both samples independently
+contradict an assumption the instrumentation's own doc comment made the same
+day, before ever measuring it.**
+
+| Run | Files | Vorlesung node |
+|---|---:|---|
+| 1 | 242 | `expansionSignalled=false signalMs=196` (loss reproduced) |
+| 2 | 242 | `expansionSignalled=false signalMs=206` (loss reproduced) |
+
+Both runs reproduced the Vorlesung-tail loss (242, the known "lost the six
+files" count). Both show `signalMs` around 200ms — matching the historical
+156-184ms *successful*-signal range, not anywhere near the 4000ms timeout
+ceiling. **That refutes the assumption written into `crawl.go` earlier the
+same day** ("when expansionSignalled=false the number is the timeout budget
+itself, not a real latency") — a real timeout would show ~4000ms, not ~200ms.
+The only way `WaitForFunction` can return this fast without the predicate
+becoming true is an error, not a timeout — and that error was being discarded
+entirely, so the mechanism was invisible until this run exposed the
+contradiction. Fixed the same commit as this result (see Question 22 above).
+
+**Why this isn't a clean answer to Question 21 as posed:** 2 samples is far
+below "more than 3" the cost note itself called for, and both happen to be
+close together rather than spread — consistent with either a genuinely tight
+non-timeout failure mode (supports the new Question 22 hypothesis) or simply
+too small a sample to say anything about shape. Rule 2 applies against
+jumping to a conclusion here: "both failures are fast, not slow" is a
+correlation across 2 points, not yet a mechanism — that is exactly what
+`signalWaitErr` (Question 22) is built to name directly instead of inferring
+from timing alone.
+
+**What actually moved:** the instrumentation caught its own wrong assumption
+within the same day it was written, before that assumption could mislead a
+future cycle — worth recording as a case where writing the prediction down
+first paid off in an unplanned way (the *comment*, not just the experiment,
+turned out to have a falsifiable claim in it, and the very next run falsified
+it).
 
 ---
 

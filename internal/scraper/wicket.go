@@ -102,9 +102,20 @@ func armWicketExpansionWatch(page playwright.Page) (armed bool, err error) {
 // navigation wiped the watch, the page instance was evicted server-side, or
 // the click never triggered an AJAX call at all). The caller must then fall
 // back to the count-stability poll rather than assuming completion.
-func awaitWicketExpansionDone(page playwright.Page, timeoutMs float64) (signalled bool, failed bool) {
+//
+// waitErr is the underlying error from the wait itself, previously discarded
+// entirely. Question 21 (docs/sync-speed-model.md, 2026-08-04) found live
+// that signalled=false does NOT reliably mean "waited the full timeoutMs and
+// gave up" - two contention runs both resolved in ~200ms, the same order as
+// a successful signal, not anywhere near the budget. That is only possible
+// if WaitForFunction itself returned early with an error (e.g. the page's
+// execution context was destroyed by a navigation) rather than genuinely
+// timing out - a materially different failure shape from "the call is just
+// slow", and the caller now needs the real error text to tell the two apart
+// instead of guessing from the elapsed time alone.
+func awaitWicketExpansionDone(page playwright.Page, timeoutMs float64) (signalled bool, failed bool, waitErr error) {
 	if page == nil {
-		return false, false
+		return false, false, nil
 	}
 
 	predicate := fmt.Sprintf(`() => {
@@ -115,7 +126,7 @@ func awaitWicketExpansionDone(page playwright.Page, timeoutMs float64) (signalle
 	if _, err := page.WaitForFunction(predicate, nil, playwright.PageWaitForFunctionOptions{
 		Timeout: playwright.Float(timeoutMs),
 	}); err != nil {
-		return false, false
+		return false, false, err
 	}
 
 	result, err := page.Evaluate(fmt.Sprintf(`() => {
@@ -126,10 +137,33 @@ func awaitWicketExpansionDone(page playwright.Page, timeoutMs float64) (signalle
 		// The call completed but the failure flag could not be read. Treat
 		// that as "cannot vouch for success": reporting signalled=false sends
 		// the caller down the poll fallback, which is the safe direction.
-		return false, false
+		return false, false, err
 	}
 	didFail, _ := result.(bool)
-	return true, didFail
+	return true, didFail, nil
+}
+
+// classifyWicketWaitError buckets the error awaitWicketExpansionDone returns
+// into a short, grep-stable category for the audit log, rather than logging
+// raw (and highly variable) Playwright error text. "none" means no error
+// (signalled=true, or watch not armed at all).
+func classifyWicketWaitError(err error) string {
+	if err == nil {
+		return "none"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "timeout"):
+		return "timeout"
+	case strings.Contains(msg, "execution context") || strings.Contains(msg, "destroyed"):
+		return "context-destroyed"
+	case strings.Contains(msg, "navigat"):
+		return "navigation"
+	case strings.Contains(msg, "closed"):
+		return "closed"
+	default:
+		return "other"
+	}
 }
 
 // isWicketWatchUnavailableError reports whether err from arming the watch

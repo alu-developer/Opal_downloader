@@ -130,6 +130,7 @@ func TestWicketExpandSignalLatencyDistribution(t *testing.T) {
 	type sample struct {
 		ms        int64
 		signalled bool
+		waitErr   string
 		truncated bool
 	}
 	var samples []sample
@@ -165,6 +166,7 @@ func TestWicketExpandSignalLatencyDistribution(t *testing.T) {
 				continue
 			}
 			signalled := m[3] == "true"
+			waitErr := m[5]
 
 			truncated := false
 			for _, line := range strings.Split(captured, "\n") {
@@ -173,8 +175,8 @@ func TestWicketExpandSignalLatencyDistribution(t *testing.T) {
 				}
 			}
 
-			samples = append(samples, sample{ms: ms, signalled: signalled, truncated: truncated})
-			say("  Vorlesung node signal: watchArmed=%s expansionSignalled=%s signalMs=%d truncated=%v", m[2], m[3], ms, truncated)
+			samples = append(samples, sample{ms: ms, signalled: signalled, waitErr: waitErr, truncated: truncated})
+			say("  Vorlesung node signal: watchArmed=%s expansionSignalled=%s signalMs=%d signalWaitErr=%s truncated=%v", m[2], m[3], ms, waitErr, truncated)
 		}
 		if !found {
 			say("  Vorlesung node (%s) did not show a wicket-expand-signal line this run", vorlesungNodeID)

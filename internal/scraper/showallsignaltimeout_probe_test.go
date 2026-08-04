@@ -150,7 +150,7 @@ func TestShowAllSignalTimeoutOverride(t *testing.T) {
 		var vorlesungSignal string
 		for _, m := range signalLines {
 			if strings.Contains(m[1], vorlesungNodeID) {
-				vorlesungSignal = fmt.Sprintf("watchArmed=%s expansionSignalled=%s signalMs=%s (%s candidates before expansion)", m[2], m[3], m[4], m[5])
+				vorlesungSignal = fmt.Sprintf("watchArmed=%s expansionSignalled=%s signalMs=%s signalWaitErr=%s (%s candidates before expansion)", m[2], m[3], m[4], m[5], m[6])
 			}
 		}
 

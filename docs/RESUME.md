@@ -19,25 +19,23 @@ here sends an unattended run after work that is already done. Clear it.
 ---
 
 **In flight (2026-08-04, opal-downloader-autopilot, backlog item, not sync-speed cycle):**
-Implementing Question 23 (`docs/sync-speed-model.md`/`docs/BACKLOG.md` Now
-item) — rewriting `previews.go`'s `blockInlineFilePreviews` from `ctx.Route`
-to a raw-CDP-per-page `Fetch.enable`/`Fetch.requestPaused` interceptor, to keep
-the ~30 MB/course preview-blocking saving while paying Question 8's ~3% fetch
-tax instead of ~30%. Design decided: attach a fresh `CDPSession` at every
-page-creation site (`session.go` x2, `orchestrator.go`'s
-`newCourseFileCollector`, `navigation.go`'s crash-recovery replacement page,
-`section_pool.go`'s `openPage`) instead of once on the context, because raw
-CDP sessions are page-scoped, not context-scoped like `ctx.Route` was.
-Subframe detection can no longer use Playwright's `Frame.ParentFrame()` (that
-needs `ctx.Route`'s frame object, defeats the whole point) — capturing each
-page's root frame ID via `Page.getFrameTree` right after CDP-session attach
-and comparing `Fetch.requestPaused`'s `frameId` against it instead. Plan:
-implement, `go build`/`go vet`/existing unit tests, a local synthetic
-verification (like Question 8's probe, no OPAL account), then the real-account
-`OPAL_FILELIST` before/after byte-diff (`filelist_probe_test.go`) as the
-shipping safety bar before touching `OPAL_BLOCK_FILE_PREVIEWS`'s default.
-Not yet started: any of the actual file edits. If this is picked up cold, the
-above is the full design; nothing has landed on disk yet.
+Question 23 implementation landed (`internal/scraper/previews.go` and 5
+page-creation call sites, commit "Question 23: rewrite inline-preview
+blocking from ctx.Route to raw CDPSession") — `go build`/`go vet`/full
+`go test ./...` clean, plus a new local no-account probe
+(`previewsblocker_probe_test.go`, `OPAL_PREVIEW_BLOCK_PROBE=1`) confirming a
+subframe FolderResource load is blocked and a main-frame one is not, against
+a real headless Chromium.
+
+**Next step, in progress:** the real-account byte-diff safety bar
+(`filelist_probe_test.go`, `OPAL_FILELIST=before` then
+`OPAL_FILELIST=after OPAL_BLOCK_FILE_PREVIEWS=1`, diff the two file lists) -
+this project's non-negotiable gate for anything touching discovery, and the
+only thing standing between this implementation and a possible default
+change/timing remeasurement. If picked up cold: the code is already
+committed and safe to leave as-is (flag off by default, zero behavior change
+for anyone not setting `OPAL_BLOCK_FILE_PREVIEWS`) - only the byte-diff run
+and its write-up into `docs/sync-speed-model.md`/`docs/BACKLOG.md` remain.
 
 ---
 

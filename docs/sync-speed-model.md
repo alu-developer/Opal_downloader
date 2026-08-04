@@ -347,17 +347,59 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Question 22 remains open, unresolved by its first cycle.** Same
-instrumentation, same probe, same prediction as below — a future cycle needs
-to land on an actual `expansionSignalled=false` sample to read
-`signalWaitErr` on it, which this cycle did not produce. Given the real-account
-load already spent today (10 contention crawls, see the cycle result below),
-the next attempt at this specific question is deliberately deferred rather
-than forced with a larger batch. In the meantime, **Question 8** (which of the
-two `ctx.Route` costs dominates — cache-off or pause/resume) is reproducible
-locally with a synthetic page and no OPAL account at all, and has been sitting
-unstarted since Question 3 opened it — a candidate for a cycle that wants to
-avoid adding more real-account load.
+**Question 8 — which of the two `ctx.Route` costs dominates: cache-off, or
+the Fetch pause/resume round trip?** Question 3 found both mechanisms behind
+the same ~30% tax (`previews.go`'s header comment: cache-off from
+`Network.setCacheDisabled(true)`, plus a per-request CDP pause/resume round
+trip, both triggered unconditionally the moment `ctx.Route` is installed,
+independent of the pattern) but never separated which one actually costs the
+time, and noted Playwright 1.61.1 does not let a caller decouple them through
+`ctx.Route` itself. Untested until now whether the *raw* CDP protocol has the
+same rigidity — `ctx.Route`'s coupling could be Playwright's driver-side
+choice rather than a Chrome/CDP requirement.
+
+**Mechanism and prediction:** OPAL's Wicket framework serves a large,
+mostly-unchanging JS/CSS asset bundle on every section page — with caching
+intact, later section navigations in the same session should mostly skip
+re-fetching it (memory/disk cache hit); with `Network.setCacheDisabled(true)`
+forced on, every one of ~284 section navigations re-fetches the whole bundle.
+The pause/resume round trip, by contrast, is a small, roughly constant
+per-request tax that does not scale with how many navigations reuse the same
+asset. **Prediction: cache-off is the dominant component — at least 60% of
+the gap between baseline and the full `ctx.Route` condition — not the
+pause/resume round trip.** Sub-question, testable in the same run: does
+raw `Session.Send("Network.setCacheDisabled", ...)` and raw
+`Session.Send("Fetch.enable", ...)`/`"Fetch.continueRequest"` actually
+decouple, i.e. does enabling the Fetch domain by itself (no explicit
+`setCacheDisabled` call) leave the browser's asset cache intact? Predicted:
+**yes, they decouple** — cache-off and Fetch interception are independent
+CDP mechanisms, and Playwright's `ctx.Route` wrapper enables both together as
+an implementation choice, not because Chrome requires it.
+
+**Counts as failed at:** if the pause/resume-only condition (Fetch domain
+active, cache left alone) accounts for ≥40% of the `ctx.Route` gap, cache-off
+is not clearly dominant and the mechanism split needs a different framing.
+If enabling the Fetch domain via raw CDP *also* silently defeats the cache
+(assets re-fetched every navigation even without an explicit
+`setCacheDisabled` call), the decoupling sub-question is refuted — that would
+mean Chrome itself ties the two together at the protocol level, and no driver
+change could ever separate them, closing off the "ship previews.go without
+paying the cache tax" idea Question 8's problem statement was written for.
+
+**Design:** a local `httptest` server (like `discovery_browser_test.go`'s
+existing no-account browser-probe pattern) serves a page referencing ~30
+small static assets with `Cache-Control: public, max-age=3600`, navigated to
+repeatedly (same browser context, simulating repeated section visits) under
+four conditions — no CDP at all (baseline), `ctx.Route` on a pattern matching
+nothing (reproduces Question 3's coupled tax locally, confirms the harness is
+comparable), raw `Network.setCacheDisabled(true)` alone (isolates cache-off),
+raw `Fetch.enable`+immediate `continueRequest` alone (isolates pause/resume).
+The server counts requests per asset path itself: cache intact means ~1
+request per asset across all navigations, cache defeated means one request
+per asset *per navigation* — a direct, non-timing-based check of which
+conditions actually disable caching, independent of the wall-clock numbers.
+
+**Cost:** local browser only, no OPAL account, no real-account load added.
 
 ---
 

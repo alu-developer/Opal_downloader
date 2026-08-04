@@ -239,6 +239,37 @@ Practical read: a personal tool that logs in as you and downloads material you
 are entitled to is not covered by any prohibition. Hammering the server would
 be, under §4/§7.
 
+### And the copyright objection, examined
+
+"Bulk download is a copyright problem" is the objection most likely to be
+raised informally by lecturers. As a *copyright* argument it does not hold:
+
+- **German copyright has no effort threshold.** It asks what is copied and what
+  you do with it, never how tedious the copying was. A student's copy of course
+  material they are enrolled in, for their own study, is ordinary private/own
+  use (§ 53 UrhG). Automating the clicks changes nothing about that.
+- **OPAL ships a bulk-download button itself.** Every folder course element
+  offers "select all → download selected files as ZIP" (BPS handbook, Kursordner
+  / TU Dresden handbook 3.3). BPS has already decided bulk download per folder
+  is fine; the tool only removes the per-folder and per-course repetition.
+
+What *is* legitimate, and should be named honestly rather than dressed up as a
+technical reason:
+
+- **Much material sits in OPAL under § 60a UrhG** (up to 15% of a published
+  work for teaching, *limited to the participants of the course*). That limit is
+  the condition of the permission. A private copy is covered; passing it on is
+  not.
+- **Friction is a de-facto access control.** A complete, tidy local mirror is
+  one drag-and-drop away from being re-shared. That is a behavioural argument,
+  not a legal one about any individual copy — but it is the real concern.
+- **Course folders can contain other people's personal data** (submissions,
+  seminar papers with names). Mirroring everything sweeps that up too.
+
+None of this makes a personal downloader unlawful. It does mean the operator's
+caution is not stupid — it is simply about aggregate behaviour, not about one
+enrolled student's copy.
+
 ---
 
 ## 6. Who to write to
@@ -264,8 +295,16 @@ answer in three lines rather than making a demand.
 
 Send-ready, not sent. Adjust the personal bits.
 
-> **Betreff:** Lesender Zugriff auf eigene Kursmaterialien für Studierende —
-> WebDAV oder API?
+Sharpened 2026-08-04: **one request instead of three questions.** The earlier
+draft asked separately about WebDAV and about "some other token-based access",
+which set up a contradiction that does not exist — WebDAV is just HTTP, so the
+credential in front of it is a free choice. It also now names the two-tier model
+(strong login for humans, scoped token for machines) as a concrete proposal,
+because "you would be undermining 2FA" is the most likely objection and this
+answers it before it is raised.
+
+> **Betreff:** Lesender Zugriff auf die eigenen Kursmaterialien für
+> Studierende — WebDAV mit widerrufbarem Token?
 >
 > Sehr geehrte Damen und Herren,
 >
@@ -274,44 +313,65 @@ Send-ready, not sent. Adjust the personal bits.
 > mehreren Kursen pro Semester ist das viel Handarbeit, und ich merke nur
 > zufällig, wenn eine Datei ersetzt wurde.
 >
-> WebDAV wäre dafür genau das richtige Werkzeug. Laut Ihrem Handbuch steht die
-> Funktion aber nur Autoren, Lernressourcenmanagern und Administratoren zur
-> Verfügung; als Teilnehmer sehe ich unter `coursefolders` erwartungsgemäß ein
-> leeres Verzeichnis. Ich kann mir das technisch erklären — OPAL bildet dort
-> Ordner ab, die man *besitzt*, nicht solche, auf die man als Teilnehmer
-> Zugriff hat.
+> Laut Ihrem Handbuch steht WebDAV nur Autoren, Lernressourcenmanagern und
+> Administratoren zur Verfügung; als Teilnehmer sehe ich unter `coursefolders`
+> erwartungsgemäß ein leeres Verzeichnis. Das ist mir technisch klar — OPAL
+> bildet dort Ordner ab, die man *besitzt*, nicht solche, auf die man als
+> Teilnehmer Zugriff hat.
 >
-> Meine Fragen dazu:
+> **Meine Bitte in einem Satz:** lesender WebDAV-Zugriff auf die
+> Ordner-Kursbausteine der Kurse, in denen ich eingeschrieben bin — mit einem
+> vom System erzeugten, widerrufbaren Token statt eines selbstgewählten
+> Passworts.
 >
-> 1. Gibt es einen inhaltlichen Grund, warum Teilnehmenden der lesende Zugriff
->    auf die Ordner-Kursbausteine ihrer eigenen Kurse nicht angeboten wird —
->    oder ist es schlicht nie umgesetzt worden?
-> 2. Ist so etwas grundsätzlich denkbar, und wenn ja: über welchen Weg wird ein
->    solcher Wunsch bei Ihnen eingebracht — über die Hochschule, den OPAL User
->    Day, oder direkt?
-> 3. Falls WebDAV aus Sicherheitsgründen ausscheidet (es setzt ja ein zweites
->    Passwort außerhalb des Shibboleth-Logins voraus): gäbe es einen anderen
->    lesenden Zugang, etwa einen tokenbasierten API-Zugriff analog zum bereits
->    vorhandenen persönlichen RSS-Feed?
+> Warum ich glaube, dass das kleiner ist, als es klingt:
 >
-> Zwei Hinweise, die vielleicht hilfreich sind:
+> - In OpenOlat, das auf derselben Codebasis beruht, gibt es genau diese
+>   Funktion seit November 2014 und sie ist seit Januar 2015 standardmäßig
+>   aktiv ("Zugriff für Studenten / Betreuer Kurse"). Die Sichtbarkeitsregeln
+>   werden dort nicht neu implementiert, sondern über denselben Kursbaum-Filter
+>   wie in der Weboberfläche ausgewertet — nicht freigegebene oder
+>   zeitgesteuerte Bausteine bleiben also auch über WebDAV unsichtbar.
+> - Dieselbe Codebasis hat im August 2024 die Unterstützung für Basic
+>   Authentication im WebDAV entfernt; der Anmeldeteil verarbeitet heute
+>   `Digest` und `Bearer`. Ein Token-Verfahren ist dort also bereits vorgesehen.
+> - OPAL stellt Studierenden bereits einen tokenauthentifizierten
+>   maschinenlesbaren Zugang bereit — den persönlichen RSS-Feed. Ein lesender
+>   Dateizugriff wäre insofern keine neue Kategorie.
 >
-> - In OpenOlat, das auf derselben Codebasis beruht, existiert genau diese
->   Funktion seit November 2014 und ist seit Januar 2015 standardmäßig aktiv
->   ("Zugriff für Studenten / Betreuer Kurse"). Die Sichtbarkeitsregeln werden
->   dort nicht neu implementiert, sondern über denselben Kursbaum-Filter wie in
->   der Weboberfläche ausgewertet; nicht freigegebene oder zeitgesteuerte
->   Bausteine bleiben also auch über WebDAV unsichtbar.
-> - Mir ist bewusst, dass Last ein Thema ist — andere Hochschulen haben WebDAV
->   deshalb abgeschaltet. Ein rein lesender Zugang, gern gedrosselt oder auf
->   Wunsch freizuschalten, wäre für meinen Zweck völlig ausreichend.
+> Falls die Sorge ist, dass ein solcher Zugang die Zwei-Faktor-Anmeldung
+> aushebelt: das ließe sich zweistufig lösen, wie es etwa Nextcloud mit
+> App-Passwörtern macht — die Anmeldung als Mensch bleibt unverändert stark,
+> und *nach* dieser Anmeldung lässt sich ein Token erzeugen, das ausdrücklich
+> weniger darf: nur lesen, nur Dateien, kein Ändern von Passwort oder
+> Zwei-Faktor-Einstellungen, jederzeit einzeln widerrufbar, gern mit
+> Ablaufdatum. Ein solches Token ist damit schwächer als mein normaler Zugang,
+> nicht stärker.
 >
-> Ich frage aus echtem Interesse und nicht, um Druck zu machen: falls die
-> Antwort "technisch möglich, aber nicht geplant" oder "aus Grund X bewusst
-> nicht" lautet, ist auch das eine hilfreiche Auskunft.
+> Mir ist bewusst, dass Last ein Thema ist — andere Hochschulen haben WebDAV
+> deshalb abgeschaltet. Ein rein lesender, gern gedrosselter oder auf Antrag
+> freizuschaltender Zugang wäre für meinen Zweck völlig ausreichend.
+>
+> Und falls das alles nicht in Frage kommt, wären mir schon zwei kurze
+> Auskünfte sehr viel wert:
+>
+> 1. Gibt es einen inhaltlichen Grund gegen lesenden Teilnehmerzugriff, oder
+>    ist er in OPAL schlicht nie umgesetzt worden?
+> 2. Über welchen Weg bringt man so einen Wunsch bei Ihnen ein — über die
+>    Hochschule, den OPAL User Day, oder direkt?
+>
+> Ich frage aus echtem Interesse und nicht, um Druck zu machen: auch
+> "technisch möglich, aber nicht geplant" ist eine hilfreiche Antwort.
 >
 > Vielen Dank für Ihre Zeit und viele Grüße
 > …
+
+**Deliberately left out** of the letter, though both are true: that OPAL already
+ships a per-folder "download selected files as ZIP" button (so bulk download is
+already sanctioned), and that nothing in the Nutzungsbedingungen forbids
+automated access. Both read as *arguing a case* rather than asking a question,
+and neither is needed unless BPS raises the copyright objection first — at which
+point they are the answer to it.
 
 ---
 

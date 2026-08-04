@@ -1345,6 +1345,67 @@ decision is the maintainer's, not a counter's — no cap on the campaign, the ki
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
 
+### 2026-08-04 (autopilot): five cycles, Questions 17-21 — keep going, correctness thread deepens
+
+Cycles since the last report: Questions 17, 18, 19, 20, 21 (first cycle). All five
+are correctness work on the contention-loss thread the last report opened, not
+speed levers — consistent with that report's own call to put correctness ahead
+of speed.
+
+**What changed since the last report.** Question 17 closed without a new live
+run: re-reading the archived log answered it in minutes (`warnShowAllTruncated`
+correlated 4/4 with the Vorlesung-node loss), re-classifying `course_concurrency>1`
+from "loses files" to "an already-known expansion bug fires more often under
+load" — the setting itself stayed untouched (default 1, no clamp). Question 18
+closed the other way: the "permanently truncated section" alarm that looked like
+the campaign's most serious open bug turned out to be a broken detector counting
+table rows instead of file rows on an enrolment table with no files in it at
+all — fixed, re-verified live, nothing was ever missing there.
+
+Questions 19-21 then chased the real mechanism behind the Vorlesung loss
+directly. Question 19: the click's Wicket `AJAX_CALL_DONE` signal does not
+arrive *late* in failing runs, it does not arrive *at all* within the 4000ms
+budget — refuting the "early read" theory. Question 20: raising that budget to
+15000ms produced 3 clean runs, but its own failure criterion correctly called
+that inconclusive rather than proof, given the condition's own ~33-50%
+historical failure rate. Question 21 (first cycle): instrumenting the actual
+elapsed wait time found something the previous three questions could not see —
+failing runs resolve in ~200ms, not anywhere near either timeout budget. That
+is only possible if the wait errors out fast rather than genuinely timing out,
+which means the error text (previously discarded entirely) had to be captured
+to go further. Fixed the same cycle; Question 22 is instrumented and predicts
+`context-destroyed`, not yet run.
+
+**The correction that matters more than any single answer, again.** Question 21's
+own doc comment, written the same day as the instrumentation it describes,
+assumed a `expansionSignalled=false` reading meant "consumed the full timeout
+budget" — nobody had actually checked, because nothing had ever measured it
+before. The first live run refuted that assumption within hours of it being
+written. Same shape as the Question 16→17→18 correction chain the last report
+flagged: an assumption stated confidently in passing turned out to be
+checkable, and checking it changed the diagnosis.
+
+**Still open:** Question 22 (what the wait error actually says — instrumented,
+not yet run, real-account load is the limiter today, not idea supply).
+Untouched since the last report: Question 8 (cache-off vs. pause/resume,
+locally testable without an account), Question 5 (is 30s tied to discovery at
+all), Question 6 (1 in 12 sections unstable, possibly the same root as
+Question 17). No default has been shipped or reverted this round — the 150ms
+debounce from the last report stands unchanged, and nothing here is behind an
+env flag ready to promote yet.
+
+**Recommendation: keep going.** Five cycles running, and the campaign has now
+found and explained two real bugs from a starting point of "some files go
+missing under contention sometimes" — a broken detector (Question 18, fixed)
+and a specific, narrowing mechanism for a real intermittent loss (Questions
+19-21, not yet fixed but for the first time pointed at a concrete Playwright-
+level cause instead of a vague "Wicket timing" guess). That is squarely the
+correctness-before-speed mandate the last report's decision set, not a new
+direction. The binding constraint is server load, not questions to ask —
+Question 22 needs only a couple more real-account runs on a day (or later
+cycle) with room left in the budget this file already tracks
+(`docs/server-load.md`).
+
 ### 2026-08-03 (decision round): five cycles, Questions 12-16 — keep going, and the first shipped win
 
 Cycles since the last report: Questions 12, 13, 14, 15, 16. Report due on the

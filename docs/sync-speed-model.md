@@ -347,6 +347,23 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
+**Question 22 remains open, unresolved by its first cycle.** Same
+instrumentation, same probe, same prediction as below — a future cycle needs
+to land on an actual `expansionSignalled=false` sample to read
+`signalWaitErr` on it, which this cycle did not produce. Given the real-account
+load already spent today (10 contention crawls, see the cycle result below),
+the next attempt at this specific question is deliberately deferred rather
+than forced with a larger batch. In the meantime, **Question 8** (which of the
+two `ctx.Route` costs dominates — cache-off or pause/resume) is reproducible
+locally with a synthetic page and no OPAL account at all, and has been sitting
+unstarted since Question 3 opened it — a candidate for a cycle that wants to
+avoid adding more real-account load.
+
+---
+
+## Previous experiment (Question 22, first cycle 2026-08-04 — no failure
+reproduced, prediction untested this round)
+
 **Question 22 — when the wait fails, what does it actually fail *with*?**
 Opened by Question 21's first live cycle (below): the elapsed-time
 instrumentation revealed that a failing wait does not reliably consume the
@@ -390,6 +407,47 @@ run type needed, just read the new field once the next contention cycle runs.
 Given today's already-heavy real-account load from this sub-thread (8
 two-course contention crawls across Questions 19-21, see `docs/server-load.md`),
 this explicitly waits for a later cycle rather than running immediately.
+
+**Result of this cycle (2026-08-04, 2 runs, `tmp/signal-latency-probe.log`):
+prediction untested — the failure did not reproduce, but the null result still
+narrows the field.**
+
+| Run | Files | Vorlesung node |
+|---|---:|---|
+| 3 | 248 | `expansionSignalled=true signalMs=167 signalWaitErr=none` |
+| 4 | 248 | `expansionSignalled=true signalMs=177 signalWaitErr=none` |
+
+Both runs came back clean — no loss, no `expansionSignalled=false` — so there
+was no failing sample to classify `signalWaitErr` on. At the condition's own
+historical ~33-50% failure rate, two clean runs in a row land at roughly
+25-45% by chance alone (0.5²-0.67²): unlucky for this cycle, not surprising on
+its own. **Counts as failed at** (from above) was never reached either, since
+that requires a failing run to exist at all — this cycle answers neither
+branch of the prediction.
+
+**What did move: the accumulated `signalMs` distribution across both cycles
+now includes clean and failing samples in the same narrow band.** Four
+contention-run samples exist so far, two failing (Question 21: 196ms, 206ms)
+and two clean (this cycle: 167ms, 177ms) — all four inside a 40ms span, with
+no outlier anywhere near the 4000ms ceiling in either direction. If
+`expansionSignalled=false` were ordinary queueing delay (Candidate A1, "pure
+delay" reviving under contention), a failing sample should on average run
+longer than a clean one — the AJAX response is either slow or absent, and
+"slow" should show up as elevated latency before the eventual `false`. It
+does not: on this small sample, failing and clean resolve equally fast, i.e.
+duration alone cannot tell them apart. That is weak, not decisive (n=4), but
+it points the same direction as the `context-destroyed` prediction rather
+than against it — an invalidated execution context would abort the wait
+immediately, not slowly, which is exactly what all four samples show
+regardless of outcome. `signalWaitErr` on an actual failing run is still the
+only way to confirm the mechanism rather than infer it from timing.
+
+**Real-account load caution, updated:** this sub-thread has now spent 10
+two-course contention crawls today (8 before this cycle, 2 more here) — see
+`docs/server-load.md`. Deliberately not chasing a failing run further today;
+the next cycle either lands on a failing sample by chance (as Question 21's
+did) or it does not, and forcing a larger batch to guarantee one is exactly
+the "large batch" this sub-thread has been avoiding on purpose.
 
 ---
 

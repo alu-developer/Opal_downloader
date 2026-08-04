@@ -24,20 +24,18 @@ here is the failure mode to watch for.
 ## Now
 
 - **Read the Wicket wait's actual error, not just its timing**
-  (`docs/sync-speed-model.md` Question 22). Question 21's first cycle
-  (2026-08-04) found both contention failures resolved in ~200ms — nowhere
-  near the 4000ms timeout — which only an early error (not a real timeout)
-  can produce. `awaitWicketExpansionDone` now surfaces that error as
-  `signalWaitErr` on the `wicket-expand-signal` audit line
-  (`none`/`timeout`/`context-destroyed`/`navigation`/`closed`/`other`), not
-  yet run live. Prediction: `context-destroyed`, tying this to the same
-  mechanism `waitForInteractiveLinks`'s `contextWasDestroyed` fallback
-  already handles downstream. Failure criterion and full reasoning are
-  written down — read before running.
-  **Real-account load caution stands**: this sub-thread (Questions 19-21) has
-  already spent 8 two-course contention crawls today
-  (`docs/server-load.md`); a couple of runs on a later cycle is enough to
-  read the new field, no need for a large batch.
+  (`docs/sync-speed-model.md` Question 22). Question 22's first cycle
+  (2026-08-04) ran the probe but the failure did not reproduce — both runs
+  clean (248/248 files, `signalWaitErr=none`) — so the prediction
+  (`context-destroyed`) is still untested on an actual failing sample. Weak
+  supporting signal only: the 2 clean samples (167/177ms) sit in the same
+  tight band as Question 21's 2 failing samples (196/206ms), which leans
+  against "pure delay" without confirming the specific error.
+  **Real-account load caution, raised**: this sub-thread (Questions 19-22)
+  has now spent 10 two-course contention crawls today (`docs/server-load.md`)
+  — the next attempt is deferred to a later cycle rather than forced with a
+  larger batch. **Question 8** (`ctx.Route` cost split) needs no real account
+  and is available as an alternative next cycle.
 
 ---
 

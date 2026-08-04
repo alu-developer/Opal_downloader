@@ -20,30 +20,27 @@ here sends an unattended run after work that is already done. Clear it.
 
 _Nothing in flight._
 
-**Question 21's first cycle is done (2026-08-04): too few samples to call
-bimodal-vs-smooth, but it caught a wrong assumption the same day it was
-written.** 2 live contention runs both showed `expansionSignalled=false`
-resolving in ~200ms - the same order as a successful signal, not anywhere
-near the 4000ms timeout the instrumentation's own comment (written a few
-hours earlier) assumed a failure would consume. That is only possible if the
-wait errored out fast rather than genuinely timing out - and the error text
-was being discarded. Fixed: `awaitWicketExpansionDone` (`wicket.go`) now
-returns the real error, classified via `classifyWicketWaitError` into
-`signalWaitErr` (`none`/`timeout`/`context-destroyed`/`navigation`/`closed`/
-`other`) on the `wicket-expand-signal` audit line. Full write-up in
-`docs/sync-speed-model.md`'s Question 21 section.
+**Question 22's first cycle is done (2026-08-04): the failure did not
+reproduce, so `signalWaitErr` was never read on a failing sample — but the 2
+clean runs (167ms/177ms) sit in the same tight band as Question 21's 2
+failing runs (196ms/206ms), 4 samples inside a 40ms span with no outlier.**
+That weakly favours the `context-destroyed` prediction over "pure delay"
+(a queueing explanation would predict failing runs run *longer*, not
+identical) but is not the confirmation the prediction needs — that still
+requires an actual `expansionSignalled=false` sample with `signalWaitErr`
+read on it. Full write-up in `docs/sync-speed-model.md`'s "Previous
+experiment (Question 22, first cycle)" section.
 
-Next up, already decided: **Question 22** (`docs/sync-speed-model.md`, "Next
-experiment") - read `signalWaitErr` on a failing run. Prediction:
-`context-destroyed`, tying this to the same mechanism
-`waitForInteractiveLinks`'s `contextWasDestroyed` fallback already handles a
-few lines below in `crawl.go`. Not yet run live. Reuses Question 21's probe
-(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`) as-is -
-the new field is already wired into its output and into
-`tmp/signal-latency-probe.log`. **Real-account load caution stands**: this
-sub-thread has spent 8 two-course contention crawls today
-(`docs/server-load.md`) - a couple more on a later cycle is enough, no need
-for a large batch.
+Next up: **Question 22 stays open**, same probe
+(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`),
+deferred to a later cycle rather than forced — landing on a failing sample is
+partly luck at the condition's ~33-50% historical rate. **Real-account load
+caution stands, raised**: this sub-thread has now spent 10 two-course
+contention crawls today (`docs/server-load.md`). An alternative that adds no
+real-account load if picked up next: **Question 8** (`ctx.Route` cost split,
+cache-off vs. pause/resume) is reproducible with a synthetic local page, no
+OPAL account needed, and has been open since Question 3 without anyone
+starting it.
 
 ---
 

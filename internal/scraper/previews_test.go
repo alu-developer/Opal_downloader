@@ -44,6 +44,31 @@ func TestOnlySubframeFileRequestsAreDiscarded(t *testing.T) {
 	}
 }
 
+// contentLengthFromHeaders reads the raw CDP request.headers map, which -
+// unlike Playwright's own Request.Headers() the previous ctx.Route
+// implementation used - preserves whatever casing the page's own
+// script/markup happened to use.
+func TestContentLengthFromHeadersIsCaseInsensitive(t *testing.T) {
+	cases := []struct {
+		name    string
+		headers map[string]any
+		want    int64
+	}{
+		{"lowercase", map[string]any{"content-length": "1234"}, 1234},
+		{"title case", map[string]any{"Content-Length": "42"}, 42},
+		{"absent", map[string]any{"accept": "*/*"}, 0},
+		{"non-numeric is ignored, not guessed at", map[string]any{"content-length": "not-a-number"}, 0},
+		{"non-string value is ignored", map[string]any{"content-length": 99}, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := contentLengthFromHeaders(c.headers); got != c.want {
+				t.Errorf("contentLengthFromHeaders(%v) = %d, want %d", c.headers, got, c.want)
+			}
+		})
+	}
+}
+
 func TestBlockedPreviewCountingIsHonest(t *testing.T) {
 	// A run that blocked nothing and a run that blocked everything must not
 	// look identical from the outside - otherwise the change is unfalsifiable

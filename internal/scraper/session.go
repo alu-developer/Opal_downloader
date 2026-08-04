@@ -98,7 +98,6 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		}
 		logging.Detail("Launching persistent browser profile: userDataDir=%s", profileDir)
 		s.setContext(ctx)
-		s.blockInlineFilePreviews(ctx)
 		s.trackActivePage(ctx)
 		pages := ctx.Pages()
 		var page playwright.Page
@@ -111,6 +110,7 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 			}
 			page = p
 		}
+		s.attachInlinePreviewBlocker(ctx, page)
 		page.SetDefaultTimeout(15000)
 		page.SetDefaultNavigationTimeout(20000)
 		s.setPage(page)
@@ -160,12 +160,12 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		return err
 	}
 	s.setContext(ctx)
-	s.blockInlineFilePreviews(ctx)
 	s.trackActivePage(ctx)
 	page, err := ctx.NewPage()
 	if err != nil {
 		return err
 	}
+	s.attachInlinePreviewBlocker(ctx, page)
 	page.SetDefaultTimeout(15000)
 	page.SetDefaultNavigationTimeout(20000)
 	s.setPage(page)

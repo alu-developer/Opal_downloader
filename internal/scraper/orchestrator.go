@@ -340,6 +340,7 @@ func (s *OpalScraper) newCourseFileCollector(totalCourses int) func(CourseRef) (
 		if err != nil {
 			return courseCrawlResult{}, fmt.Errorf("failed to open browser tab for course %q: %w", course.Title, err)
 		}
+		s.attachInlinePreviewBlocker(ctx, page)
 
 		finalPage, files, downloadCandidates, crawlErr := s.collectCourseFiles(page, course)
 		// collectCourseFiles may have recovered from one or more mid-crawl

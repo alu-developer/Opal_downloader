@@ -92,7 +92,12 @@ func newSectionTabPool(s *OpalScraper, primary playwright.Page, workers int) *se
 		if ctx == nil {
 			return nil, errNoBrowserContext
 		}
-		return ctx.NewPage()
+		page, err := ctx.NewPage()
+		if err != nil {
+			return nil, err
+		}
+		s.attachInlinePreviewBlocker(ctx, page)
+		return page, nil
 	}
 	return p
 }

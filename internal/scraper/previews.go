@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -22,9 +23,9 @@ import (
 //
 //   - Only /FolderResource/ URLs. That is where OPAL serves a course's actual
 //     files.
-//   - Only subframes (ParentFrame() != nil). A main-frame navigation to a
-//     FolderResource URL is the download path doing its job, and aborting that
-//     would break downloading rather than speed up discovery.
+//   - Only subframes (frameId != the page's own root frame ID). A main-frame
+//     navigation to a FolderResource URL is the download path doing its job,
+//     and aborting that would break downloading rather than speed up discovery.
 //
 // OFF BY DEFAULT, and the reason is a measurement rather than caution.
 //
@@ -33,94 +34,182 @@ import (
 // file lists**, 345 files each, matching the known ground truth. Nothing is
 // lost by blocking previews.
 //
-// The speed question came back the wrong way, and a second pair confirmed it
-// rather than clearing it:
+// The speed question came back the wrong way at first, and a second pair
+// confirmed it rather than clearing it - this was all measured against the
+// ORIGINAL ctx.Route implementation, superseded below:
 //
 //	pair                 previews kept   previews blocked   delta
 //	1 (2026-07-27 am)          248.3s             324.3s   +30.6%
 //	2 (2026-07-27 pm)          210.3s             265.0s   +26.0%
 //
-// Both pairs produced byte-for-byte identical file lists (345 files, diff of
-// the sorted lists empty), so the safety result is now doubly confirmed and
-// the slowdown is reproduced rather than noise. Pair 2's baseline is the
-// fastest run this account has recorded, which rules out the first pair having
-// simply caught a slow day.
+// THE SLOWDOWN WAS NEVER THE BLOCKING. It was ctx.Route itself. Question 3
+// (docs/sync-speed-model.md) traced it to two CDP mechanisms ctx.Route
+// installs together and unconditionally, regardless of pattern:
+// Network.setCacheDisabled(true) for the whole session, plus a per-request
+// Fetch pause/resume round trip. Question 8 (2026-08-04, local synthetic
+// probe, no OPAL account, internal/scraper/ctxroutecost_probe_test.go) then
+// separated the two: cache-off is 60.7% of the gap, the Fetch pause/resume
+// round trip only 3.1% - and, critically, raw CDP calls DO decouple them even
+// though ctx.Route always couples them. That is Playwright's own
+// driver-side implementation choice, not a CDP/Chrome requirement.
 //
-// THE SLOWDOWN IS NOT THE BLOCKING. It is the interception. Measured
-// 2026-07-27, same session and evening, 345 files every time, every list
-// byte-identical against the no-route ground truth:
+// So this now drives the CDP Fetch domain directly through a raw CDPSession
+// per page (attachInlinePreviewBlocker, called at every page-creation site -
+// see its own doc comment for why it cannot be installed once on the
+// context the way ctx.Route was), instead of through ctx.Route. That keeps
+// the ~30 MB/course preview-blocking saving while paying close to Question
+// 8's ~3% fetch-only tax instead of the ~30% ctx.Route tax - not yet
+// re-measured end to end; see docs/sync-speed-model.md Question 23 for the
+// live A/B this still needs before it can ship a changed default.
 //
-//	condition                             wall clock
-//	no route installed at all                  210.3s
-//	route + Abort                              265.0s
-//	route + Fulfill (empty 200)                272.0s
-//	route installed, always Continue           274.6s
-//	route under a pattern matching nothing     272.2s
-//
-// The last two rows are the finding. Install this route and block *nothing*
-// and the run still costs ~64s more; install it under "**/no-such-path-xyz/**"
-// so it never fires at all and it still costs ~62s. Every explanation this
-// campaign had written down for the slowdown was about the blocking, and all
-// of them are wrong.
-//
-// ctx.Route is a FIXED ~30% tax on this crawl, independent of pattern and of
-// what the handler does. A narrower pattern cannot rescue it - that was the
-// hypothesis the last row was run to test, and it is dead.
-//
-// So the ~30 MB per course per pass is a real and otherwise-free saving stuck
-// behind a delivery mechanism that costs more than it saves. Making it
-// shippable means dropping request interception entirely in favour of
-// something browser-level that stops the fetch without a route. Until someone
-// does that, this stays off, and enabling it is a deliberate trade of ~64s of
-// wall clock for traffic OPAL does not have to serve (docs/server-load.md).
-//
-// Do not re-measure Abort vs Fulfill vs pattern width. Those are all answered.
+// Do not re-litigate Abort vs Fulfill vs pattern width against ctx.Route.
+// Those are answered and irrelevant now that ctx.Route is gone from this
+// path entirely.
 const blockPreviewsEnv = "OPAL_BLOCK_FILE_PREVIEWS"
 
 const folderResourceMarker = "/FolderResource/"
 
-// blockInlineFilePreviews installs the route on ctx. Failing to install it is
-// not fatal: the crawl still works, it is just paying for previews again.
-func (s *OpalScraper) blockInlineFilePreviews(ctx playwright.BrowserContext) {
+// attachInlinePreviewBlocker installs a raw-CDP Fetch interceptor on page.
+// Failing to install it is not fatal: the crawl still works, it is just
+// paying for previews again.
+//
+// This is per-page, not per-context, unlike the ctx.Route version it
+// replaces. A CDPSession (ctx.NewCDPSession) is bound to one page/frame at
+// creation - there is no context-wide equivalent that reaches pages opened
+// later, which is exactly why ctx.Route was convenient (it silently covered
+// every future page in ctx) and exactly why that convenience cost the
+// Network.setCacheDisabled(true) Question 8 traced. The trade this function
+// makes explicit: call it at every place a crawl-participating page is
+// created (session.go's initial page, orchestrator.go's
+// newCourseFileCollector, navigation.go's crash-recovery replacement page,
+// section_pool.go's openPage) instead of once on ctx.
+func (s *OpalScraper) attachInlinePreviewBlocker(ctx playwright.BrowserContext, page playwright.Page) {
 	if os.Getenv(blockPreviewsEnv) == "" {
 		return
 	}
-	logging.Detail("Blocking inline file previews (%s is set)", blockPreviewsEnv)
+	logging.Detail("Blocking inline file previews on new page (%s is set)", blockPreviewsEnv)
 
-	err := ctx.Route("**"+folderResourceMarker+"**", func(route playwright.Route) {
-		req := route.Request()
-		frame := req.Frame()
-		// A nil frame means no way to tell a preview from a download, so the
-		// inSubframe argument is false and the request is let through: a slow
-		// crawl beats a broken one.
-		inSubframe := frame != nil && frame.ParentFrame() != nil
-		if !isDiscardablePreview(req.ResourceType(), req.URL(), inSubframe) {
-			_ = route.Continue()
+	session, err := ctx.NewCDPSession(page)
+	if err != nil {
+		logging.Detail("Could not open CDP session for preview blocking, continuing without: %v", err)
+		return
+	}
+
+	// The root frame ID is what distinguishes "a download navigating in the
+	// main frame" (must never be blocked, see isDiscardablePreview) from "an
+	// inline preview in a subframe" (the whole point). ctx.Route could ask
+	// Playwright's own Frame.ParentFrame() for this; a raw CDPSession has no
+	// such object, only frameId strings on each Fetch.requestPaused event, so
+	// this captures the page's own frame ID once, up front, via a direct CDP
+	// query - it does not need Page.enable first, and the top frame's ID does
+	// not change across same-document or cross-document navigations of that
+	// frame in Chrome.
+	rootFrameID, err := pageRootFrameID(session)
+	if err != nil {
+		// Deliberately bail out entirely rather than enabling Fetch with an
+		// empty/unknown root frame ID: every requestPaused event's frameId
+		// would then fail to match "", making every FolderResource request
+		// look like a subframe - including a main-frame download navigation,
+		// which would silently break downloading. Fail open (no blocking) is
+		// always safer than fail blocked-in-the-wrong-place here.
+		logging.Detail("Could not determine root frame for preview blocking, continuing without: %v", err)
+		return
+	}
+
+	session.On("Fetch.requestPaused", func(params map[string]any) {
+		requestID, _ := params["requestId"].(string)
+		if requestID == "" {
 			return
 		}
-		atomic.AddInt64(&s.previewsBlocked, 1)
-		atomic.AddInt64(&s.previewBytesSaved, contentLengthOf(req))
-		// Abort rather than fulfil with an empty body. This was originally a
-		// guess - that an empty 200 would make the frame render an error state,
-		// more DOM churn than a failed load, which the settle wait is watching
-		// for. Measured 2026-07-27 and the guess was simply wrong in both
-		// directions: Fulfill with an empty 200 text/html came back at 272.0s
-		// against Abort's 265.0s on the same session and evening (345 files,
-		// list byte-identical). How the request is refused does not matter.
-		// Whatever costs the ~26-31%, it is not the abort's error state, so do
-		// not spend another run on this.
-		_ = route.Abort("blockedbyclient")
+		frameID, _ := params["frameId"].(string)
+		resourceType, _ := params["resourceType"].(string)
+		reqURL := ""
+		reqHeaders := map[string]any{}
+		if req, ok := params["request"].(map[string]any); ok {
+			reqURL, _ = req["url"].(string)
+			if h, ok := req["headers"].(map[string]any); ok {
+				reqHeaders = h
+			}
+		}
+
+		inSubframe := frameID != "" && frameID != rootFrameID
+		block := isDiscardablePreview(strings.ToLower(resourceType), reqURL, inSubframe)
+
+		if block {
+			atomic.AddInt64(&s.previewsBlocked, 1)
+			atomic.AddInt64(&s.previewBytesSaved, contentLengthFromHeaders(reqHeaders))
+		}
+
+		// Must not call session.Send synchronously from inside this handler:
+		// it runs on the connection's own dispatch loop, and Send blocks
+		// waiting for a reply by re-entering that same loop. Learned the hard
+		// way building Question 8's probe (internal/scraper/ctxroutecost_probe_test.go) -
+		// several requests pausing near-simultaneously recursed one dispatch
+		// frame per pending request and hung outright. A goroutine keeps the
+		// reply off the dispatch loop's own stack.
+		go func() {
+			if block {
+				// Mirrors ctx.Route's route.Abort("blockedbyclient") from the
+				// previous implementation - same CDP-level error reason,
+				// different call path.
+				_, _ = session.Send("Fetch.failRequest", map[string]any{
+					"requestId":   requestID,
+					"errorReason": "BlockedByClient",
+				})
+				return
+			}
+			_, _ = session.Send("Fetch.continueRequest", map[string]any{"requestId": requestID})
+		}()
+	})
+
+	// Only FolderResource document requests need to pause at all - unlike
+	// ctx.Route, which Playwright always installs at the CDP level with
+	// pattern "*" regardless of the caller's pattern (Question 3), a raw
+	// Fetch.enable call passes the real pattern straight to Chrome, so every
+	// other request on this page skips the pause/resume round trip entirely.
+	_, err = session.Send("Fetch.enable", map[string]any{
+		"patterns": []map[string]any{
+			{"urlPattern": "*" + folderResourceMarker + "*", "requestStage": "Request"},
+		},
 	})
 	if err != nil {
-		logging.Detail("Could not block inline file previews, continuing without: %v", err)
+		logging.Detail("Could not enable preview blocking, continuing without: %v", err)
 	}
+}
+
+// pageRootFrameID queries the page's own top frame ID directly, without
+// requiring Page.enable first (Page.getFrameTree is a query, not an event
+// subscription).
+func pageRootFrameID(session playwright.CDPSession) (string, error) {
+	result, err := session.Send("Page.getFrameTree", nil)
+	if err != nil {
+		return "", err
+	}
+	tree, ok := result.(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("unexpected Page.getFrameTree result shape: %T", result)
+	}
+	frameTree, ok := tree["frameTree"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("Page.getFrameTree result has no frameTree: %v", tree)
+	}
+	frame, ok := frameTree["frame"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("Page.getFrameTree result has no frame: %v", frameTree)
+	}
+	id, ok := frame["id"].(string)
+	if !ok || id == "" {
+		return "", fmt.Errorf("Page.getFrameTree result has no frame id: %v", frame)
+	}
+	return id, nil
 }
 
 // isDiscardablePreview is the whole safety argument in one function. It takes
 // plain values rather than a playwright.Request so the argument can be tested
 // exhaustively without a browser - which matters more than usual here, because
 // the expensive live A/B can only ever sample the cases a real account happens
-// to contain.
+// to contain. resourceType is expected lower-cased (CDP's own values are
+// capitalized, e.g. "Document"; the call site normalizes before calling in).
 func isDiscardablePreview(resourceType, url string, inSubframe bool) bool {
 	// A subframe navigation is a preview nothing reads. A main-frame one is
 	// the download path doing its job, and aborting it would break downloading
@@ -130,21 +219,32 @@ func isDiscardablePreview(resourceType, url string, inSubframe bool) bool {
 		strings.Contains(url, folderResourceMarker)
 }
 
-// contentLengthOf reports what the request said it was about to fetch, for the
-// saved-bytes figure. Headers() reads what the event already carried;
-// HeaderValue() would be a round trip into the browser from inside a handler
-// the browser is waiting on, which deadlocks (see the network trace probe).
-func contentLengthOf(req playwright.Request) int64 {
-	var n int64
-	if v, ok := req.Headers()["content-length"]; ok {
-		for _, c := range strings.TrimSpace(v) {
+// contentLengthFromHeaders reports what the request said it was about to
+// send, for the saved-bytes figure - a best-effort number, same as the
+// ctx.Route version this replaces (a GET preview request rarely carries a
+// body, so this is usually 0; the bytes actually saved are the response the
+// browser never fetches, which this vantage point cannot see). Looked up
+// case-insensitively: CDP's raw request.headers preserves whatever casing the
+// page's own script/markup used.
+func contentLengthFromHeaders(headers map[string]any) int64 {
+	for k, v := range headers {
+		if !strings.EqualFold(k, "content-length") {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok {
+			return 0
+		}
+		var n int64
+		for _, c := range strings.TrimSpace(s) {
 			if c < '0' || c > '9' {
 				return 0
 			}
 			n = n*10 + int64(c-'0')
 		}
+		return n
 	}
-	return n
+	return 0
 }
 
 // reportBlockedPreviews logs what the route actually did. Without this the

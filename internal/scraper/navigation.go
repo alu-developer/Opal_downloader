@@ -707,6 +707,7 @@ func (s *OpalScraper) recoverFromPageCrash(crashedPage playwright.Page) (playwri
 	if err != nil {
 		return nil, fmt.Errorf("failed to open replacement browser tab after crash: %w", err)
 	}
+	s.attachInlinePreviewBlocker(ctx, newPage)
 	newPage.SetDefaultTimeout(15000)
 	newPage.SetDefaultNavigationTimeout(20000)
 	if crashedPage != nil {

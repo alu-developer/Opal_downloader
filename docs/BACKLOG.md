@@ -24,18 +24,29 @@ here is the failure mode to watch for.
 ## Now
 
 - **Read the Wicket wait's actual error, not just its timing**
-  (`docs/sync-speed-model.md` Question 22). Question 22's first cycle
-  (2026-08-04) ran the probe but the failure did not reproduce — both runs
-  clean (248/248 files, `signalWaitErr=none`) — so the prediction
-  (`context-destroyed`) is still untested on an actual failing sample. Weak
-  supporting signal only: the 2 clean samples (167/177ms) sit in the same
-  tight band as Question 21's 2 failing samples (196/206ms), which leans
-  against "pure delay" without confirming the specific error.
-  **Real-account load caution, raised**: this sub-thread (Questions 19-22)
-  has now spent 10 two-course contention crawls today (`docs/server-load.md`)
-  — the next attempt is deferred to a later cycle rather than forced with a
-  larger batch. **Question 8** (`ctx.Route` cost split) needs no real account
-  and is available as an alternative next cycle.
+  (`docs/sync-speed-model.md` Question 22). First cycle (2026-08-04): the
+  probe ran but the failure did not reproduce — both runs clean (248/248
+  files, `signalWaitErr=none`) — so the prediction (`context-destroyed`) is
+  still untested on an actual failing sample. Weak supporting signal only:
+  the 2 clean samples (167/177ms) sit in the same tight band as Question 21's
+  2 failing samples (196/206ms), leaning against "pure delay" without
+  confirming the specific error. **Real-account load caution stands**: this
+  sub-thread (Questions 19-22) has spent 10 two-course contention crawls
+  today (`docs/server-load.md`) — deferred to a later cycle rather than
+  forced with a larger batch.
+
+- **Rewrite `previews.go`'s preview-blocking to use a raw `CDPSession`
+  instead of `ctx.Route`** (`docs/sync-speed-model.md` Question 23, opened
+  2026-08-04 by Question 8's close). Question 8 found cache-off, not the
+  `Fetch` pause/resume round trip, is the dominant cost behind `ctx.Route`'s
+  ~30% tax (60.7% vs. 3.1% of the gap, local probe, no account needed) — and
+  that raw CDP calls decouple the two even though `ctx.Route` always couples
+  them. A raw-CDP version of `blockInlineFilePreviews` could keep the ~30
+  MB/course preview-blocking saving (`filelist_probe_test.go`, already
+  proven safe) while paying close to the 3% tax instead of ~30%. This is an
+  implementation task, not a probe — needs the byte-diff safety bar against
+  the real account before shipping, and stays behind `OPAL_BLOCK_FILE_PREVIEWS`
+  (off by default) regardless.
 
 ---
 

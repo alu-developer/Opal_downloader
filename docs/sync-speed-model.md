@@ -303,24 +303,70 @@ assertion. That has to be resolved, not silently overwritten:
 - **Candidate C:** a narrowly bounded JS widget on the page (not the tree or the
   table itself) is responsible — untested which one.
 
-### 8. Which of the two `ctx.Route` costs dominates — cache-off or pause/resume?
-Question 3 found two separate mechanisms behind the same number:
-`Network.setCacheDisabled(true)` (no browser cache for the whole session any
-more) and the CDP `Fetch` pause/resume round trip per request (always `"*"`,
-independent of the pattern). Playwright couples the two rigidly — a caller cannot
-switch them off individually in this driver version (1.61.1). Untested: how much
-of the ~30% is pure cache-off (many small static Wicket assets per section page
-that would otherwise come from cache) versus pure pause/resume overhead (one CDP
-round trip per request, independent of response size)? Reproducible locally
-without an account — e.g. via `page.route` on a page with many small static
-assets, once with and once without an additional
-`CDPSession.send("Network.setCacheDisabled", {cacheDisabled: false})` override
-right after `Fetch.enable`, if that lets the coupling be bypassed. Matters for
-"ship previews.go without `ctx.Route`" (line 70ff. there): if cache-off is the
-main culprit, a `page.on('request')` listener without interception is not enough
-as a replacement, because it changes nothing about cache behaviour — then it
-would actually take a browser-side blocking mechanism without the CDP `Fetch`
-domain.
+### 8. ~~Which of the two `ctx.Route` costs dominates — cache-off or pause/resume?~~ Answered 2026-08-04 — cache-off dominates, and raw CDP genuinely decouples the two
+**Both halves of the prediction confirmed, on a local synthetic probe needing
+no OPAL account** (`TestCtxRouteCostSplit`,
+`internal/scraper/ctxroutecost_probe_test.go`, `OPAL_ROUTE_COST_PROBE=1`): a
+page with 25 cacheable static assets, navigated 12 times per condition, 3
+repeats, real headless Chromium via `httptest`.
+
+| Condition | Mean elapsed | Per-asset max request count |
+|---|---:|---|
+| baseline (no CDP) | 114ms | 1 (cache intact) |
+| `ctx.Route`, pattern matching nothing | 291ms | 12 (cache defeated) |
+| raw `Network.setCacheDisabled(true)` only | 222ms | 12 (cache defeated) |
+| raw `Fetch.enable`+`continueRequest` only | 120ms | **1 (cache intact)** |
+
+Against the 177ms `ctx.Route` gap over baseline: cache-off-only accounts for
+**60.7%**, fetch-only-only for **3.1%** — cache-off is clearly dominant,
+pause/resume is close to free. Consistent across all 3 repeats
+(`tmp/ctxroute-cost-split-probe.log`), and the boundary case in the failure
+criterion (≥40% for fetchOnly to refute) was not close.
+
+**The sharper finding is the per-asset request count, not the timing.**
+`fetchOnly` held every asset at exactly 1 request across all 3 repeats,
+identical to baseline — enabling the CDP `Fetch` domain by itself, with no
+`Network.setCacheDisabled` call anywhere, left the browser's cache fully
+intact. **That refutes the "Playwright couples the two rigidly" framing this
+question was opened with.** The coupling was never a CDP protocol
+requirement — it is `ctx.Route`'s own driver-side implementation choice
+(confirmed by Question 3's original network trace: `ctx.Route` always calls
+`Network.setCacheDisabled(true)` regardless of pattern). A caller going
+around `ctx.Route` and driving `Fetch.enable`/`Fetch.continueRequest`
+directly through `CDPSession.Send` keeps the cache.
+
+**What this changes for `previews.go`:** the file's own header comment
+(written 2026-07-27, before this question was answered) assumed the fix
+would need "a browser-side blocking mechanism without the CDP `Fetch`
+domain" if cache-off turned out to be the main culprit — reasoning that
+avoiding `Fetch` entirely was the only way out. That assumption is now
+falsified in the direction that matters: `Fetch` itself is nearly free (3.1%
+of the gap); the same domain that blocks `/FolderResource/` previews can stay,
+it just needs to be driven through a raw `CDPSession` (`Fetch.enable` +
+per-request `continueRequest`/`failRequest`) instead of through
+`ctx.Route`, to avoid the implicit cache-disable. That is a real, not yet
+built, path to recovering most of the ~30% `ctx.Route` tax while keeping the
+~30 MB/course preview-blocking saving — see Question 23 below.
+
+**Honest residual, not glossed over:** 60.7% + 3.1% = 63.8%, not 100% — about
+36% of the combined `ctx.Route` gap is not explained by either mechanism
+measured in isolation. The two are not simply additive when both are active
+together (as `ctx.Route` does): something about running Fetch interception
+*and* cache-disable simultaneously costs more than the sum of running each
+alone. Not chased further here — the question as posed ("which dominates")
+has a clear, decisive answer; the interaction term is a separate, smaller
+question that would only matter once someone is actually trying to account
+for the full 30% rather than just knowing where most of it comes from.
+
+**Also worth recording as a probe-building lesson, not a finding about
+`ctx.Route`:** the first run of this probe hung on the 3rd of 3 repeats —
+`Fetch.requestPaused`'s handler was calling `session.Send` synchronously,
+which re-enters the connection's own dispatch loop from inside that same
+loop; with 25 requests pausing near-simultaneously per navigation this
+recurses one dispatch frame per pending request, and usually (not always)
+resolved before it didn't. Moving the `continueRequest` call onto its own
+goroutine fixed it outright — any future raw-CDP event handler in this
+codebase that calls `Send` from inside `On` needs to do the same.
 
 ### 9. ~~Why does the section-page response barely grow with course size?~~ Answered 2026-08-01, see report below
 **Candidate (a) confirmed, with evidence — rule 2 satisfied.**
@@ -346,6 +392,34 @@ profiling already announced in Question 7.
 ---
 
 ## Next experiment
+
+**Two candidates, neither run yet.**
+
+**Question 22 remains the top open real-account question, still deferred for
+load** (see its "Previous experiment" section below) — same probe
+(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`), waiting
+for a cycle where the failure reproduces so `signalWaitErr` can actually be
+read on it.
+
+**Question 23 — new, opened by Question 8's close: can `previews.go` block
+`/FolderResource/` previews through a raw `CDPSession` instead of
+`ctx.Route`, and keep the ~26-31% saving `filelist_probe_test.go` already
+proved is real, while paying only the ~3% fetch-only tax instead of the ~30%
+`ctx.Route` tax measured for the current implementation?** Question 8 showed
+the CDP `Fetch` domain does not require cache-off; `previews.go` currently
+gets both because `ctx.Route` always enables both. Rewriting
+`blockInlineFilePreviews` (`previews.go`) to drive `Fetch.enable` +
+per-request `continueRequest`/`failRequest` through a raw `CDPSession`,
+instead of `ctx.Route`, is a real code change, not a probe — it needs the
+existing safety bar (`filelist_probe_test.go`'s byte-for-byte diff against
+the 345-file ground truth) before it could ship, and previews.go's own
+`OPAL_BLOCK_FILE_PREVIEWS` flag is still off by default regardless. Not
+started: this is an implementation task for a future cycle, sized
+differently from the probe-and-measure cycles above it.
+
+---
+
+## Previous experiment (Question 8, closed 2026-08-04)
 
 **Question 8 — which of the two `ctx.Route` costs dominates: cache-off, or
 the Fetch pause/resume round trip?** Question 3 found both mechanisms behind

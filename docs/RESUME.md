@@ -20,27 +20,37 @@ here sends an unattended run after work that is already done. Clear it.
 
 _Nothing in flight._
 
-**Question 22's first cycle is done (2026-08-04): the failure did not
-reproduce, so `signalWaitErr` was never read on a failing sample — but the 2
-clean runs (167ms/177ms) sit in the same tight band as Question 21's 2
-failing runs (196ms/206ms), 4 samples inside a 40ms span with no outlier.**
-That weakly favours the `context-destroyed` prediction over "pure delay"
-(a queueing explanation would predict failing runs run *longer*, not
-identical) but is not the confirmation the prediction needs — that still
-requires an actual `expansionSignalled=false` sample with `signalWaitErr`
-read on it. Full write-up in `docs/sync-speed-model.md`'s "Previous
-experiment (Question 22, first cycle)" section.
+**Two sync-speed cycles done today (2026-08-04). Question 22 (real-account,
+deferred, still open) then Question 8 (local-only, closed, decisive).**
 
-Next up: **Question 22 stays open**, same probe
-(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`),
-deferred to a later cycle rather than forced — landing on a failing sample is
-partly luck at the condition's ~33-50% historical rate. **Real-account load
-caution stands, raised**: this sub-thread has now spent 10 two-course
-contention crawls today (`docs/server-load.md`). An alternative that adds no
-real-account load if picked up next: **Question 8** (`ctx.Route` cost split,
-cache-off vs. pause/resume) is reproducible with a synthetic local page, no
-OPAL account needed, and has been open since Question 3 without anyone
-starting it.
+Question 22's first cycle: the failure did not reproduce, so `signalWaitErr`
+was never read on a failing sample — but the 2 clean runs (167ms/177ms) sit
+in the same tight band as Question 21's 2 failing runs (196ms/206ms), 4
+samples inside a 40ms span with no outlier, weakly favouring
+`context-destroyed` over "pure delay" without confirming it. Deferred to a
+later cycle — real-account load from this sub-thread is now 10 two-course
+contention crawls today (`docs/server-load.md`).
+
+Question 8 (picked up specifically because it needs no real account): closed
+with a clean local probe (`ctxroutecost_probe_test.go`,
+`OPAL_ROUTE_COST_PROBE=1`, 3 repeats, no OPAL login) — cache-off is 60.7% of
+the `ctx.Route` tax, the Fetch pause/resume round trip only 3.1%, and raw CDP
+genuinely decouples them (a `Fetch.enable` session held the cache intact in
+all 3 repeats, no `Network.setCacheDisabled` call needed). That refutes
+"Playwright couples the two rigidly" — it's `ctx.Route`'s own driver-side
+choice, not a CDP requirement. Opens **Question 23**: rewrite
+`blockInlineFilePreviews` (`previews.go`) to drive `Fetch` through a raw
+`CDPSession` instead of `ctx.Route`, to keep the previews saving while
+mostly dropping the tax — an implementation task, not a probe, still needs
+the byte-diff safety bar before shipping. Full write-up in
+`docs/sync-speed-model.md`'s "Previous experiment (Question 8, closed)" and
+"Next experiment" sections. (The first version of the probe hung on its 3rd
+repeat from a reentrancy bug in its own event handler — fixed, documented in
+the commit and the model file, not a finding about `ctx.Route` itself.)
+
+Next up, either is available: **Question 22** on a later cycle (real-account,
+deferred for load), or **Question 23** (local implementation + a real-account
+byte-diff before shipping, bigger scope than a probe).
 
 ---
 

@@ -18,7 +18,28 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**In flight (2026-08-04, opal-downloader-autopilot, backlog item, not sync-speed cycle):**
+Implementing Question 23 (`docs/sync-speed-model.md`/`docs/BACKLOG.md` Now
+item) — rewriting `previews.go`'s `blockInlineFilePreviews` from `ctx.Route`
+to a raw-CDP-per-page `Fetch.enable`/`Fetch.requestPaused` interceptor, to keep
+the ~30 MB/course preview-blocking saving while paying Question 8's ~3% fetch
+tax instead of ~30%. Design decided: attach a fresh `CDPSession` at every
+page-creation site (`session.go` x2, `orchestrator.go`'s
+`newCourseFileCollector`, `navigation.go`'s crash-recovery replacement page,
+`section_pool.go`'s `openPage`) instead of once on the context, because raw
+CDP sessions are page-scoped, not context-scoped like `ctx.Route` was.
+Subframe detection can no longer use Playwright's `Frame.ParentFrame()` (that
+needs `ctx.Route`'s frame object, defeats the whole point) — capturing each
+page's root frame ID via `Page.getFrameTree` right after CDP-session attach
+and comparing `Fetch.requestPaused`'s `frameId` against it instead. Plan:
+implement, `go build`/`go vet`/existing unit tests, a local synthetic
+verification (like Question 8's probe, no OPAL account), then the real-account
+`OPAL_FILELIST` before/after byte-diff (`filelist_probe_test.go`) as the
+shipping safety bar before touching `OPAL_BLOCK_FILE_PREVIEWS`'s default.
+Not yet started: any of the actual file edits. If this is picked up cold, the
+above is the full design; nothing has landed on disk yet.
+
+---
 
 **Two sync-speed cycles done today (2026-08-04). Question 22 (real-account,
 deferred, still open) then Question 8 (local-only, closed, decisive).**

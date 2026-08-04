@@ -478,6 +478,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		// Arm the watch BEFORE clicking: Wicket only delivers its topics to
 		// subscribers present when the call fires, and the expansion can
 		// complete in ~160ms.
+		armTime := time.Now()
 		watchArmed, armErr := armWicketExpansionWatch(page)
 		if armErr != nil && !isWicketWatchUnavailableError(armErr) {
 			s.auditLog("wicket-arm", page, "", fmt.Sprintf("could not arm Wicket expansion watch for section %s: %v", currentURL, armErr))
@@ -494,6 +495,12 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 			return page, nil, "", "", false
 		}
 
+		// signalElapsedMs (Question 21, docs/sync-speed-model.md): the delta
+		// from arming to the watch resolving, logged unconditionally rather
+		// than just the boolean signalled/not. When expansionSignalled is
+		// false this is not a real latency - it is the timeout budget itself
+		// (the watch gave up), and must not be read as a fast value.
+		signalElapsedMs := int64(-1)
 		if watchArmed {
 			signalled, failed := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
 			switch {
@@ -515,6 +522,7 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 			case signalled:
 				expansionSignalled = true
 			}
+			signalElapsedMs = time.Since(armTime).Milliseconds()
 		}
 		// Question 19 (docs/sync-speed-model.md): the only way to tell "the
 		// click was dropped" from "the signal arrived but the DOM lagged
@@ -523,8 +531,8 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		// got skipped. watchArmed=false means no watch could be attached at
 		// all (falls straight through to the poll-only path further down).
 		s.auditLog("wicket-expand-signal", page, "", fmt.Sprintf(
-			"section %s: watchArmed=%v expansionSignalled=%v (%d candidates before expansion)",
-			currentURL, watchArmed, expansionSignalled, len(candidates)))
+			"section %s: watchArmed=%v expansionSignalled=%v signalMs=%d (%d candidates before expansion)",
+			currentURL, watchArmed, expansionSignalled, signalElapsedMs, len(candidates)))
 	}
 
 	// A successful AJAX_CALL_DONE means the expansion call has completed, so

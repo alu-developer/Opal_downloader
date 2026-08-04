@@ -18,7 +18,33 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**In flight (2026-08-04, autopilot): Question 21 instrumentation built, not yet run.**
+`expandShowAllInSection` (`crawl.go`) now times the delta from arming the
+Wicket watch to it resolving and logs it unconditionally as `signalMs` on the
+existing `wicket-expand-signal` audit line (was previously just the
+`expansionSignalled` boolean). `-1` means `watchArmed=false` (not
+applicable); when `expansionSignalled=false` the number is the timeout
+ceiling itself, not a real latency - don't read it as a fast value. Updated
+`wicketSignalLineRE` (`showallsignal_probe_test.go`) and its two existing
+consumers to the new 5-group format. New probe
+`internal/scraper/showallsignallatency_probe_test.go`
+(`TestWicketExpandSignalLatencyDistribution`,
+`OPAL_SIGNAL_LATENCY_TRACE=1`) collects the Vorlesung node's `signalMs`
+across repeated contention runs and appends (not overwrites) to
+`tmp/signal-latency-probe.log`, since the model file explicitly asks for this
+to be spread across more than one cycle rather than one big batch. Defaults
+to 2 runs per invocation, override with `OPAL_SIGNAL_LATENCY_RUNS`.
+
+Next: run it (2 runs is a light touch given today's already-spent 6
+two-course contention crawls), read the appended log, and either add a
+result write-up to `docs/sync-speed-model.md` if the sample is big enough to
+say something, or leave it running and accumulating across future cycles.
+Nothing here changes production defaults - purely additive audit logging
+plus a new opt-in test file.
+
+---
+
+_Nothing else in flight._
 
 **Question 20 is closed (2026-08-04): inconclusive, honestly reported as
 such.** Raising the signal-wait ceiling to 15000ms produced 3 clean runs in a

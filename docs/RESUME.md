@@ -18,7 +18,7 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight (2026-08-04, opal-downloader-autopilot, backlog item, not sync-speed cycle):**
+**In flight (2026-08-05, opal-downloader-autopilot, backlog item, not sync-speed cycle):**
 Question 23 implementation landed (`internal/scraper/previews.go` and 5
 page-creation call sites, commit "Question 23: rewrite inline-preview
 blocking from ctx.Route to raw CDPSession") — `go build`/`go vet`/full
@@ -27,15 +27,20 @@ blocking from ctx.Route to raw CDPSession") — `go build`/`go vet`/full
 subframe FolderResource load is blocked and a main-frame one is not, against
 a real headless Chromium.
 
-**Next step, in progress:** the real-account byte-diff safety bar
-(`filelist_probe_test.go`, `OPAL_FILELIST=before` then
-`OPAL_FILELIST=after OPAL_BLOCK_FILE_PREVIEWS=1`, diff the two file lists) -
-this project's non-negotiable gate for anything touching discovery, and the
-only thing standing between this implementation and a possible default
-change/timing remeasurement. If picked up cold: the code is already
-committed and safe to leave as-is (flag off by default, zero behavior change
-for anyone not setting `OPAL_BLOCK_FILE_PREVIEWS`) - only the byte-diff run
-and its write-up into `docs/sync-speed-model.md`/`docs/BACKLOG.md` remain.
+**Byte-diff safety bar, in progress:** `OPAL_FILELIST=before` finished —
+349 files, 193.66s, `tmp/filelist-before.txt` written (course set has grown
+since the 345-file ground truth was first recorded; not a concern by itself).
+`OPAL_FILELIST=after OPAL_BLOCK_FILE_PREVIEWS=1` is running now against the
+same real account. Next when this lands: `diff tmp/filelist-before.txt
+tmp/filelist-after.txt` — must be empty — plus compare the two run logs'
+"section timing" lines for the speed side of Question 23 (predicted: close
+to Question 8's ~3% tax instead of ctx.Route's ~30%). Write the result into
+`docs/sync-speed-model.md` and `docs/BACKLOG.md` either way, including if the
+diff is non-empty (in which case Question 23 does NOT ship and the finding is
+that raw CDP isn't safe either, which would itself be a real result). If
+picked up cold: the code is already committed and safe to leave as-is (flag
+off by default, zero behavior change for anyone not setting
+`OPAL_BLOCK_FILE_PREVIEWS`).
 
 ---
 

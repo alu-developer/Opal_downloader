@@ -35,19 +35,6 @@ here is the failure mode to watch for.
   today (`docs/server-load.md`) — deferred to a later cycle rather than
   forced with a larger batch.
 
-- **Rewrite `previews.go`'s preview-blocking to use a raw `CDPSession`
-  instead of `ctx.Route`** (`docs/sync-speed-model.md` Question 23, opened
-  2026-08-04 by Question 8's close). Question 8 found cache-off, not the
-  `Fetch` pause/resume round trip, is the dominant cost behind `ctx.Route`'s
-  ~30% tax (60.7% vs. 3.1% of the gap, local probe, no account needed) — and
-  that raw CDP calls decouple the two even though `ctx.Route` always couples
-  them. A raw-CDP version of `blockInlineFilePreviews` could keep the ~30
-  MB/course preview-blocking saving (`filelist_probe_test.go`, already
-  proven safe) while paying close to the 3% tax instead of ~30%. This is an
-  implementation task, not a probe — needs the byte-diff safety bar against
-  the real account before shipping, and stays behind `OPAL_BLOCK_FILE_PREVIEWS`
-  (off by default) regardless.
-
 ---
 
 ## Next
@@ -60,6 +47,19 @@ _Nothing queued._
 Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
+
+- **Question 23's raw-CDP preview blocker lost 33 files, all in one
+  known-flaky section (2026-08-05).** Full mechanism write-up:
+  `docs/sync-speed-model.md` Question 23 (closed, does not ship) and Question
+  24 (the residual, ranked low). Short version: it isn't a new bug — Part-3 of
+  "Softwaretechnologie (SoSe 26)" already carries Question 17's pre-existing
+  "show all" expansion bug (Candidate B, still unfixed), which "fires more
+  often under load," and this section is the single most preview-dense one in
+  the account, so Question 23's own implementation loads it hardest. Not
+  worth a retry cycle until Question 17's bug has an actual fix — that fix is
+  the real prerequisite, for this and for `course_concurrency>1` both.
+  `OPAL_BLOCK_FILE_PREVIEWS` stays off by default (already true, no user
+  impact either way).
 
 - **TU-Fast's stored credentials are obfuscated, not encrypted (2026-08-04).**
   Its AES key is derived from CPU/platform metadata only — no secret — and the

@@ -18,52 +18,7 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight (2026-08-05, opal-downloader-autopilot, backlog item, not sync-speed cycle):**
-Question 23 implementation landed (`internal/scraper/previews.go` and 5
-page-creation call sites, commit "Question 23: rewrite inline-preview
-blocking from ctx.Route to raw CDPSession") — `go build`/`go vet`/full
-`go test ./...` clean, plus a new local no-account probe
-(`previewsblocker_probe_test.go`, `OPAL_PREVIEW_BLOCK_PROBE=1`) confirming a
-subframe FolderResource load is blocked and a main-frame one is not, against
-a real headless Chromium.
-
-**Byte-diff safety bar: FAILED. Question 23's raw-CDP implementation is NOT
-safe and must not ship as-is (2026-08-05).**
-
-`OPAL_FILELIST=before`: 349 files, 193.66s, clean, no warnings.
-`OPAL_FILELIST=after OPAL_BLOCK_FILE_PREVIEWS=1`: **316 files, 33 short.**
-`diff tmp/filelist-before.txt tmp/filelist-after.txt` isolates every missing
-file to one section: "Softwaretechnologie (SoSe 26)" / Part-3 (CourseNode/
-1615865126729195011). The after-run's own log carries the mechanism's usual
-fingerprint: `warnShowAllTruncated` fired for exactly that section
-("expansion completed but added no files (18 file rows before, 18 after; 72
-raw rows before, 72 after)") - the before-run logged this warning nowhere.
-config.yaml has `course_concurrency: 1` and `section_concurrency: 1`, so this
-is not the known contention-loss mode from Questions 16/17/19-22 - whatever
-broke here did so within one section, alone.
-
-**In progress:** a scoped diagnostic probe
-(`internal/scraper/previewblockshowall_probe_test.go`,
-`OPAL_PREVIEWBLOCK_SHOWALL_TRACE=1 OPAL_BLOCK_FILE_PREVIEWS=1 go test
-./internal/scraper/ -run TestPreviewBlockShowAllRegression -v -timeout
-10m`) is running now, scoped to just this one course, with debug-click
-auditing on, to read `expansionSignalled`/`signalWaitErr` and the
-`showall-expand-poll` trace for Part-3 directly instead of guessing from the
-file count. Prediction written into that file's doc comment before running:
-expansionSignalled=true (Wicket's click signal is fine) and the poll trace
-sits flat at 18 candidates for its whole budget (the DOM patch never lands),
-which would point at the preview blocker's Fetch-domain burst interfering
-with Chrome applying the AJAX response - not at Wicket's own signal. Output
-goes to `tmp/question23-diagnosis.log`.
-
-**When this lands:** write the diagnosis into `docs/sync-speed-model.md`
-(Question 23 does NOT close as shipped - reclassify to "closed: raw CDP
-preview-blocking is unsafe, `OPAL_BLOCK_FILE_PREVIEWS` stays off" or open a
-new question for a fix, depending what the trace shows) and into
-`docs/BACKLOG.md`. The flag is already off by default and the code was
-already safe to leave as-is even before this - this finding does not change
-what any real user's sync does, only whether this implementation can ever be
-turned on.
+_Nothing in flight._
 
 ---
 

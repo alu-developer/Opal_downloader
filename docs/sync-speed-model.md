@@ -368,6 +368,72 @@ resolved before it didn't. Moving the `continueRequest` call onto its own
 goroutine fixed it outright — any future raw-CDP event handler in this
 codebase that calls `Send` from inside `On` needs to do the same.
 
+### 23. ~~Can `previews.go` block previews through a raw `CDPSession` and keep the saving while paying only the ~3% tax?~~ Answered 2026-08-05 — implemented, and the real-account safety bar refused it
+**Built, then failed its own non-negotiable gate.** The rewrite itself
+(`attachInlinePreviewBlocker`, `previews.go`) works as designed — a local
+no-account probe confirmed a subframe `FolderResource` load is blocked and a
+main-frame one is not — but `filelist_probe_test.go`'s byte-diff against the
+real account came back **316 files against a 349-file same-day baseline, 33
+short**, all 33 in one section: "Softwaretechnologie (SoSe 26)" / Part-3
+(`CourseNode/1615865126729195011`). `course_concurrency` and
+`section_concurrency` were both 1, so this is not the contention setting
+Questions 16/17 already cleared.
+
+**Mechanism, not just a description.** Part-3's own `warnShowAllTruncated`
+line in the failing run — *"expansion completed but added no files (18 file
+rows before, 18 after; 72 raw rows before, 72 after)"* — is the exact
+signature Question 17 already root-caused: Wicket's "show all" AJAX call
+dispatches, the framework reports it done, and the resulting DOM rows never
+land (Candidate B, still standing from Question 17: *"either Wicket dropped
+the expansion request, or its response landed after the read"* — and that
+question's own consequence line already says *"an already-known expansion
+bug fires more often when the renderer is under load"*). Part-3 is the single
+most preview-dense section in the entire account (the run blocked 79-80
+previews total across all 6 courses; Part-3's expansion alone adds ~33
+preview-bearing rows in one burst) — so it is exactly the page Question 23's
+own implementation loads hardest, each of those ~33 near-simultaneous
+`Fetch.requestPaused` events answered from its own goroutine
+(`previews.go`'s own doc comment already flagged this pattern as
+reentrancy-sensitive while the Question 8 probe was being built).
+
+A scoped repro (`previewblockshowall_probe_test.go`,
+`OPAL_PREVIEWBLOCK_SHOWALL_TRACE=1 OPAL_BLOCK_FILE_PREVIEWS=1`, Part-3's own
+course crawled alone) did **not** reproduce the loss —
+`expansionSignalled=true`, `signalMs=293`, `signalWaitErr=none`, poll trace
+72→105 candidates, clean. That is consistent with the mechanism above rather
+than refuting it: Question 17's own bug is already documented as
+intermittent ("fires more often under load", not "fires whenever this code
+runs"), and a single clean scoped sample carries the same evidentiary weight
+Question 20 already warned about — *"at this condition's ~33-50% historical
+failure rate that is not proof of X, just a plausible outcome either way"*.
+One fail + one clean sample, under different conditions (5th-of-6-courses
+sustained crawl vs. this section alone), is not enough to separate "raw CDP
+amplifies the pre-existing bug" from "raw CDP does something additional" —
+that residual is the open question below.
+
+**Consequence: does not ship, and stays closed at this point, not deferred
+for a retry.** `OPAL_BLOCK_FILE_PREVIEWS` was already off by default and
+stays off — no user-visible change either way. The prerequisite is the same
+one Question 17 already named for `course_concurrency>1`: fix the "show all"
+expansion bug itself (Candidate B) before any code that adds load anywhere
+near it, including this one, can be considered safe to enable. Rewriting
+`blockInlineFilePreviews` again with a different concurrency model for the
+`Fetch` handler (e.g. bounding how many `requestPaused` events are answered
+concurrently) is a plausible mitigation but untested and not worth building
+until the underlying bug has a real fix — it would only be patching the
+symptom this implementation happens to trigger most easily.
+
+**New open question (Question 24, ranked low — real-account load caution
+already active today, 3 live crawls run for this question alone):** is
+Question 23's loss purely downstream of Question 17's pre-existing Candidate-B
+bug, or does the raw-CDP goroutine-per-`requestPaused` pattern add a distinct
+failure mode of its own? Separating them needs either (a) Question 17's bug
+fixed first, so Question 23 could be retested against a stable baseline, or
+(b) several paired matched-condition runs targeting Part-3 specifically
+(blocking on vs. off, same position in a multi-course crawl) to compare
+failure rates directly — expensive against the real account and not worth it
+until (a) is closer.
+
 ### 9. ~~Why does the section-page response barely grow with course size?~~ Answered 2026-08-01, see report below
 **Candidate (a) confirmed, with evidence — rule 2 satisfied.**
 `MenuTreeRenderer.isRenderChildren()` (OpenOLAT source, method from line 660)
@@ -393,29 +459,21 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Two candidates, neither run yet.**
+**Question 22 is the only open real-account question ranked ahead of it,
+still deferred for load** (see its "Previous experiment" section below) —
+same probe (`showallsignallatency_probe_test.go`,
+`OPAL_SIGNAL_LATENCY_TRACE=1`), waiting for a cycle where the failure
+reproduces so `signalWaitErr` can actually be read on it. Real-account load
+today (2026-08-05) already includes 3 crawls for Question 23's investigation
+(~630s total, up to 6 courses each) on top of the 10 two-course contention
+crawls the 19-22 sub-thread had already spent as of the last report — this
+cycle did not add to Question 22's own queue.
 
-**Question 22 remains the top open real-account question, still deferred for
-load** (see its "Previous experiment" section below) — same probe
-(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`), waiting
-for a cycle where the failure reproduces so `signalWaitErr` can actually be
-read on it.
-
-**Question 23 — new, opened by Question 8's close: can `previews.go` block
-`/FolderResource/` previews through a raw `CDPSession` instead of
-`ctx.Route`, and keep the ~26-31% saving `filelist_probe_test.go` already
-proved is real, while paying only the ~3% fetch-only tax instead of the ~30%
-`ctx.Route` tax measured for the current implementation?** Question 8 showed
-the CDP `Fetch` domain does not require cache-off; `previews.go` currently
-gets both because `ctx.Route` always enables both. Rewriting
-`blockInlineFilePreviews` (`previews.go`) to drive `Fetch.enable` +
-per-request `continueRequest`/`failRequest` through a raw `CDPSession`,
-instead of `ctx.Route`, is a real code change, not a probe — it needs the
-existing safety bar (`filelist_probe_test.go`'s byte-for-byte diff against
-the 345-file ground truth) before it could ship, and previews.go's own
-`OPAL_BLOCK_FILE_PREVIEWS` flag is still off by default regardless. Not
-started: this is an implementation task for a future cycle, sized
-differently from the probe-and-measure cycles above it.
+**Question 23 is closed (2026-08-05, see "### 23." above in the ranked list)
+— built, and refused by its own safety bar.** Not a candidate for a retry
+cycle: the prerequisite (Question 17's pre-existing "show all" expansion bug)
+is a separate, already-scoped fix. Question 24 (same section, ranked low, and
+itself real-account-load-expensive) is the residual it left open.
 
 ---
 

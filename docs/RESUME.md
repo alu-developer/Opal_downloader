@@ -18,12 +18,13 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
-
-Everything that used to be recorded here (Questions 8, 17, 18, 22, 23) is
-closed and written up in `docs/sync-speed-model.md` and `docs/BACKLOG.md` —
-this note had drifted into a history dump well past its own "clear it" rule,
-cleared 2026-08-06. **Next up:** Question 25 (`docs/sync-speed-model.md`,
-"Next experiment") — blocked until the shared login-profile is confirmed
-quiet, see `docs/BACKLOG.md`'s "Two concurrent Routines colliding..." entry
-for the concrete check and why.
+**In flight (2026-08-07, autopilot): Question 26**, `docs/sync-speed-model.md`
+"Next experiment" — retest Question 23's shelved `OPAL_BLOCK_FILE_PREVIEWS`
+raw-CDP rewrite now that Question 25's reclick-recovery fix is live-verified.
+Prediction (written before running, per rule 1): `OPAL_FILELIST=after
+OPAL_BLOCK_FILE_PREVIEWS=1` diffs empty against an `OPAL_FILELIST=before` run
+of the full real account — Part-3 of "Softwaretechnologie (SoSe 26)" no longer
+loses its 33 files. Fails at: any non-empty diff, anywhere. Concurrency check
+done first (no `chrome.exe`, no commit from another session in the last few
+minutes, tree clean) — confirmed quiet. Plan: run `before`, then `after`, then
+`diff`; write the result into `docs/sync-speed-model.md` and clear this note.

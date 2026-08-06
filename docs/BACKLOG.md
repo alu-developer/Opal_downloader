@@ -61,6 +61,25 @@ Delete an entry when it is done, or when it turns out not to matter.
   `OPAL_BLOCK_FILE_PREVIEWS` stays off by default (already true, no user
   impact either way).
 
+- **Personal RSS feed as an independent witness for the crawl (2026-08-04).**
+  Confirmed from the BPS handbook: folder course elements are subscribable, all
+  subscriptions feed one personal RSS link carrying a token in the URL — so it
+  is a plain HTTP GET, no browser, no 2FA. **Intended use is a cross-check, not
+  a gate:** compare what OPAL reports as changed against what the crawl found,
+  to catch silent misses like the 52-file signal loss and the `fileChanged`
+  nil-guard freeze. It may *add* syncs, never cancel the scheduled one.
+  Three cheap tests, ordered so the cheapest kill comes first: (1) does the
+  feed report *replaced* files (same name, new content), the case this repo has
+  already been bitten by twice — if not, it only witnesses new files; (2) does
+  reading notifications in the browser consume them from the feed (the handbook
+  says viewed items drop out of the digest mail) — if yes, it is useless to an
+  unattended process; (3) what fields does an entry actually carry (file name /
+  folder / timestamp, or just "news in course X"). Two catches: subscribing is
+  per course element, and course owners can end their course's subscriptions —
+  so auto-subscribing during a crawl would write to the maintainer's account
+  and needs his explicit go-ahead first. Background:
+  `docs/opal-webdav-student-access.md`.
+
 - **TU-Fast's stored credentials are obfuscated, not encrypted (2026-08-04).**
   Its AES key is derived from CPU/platform metadata only — no secret — and the
   store holds password *and* TOTP seed, which the transplant step then copies

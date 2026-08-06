@@ -983,6 +983,27 @@ mode as the two earlier rejections.
 The account was restored afterwards: subscription removed, interval back to
 `3`, both verified by reload.
 
+**Re-checked 2026-08-04 against BPS's documentation — the n=2 spot check was
+the documented model, not a quirk of those two courses.** Asked specifically
+whether a course-wide subscription exists somewhere, hidden or newly enabled:
+
+- The handbook's "Abonnierbare Inhalte" list contains only Kursbausteine
+  (Aufgabe, Dateidiskussion, Mitteilung, Forum, Kalender, Ordner, Wiki, Blog,
+  Podcast, Bewertung). There is no course entry.
+- "Baustein abonnieren" documents the only route, per element: *"Öffnen Sie den
+  betreffenden Kurs und dann den Kursbaustein. Klicken Sie in der rechten
+  oberen Ecke ... auf den Button Abonnieren."*
+- The "Kurs-Abonnements" entry that exists under Kurseinstellungen is the
+  opposite of what it sounds like: a management view where course owners see
+  per-element subscription counts and **end other people's subscriptions**,
+  filterable by group. So even the per-folder route can be revoked by a
+  lecturer at any time.
+- Every subscription-related release note from OPAL 2025.11 through 2026.08 is
+  a fix or cleanup — mail-delivery bugs, missing translations, deletion
+  cascade, a renamed setting, Terminvergabe plumbing. No new capability.
+
+Do not re-open this without a new fact from OPAL's side.
+
 **This exhausts the leads for the 30s target.** The standing conclusion above
 holds: ~3-4 minutes is the floor for a browser-per-section crawl, and closing
 the gap needs a change signal OPAL does not appear to offer. What remains, if

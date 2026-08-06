@@ -213,10 +213,26 @@ Searched German and English, GitHub, forums, university IT pages. Findings:
 
 OPAL generates a **personal RSS news feed with a token in the URL** ("Neuigkeiten
 → RSS-News-Feed → RSS-Link generieren") covering subscribed folders, forums and
-messages. It carries change notifications, not files — but it proves OPAL
-already hands students a token-authenticated machine endpoint. Useful both as
-an argument (*this is not a new category of risk*) and possibly for this project
-as a cheap change-detector.
+messages. It carries change notifications, not files — but it means OPAL already
+hands students a token-authenticated machine endpoint, which is the point worth
+making in the letter (*a read interface is not a new category of risk*).
+
+**Not a lead for this project — already tested and rejected, 2026-07-22**
+(commit `81b5ae4`, written up in `docs/sync-speed-campaign.md`). The mechanism
+is scriptable, but **there is no course-level subscription**: only folders carry
+a subscribe control, so a subscription can never report a folder that did not
+exist when it was created — and these courses gain a folder per week, which is
+exactly where new files land. That blindness also sinks the weaker "use it as an
+independent witness for the crawl" idea, and the "subscribe every folder and
+keep crawling anyway" variant was declined then too, at ~78 subscriptions of
+account state. Do not re-propose it without a new fact.
+
+**Verify before sending the letter:** the 2026-07-21 probe recorded "RSS absent"
+while two handbook pages describe the feature. The probe was most likely looking
+for *per-folder* RSS URLs, a different question — but the letter cites the
+personal feed as fact, so check that Neuigkeiten actually shows an "RSS-Feed"
+tab in a real student account first.
+
 Source: <https://help.bps-system.de/wiki/bin/view/LMS/Benutzerhandbuch%20OPAL/Meine%20Lernplattform/Abonnements%20und%20Benachrichtigungen/RSS%20Feed/>
 
 ---

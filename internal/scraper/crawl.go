@@ -594,12 +594,37 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 			// to showAllClickMaxAttempts on its own) rather than looping, to
 			// keep this a targeted response to a specific confirmed signal
 			// rather than an open-ended "try harder" loop.
+			//
+			// Question 25 (docs/sync-speed-model.md, 2026-08-06): the first cut
+			// of this reclick did a plain click + the generic
+			// waitForInteractiveLinks settle wait, unlike the sibling
+			// AJAX_CALL_FAILURE retry above (~526-535) which rearms the watch
+			// and awaits its own signal. A live verification run caught the
+			// gap directly: the reclick's own AJAX call also failed to add
+			// rows across 4 stability polls afterward. Rearm and await the
+			// signal here too - if the retry's own click also lands during
+			// the same destroyed-context window, waiting on its signal (with
+			// a bounded timeout) gives the DOM a chance to actually finish
+			// before the generic fallback wait is spent on nothing.
+			rearmed, _ := armWicketExpansionWatch(page)
 			reclicked, crashErr := s.attemptShowAllExpandClick(page, currentURL)
 			if crashErr != nil {
 				return s.recoverAndReturnToSection(page, currentURL)
 			}
 			if reclicked {
-				s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+				retrySignalled := false
+				retryWaitErrClass := "none"
+				if rearmed {
+					signalled, failed, retryWaitErr := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
+					retrySignalled = signalled && !failed
+					retryWaitErrClass = classifyWicketWaitError(retryWaitErr)
+				}
+				s.auditLog("wicket-expand-reclick-signal", page, "", fmt.Sprintf(
+					"section %s: context-destroyed reclick rearmed=%v expansionSignalled=%v signalWaitErr=%s",
+					currentURL, rearmed, retrySignalled, retryWaitErrClass))
+				if !retrySignalled {
+					s.waitForInteractiveLinks(page, contentFallbackWaitMs)
+				}
 			}
 		}
 	}

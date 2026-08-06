@@ -162,6 +162,69 @@ Delete an entry when it is done, or when it turns out not to matter.
   fixed (still open, options unchanged above), just confirmation that the
   cheap check is enough to avoid re-triggering it.
 
+  **Update 2026-08-07 (autopilot, pure source reading, no live run): two of
+  the three root-cause candidates from 2026-08-02 no longer fit the current
+  code, and there is a better-supported fourth.** Re-read `ensureSession`,
+  `acquireSessionLock`, `sessionMutexName` and their own regression tests
+  (`session_lock_windows_test.go`, added since 2026-08-02) against the two
+  original candidates:
+  - **(b) mutex names silently not matching is refuted for this project's
+    real config**, not just untested. `sessionMutexName` hashes
+    `profileDir+stateFile`; `LoginProfileDir()` is a hardcoded
+    `~/.opal-downloader/login-profile` (no per-config variation at all) and
+    `config.yaml`'s `session_state_file: ~/.opal_storage_state.json` goes
+    through `expandHome`, which resolves via `os.UserHomeDir()` to the same
+    absolute path regardless of the calling process's cwd. Both existing
+    tests (`TestAcquireSessionLockSerializesAcrossProcesses`,
+    `TestAcquireSessionLockDoesNotSerializeDifferentProfiles`) also already
+    prove the mutex itself serializes correctly once the strings do match. No
+    plausible path-representation mismatch exists between any two
+    opal-downloader processes on this machine today.
+  - **(c) Chromium's `ProcessSingleton` racing ahead of the Go-level lock is
+    refuted by control flow, not just untested.** `acquireSessionLock` is the
+    *first* thing `ensureSession` does (`session.go:306`), strictly before
+    `launchBrowser` or any Playwright/Chromium call. Nothing in the current
+    interactive-login path can reach Chromium before the Go mutex has already
+    been acquired.
+  - **Neither incident is explained by the locked phase at all, and that is
+    itself the clue.** Both 2026-08-02 and 2026-08-06 evidence shows *no*
+    `ErrProfileLocked` and (2026-08-06) a *silent* collapse to 0 files that
+    persisted across three subsequent runs, not a slow-but-eventually-correct
+    serialization. `acquireSessionLock` only guards session *establishment*;
+    once a process's saved session is already valid, it sails through the
+    lock in milliseconds (`isAuthenticated()` true, no interactive-login
+    branch) and enters the crawl - the phase `session_lock_windows.go`'s own
+    doc comment calls safe to run "fully in parallel" because each process
+    gets its own local browser context. **That claim is only true locally.**
+    Every process's context is seeded from the identical
+    `storage-state.json` cookie file (`ctxOpts.StorageStatePath`,
+    `session.go:155`) - i.e. two or more local Chromium processes all
+    presenting the *same* authenticated OPAL session identity to the server
+    at once. OPAL's Wicket framework is stateful server-side per session
+    (this project's own campaign has repeatedly hit Wicket AJAX
+    call/DOM-completion races within a *single* crawl - see
+    `docs/sync-speed-model.md` Questions 17/19/22/25); two crawls truly
+    interleaving requests under one server-side session identity is a
+    plausible way to get exactly the symptom seen: silent, total, and
+    persisting past the collision window, because whatever broke is server-
+    or session-side, not something a locally-restarted process would ever
+    self-heal from mid-run.
+  - **New candidate (D), ranked above the old options because it is the only
+    one still consistent with both incidents' evidence:** OPAL's server-side
+    session cannot safely be driven by two concurrent local browser
+    processes at once, even though each has its own local Chromium context.
+    The forensic log named in the original 2026-08-06 note
+    (`tmp/q22-fix-verify-run.log`) no longer contains the 4-run batch it
+    described - the filename was reused by a later, unrelated run the same
+    day - so this is not re-confirmed against that specific evidence, only
+    reasoned from the current source and the surviving written description.
+  - **Cheap next step, no live run needed:** grep future collision incidents'
+    logs for the responding page's actual HTML/URL at the moment a run
+    returns 0 files (a redirect to a generic OPAL error/interstitial page
+    would confirm server-side session interference; a normal-looking empty
+    course page would point elsewhere). None of today's evidence captured
+    that, because nobody was looking for it at the time.
+
 ---
 
 ## Standing work

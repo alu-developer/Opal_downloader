@@ -14,6 +14,17 @@ this is the human-readable version of why things are the way they are.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Question 21's first cycle caught its own wrong assumption within the same
+  day** (2026-08-04): timestamped the Wicket signal wait (`signalMs` on the
+  `wicket-expand-signal` audit line) expecting to distinguish a bimodal
+  latency distribution from a smooth one; 2 live samples were too few for
+  that, but both showed `expansionSignalled=false` resolving in ~200ms — the
+  same order as a successful signal, not the 4000ms timeout the code's own
+  comment (written hours earlier, same commit's predecessor) assumed a
+  failure would consume. `awaitWicketExpansionDone` was discarding the actual
+  wait error; now it returns and classifies it (`signalWaitErr`). Opens
+  Question 22: does it say `context-destroyed`, tying this to the fallback
+  `waitForInteractiveLinks` already has for exactly that.
 - **Installer's Chromium-cache-path fix verified in CI and merged** (2026-08-03,
   PR #131): `release.yml` gained a `workflow_dispatch` trigger and a step that
   silently installs the built installer and asserts both browser binaries land

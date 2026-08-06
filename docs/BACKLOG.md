@@ -22,7 +22,9 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Question 25 is next but currently blocked — see Noticed._
+_Nothing unblocked. Sync-speed's Question 26 is queued (`docs/sync-speed-model.md`,
+"Next experiment") but deliberately not run same-day as the Question 25 verification
+batch — real-account load discipline, see that file. Next cycle, fresh day._
 
 ---
 
@@ -217,17 +219,23 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
-- **Question 21's first cycle caught its own wrong assumption within the same
-  day** (2026-08-04): timestamped the Wicket signal wait (`signalMs` on the
-  `wicket-expand-signal` audit line) expecting to distinguish a bimodal
-  latency distribution from a smooth one; 2 live samples were too few for
-  that, but both showed `expansionSignalled=false` resolving in ~200ms — the
-  same order as a successful signal, not the 4000ms timeout the code's own
-  comment (written hours earlier, same commit's predecessor) assumed a
-  failure would consume. `awaitWicketExpansionDone` was discarding the actual
-  wait error; now it returns and classifies it (`signalWaitErr`). Opens
-  Question 22: does it say `context-destroyed`, tying this to the fallback
-  `waitForInteractiveLinks` already has for exactly that.
+- **Question 7 closed, no live run needed: it was already answered by data
+  collected for Questions 13-15, just never connected back** (2026-08-06,
+  autopilot): the two remaining candidates for "what fills the settle wait, if
+  not network transfer" (browser parsing/layout, or a JS widget) both predict
+  real browser-side work should dominate the unexplained ~70%. Question 13's
+  CDP profiling had already measured that ceiling directly — Script+Layout+
+  RecalcStyle at 11.4%, even the broadest `TaskDuration` metric at 24.4% (and
+  flagged as an overestimate). Question 14/15 then clinched the mechanism:
+  halving `mutationObserverDebounceMs` lost zero files over 8 real-account
+  runs on two courses 27x apart in size — only possible if the removed 150ms
+  was margin the browser had already finished before, not time it needed. So
+  the settle wait is mostly the crawler's own fixed timers outliving actual
+  completion, not browser work of any kind. Full write-up:
+  `docs/sync-speed-model.md` Question 7. Leaves a real, unrun question: how
+  far below 150ms can the debounce go before correctness actually breaks —
+  ranked below Question 26, needs the same live byte-diff protocol, not done
+  this cycle.
 - **Question 20 closed inconclusive, and said so plainly** (2026-08-04):
   raising the Wicket signal-wait ceiling to 15000ms produced 3 clean
   contention runs in a row (248/248/248 files) — but at this condition's

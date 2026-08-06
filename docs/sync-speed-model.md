@@ -395,25 +395,56 @@ fix. Whether that changes anything about the setting's default is a product
 call outside this file's scope — noted here so it isn't rediscovered from
 scratch, not acted on.
 
-### 7. If nothing renders client-side — what fills the 336ms then? (replaces the old Question 4)
-The campaign's conclusion from late 2026-07-31 ("the content tree is JS-rendered
-at every level") and today's source-code finding ("everything is server HTML, no
-client rendering") directly contradict each other — both rest on real evidence
-(live DOM probe vs. Java source code + OpenOLAT's own docs), neither is a bare
-assertion. That has to be resolved, not silently overwritten:
-- **Candidate A:** settle time is network/transfer time of a large server
-  response, not JS build time. Plausible, because every course-node page ships
-  the course's complete `o_tree` — with 282 sections potentially a large HTML
-  document per request. **Measured live 2026-08-01 (see "Next experiment"
-  below): refuted in the form tested.** Bytes grow only 1.4x with 27x more
-  sections, network share stays at 25–31% — a minority, not the explanation. Open:
-  why the bytes do not scale (→ Question 9).
-- **Candidate B:** the probe measured something other than the tree/table itself
-  — e.g. the hit count of `looksLikeSectionFolderLink` simply grows because the
-  browser is still parsing/laying out a large static HTML document, not because
-  JS is building something.
-- **Candidate C:** a narrowly bounded JS widget on the page (not the tree or the
-  table itself) is responsible — untested which one.
+### 7. ~~If nothing renders client-side — what fills the 336ms then?~~ Answered 2026-08-06 (autopilot, pure re-analysis of data already on disk, no live run) — none of the three candidates are dominant; it is mostly the crawler's own wait constants, not the browser doing anything
+**Closed without a new run, because the evidence to close it was already collected for
+other questions and never connected back to this one.**
+
+- **Candidate A** (network/transfer time) was already refuted live 2026-08-01 — bytes
+  grow only 1.4x with 27x more sections, network share stays at 25–31%.
+- **Candidate B** (browser still parsing/laying out a large static HTML document) and
+  **Candidate C** (a narrowly bounded JS widget) both predict that *some* form of
+  browser-side work — parsing, layout, style recalc, or script — should dominate the
+  remaining 69–75%. Question 13's CDP `Performance.getMetrics()` probe (2026-08-02,
+  live, real account) measured exactly that bucket directly: Script+Layout+RecalcStyle
+  at **11.4%** aggregate (14.5% on the slowest section), and even Chrome's broader
+  `TaskDuration` metric — a superset that also counts GC, parsing, and paint/compositing
+  prep, i.e. Candidate B's mechanism specifically — comes in at **24.4%**, flagged in
+  the same result as more likely an *overestimate* than an underestimate (its
+  measurement window spans navigation as well as settle+stable). Both candidates
+  therefore have a hard ceiling around a quarter of the time, at best, on data already
+  gathered to answer a different question (Question 13, not this one).
+- That leaves roughly three quarters of settle+stable unaccounted for by any browser
+  activity CDP can see. Question 13's own conclusion named the shape directly: measured
+  mean settle time (326ms) sits within 8.7% of the `mutationObserverDebounceMs` constant
+  (300ms at the time), and mean stable time (193ms) is one `sectionContentPollIntervalMs`
+  cycle (150ms) plus overhead — i.e. the two windows track two fixed software timers,
+  not variable render work.
+
+**What makes this a closed mechanism rather than a restated correlation (rule 2):**
+Questions 14 and 15 then tested that claim directly, not just observationally — halving
+`mutationObserverDebounceMs` (300ms → 150ms, a debounce that only fires after mutations
+go quiet) lost **zero files** across 8 live runs on two real courses 27x apart in
+section count, while saving 28.7–29.6% of settle+stable. A debounce constant can only be
+cut that hard with no data loss if the browser was already quiet well before the old
+constant elapsed — i.e. the removed 150ms was margin the code was sitting out, not time
+the page needed. That is the predictive test Candidates B and C fail: if either were the
+real driver, cutting the constant that ships *after* the browser finishes its own work
+should not have been safe, and it was, twice, on courses of very different size. The
+150ms cut shipped as the default on 2026-08-03 on the strength of exactly this evidence.
+
+**Honest residual:** this closes "is it browser work" (no, mostly not) but not "what is
+the debounce constant still paying for, if not real completion." The two windows are
+still there for a reason — dropping them entirely was measured and rejected early in the
+campaign (51% slower with the wait removed, 40% slower even with the verdict still
+asserted, see "What we know" above) — so some real signal-detection value remains, just
+much less than the original 300ms/150ms assumed. **New question (rule 3), not run this
+cycle:** now that the constants are understood as margin rather than measured
+completion, how much further can `mutationObserverDebounceMs` go below 150ms before
+correctness breaks — is there a real floor, or was 300ms simply never calibrated against
+actual behaviour at all? This needs the same live 8-run byte-diff protocol Questions
+14/15 already used, so it is real-account load, not free — ranked below Question 26 in
+this cycle's queue for that reason, and named here so it is not rediscovered from
+scratch.
 
 ### 8. ~~Which of the two `ctx.Route` costs dominates — cache-off or pause/resume?~~ Answered 2026-08-04 — cache-off dominates, and raw CDP genuinely decouples the two
 **Both halves of the prediction confirmed, on a local synthetic probe needing

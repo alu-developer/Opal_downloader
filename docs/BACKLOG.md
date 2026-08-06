@@ -22,8 +22,8 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Sync-speed's Question 26 is queued (`docs/sync-speed-model.md`,
-"Next experiment") but deliberately not run same-day as the Question 25 verification
+_Nothing unblocked. Sync-speed's Question 27 is queued (`docs/sync-speed-model.md`,
+"Next experiment") but deliberately not run same-day as the Question 26 before/after
 batch — real-account load discipline, see that file. Next cycle, fresh day._
 
 ---
@@ -219,6 +219,19 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 26 confirmed live, zero-diff, and preview-blocking shipped as the
+  default** (2026-08-07, autopilot): full real-account before/after
+  (`filelist_probe_test.go`) found 349 files both ways, empty diff, no
+  truncation anywhere including the section that lost 33 files on Question
+  23's first attempt — closing the causal chain Questions 17→25→26 have
+  chased since 2026-08-03. `attachInlinePreviewBlocker` (`previews.go`)
+  flipped from opt-in (`OPAL_BLOCK_FILE_PREVIEWS=1` to enable) to opt-out
+  (`OPAL_BLOCK_FILE_PREVIEWS=0` to disable), per the standing shipping rule
+  below. Build, vet, and the full non-account test suite pass. Opened Question
+  27 (the 6.8% timing delta measured is confounded by a fresh-login baseline,
+  needs a warm-session rerun) and re-ranked Question 24 up (the residual risk
+  to Question 17's still-unfixed Candidate-B bug now applies to every user,
+  not just a retest account) — full write-up in `docs/sync-speed-model.md`.
 - **Question 7 closed, no live run needed: it was already answered by data
   collected for Questions 13-15, just never connected back** (2026-08-06,
   autopilot): the two remaining candidates for "what fills the settle wait, if

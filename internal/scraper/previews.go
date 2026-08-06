@@ -27,12 +27,17 @@ import (
 //     navigation to a FolderResource URL is the download path doing its job,
 //     and aborting that would break downloading rather than speed up discovery.
 //
-// OFF BY DEFAULT, and the reason is a measurement rather than caution.
+// ON BY DEFAULT since 2026-08-07 (Question 26, docs/sync-speed-model.md).
+// Set OPAL_BLOCK_FILE_PREVIEWS=0 to disable and fall back to fetching
+// previews.
 //
-// The safety question came back clean: a paired full-account A/B (2026-07-27,
-// internal/scraper/filelist_probe_test.go) produced **byte-for-byte identical
-// file lists**, 345 files each, matching the known ground truth. Nothing is
-// lost by blocking previews.
+// The safety question came back clean twice. First on the original
+// ctx.Route implementation (2026-07-27, internal/scraper/filelist_probe_test.go):
+// a paired full-account A/B produced byte-for-byte identical file lists, 345
+// files each, matching the known ground truth. Then again after the rewrite
+// below to raw CDP (Question 26, 2026-08-07): another full-account A/B, 349
+// files each (account grew since), zero-line diff. Nothing is lost by
+// blocking previews.
 //
 // The speed question came back the wrong way at first, and a second pair
 // confirmed it rather than clearing it - this was all measured against the
@@ -58,9 +63,13 @@ import (
 // see its own doc comment for why it cannot be installed once on the
 // context the way ctx.Route was), instead of through ctx.Route. That keeps
 // the ~30 MB/course preview-blocking saving while paying close to Question
-// 8's ~3% fetch-only tax instead of the ~30% ctx.Route tax - not yet
-// re-measured end to end; see docs/sync-speed-model.md Question 23 for the
-// live A/B this still needs before it can ship a changed default.
+// 8's ~3% fetch-only tax instead of the ~30% ctx.Route tax. Question 26
+// re-measured it end to end against the live account: 172.6s vs 185.2s
+// total test time on this run (baseline had also picked up a fresh-session
+// login, so treat that gap as directional, not the load-bearing number -
+// the byte-diff is), with 80 previews skipped this pass. The load-bearing
+// result is the empty diff; Question 23's shelved rejection was ctx.Route's
+// tax, never the blocking itself, and that tax is gone.
 //
 // Do not re-litigate Abort vs Fulfill vs pattern width against ctx.Route.
 // Those are answered and irrelevant now that ctx.Route is gone from this
@@ -84,10 +93,10 @@ const folderResourceMarker = "/FolderResource/"
 // newCourseFileCollector, navigation.go's crash-recovery replacement page,
 // section_pool.go's openPage) instead of once on ctx.
 func (s *OpalScraper) attachInlinePreviewBlocker(ctx playwright.BrowserContext, page playwright.Page) {
-	if os.Getenv(blockPreviewsEnv) == "" {
+	if os.Getenv(blockPreviewsEnv) == "0" {
 		return
 	}
-	logging.Detail("Blocking inline file previews on new page (%s is set)", blockPreviewsEnv)
+	logging.Detail("Blocking inline file previews on new page (default on; %s=0 to disable)", blockPreviewsEnv)
 
 	session, err := ctx.NewCDPSession(page)
 	if err != nil {

@@ -600,36 +600,70 @@ profiling already announced in Question 7.
 
 ---
 
+### 26. ~~Now that Question 25 gives the context-destroyed reclick a live-tested recovery path, does Question 23's raw-CDP preview-blocking rewrite pass its own byte-diff safety bar on a retry?~~ Answered 2026-08-07 — yes, clean, and it shipped as the default
+
+**Confirmed live, zero-diff.** Full real-account before/after
+(`filelist_probe_test.go`, `tmp/q26-before-run.log` / `tmp/q26-after-run.log`):
+`OPAL_FILELIST=before` (no preview blocking) found 349 files;
+`OPAL_FILELIST=after OPAL_BLOCK_FILE_PREVIEWS=1` also found 349, and
+`diff tmp/filelist-before.txt tmp/filelist-after.txt` was empty — no
+truncation, no `warnShowAllTruncated` line in either log, including in
+Part-3 of "Softwaretechnologie (SoSe 26)", the section that lost 33 files on
+Question 23's first attempt. That confirms the diagnosis from Questions 17
+and 25: the loss was the context-destroyed reclick failing to recover the
+section, not something raw CDP's `requestPaused` concurrency adds on top —
+Question 24's first alternative is refuted, its second (a distinct raw-CDP
+failure mode) did not show up either, though one clean full-account pass
+cannot fully rule out a rare mode the way a repeated-trial design could.
+
+**Shipped as the default the same cycle** (`previews.go`,
+`attachInlinePreviewBlocker`): the gate inverted from "blocks only if
+`OPAL_BLOCK_FILE_PREVIEWS` is set" to "blocks unless
+`OPAL_BLOCK_FILE_PREVIEWS=0`". This is the standing rule from the 2026-08-03
+merge decision (`docs/BACKLOG.md`, "Standing work") — a default that has
+passed the byte-diff may be changed and shipped, not held for a separate
+sign-off round. `go build`, `go vet`, and the full non-account test suite
+(`go test ./... -short`) all pass unchanged.
+
+**Timing number is directional, not load-bearing — see Question 27.** Total
+test wall-clock was 185.2s (before) vs 172.6s (after), but the before-run
+paid for a fresh TU-Fast login (session had expired) that the after-run did
+not; the byte-diff, not this number, is what decided the ship.
+
+---
+
 ## Next experiment
 
-**Question 26 (new, 2026-08-06): now that Question 25 gives the
-context-destroyed reclick a live-tested recovery path, does Question 23's
-raw-CDP preview-blocking rewrite pass its own byte-diff safety bar on a
-retry?** Question 23 built `attachInlinePreviewBlocker` (`previews.go`) —
-recovers most of the ~30% `ctx.Route` tax while keeping the ~30 MB/course
-preview-blocking saving — then refused itself on a 33-file loss in
-"Softwaretechnologie (SoSe 26)" / Part-3, whose own `warnShowAllTruncated`
-line was Question 17's Candidate-B signature exactly. Question 24 named the
-prerequisite for a retry: "(a) Question 17's bug fixed first, so Question 23
-could be retested against a stable baseline." Question 25 is that fix, live-
-verified 3/3 today. **Prediction:** `OPAL_FILELIST=after
-OPAL_BLOCK_FILE_PREVIEWS=1` against the full real account now diffs empty
-against an `OPAL_FILELIST=before` run (`filelist_probe_test.go`, `tmp diff`
-per its own header) — Part-3 no longer loses its 33 files, because the
-reclick that used to fail to recover the section now does. **Counts as
-failed at:** the diff is non-empty anywhere, in Part-3 or elsewhere — that
-would mean either context-destroyed wasn't the whole Candidate-B story, or
-Question 24's alternative holds (raw-CDP's goroutine-per-`requestPaused`
-pattern adds a distinct failure mode of its own, not just amplifying the old
-one). Either outcome is informative: a clean diff ships a real win Question 23
-had ready and shelved; a dirty one separates the two Question 24 could not.
-**Cost:** the most expensive experiment in this queue — two full 6-course
-crawls (before/after), real account, no scoped shortcut (the whole point is
-the full-account byte-diff). **Not run this cycle:** today's server-load
-budget already spent one contention batch (`tmp/q25-verify-run.log`, ~15 min,
-this cycle); stacking a two-pass full-account crawl on top of it the same day
-is the kind of load-timing choice `docs/server-load.md` exists to make
-deliberately, not by default. Next cycle, fresh day or clear budget.
+**Question 27 (new, 2026-08-07): with a warm session on both sides, what is
+previews-blocking's actual wall-clock saving — and does it clear the ~3%
+Question 8 predicted, or land closer to the ~30 MB/course bandwidth story
+with little time effect?** Question 26's 6.8% delta is confounded by an
+unequal starting condition (fresh login vs. warm session), and does not by
+itself confirm or refute Question 8's local-probe prediction (cache-off
+dominates the CDP tax at 60.7%, pause/resume only 3.1%) at full-account
+scale. **Prediction:** with both passes starting from an already-valid saved
+session (`ensureSession` skips login on both), the delta narrows to within a
+few percent of Question 8's ~3% fetch-only tax — i.e. previews-blocking is
+now close to free in time, and its value is almost entirely the ~30 MB/course
+transfer saved, not discovery speed. **Counts as failed at:** the delta stays
+anywhere near today's 6.8%, or grows — that would mean something beyond the
+login-confound is at play and Question 8's local-probe number does not
+transfer to the full account. **Cost:** two more full 6-course crawls, real
+account — same class as Question 26, so subject to the same one-batch-per-day
+load discipline (`docs/server-load.md`); already spent today's batch on
+Question 26 itself. Next cycle, fresh day.
+
+**Also carried forward, re-ranked up from "low" (Question 24, 2026-08-05):**
+preview-blocking is no longer this maintainer's own account under an env
+flag — it is now every user's default. Question 26's one clean pass is
+reassuring but is not the repeated-trial design that would separate "raw CDP
+amplifies Question 17's pre-existing Candidate-B bug under load" from "fires
+rarely enough not to matter in practice". Question 17's Candidate B (Wicket's
+"show all" AJAX call reporting done while its DOM rows never land) is still
+open and unfixed. Nothing here blocks shipping — Question 26 passed the
+project's own safety bar and the maintainer's standing shipping rule — but
+the fix for Candidate B now matters to every installation, not just a retest
+condition, and should not sit indefinitely behind lower-ranked questions.
 
 ---
 

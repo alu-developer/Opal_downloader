@@ -22,10 +22,12 @@ import (
 // "byte-for-byte identically to the unfixed code". So this writes every file's
 // course, section, name and URL, sorted, to a file that can be diffed.
 //
-// Usage:
+// Usage (preview blocking is on by default since Question 26 - pass
+// OPAL_BLOCK_FILE_PREVIEWS=0 to snapshot the old fetch-everything behaviour
+// for comparison):
 //
-//	OPAL_FILELIST=before                             go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
-//	OPAL_FILELIST=after OPAL_BLOCK_FILE_PREVIEWS=1   go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
+//	OPAL_FILELIST=before OPAL_BLOCK_FILE_PREVIEWS=0   go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
+//	OPAL_FILELIST=after                               go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
 //	diff "tmp/filelist-before.txt" "tmp/filelist-after.txt"
 //
 // An empty diff is the only acceptable result.

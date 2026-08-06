@@ -18,13 +18,12 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight (2026-08-07, autopilot): Question 26**, `docs/sync-speed-model.md`
-"Next experiment" — retest Question 23's shelved `OPAL_BLOCK_FILE_PREVIEWS`
-raw-CDP rewrite now that Question 25's reclick-recovery fix is live-verified.
-Prediction (written before running, per rule 1): `OPAL_FILELIST=after
-OPAL_BLOCK_FILE_PREVIEWS=1` diffs empty against an `OPAL_FILELIST=before` run
-of the full real account — Part-3 of "Softwaretechnologie (SoSe 26)" no longer
-loses its 33 files. Fails at: any non-empty diff, anywhere. Concurrency check
-done first (no `chrome.exe`, no commit from another session in the last few
-minutes, tree clean) — confirmed quiet. Plan: run `before`, then `after`, then
-`diff`; write the result into `docs/sync-speed-model.md` and clear this note.
+_Nothing in flight._
+
+Question 26 landed 2026-08-07 (autopilot): preview-blocking passed its retest
+byte-diff and shipped as the default. Full write-up in
+`docs/sync-speed-model.md` and `docs/BACKLOG.md`'s "Done recently". **Next
+up:** Question 27 (`docs/sync-speed-model.md`, "Next experiment") — a
+warm-session before/after to get a clean timing number for the win just
+shipped, deliberately deferred to a fresh day for real-account load
+discipline.

@@ -18,7 +18,16 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**Autopilot run, 2026-08-06: about to run Question 22's next cycle.**
+`docs/BACKLOG.md`'s Now item and `docs/sync-speed-model.md`'s "Next
+experiment" both point here — same probe as before
+(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`),
+default 2 runs, waiting for a cycle where the Vorlesung-node loss actually
+reproduces so `signalWaitErr` can be read on a real failing sample. Prior
+cycle (2026-08-04) got 2 clean runs, no failure, prediction untested. If this
+process dies mid-run, the probe itself already appends to
+`tmp/signal-latency-probe.log` incrementally — check there for any run this
+turn produced before the kill.
 
 ---
 

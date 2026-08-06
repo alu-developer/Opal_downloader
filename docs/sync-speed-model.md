@@ -350,6 +350,51 @@ is exactly this shape. Tracked there, not here — this session stopped running
 further real-account probes once the collision was confirmed, rather than
 risk compounding it or misreading its noise as a Question 22 result.
 
+### 25. ~~Does rearming the Wicket watch and waiting on its own signal make the context-destroyed reclick actually recover the section?~~ Answered 2026-08-06 — yes, confirmed live, 3/3
+**Prediction confirmed.** Profile confirmed quiet first (no `chrome.exe`, last
+commit 16 minutes old, clean tree — the concrete check Question 22's own
+verification asked for). `crawl.go`'s context-destroyed reclick now mirrors
+the sibling `AJAX_CALL_FAILURE` retry: rearm the watch before reclicking,
+await `awaitWicketExpansionDone` on the retry, and only fall through to the
+generic `waitForInteractiveLinks` wait if that signal doesn't come. New
+`wicket-expand-reclick-signal` audit line records the outcome.
+
+Same probe as Question 21/22 (`OPAL_SIGNAL_LATENCY_TRACE=1
+OPAL_SIGNAL_LATENCY_RUNS=4`), `tmp/q25-verify-run.log`: 3 `context-destroyed`
+events fired across the 4 runs (2 in run 2, 1 in run 3), and **all 3 rearmed
+reclicks resolved `expansionSignalled=true signalWaitErr=none`** — the retry's
+own signal arrived cleanly every time, none hit the counts-as-failed condition
+(`context-destroyed` or timeout again). Zero `warnShowAllTruncated` firings in
+any of the 4 runs, and every run reported the full **248/248** files for the
+two-course set — including the two runs that actually hit the
+context-destroyed condition, which is exactly the outcome the old,
+unrearmed reclick (Question 22's fix-verification sample) failed to produce
+on its one observed instance.
+
+**This closes the causal chain Questions 17→25 have been chasing since
+2026-08-03:** a paginated section's tail going missing under contention was
+traced from "an unexplained six-file loss" through "a real expansion bug, not
+a concurrency property" (17) → "the signal never arrives, not late" (19) →
+"it fails with `context-destroyed`" (22) → "the existing reclick didn't see
+its own trigger" (22's fix) → "the reclick's own retry needed the same signal
+discipline as its sibling path" (25) → now measured recovering the section
+live, 3 for 3.
+
+**Honest bound on "closed":** n=3 live recoveries, all today, both hits on the
+same known-flaky section (`Vorlesung`) plus one on the tutorial-enrolment
+node. That is real evidence, not a coin flip, but it is not the same weight as
+Question 20's 3-clean-runs-is-not-proof caution — a run where the *rearmed*
+retry itself reports `context-destroyed` again remains the standing kill
+condition, and the next few contention runs (from any future cycle, not a
+dedicated batch) are free confirmation if it holds.
+
+**Consequence for `course_concurrency>1` (flagging for the maintainer, not
+deciding it here):** the mechanism Question 17 re-classified as "an
+already-known expansion bug fires more often under load" now has a live-tested
+fix. Whether that changes anything about the setting's default is a product
+call outside this file's scope — noted here so it isn't rediscovered from
+scratch, not acted on.
+
 ### 7. If nothing renders client-side — what fills the 336ms then? (replaces the old Question 4)
 The campaign's conclusion from late 2026-07-31 ("the content tree is JS-rendered
 at every level") and today's source-code finding ("everything is server HTML, no
@@ -526,34 +571,34 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Question 25 (new, 2026-08-06): does re-arming the Wicket watch and waiting
-on its own signal, instead of falling through to the generic stability poll,
-make the context-destroyed reclick actually recover the section?** Opened by
-Question 22's own fix verification: the OR'd trigger fires correctly, but the
-reclick as implemented (`crawl.go` ~579-585, in the `!expansionSignalled`
-fallback) does a plain click + generic `waitForInteractiveLinks` settle wait,
-unlike the sibling `AJAX_CALL_FAILURE` retry path a few lines up (~522-532)
-which rearms the watch and awaits `awaitWicketExpansionDone` again on the
-retry. One live sample (2026-08-06, `tmp/q22-fix-verify-run.log`) shows the
-unrearmed reclick's own click succeeding but adding no rows across 4 stability
-polls. **Prediction:** rearming and awaiting the signal on the retry (mirroring
-the AJAX_CALL_FAILURE path) will recover the section on a rerun of this same
-condition. **Counts as failed at:** the rearmed retry's own signal also comes
-back `context-destroyed` or times out — that would mean the destruction is not
-a one-off per click but a property of the surrounding contention window,
-pointing back toward "don't click during this window" rather than "click
-harder." **Cost:** same probe, no new harness — real-account, ~33-50%
-historical hit rate for the underlying condition, so budget for more than one
-run. **Blocked on:** the concurrent-session collision Question 22's own
-verification surfaced (`docs/BACKLOG.md`, "Two concurrent Routines
-colliding...") — do not run this while a second live session might be sharing
-the same login-profile; confirm the profile is quiet first.
-
-**Question 23 is closed (2026-08-05, see "### 23." above in the ranked list)
-— built, and refused by its own safety bar.** Not a candidate for a retry
-cycle: the prerequisite (Question 17's pre-existing "show all" expansion bug)
-is a separate, already-scoped fix. Question 24 (same section, ranked low, and
-itself real-account-load-expensive) is the residual it left open.
+**Question 26 (new, 2026-08-06): now that Question 25 gives the
+context-destroyed reclick a live-tested recovery path, does Question 23's
+raw-CDP preview-blocking rewrite pass its own byte-diff safety bar on a
+retry?** Question 23 built `attachInlinePreviewBlocker` (`previews.go`) —
+recovers most of the ~30% `ctx.Route` tax while keeping the ~30 MB/course
+preview-blocking saving — then refused itself on a 33-file loss in
+"Softwaretechnologie (SoSe 26)" / Part-3, whose own `warnShowAllTruncated`
+line was Question 17's Candidate-B signature exactly. Question 24 named the
+prerequisite for a retry: "(a) Question 17's bug fixed first, so Question 23
+could be retested against a stable baseline." Question 25 is that fix, live-
+verified 3/3 today. **Prediction:** `OPAL_FILELIST=after
+OPAL_BLOCK_FILE_PREVIEWS=1` against the full real account now diffs empty
+against an `OPAL_FILELIST=before` run (`filelist_probe_test.go`, `tmp diff`
+per its own header) — Part-3 no longer loses its 33 files, because the
+reclick that used to fail to recover the section now does. **Counts as
+failed at:** the diff is non-empty anywhere, in Part-3 or elsewhere — that
+would mean either context-destroyed wasn't the whole Candidate-B story, or
+Question 24's alternative holds (raw-CDP's goroutine-per-`requestPaused`
+pattern adds a distinct failure mode of its own, not just amplifying the old
+one). Either outcome is informative: a clean diff ships a real win Question 23
+had ready and shelved; a dirty one separates the two Question 24 could not.
+**Cost:** the most expensive experiment in this queue — two full 6-course
+crawls (before/after), real account, no scoped shortcut (the whole point is
+the full-account byte-diff). **Not run this cycle:** today's server-load
+budget already spent one contention batch (`tmp/q25-verify-run.log`, ~15 min,
+this cycle); stacking a two-pass full-account crawl on top of it the same day
+is the kind of load-timing choice `docs/server-load.md` exists to make
+deliberately, not by default. Next cycle, fresh day or clear budget.
 
 ---
 

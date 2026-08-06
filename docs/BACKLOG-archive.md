@@ -14,6 +14,25 @@ this is the human-readable version of why things are the way they are.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Installer's Chromium-cache-path fix verified in CI and merged** (2026-08-03,
+  PR #131): `release.yml` gained a `workflow_dispatch` trigger and a step that
+  silently installs the built installer and asserts both browser binaries land
+  under `%USERPROFILE%\.opal-downloader\ms-playwright` — with the runner's own
+  cache moved aside first, without which the check passes regardless. Took
+  three revisions of the *check* (chrome.exe is GUI-subsystem so `--version`
+  leaves `$LASTEXITCODE` unset; chrome-headless-shell.exe carries no version
+  resource at all, confirmed against a working local install), which is
+  recorded in `docs/installer-plan.md`. Not verified: that the installed app
+  launches the browser end-to-end — that needs an OPAL account the runner
+  does not have.
+- **Sync-speed Question 16 answered by refutation: the contention baseline is
+  itself unstable** (2026-08-03): four 2-course runs at `course_concurrency=2`
+  split 248/242/242/248 — the same 6 files from one *paginated* course node
+  vanished in one run of each condition, including the unchanged
+  500ms/6000ms one. So a tighter debounce could not be tested: there was no
+  stable baseline to test it against, and the finger points at the Wicket
+  "show all" path, not the settle budget. Users unaffected
+  (`DefaultCourseConcurrency = 1`). Opened Question 17 with a decided next step.
 - **Sync-speed Question 15 closed: 150ms debounce holds on the large course too**
   (2026-08-02, autopilot): same file-set, 210/210, across 2 baseline (300ms)
   and 2 override (150ms) runs against Softwaretechnologie (164 sections);

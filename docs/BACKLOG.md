@@ -151,6 +151,15 @@ Delete an entry when it is done, or when it turns out not to matter.
   minutes — cheap, and this session should have done it before the
   verification batch above, not just after.
 
+  **Update 2026-08-06 (later the same day): the concrete check worked, no
+  second collision this run.** Confirmed quiet before touching anything —
+  `tasklist` showed no `chrome.exe`, `git log -3` showed nothing from another
+  session in the last 16 minutes, tree clean — then ran Question 25's 4-run
+  verification batch without incident: no `ErrProfileLocked`, no total-loss
+  collapse, all 4 runs reported real counts. Not proof the lock bug itself is
+  fixed (still open, options unchanged above), just confirmation that the
+  cheap check is enough to avoid re-triggering it.
+
 ---
 
 ## Standing work
@@ -292,22 +301,14 @@ move the rest across.
   with the merge — no usage-limit gate at all, *Now*+*Next*+*Noticed* must be
   clear of unblocked items before the handoff, a byte-diff-proven default may
   now be shipped, and run length is left to judgement.
-- **Installer's Chromium-cache-path fix verified in CI and merged** (2026-08-03,
-  PR #131): `release.yml` gained a `workflow_dispatch` trigger and a step that
-  silently installs the built installer and asserts both browser binaries land
-  under `%USERPROFILE%\.opal-downloader\ms-playwright` — with the runner's own
-  cache moved aside first, without which the check passes regardless. Took
-  three revisions of the *check* (chrome.exe is GUI-subsystem so `--version`
-  leaves `$LASTEXITCODE` unset; chrome-headless-shell.exe carries no version
-  resource at all, confirmed against a working local install), which is
-  recorded in `docs/installer-plan.md`. Not verified: that the installed app
-  launches the browser end-to-end — that needs an OPAL account the runner
-  does not have.
-- **Sync-speed Question 16 answered by refutation: the contention baseline is
-  itself unstable** (2026-08-03): four 2-course runs at `course_concurrency=2`
-  split 248/242/242/248 — the same 6 files from one *paginated* course node
-  vanished in one run of each condition, including the unchanged
-  500ms/6000ms one. So a tighter debounce could not be tested: there was no
-  stable baseline to test it against, and the finger points at the Wicket
-  "show all" path, not the settle budget. Users unaffected
-  (`DefaultCourseConcurrency = 1`). Opened Question 17 with a decided next step.
+- **Question 25 confirmed live, 3/3: rearming the Wicket watch on the
+  context-destroyed reclick recovers the section** (2026-08-06, autopilot):
+  `crawl.go`'s reclick fallback now mirrors the sibling `AJAX_CALL_FAILURE`
+  retry — rearm before reclicking, await the signal, only fall back to the
+  generic wait if it doesn't come. All 3 live `context-destroyed` hits across
+  a 4-run contention batch recovered cleanly (`expansionSignalled=true` on the
+  retry), zero truncation warnings, all 4 runs at the full 248/248 files. Closes
+  the causal chain Questions 17→25 have chased since 2026-08-03. Opened
+  Question 26: retest Question 23's shelved preview-blocking win now that its
+  named prerequisite is live-tested fixed — full write-up and the deferred
+  run's cost/prediction in `docs/sync-speed-model.md`, "Next experiment".

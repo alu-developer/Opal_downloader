@@ -473,6 +473,10 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	// call completed successfully, so the DOM is final and a single read is
 	// authoritative - no count-stability guessing needed. See wicket.go.
 	expansionSignalled := false
+	// signalWaitErr is declared at function scope (not inside the `if
+	// !navigated` block below, where it's computed) so the fallback further
+	// down can read it directly - see that fallback's comment for why.
+	signalWaitErr := "none"
 
 	if !navigated {
 		// Arm the watch BEFORE clicking: Wicket only delivers its topics to
@@ -509,7 +513,6 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 		// "errored fast" from "waited the full budget" apart; do not assume
 		// one or the other from signalElapsedMs alone.
 		signalElapsedMs := int64(-1)
-		signalWaitErr := "none"
 		if watchArmed {
 			signalled, failed, waitErr := awaitWicketExpansionDone(page, effectiveWicketExpansionSignalTimeoutMs())
 			signalWaitErr = classifyWicketWaitError(waitErr)
@@ -560,7 +563,22 @@ func (s *OpalScraper) expandShowAllInSection(page playwright.Page, currentURL st
 	// it does not, on large expansions, mark the resulting DOM as complete.
 	if !expansionSignalled {
 		contextWasDestroyed, _ := s.waitForInteractiveLinks(page, contentFallbackWaitMs)
-		if contextWasDestroyed && !navigated {
+		// Question 22 (docs/sync-speed-model.md, closed 2026-08-06): a live
+		// contention run reproduced expansionSignalled=false with
+		// signalWaitErr=context-destroyed on the Wicket wait itself, yet the
+		// section still lost its tail (242 vs 248 files) - this trigger
+		// hadn't fired. Reading waitForInteractiveLinks's doc comment
+		// explains why: that function's contextWasDestroyed only reports a
+		// destruction it observes DURING ITS OWN re-probe, moments after the
+		// click. If the context was destroyed and had already recovered by
+		// the time this re-probe runs, the re-probe sees a normal working
+		// context and reports false - even though the original click's AJAX
+		// response was already lost in the gap. signalWaitErr carries direct
+		// evidence from the original wait, at the moment closest to the
+		// click, so it is OR'd in here rather than trusted instead of the
+		// re-probe: either signal on its own is sufficient proof of the same
+		// underlying event, and neither is a strict superset of the other.
+		if (contextWasDestroyed || signalWaitErr == "context-destroyed") && !navigated {
 			// THE ROOT CAUSE this task (fix-candidate-stability-poll-concurrent-
 			// crawl-race) set out to find: see waitForInteractiveLinks's doc
 			// comment (navigation.go) for the full live evidence. In short, an

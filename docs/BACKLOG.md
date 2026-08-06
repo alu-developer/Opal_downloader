@@ -22,18 +22,7 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-
-- **Read the Wicket wait's actual error, not just its timing**
-  (`docs/sync-speed-model.md` Question 22). First cycle (2026-08-04): the
-  probe ran but the failure did not reproduce — both runs clean (248/248
-  files, `signalWaitErr=none`) — so the prediction (`context-destroyed`) is
-  still untested on an actual failing sample. Weak supporting signal only:
-  the 2 clean samples (167/177ms) sit in the same tight band as Question 21's
-  2 failing samples (196/206ms), leaning against "pure delay" without
-  confirming the specific error. **Real-account load caution stands**: this
-  sub-thread (Questions 19-22) has spent 10 two-course contention crawls
-  today (`docs/server-load.md`) — deferred to a later cycle rather than
-  forced with a larger batch.
+_Nothing unblocked. Question 25 is next but currently blocked — see Noticed._
 
 ---
 
@@ -136,6 +125,31 @@ Delete an entry when it is done, or when it turns out not to matter.
   longer a way to trigger this. The lock bug itself is untouched — a scheduled
   run and one of the maintainer's own sessions can still collide — so the
   options above stand.
+
+  **Update 2026-08-06, a second live collision, this time with real (if
+  circumstantial) evidence of what it costs.** Two Claude Code sessions were
+  confirmed active in this exact checkout at the same time — this session's
+  own autopilot run (Sonnet) working `docs/sync-speed-model.md` Question 22,
+  and a second one (Opus, per its commit's co-author line) working the
+  RSS/notification-signal thread in this file's own Noticed section. Evidence:
+  commits `5c8956a`/`5ebfacd`/`b3d3e3d` landed directly on top of this
+  session's own commit while it was still mid-run, and a 4-run real-account
+  verification batch (`tmp/q22-fix-verify-run.log`) had its 1st run behave
+  normally, then all 3 remaining runs report **0 files for both courses**
+  with no error — a total, silent collapse right after the other session's
+  commits landed, not the partial/intermittent loss this project's actual bugs
+  produce. No `ErrProfileLocked` surfaced here either, same as the 2026-08-02
+  incident. This is circumstantial, not proven (no direct log correlation
+  attempted this session, and the crawl.go fix under test at the time is an
+  alternative explanation not yet fully ruled out — though it cannot explain
+  a *total* loss on both courses, only a partial one on the specific section
+  it touches). **Consequence: Question 25 (`docs/sync-speed-model.md`,
+  "Next experiment") — re-arming the Wicket watch on the context-destroyed
+  reclick — is next but explicitly deferred until the profile is confirmed
+  quiet.** Concrete check before running it: `tasklist` shows no `chrome.exe`,
+  and `git log -3` shows no commit from another session in the last few
+  minutes — cheap, and this session should have done it before the
+  verification batch above, not just after.
 
 ---
 

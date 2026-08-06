@@ -283,6 +283,73 @@ longer budget catch it, or does the signal never come no matter how long you
 wait) are in "Previous experiment (Question 19, closed 2026-08-04)" below —
 that split is now Question 20, the next experiment.
 
+### 22. ~~When the wait fails, what does it actually fail *with*?~~ Answered 2026-08-06 — `context-destroyed`, confirmed live, and the existing reclick fallback had a real gap. Fix landed; the gap it left open is Question 25.
+**Prediction confirmed, on its own terms.** The third cycle of the same probe
+(`showallsignallatency_probe_test.go`, `OPAL_SIGNAL_LATENCY_TRACE=1`)
+reproduced the Vorlesung-tail loss with `expansionSignalled=false signalMs=400
+signalWaitErr=context-destroyed` — exactly the predicted classification, not
+`timeout` (the failure criterion) and not `other`. `tmp/signal-latency-probe.log`
+now holds one confirmed `context-destroyed` sample alongside the two
+`none`/clean and two earlier unclassified-`false` (pre-instrumentation)
+samples.
+
+**That closed the causal chain Questions 17-22 have been chasing, and reading
+the code it pointed at found a real, separate bug.** `context-destroyed` on
+the Wicket wait ties directly to the mechanism `waitForInteractiveLinks`'s own
+doc comment (`navigation.go`) already names: contention destroys the section
+page's execution context around click time, the in-flight AJAX response has
+nowhere to land, and the expansion silently drops its tail. `crawl.go` already
+had a fallback for exactly this (`expandShowAllInSection`, ~line 561) — reclick
+once if `waitForInteractiveLinks`'s own re-probe sees a destroyed context. But
+that re-probe runs *after* the click, on a fresh call, and only reports
+`true` if it observes the destruction itself; if the context had already been
+replaced by the time the re-probe ran, it read a normal working context and
+never triggered the reclick — even though the *earlier* Wicket wait had
+already told us, directly, that the context was destroyed at the moment that
+mattered. Live evidence this happened: the confirmed sample above logged
+`truncated=true` and 242 files (the known six-file loss) — the reclick never
+fired.
+
+**Fixed (`crawl.go`):** `signalWaitErr` is now hoisted to function scope and
+OR'd into the reclick trigger — `(contextWasDestroyed ||
+signalWaitErr == "context-destroyed") && !navigated` — so the direct evidence
+from the original wait is sufficient on its own, not only the independent
+re-probe. This is strictly additive: it only adds a reclick attempt in cases
+that already indicate the expansion was dropped, never removes the existing
+path, and `attemptShowAllExpandClick`'s own bounded retry (3 tries) caps the
+cost. Build and full local test suite (`go test ./...`) pass.
+
+**Honest residual — Rule 2 is not fully satisfied yet.** A 4-run real-account
+verification batch the same day (`tmp/q22-fix-verify-run.log`) caught the
+condition again and confirmed the fix *fires* correctly: the audit log shows
+the reclick dispatching (`click`/`click-success`, "try 1/3") right after the
+`context-destroyed` classification. But the reclick's own AJAX call **also**
+failed to add rows — `waitForStableExpandedCandidates` polled 4 times
+afterward, all reading the same 41 raw rows, and the section was still
+reported truncated. So the fix corrects the *trigger* (confirmed to broaden
+detection beyond the old re-probe-only path) but is not, on this one sample,
+sufficient to *recover* the data. That means the explanation is not yet sharp
+enough to predict the fix's own outcome in advance, which is exactly Rule 2's
+bar — this stays open rather than being declared solved. Whether a second
+reclick, one that re-arms the Wicket watch and waits on its own signal
+(the way the sibling `AJAX_CALL_FAILURE` retry path already does, `crawl.go`
+~522-532) rather than falling through to the generic stability poll, would
+fare better is untested and is the natural next step — **Question 25**.
+
+**Separate finding, not caused by this fix:** immediately after the sample
+above, the same verification batch's remaining 3 runs each reported **0
+files for both courses** — not a partial loss, a total one, with no error
+logged (`"crawled successfully but found 0 files"`). That is not a plausible
+consequence of an OR'd boolean condition; the leading hypothesis is a
+concurrent-session collision on the shared login-profile — a second live
+Claude Code session was confirmed active in this exact checkout at the same
+time (two commits, `5c8956a`/`5ebfacd`, landed on top of this run's own
+commit while it was in progress) and the profile-lock bug this project
+already has open (`docs/BACKLOG.md`, "Two concurrent Routines colliding...")
+is exactly this shape. Tracked there, not here — this session stopped running
+further real-account probes once the collision was confirmed, rather than
+risk compounding it or misreading its noise as a Question 22 result.
+
 ### 7. If nothing renders client-side — what fills the 336ms then? (replaces the old Question 4)
 The campaign's conclusion from late 2026-07-31 ("the content tree is JS-rendered
 at every level") and today's source-code finding ("everything is server HTML, no
@@ -459,15 +526,28 @@ profiling already announced in Question 7.
 
 ## Next experiment
 
-**Question 22 is the only open real-account question ranked ahead of it,
-still deferred for load** (see its "Previous experiment" section below) —
-same probe (`showallsignallatency_probe_test.go`,
-`OPAL_SIGNAL_LATENCY_TRACE=1`), waiting for a cycle where the failure
-reproduces so `signalWaitErr` can actually be read on it. Real-account load
-today (2026-08-05) already includes 3 crawls for Question 23's investigation
-(~630s total, up to 6 courses each) on top of the 10 two-course contention
-crawls the 19-22 sub-thread had already spent as of the last report — this
-cycle did not add to Question 22's own queue.
+**Question 25 (new, 2026-08-06): does re-arming the Wicket watch and waiting
+on its own signal, instead of falling through to the generic stability poll,
+make the context-destroyed reclick actually recover the section?** Opened by
+Question 22's own fix verification: the OR'd trigger fires correctly, but the
+reclick as implemented (`crawl.go` ~579-585, in the `!expansionSignalled`
+fallback) does a plain click + generic `waitForInteractiveLinks` settle wait,
+unlike the sibling `AJAX_CALL_FAILURE` retry path a few lines up (~522-532)
+which rearms the watch and awaits `awaitWicketExpansionDone` again on the
+retry. One live sample (2026-08-06, `tmp/q22-fix-verify-run.log`) shows the
+unrearmed reclick's own click succeeding but adding no rows across 4 stability
+polls. **Prediction:** rearming and awaiting the signal on the retry (mirroring
+the AJAX_CALL_FAILURE path) will recover the section on a rerun of this same
+condition. **Counts as failed at:** the rearmed retry's own signal also comes
+back `context-destroyed` or times out — that would mean the destruction is not
+a one-off per click but a property of the surrounding contention window,
+pointing back toward "don't click during this window" rather than "click
+harder." **Cost:** same probe, no new harness — real-account, ~33-50%
+historical hit rate for the underlying condition, so budget for more than one
+run. **Blocked on:** the concurrent-session collision Question 22's own
+verification surfaced (`docs/BACKLOG.md`, "Two concurrent Routines
+colliding...") — do not run this while a second live session might be sharing
+the same login-profile; confirm the profile is quiet first.
 
 **Question 23 is closed (2026-08-05, see "### 23." above in the ranked list)
 — built, and refused by its own safety bar.** Not a candidate for a retry
@@ -622,6 +702,22 @@ two-course contention crawls today (8 before this cycle, 2 more here) — see
 the next cycle either lands on a failing sample by chance (as Question 21's
 did) or it does not, and forcing a larger batch to guarantee one is exactly
 the "large batch" this sub-thread has been avoiding on purpose.
+
+---
+
+## Previous experiment (Question 22, second cycle 2026-08-06 — confirmed, closed)
+
+**Result: prediction confirmed exactly.** Run 2 of 2 reproduced the loss:
+`expansionSignalled=false signalMs=277 signalWaitErr=context-destroyed
+truncated=true`, 242 files. Not `timeout` (the failure criterion), not
+`other` — `context-destroyed`, the predicted bucket, on the first failing
+sample this instrumentation ever saw.
+
+**Consequence:** see "### 22." in the ranked list above for the full
+mechanism write-up, the fix landed in `crawl.go`, its live verification (the
+fix's trigger fires correctly; the reclick itself did not recover the section
+on the one sample tested — Question 25 opened), and the separate
+concurrent-session collision this cycle's verification batch surfaced.
 
 ---
 

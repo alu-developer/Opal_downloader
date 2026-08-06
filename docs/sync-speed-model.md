@@ -1783,6 +1783,48 @@ decision is the maintainer's, not a counter's — no cap on the campaign, the ki
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
 
+### 2026-08-07 (autopilot): five cycles, Questions 22 (2nd)/25/7/26 — keep going, the correctness thread paid off in a shipped default
+
+Cycles since the last report: Question 22's second cycle, Question 25, Question 7,
+and Question 26 — four questions across five cycles (Question 22 spanned two: an
+inconclusive first pass, then a confirmed second one).
+
+**What changed since the last report.** The correctness thread the previous report
+flagged as "keep going" closed cleanly: Question 22 confirmed the Vorlesung-loss
+wait fails with `context-destroyed`, not a genuine timeout; Question 25 then showed
+that rearming the Wicket watch and awaiting its own signal on the reclick recovers
+the section, 3/3 live. That fix is what let Question 26 retest Question 23's
+shelved raw-CDP preview-blocking rewrite — Question 23 had refused itself in
+2026-08-05 on a 33-file loss in exactly the section Question 25 now fixes. Question
+26 came back clean (349 files, zero-line diff, no truncation anywhere) and
+**shipped as the default the same cycle** — `OPAL_BLOCK_FILE_PREVIEWS` flipped from
+opt-in to opt-out, per the 2026-08-03 standing rule that a byte-diff-proven default
+may ship directly. That is the campaign's second user-visible win (after the 150ms
+debounce) and the first one that traces back through four chained questions
+(17 → 22 → 25 → 26) rather than a single measurement. Question 7 also closed this
+window, for free — re-reading data already on disk from Questions 13-15 settled
+what fills the settle wait, no live run needed.
+
+**What is still open.** Question 27 (does previews-blocking's real timing saving
+match Question 8's ~3% local prediction, once the fresh-login confound in
+Question 26's own before-run is removed) is queued and cheap. The session-lock
+collision bug (`docs/BACKLOG.md` Noticed) got a source-reading pass this cycle
+that ruled out two of its three original candidates and named a better-fitting
+one — still unfixed, still not urgent, but it now matters to every installation
+rather than one test account, because Question 26 just shipped more real load
+onto the exact mechanism (Wicket "show all" expansion) the still-open Question
+17 Candidate B already knows is load-sensitive. Question 2 (why HTTP discovery
+was empty on 2/6 courses) remains the highest-ranked genuinely-unanswered item
+on the list, and has had no cycle spent on it since Question 1 was read in
+2026-07-31.
+
+**Recommendation: keep going.** Four questions closed, one shipped default, zero
+regressions (build/vet/full test suite all pass), and every closure left the
+required new open question. The chain from Question 17 to Question 26 is exactly
+the "understand why, not just try-drop-try" method the campaign was reopened to
+fix on 2026-07-31 — it took eight days end to end, across five reports now, but
+it produced a real, verified win rather than another abandoned lever.
+
 ### 2026-08-04 (autopilot): five cycles, Questions 17-21 — keep going, correctness thread deepens
 
 Cycles since the last report: Questions 17, 18, 19, 20, 21 (first cycle). All five

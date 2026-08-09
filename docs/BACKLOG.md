@@ -22,10 +22,10 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Sync-speed's Questions 24 and 29 (both real-account,
-both need a live run) are queued in `docs/sync-speed-model.md`, "Next
-experiment" — the ranked question list has nothing left that's answerable
-without one._
+_Nothing unblocked. Sync-speed's Questions 24, 29 and 30 (all real-account,
+all need a live run — 30 additionally waits on 24 by its own kill
+criterion) are queued in `docs/sync-speed-model.md`, "Next experiment" —
+the ranked question list has nothing left that's answerable without one._
 
 ---
 
@@ -307,6 +307,17 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 30 opened and mostly closed same-cycle, no live run: OpenOLAT's
+  folder browser does offer a participant-reachable bulk-ZIP-download of a whole
+  `Ordner` subtree, but this project's own metadata parsing (`files.go`) only
+  ever reads size/modified date off the currently-rendered page, so nested-folder
+  discovery still needs one page load per level either way** (2026-08-09,
+  autopilot, source reading of both OpenOLAT's and this project's own code, no
+  live run): the lever is real but bounded to the ~86s first-sync download floor
+  `docs/server-load.md` already named, not the 207s crawl floor. Ranked behind
+  Question 24 (correctness first, per the standing rule). Full write-up and
+  source citations in `docs/sync-speed-model.md` Question 30; fifth-cycle
+  report appended there per the reporting cadence.
 - **Question 6 closed, no live run needed: the "1 in 12 sections unstable" premise
   was already retracted by the campaign's own next entry, three days before this
   question was carried into `docs/sync-speed-model.md`** (2026-08-09, autopilot):

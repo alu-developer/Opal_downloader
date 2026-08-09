@@ -144,8 +144,7 @@ does the *browser* crawler's own tree walk ever re-fetch a node's page more than
 once — once per child discovered under it — and if so, is that a measurable,
 avoidable request multiplier? Not measured; untested candidate for the leverage
 ranking, and unlike Question 24 it needs no repeated-trial design, just one
-instrumented live run — real-account load, so it waits for the same fresh day as
-Question 24.
+instrumented live run against the real account, not yet run this cycle.
 
 ### 3. ~~Why does `ctx.Route` cost 30%?~~ Answered 2026-08-01, see report below
 On every route, whatever pattern is passed in, Playwright installs
@@ -723,6 +722,107 @@ not; the byte-diff, not this number, is what decided the ship.
 
 ---
 
+### 30. ~~Does OpenOLAT's unified folder browser let a nested `Ordner` course node be fetched as one ZIP instead of one page load per subfolder level?~~ Narrowed 2026-08-09, same cycle — metadata forces the discovery pass to stay unchanged, so the win is real but smaller than first framed
+
+**Opened and partly answered 2026-08-09 (autopilot, pure source reading of
+both codebases, no live run).** Originally ranked above Questions 24/29 on
+the guess that this could collapse the crawl's 207s page-load floor itself.
+That guess doesn't survive this project's own code, checked the same cycle
+(see "Narrowed" below) — it still ranks as real, live-run-worthy work, but
+below Question 24 (a correctness risk on a shipped default, per the
+standing "correctness ahead of speed" rule) and roughly level with Question
+29.
+
+**The mechanism, sourced on both ends, not guessed:**
+
+- **This project's own crawler already pays a full page load per nested
+  subfolder level inside an `Ordner` course node.**
+  `looksLikeSectionFolderLink` (`internal/scraper/files.go:255`) matches
+  `target=fold_` / `/coursenode/` links found on a folder page and queues
+  them as further sections to crawl — there is no code path today that reads
+  a subfolder's contents without separately navigating to it. `node-bc` is
+  this project's own confirmed CSS-class marker for a real content folder
+  (`internal/scraper/section_type_test.go`, "true negative: real content
+  folder, node-bc class").
+- **OpenOLAT's server-side folder browser (`FolderController`, the class
+  every `Ordner` course node's participant view is built from — confirmed by
+  `BCCourseNodeRunController.java:167`, `folderCtrl = new
+  FolderController(...)`) has a bulk "Download" action that is not gated
+  behind editor rights.** `bulkDownloadButton.setVisible(!trashView)`
+  (`FolderController.java:526`, no `canEditCurrentContainer` check, unlike
+  the neighbouring `bulkZipButton` at line 529 which *is* editor-gated).
+  Clicking it on one or more selected rows calls `doBulkDownload`
+  (`FolderController.java:2656`), which for a `VFSContainer` row (i.e. a
+  subfolder) wraps it in `FolderZipMediaResource` — and that class recurses
+  the *entire* subtree via `ZipUtil.addToZip` into one streamed
+  `application/zip` response (`FolderZipMediaResource.java:97-105`). The
+  per-row participant permission check is `isItemNotAvailable(ureq, row,
+  false)` (`FolderController.java:2666`), not an edit check. Even a single
+  row's plain "download" link already takes this path when the row is a
+  container: `doDownload` (`FolderController.java:2639-2653`) zips it the
+  same way.
+  Source: `gh api repos/OpenOLAT/OpenOLAT/contents/<path>` reads of
+  `FolderController.java`, `FolderZipMediaResource.java`,
+  `BCCourseNodeRunController.java` at `master` HEAD, 2026-08-09. (GitHub's
+  `search/code` endpoint was returning `total_count: 0` for known-good
+  queries all cycle — confirmed a genuine index outage, not absence, by
+  fetching `MenuTreeRenderer.java` directly by path — so this cycle's
+  reading used the repo's git-trees API plus direct content fetches instead
+  of `gh search code`. Note for whoever runs the next source-reading cycle:
+  check whether `gh search code` is back before assuming it still works the
+  way the 2026-07-31/2026-08-01 entries used it.)
+- **This account's course material predominantly lives in exactly this node
+  type.** Already established today, independently, by the WebDAV letter
+  work: "the place course material actually lives — the folder course
+  elements (*Kursbausteine 'Ordner'*)" (`docs/opal-webdav-student-access.md`
+  line 68). This is not a marginal case for this account.
+
+**Narrowed, same cycle, no live run needed: metadata for nested files is only
+ever seen by visiting each subfolder, so discovery cannot shrink.**
+`parseRowSizeBytes`/`parseRowModified` (`internal/scraper/files.go:178-219`,
+called from `appendSectionFiles`) parse a file's size/modified date from
+`rowText` — the DOM row of *whatever page is currently loaded*
+(`extractSectionContentCandidates`, `files.go:18-96`, scopes `rowText` to
+the row's own closest table/list ancestor on the live page). Nothing in
+`internal/scraper/discovery.go` or `crawl.go` sources this metadata any
+other way — grepped for `parseRowSizeBytes`/`parseRowModified`/`Modified`/
+`SizeBytes` outside `files.go` itself: no hits. A parent `Ordner` page's row
+for a subfolder link carries only the subfolder's *own* row text (name,
+maybe an item count) — it cannot carry the modified dates of files that
+haven't been rendered yet, because OPAL never sends them until that
+subfolder's own page is requested (the same `MenuTreeRenderer` "only
+currently-open nodes" behaviour Question 1/9 already established for the
+course tree applies identically here — a folder page is exactly this kind
+of Wicket-rendered tree fragment). So **every subfolder level still needs
+its own page load for discovery/change-detection, zip or no zip** — the
+207s crawl floor (page loads + settle waits) is untouched by this lever.
+
+**What survives:** only the *download* step for files already known to have
+changed can move to a single bulk-ZIP request per top-level `Ordner`,
+instead of one `getPolitely` fetch per file. That is exactly the class of
+cost `docs/server-load.md` already named and explicitly declined to
+optimize for a routine sync ("Files are fetched only when they have
+actually changed, which on a routine sync is almost none of them") — the
+real payoff, if any, is on a *first* sync, against the same ~86s floor that
+document already reasoned about and marked "deliberately not measured."
+Bulk-ZIP could plausibly cut a meaningful fraction of that 86s (one request
+instead of N queued-behind-the-rate-limiter fetches), but that is a bounded,
+one-time cost this project has already decided not to chase, not the
+recurring 207s this campaign exists to shrink.
+
+**Kill criterion, revised:** worth a live-run cycle only once Questions 17
+(Candidate B, unfixed) and 24 (its residual risk on the shipped default) are
+resolved, since correctness ranks first by the standing rule. When picked
+up, the live check needed is narrow: does `bulkDownloadButton` actually
+render for a participant on a real `node-bc` section, and is the resulting
+first-sync-download-time saving big enough to bother with, given it can
+only ever address the 86s floor, not the 207s one. If the account's
+`Ordner` sections turn out mostly flat (0-1 nested levels) that shrinks the
+one-time saving further and may not be worth the Playwright bulk-select
+automation it would take to claim it.
+
+---
+
 ## Next experiment
 
 **Questions 2 and 6 both closed this cycle (2026-08-09, autopilot, no live run) —
@@ -736,12 +836,39 @@ this question was carried into this file (2026-07-31) without the retraction com
 along; its diagnostic feature (`internal/sectionhash`) no longer exists, so there is
 nothing left for a future cycle to run there.
 
-**That empties the ranked list of anything answerable without a live run.** What
-remains open — Questions 5, 24, and 29 — all need either a maintainer product
-decision (5, already given: stays low-priority, picked up only when the discovery
-line is exhausted) or real-account load (24, 29). Both 24 and 29 wait for the same
-fresh day; check `docs/server-load.md`'s discipline note in `docs/RESUME.md` before
-running either.
+**Question 30 opened and mostly closed the same cycle (2026-08-09, autopilot,
+pure source reading, no live run): the bulk-ZIP-download lever this cycle
+went looking for is real but smaller than hoped.** OpenOLAT's folder browser
+does expose a participant-reachable "download this subtree as one ZIP"
+action (sourced in "What we don't know" above), and this account's material
+does predominantly live in the course-element type that offers it — but
+this project's own metadata parsing (`files.go`) only ever reads a file's
+size/modified date off the page that file is rendered on, so every nested
+subfolder still needs its own page load for discovery no matter what
+downloads it. The lever only ever reaches the download step, bounded by the
+~86s first-sync floor `docs/server-load.md` already named and declined to
+optimize — not the 207s crawl floor this campaign targets. Left open,
+ranked behind Question 24 (correctness on a shipped default outranks a
+bounded one-time speed win, per the standing rule) and roughly level with
+Question 29.
+
+**That leaves the ranked list empty of anything both high-value and
+answerable without a live run.** What remains open — Questions 5, 24, 29,
+and 30 — all need either a maintainer product decision (5, already given:
+stays low-priority, picked up only when the discovery line is exhausted) or
+real-account load (24, 29, 30 — and 30 specifically only after 24 is
+resolved, per its own kill criterion).
+
+**Maintainer decision, 2026-08-09: the "one live experiment batch per day"
+self-caution this campaign had been applying is retired.** It was never a
+rule in `docs/server-load.md` itself — that file's actual mechanisms (the
+`polite.Limiter` rate ceiling, `429`/`503` backoff, scattering
+`scheduler.SuggestedTime` across the hour) all still apply unchanged and
+still bound how hard any single run hits OPAL. What is retired is the
+separate, self-imposed rationing of how many *live-run cycles this campaign
+does per day* — the maintainer confirmed server load is not a concern here.
+Questions 24, 29 and 30 (in that order, correctness first) may all run in
+the same day going forward; no more "waits for a fresh day" gating.
 
 **Carried forward, still top of the queue needing a live run (Question 24, re-ranked
 up 2026-08-05):** preview-blocking is no longer this maintainer's own account
@@ -755,6 +882,42 @@ and unfixed. Nothing here blocks shipping — Question 26 passed the project's
 own safety bar and the maintainer's standing shipping rule — but the fix for
 Candidate B now matters to every installation, not just a retest condition,
 and should not sit indefinitely behind lower-ranked questions.
+
+**Prediction, written before running (2026-08-09), per Rule 1.** Design:
+paired matched-condition runs of `TestPreviewBlockShowAllRegression`
+(`internal/scraper/previewblockshowall_probe_test.go`), single-course
+(`"Softwaretechnologie (SoSe 26)"` only, not the full 6-course account —
+this probe already scopes to it), alternating `OPAL_BLOCK_FILE_PREVIEWS=1`
+(blocking on, today's shipped default) and `OPAL_BLOCK_FILE_PREVIEWS=0`
+(blocking off, the pre-Question-26 baseline), 3 runs each side, reading the
+probe's own `truncatedPart3` signal (did Part-3's "show all" expansion add
+zero files) each time.
+
+*Mechanism suspected:* `previews.go`'s own doc comment already flags its
+`Fetch.requestPaused` handling as reentrancy-sensitive — one goroutine per
+paused request. Part-3 is the section with by far the most inline-preview
+files (30+ PDF variants), so its "show all" click coincides with a burst of
+near-simultaneous paused requests specifically when blocking is on. If that
+burst interferes with how Chrome applies the Wicket AJAX response's DOM
+patch, blocking-on should truncate Part-3 *more often* than blocking-off,
+on top of whatever rate Candidate B already causes by itself.
+
+*Expected numbers:* Candidate B's own baseline rate on this exact section,
+from the archived Question 17/19/20 data this file already cites, is
+~33–50% independent of preview-blocking. Blocking-on predicted to land
+visibly above that band (call it >60% failure, i.e. 2 or 3 of 3 truncated);
+blocking-off predicted to land inside the archived band (roughly 1 of 3,
+maybe 2).
+
+*Counts as refuted (closes this question toward "no distinct raw-CDP
+effect")* if both conditions' rates fall in the same ~33–50% band within
+the noise a 3-run-per-side sample allows — that would mean Question 26's
+one earlier clean pass generalizes, and the loss really is purely
+downstream of the pre-existing Candidate-B bug, not amplified by raw CDP.
+*Counts as confirmed* if blocking-on's rate is clearly higher across all 3
+pairs, in which case the mitigation `previews.go`'s doc comment already
+named (bounding concurrent `requestPaused` handling) moves from
+"plausible, not worth building yet" to worth building.
 
 **Ranked low, a methodology fix rather than a live question (opened by
 Question 28, closed below):** would standardizing future sync-speed timing
@@ -2014,6 +2177,69 @@ Every 5 cycles, each ending with a recommendation: keep going or stop, and why. 
 decision is the maintainer's, not a counter's — no cap on the campaign, the kill criterion
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
+
+### 2026-08-09 (autopilot): five cycles, Questions 27/28/2/6/30 — keep going, but the ranked list is now genuinely empty without a live run
+
+Cycles since the last report: Question 27 (warm-session timing, confirmed),
+Question 28 (`go test` cache-staleness noise, opened by 27 and closed the
+same window), Question 2 (HTTP-discovery's 2-of-6-courses gap, closed by
+connecting three already-written findings), Question 6 (closed as a stale
+premise the campaign had already retracted before this file existed), and
+Question 30 (opened and mostly closed: OpenOLAT's participant-reachable
+bulk-ZIP folder download, real but bounded to the ~86s first-sync floor,
+not the 207s crawl floor).
+
+**What changed since the last report.** No new shipped default this round —
+unlike the 17→26 chain, this was a documentation-debt-clearing and
+diminishing-returns round. Question 27 confirmed the warm-session prediction
+(4.03% total wall-clock delta) but decomposed it: only 1.14% lives inside
+the crawl, the rest is `go test`'s own build/cache-staleness bookkeeping,
+which Question 28 then pinned down precisely (a 3.6s gap between cache-cold
+and cached invocations of the identical test, unrelated to previews or crawl
+work). Net effect: every past "X% wall-clock" figure in this file that came
+from `time go test` rather than the crawler's own section-timing total now
+carries an acknowledged few-seconds error bar — none large enough to flip a
+past conclusion, but the audit-log total is now the preferred number for any
+future close call. Questions 2 and 6 were both closed by re-reading data
+already on disk, no live run for either — 2 by finally connecting Question
+1's tree-rendering finding to `httpdiscovery.go`'s own design comment (the
+abandoned HTTP-first crawler never walked the tree at all, so it could only
+ever see default-open branches, exactly the two courses that came back
+empty), 6 by noticing the campaign had already retracted its own premise
+three days before this file was created. Question 30 was this cycle's one
+genuine new-ground attempt — reading OpenOLAT's own source (via the GitHub
+git-trees/contents API, after discovering `gh search code` is currently
+returning empty results for known-good queries, apparently a search-index
+outage rather than an absence) found a real, participant-reachable
+bulk-ZIP-download feature in the folder browser every `Ordner` course node
+uses. It looked like a possible attack on the 207s crawl floor itself; this
+project's own `files.go` metadata parsing (size/modified date read only off
+whatever page is currently rendered, confirmed by grep, no other code path)
+closed that hope the same cycle — nested-folder discovery still needs one
+page load per level regardless of how the eventual download happens, so the
+lever is real but bounded to the same ~86s first-sync floor
+`docs/server-load.md` already named and declined to optimize.
+
+**What is still open.** The ranked list (`docs/sync-speed-model.md`,
+"What we don't know") now holds only Questions 5 (maintainer decision
+already given, stays low), 24, 29, and 30 — all three of the latter need
+real-account load, and 30 additionally waits on 24 by its own kill
+criterion (correctness before a bounded speed win). No local-only,
+unanswered question remains on the ranked list for the first time since the
+model file was introduced 2026-07-31. The session-lock collision bug
+(`docs/BACKLOG.md` Noticed) and the login-timeout recurrence are both still
+open but neither produced new evidence this round.
+
+**Recommendation: keep going.** Five questions closed or narrowed, zero
+regressions, every closure left a new question exactly per Rule 3 — the
+method is still working. This report is also the first to say plainly that
+local-only source-reading has run out for now: the three remaining open
+questions all need a live run. Previously that would have meant stopping
+here for the day — the maintainer retired that self-imposed rationing this
+same session (server load was never actually the constraint; see the note
+above "Next experiment"), so this cycle proceeds straight into Question 24's
+live run rather than waiting. See the entry below (or `docs/RESUME.md`) for
+the outcome.
 
 ### 2026-08-07 (autopilot): five cycles, Questions 22 (2nd)/25/7/26 — keep going, the correctness thread paid off in a shipped default
 

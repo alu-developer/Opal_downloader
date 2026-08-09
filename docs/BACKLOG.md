@@ -65,6 +65,13 @@ Delete an entry when it is done, or when it turns out not to matter.
   OPAL hands *students* a token-authenticated personal RSS feed covering
   subscribed folders — a possible cheap change-detector that needs no browser;
   (b) if BPS ever answers the letter, the answer belongs in that doc.
+  **Update 2026-08-09 (autopilot, source reading, no live probe):** the REST
+  API's admin-only framing below was only true for the course-level
+  "Kursordner" endpoint. `BCWebService` (the actual Ordner-Kursbaustein REST
+  service) gates its file listing on the same participant-visibility check the
+  web UI uses, not an author/admin role — so opening it for students would be
+  a network decision, not new engineering. Sharpened into the letter draft;
+  full source citations in `docs/opal-webdav-student-access.md` §4.
 
 - **Answered, negatively: there is no 2FA-free app access to OPAL besides
   WebDAV (2026-08-03).** Asked whether some other interface skips the

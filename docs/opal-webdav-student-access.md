@@ -194,11 +194,44 @@ Searched German and English, GitHub, forums, university IT pages. Findings:
   courses they own*. It gives you nothing for a course you attend. (At TU
   Dresden author rights go to staff automatically, and students would have to
   request them by mail — for no benefit here.)
-- **The REST API exists but is closed.** BPS documents an OPAL REST API whose
-  docs are password-protected behind a mail to `support@bps-system.de`, and
-  `/opal/restapi/` answers a bare **403 with no auth challenge** (verified
-  2026-08-04, matching this repo's earlier probes). It is positioned as a
-  system-integration interface for institutions.
+- **The REST API exists, is closed at the network edge, and — checked directly
+  against OpenOLAT's own source, 2026-08-09 — is not uniformly admin-only.**
+  BPS documents an OPAL REST API whose docs are password-protected behind a
+  mail to `support@bps-system.de`, and `/opal/restapi/` answers a bare **403
+  with no auth challenge** (verified 2026-08-04, matching this repo's earlier
+  probes) — so nothing below is reachable today, and this is research for the
+  letter, not a working lever. But *which* endpoints the letter should actually
+  name matters, and the source settles that precisely:
+  - `CourseResourceFolderWebService` (`repo/courses/{id}/resourcefolders/coursefolder`)
+    — the special course-level "Kursordner" root — really is admin-only:
+    `isAuthor()` requires `RepositoryEntrySecurity.isEntryAdmin()`, which no
+    enrolled participant ever satisfies. This is the endpoint that matches the
+    doc's earlier "positioned as a system-integration interface" framing.
+  - `BCWebService` (`repo/courses/{id}/elements/folder`, the *Ordner
+    Kursbaustein* REST service — the actual building block this project's
+    files live in) is **not**. `getFolders()` (list every folder-type node in
+    the course, one request) is gated by `CourseWebService.isCourseAccessible()`
+    plus a standard `ACService.isAccessible()` check — the same "am I enrolled"
+    test the web UI uses, not an admin check. `getVFSWebService()`
+    (`{nodeId}/files`, the actual file listing for one folder node) explicitly
+    branches: authors get the editor tree, everyone else gets
+    `course.getRunStructure().getNode(nodeId)` gated by
+    `CourseTreeVisitor.isAccessible()` — the same participant-visibility filter
+    the letter's WebDAV argument already leans on. A regular student account
+    would pass both checks for a course they are enrolled in.
+  - **What that means for the letter:** the "read interface" being asked for
+    isn't hypothetical work for BPS to build — `BCWebService` already
+    implements participant-scoped, read-only, per-node file listing, in the
+    same codebase the WebDAV precedent argument (§3) already cites. Opening it
+    would be a network/firewall decision, not new engineering, for the folder
+    building block specifically. It does **not** cover every course-node type
+    this project currently discovers over the browser (task/forum/wiki
+    attachments etc. would need their own per-type REST services, e.g.
+    `ForumCourseNodeWebService`, `COWebService` — not individually checked this
+    pass) and it is unverified against BPS's actual deployed fork, which may
+    have diverged from upstream at this file the way it diverged at WebDAV.
+    Worth citing in the letter as evidence, not worth building against until
+    the block is lifted.
 - **Other Saxon tooling exists and is tolerated.**
   [`spyfly/videocampus-sachsen-downloader`](https://github.com/spyfly/videocampus-sachsen-downloader)
   downloads videos from videocampus.sachsen.de including those embedded in
@@ -354,6 +387,11 @@ answers it before it is raised.
 > - OPAL stellt Studierenden bereits einen tokenauthentifizierten
 >   maschinenlesbaren Zugang bereit — den persönlichen RSS-Feed. Ein lesender
 >   Dateizugriff wäre insofern keine neue Kategorie.
+> - Auch die von Ihnen dokumentierte REST-API sieht lesenden Teilnehmerzugriff
+>   auf Ordner-Kursbausteine bereits vor: `BCWebService` prüft dort dieselbe
+>   Sichtbarkeitsprüfung wie die Weboberfläche, nicht eine Autoren- oder
+>   Administratorrolle. Die Freischaltung wäre also eine Netzwerk-Entscheidung,
+>   keine neue Implementierung.
 >
 > Falls die Sorge ist, dass ein solcher Zugang die Zwei-Faktor-Anmeldung
 > aushebelt: das ließe sich zweistufig lösen, wie es etwa Nextcloud mit

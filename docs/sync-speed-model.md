@@ -838,32 +838,46 @@ Question 25 closed, re-enabling `course_concurrency>1` might now be safe,
 which would be a genuine, previously-closed speed lever (concurrent course
 crawling), not just a correctness fix.
 
-**Prediction, to be written and committed before this runs, per Rule 1** (not
-done this cycle — this is a new question, not yet an experiment design):
-matched-condition batch at `course_concurrency=2` (Question 16/17's original
-setting), same courses, with and without the Question 25 fix's code path
-exercised (it always runs now, so really: repeated trials at
-`course_concurrency=2` today vs. the archived pre-fix failure rate). Expect
-either (a) the historical ~33–50% failure rate collapses to near-zero,
-matching this cycle's serial result, or (b) contention still fails at
-roughly its old rate, meaning contention introduces a genuinely separate
-race (e.g. two sections' Wicket signals interleaving) that Question 25's
-single-section fix does not reach.
+**Prediction, written before running (2026-08-09), per Rule 1.** Design:
+reuse `TestDebounceOverrideUnderContention`
+(`internal/scraper/debouncecontention_probe_test.go`) exactly as it already
+exists — no new code. It already targets the right course pair (small
+"Algorithmen und Datenstrukturen" + large "Softwaretechnologie (SoSe 26)",
+the same pair Question 16's original 9-file loss and Question 17's 6-file
+loss both used), already sets `course_concurrency=2`, and already runs 4
+matched trials internally (`base1`, `base2` at today's shipped defaults;
+`over1`, `over2` at a 150ms-debounce override) via
+`collectCourseFilesConcurrently`, diffing every pair's file set against
+every other. One invocation therefore already delivers the "3-4 run
+repeated batch" this question needs, with no code changes and no new probe
+to write. Command: `OPAL_DEBOUNCE_CONTENTION_TRACE=1 go test
+./internal/scraper/ -run TestDebounceOverrideUnderContention -v -count=1
+-timeout 60m` (`-count=1` is now mandatory per Question 24's finding above).
 
-**Kill criterion:** if even 1 of a small repeated batch (3-4 runs) at
-`course_concurrency=2` loses files the way Question 16/17 did, this closes
+*Expected numbers:* Questions 16/17's own archived rate for this exact pair
+under `course_concurrency=2` was consistent file loss (9 files, then 6),
+not a coin-flip — closer to "every contention run before Question 25 lost
+something" than a genuine 33–50%; the ~33–50% figure belongs to a different
+section (the Wicket signal-timeout condition, Questions 19–21), reused here
+only as an order-of-magnitude reference, not the same measurement. If
+Question 25's fix generalizes, predict all 4 of this probe's runs
+(`baseSelfDiff`, `overSelfDiff`, `crossDiff`) come back empty — the probe's
+own `VERDICT` line already says exactly this in its source.
+
+**Kill criterion:** any non-empty diff in any of the three comparisons
+(`baseSelfDiff`, `overSelfDiff`, `crossDiff`) — even one file — closes this
 as "contention is a distinct mechanism, not fixed by Question 25" and
-`course_concurrency` stays at its default of 1. If all runs are clean, this
-does not by itself prove safety (same sample-size caveat Question 20 already
-named) but would be strong enough to justify a larger byte-diff-verified
-batch before considering a default change — any default change still needs
-the full 345-file byte-diff bar per the standing shipping rule, not just a
-clean file count.
+`course_concurrency` stays at its default of 1. A fully clean run does not
+by itself prove safety (a single 4-trial batch is still a small sample
+against a bug that was never claimed to fire every single time) but would
+be strong enough to justify a larger byte-diff-verified batch before
+considering a default change — any default change still needs the full
+345-file byte-diff bar per the standing shipping rule, not just a clean
+file count from this narrower two-course probe.
 
-**Not run this cycle** — Question 24's live-run budget for today (6 trials)
-already went to closing Question 24 itself; this is the natural next live
-experiment for a future cycle, ranked above Questions 29/30 since it could
-reopen an entire rejected speed lever rather than shave a smaller cost.
+**Running this now, same session** — the maintainer's rationing retirement
+(see "Next experiment" above) applies here too, and the experiment is
+already built and cheap (one `go test` invocation, no new code).
 
 ---
 

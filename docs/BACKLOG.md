@@ -95,6 +95,23 @@ Delete an entry when it is done, or when it turns out not to matter.
   `--debug-clicks`) - see the commit for the one-line diff. Whether the
   actual cause is TU-Fast itself, OPAL, or something in this project is still
   unknown; next recurrence should at least say where the page was stuck.
+
+  **Update 2026-08-09 (autopilot): third occurrence, and the capture gap fix
+  paid off — the page was stuck at Shibboleth, not OPAL.** `login` (warming
+  the session for Question 27) hit the identical error text and 5m05s
+  duration, but this time named where: `page was at
+  "https://bildungsportal.sachsen.de/opal/shiblogin;jsessionid=...?0"` — the
+  Shibboleth IdP's own login-processing URL, before any redirect back to
+  OPAL. No collision (clean tree, no other commits, no `chrome.exe` left
+  over). An immediate retry, same profile, same session, succeeded in 5.95s —
+  so whatever stalled was transient, not a standing block on this profile or
+  account. That narrows "TU-Fast, OPAL, or this project" to the first two:
+  the timeout fires while still inside the TU-Fast/Shibboleth handoff, before
+  OPAL's own course-list page is ever reached, so this project's own
+  post-login waiting logic was never in play for this failure. Not chased
+  further — a single transient stall with no persisting evidence isn't worth
+  a live-debugging session, and the capture gap fix already did its job by
+  answering the question it was built for.
 - **Two concurrent Routines colliding on the shared browser profile produced a
   hard failure, not the clean serialization `acquireSessionLock` is supposed
   to give (2026-08-02).** Running the Question 15 sync-speed probe manually

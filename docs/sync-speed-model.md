@@ -85,11 +85,67 @@ evidence. Short version: there is **no** marker, because **nothing is rendered
 client-side that would have to finish** — tree and file table are pure server
 HTML. That opens Question 7.
 
-### 2. Why was HTTP empty on 2 of 6 courses?
-"Some building blocks render server-side, some client-side" is the description,
-not the cause. Which building-block type, and how is it recognisable in the
-response? Probably answered by (1). This approach was the fastest there ever was
-(22s) — it was dropped on day 1 without anyone ever diagnosing the cause.
+### 2. ~~Why was HTTP empty on 2 of 6 courses?~~ Answered 2026-08-09 (autopilot, pure re-analysis of data already on disk, no live run) — it was never about building-block type; the abandoned crawler never reached those courses' file sections at all
+**"Some building blocks render server-side, some client-side" was the wrong axis.** That
+theory was already narrowed 2026-07-31 (campaign doc, "the HTTP-first rejection
+re-diagnosed"): re-fetching one Softwaretechnologie section's *own* URL over plain
+HTTP found the files sitting in the raw response as `data-file-name` attributes —
+`looksLikeFileLink` just hadn't been taught to look for them yet. So a section's leaf
+content, once you have its URL, was never the problem. What was never re-examined is
+*how the abandoned 2026-07-21 implementation got its URLs in the first place* — and
+that is where the two zero/near-zero courses (Softwaretechnologie 0/206, TUDMATH NuMa
+0/17) actually broke, distinct from the pagination-cap gap (43 files) the 2026-07-31
+retest found and fixed separately.
+
+**The mechanism, sourced rather than guessed:** Question 9 already proved
+`MenuTreeRenderer.isRenderChildren()` (OpenOLAT source) returns a tree fragment
+containing only currently-*open* nodes plus the path to whatever is currently
+selected — never the whole course tree in one response. A node becomes visible in a
+response only once its ancestor chain has actually been navigated/opened; there is no
+single URL that returns a complete tree. `internal/scraper/httpdiscovery.go`'s own
+design comment (written the same day as the original rejection, `339dd23`) states the
+consequence plainly: *"OPAL renders the course-content navigation TREE client-side (a
+browser has to walk it), but renders leaf file tables SERVER-SIDE."* "Client-side"
+there means "requires sequential navigation to enumerate," not "needs JS to render" —
+consistent with, not contradicting, Question 1's finding that individual pages are
+pure server HTML with no client-side markup to wait on.
+
+The 22s the abandoned implementation achieved is the tell: that is in the same range
+as a *pure per-section HTTP fetch with no tree navigation at all* (49.7s for 275
+sections, measured the same day). An implementation that fast could not have been
+paying for `isRenderChildren()`'s one-navigation-per-newly-opened-branch cost — so it
+must have started from whatever section URLs a shallow seed fetch already exposed and
+never discovered anything nested under a currently-closed branch. For a course whose
+graded/file content sits behind branches not open by default, that predicts exactly
+zero — TUDMATH NuMa (13 sections, 17 files, all missed) and effectively all of
+Softwaretechnologie (206 files, only recovered to 158/200 once the 2026-07-31 retest
+supplied section URLs a different way). The three courses that came back perfect
+(2026 LA20, Algorithmen und Datenstrukturen, Analysis) are the ones whose content
+apparently already sits on default-open tree paths.
+
+**Corroborated by the surviving design, not just inferred.** The only HTTP-discovery
+code ever committed (`httpdiscovery.go`) was built around exactly this finding —
+"browser enumerates section URLs first, HTTP fetches their file tables afterwards" —
+and was verified byte-for-byte correct (diff = 0) against all 6 real courses on
+2026-07-31, the same 6 courses named above. A design that never HTTP-walks the tree
+cannot hit the failure mode described here, and measurement confirms it doesn't.
+
+**Honest residual (rule 2):** the abandoned 2026-07-21 implementation was never
+committed — confirmed via `git log --diff-filter=D` on every path with "http" in its
+name, nothing found — so "it derived its URL set from a shallow seed fetch" is the
+best-fitting inference from the surviving numbers and design comments, not a
+code-level proof of that specific historical bug. It does not affect the current
+(parked, verify-mode-only) design's correctness, which is independently verified.
+
+**New open question (Question 29, rule 3, not run this cycle):** now that
+`isRenderChildren()`'s open-node/selection-path scoping is established as the
+reason a full tree enumeration costs one navigation per newly-revealed branch,
+does the *browser* crawler's own tree walk ever re-fetch a node's page more than
+once — once per child discovered under it — and if so, is that a measurable,
+avoidable request multiplier? Not measured; untested candidate for the leverage
+ranking, and unlike Question 24 it needs no repeated-trial design, just one
+instrumented live run — real-account load, so it waits for the same fresh day as
+Question 24.
 
 ### 3. ~~Why does `ctx.Route` cost 30%?~~ Answered 2026-08-01, see report below
 On every route, whatever pattern is passed in, Playwright installs
@@ -120,10 +176,45 @@ permissible work rather than an evasive move: they may be picked up when the
 discovery line is waiting on a measurement or a question there is exhausted. This
 question therefore stays open and does not move up.
 
-### 6. Why does 1 in 12 sections stay unstable across runs?
-The rest was traced back to Wicket bookkeeping. This one was not. Possibly the
-same cause as Question 17 — there the unstable node is known by name for the
-first time and identified as paginated.
+### 6. ~~Why does 1 in 12 sections stay unstable across runs?~~ Closed 2026-08-09 (autopilot, pure re-analysis of data already on disk, no live run) — stale premise, superseded by the campaign's own later correction before this question was ever copied into this file
+**The "1 in 12" figure was already retracted three days before this file existed.**
+It comes from the 2026-07-27 change-detection-cache reopening (`docs/sync-speed-campaign.md`):
+fetching each of 12 sections' URLs *twice, back to back*, and normalising known-volatile
+Wicket bookkeeping (page-version counters, generated component ids, table-widget instance
+counters) made 11/12 byte-identical, leaving one unexplained outlier.
+
+**The 2026-07-30 entry, same file, next section down, named exactly why that number cannot
+mean what Question 6 assumes:** "same URL fetched twice back to back" is not the condition
+a real sync runs under — the condition that matters is *a hash stored during one crawl
+against a hash from the next crawl*, and that comparison had already been measured, in the
+2026-07-21 entry the 07-27 reopening was supposed to be improving on: **1 of 276** (0.4%),
+not 11 of 12 (92%). The reopening's own words, quoted directly in the 07-30 entry: "a
+stability result measured in one condition says nothing about the condition the feature
+runs in." Question 6 restates the 07-27 number as an open mystery without carrying forward
+the 07-30 line that already explained why it was the wrong number to be asking about.
+
+**What actually distinguishes real (consequential) instability from cosmetic instability was
+answered separately, by a different thread, without ever being connected back here.**
+Correctness held in every one of the cache experiments' live runs (345 files, empty diff,
+every time) — so the pervasive byte-level "instability" the 12-section probe was chasing is
+Wicket session bookkeeping churn that never touches file content, already fully catalogued
+(the three normalisation patterns above) and inconsequential. The instability that *is*
+consequential — real files going missing across runs — is a separate, already-named,
+already-live-tested mechanism: Questions 17/19/22/25's Wicket "show all" pagination bug,
+which fires intermittently even without concurrency (Question 17's own baseline-2 run, at
+the unchanged 500ms/6000ms settings, lost the same six files a contention run did). Question
+6's guess that its outlier "is possibly the same cause as Question 17" was on the right
+track, but the two threads never needed reconciling by name, because the 12-section
+byte-hash outlier and the file-loss mechanism are different classes of "unstable" — one
+cosmetic (Wicket ids), one real (a failed AJAX expansion) — and only the second one costs
+files or matters to a user.
+
+**Nothing left to run.** The feature this question was diagnostic for
+(`internal/sectionhash`, `htmlstability_probe_test.go`) was deleted outright on 2026-07-31
+(`docs/BACKLOG-archive.md`, "Deleted the section change-detection cache, budget and all") —
+there is no surviving code path this question's answer would change. Closed as stale rather
+than merged, since — unlike Question 4 into Question 7 — the two threads answer genuinely
+different questions, not the same one twice.
 
 ### 17. ~~Why does a paginated section lose its second page under contention?~~ Answered 2026-08-03 from data already on disk — and it is a bug, not a speed question
 Question 16 found a reproducible loss that does **not** hang on the settle
@@ -634,8 +725,26 @@ not; the byte-diff, not this number, is what decided the ship.
 
 ## Next experiment
 
-**Carried forward, still top of the queue (Question 24, re-ranked up
-2026-08-05):** preview-blocking is no longer this maintainer's own account
+**Questions 2 and 6 both closed this cycle (2026-08-09, autopilot, no live run) —
+see "What we don't know" above.** Question 2 had stood as the highest-ranked
+genuinely-unanswered item since the 2026-08-07 report; closing it needed only
+re-reading Question 1, Question 9, and `httpdiscovery.go`'s own design comment
+together, never previously connected. Opened Question 29 (real-account load, waits
+for the same fresh day as Question 24 below). Question 6 turned out to be a stale
+premise — a number the campaign itself had already retracted (2026-07-30) before
+this question was carried into this file (2026-07-31) without the retraction coming
+along; its diagnostic feature (`internal/sectionhash`) no longer exists, so there is
+nothing left for a future cycle to run there.
+
+**That empties the ranked list of anything answerable without a live run.** What
+remains open — Questions 5, 24, and 29 — all need either a maintainer product
+decision (5, already given: stays low-priority, picked up only when the discovery
+line is exhausted) or real-account load (24, 29). Both 24 and 29 wait for the same
+fresh day; check `docs/server-load.md`'s discipline note in `docs/RESUME.md` before
+running either.
+
+**Carried forward, still top of the queue needing a live run (Question 24, re-ranked
+up 2026-08-05):** preview-blocking is no longer this maintainer's own account
 under an env flag — it is now every user's default. Question 26's one clean
 pass, now joined by Question 27's second clean pass below, is reassuring but
 still not the repeated-trial design that would separate "raw CDP amplifies

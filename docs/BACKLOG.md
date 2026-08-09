@@ -22,9 +22,10 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Sync-speed's Question 24 (repeated-trial safety check for
-preview-blocking under load, real-account) is queued in
-`docs/sync-speed-model.md`, "Next experiment"._
+_Nothing unblocked. Sync-speed's Questions 24 and 29 (both real-account,
+both need a live run) are queued in `docs/sync-speed-model.md`, "Next
+experiment" — the ranked question list has nothing left that's answerable
+without one._
 
 ---
 
@@ -299,6 +300,31 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 6 closed, no live run needed: the "1 in 12 sections unstable" premise
+  was already retracted by the campaign's own next entry, three days before this
+  question was carried into `docs/sync-speed-model.md`** (2026-08-09, autopilot):
+  the number came from fetching 12 section URLs twice back-to-back, but
+  2026-07-30's own re-measurement of the condition that actually matters (a
+  stored crawl-hash vs. a later crawl) found only 1/276 matching, and said
+  plainly that the back-to-back condition "says nothing about the condition the
+  feature runs in." The consequential half of "instability" (real files missing)
+  is already a separate, tracked mechanism (Questions 17/19/22/25's Wicket
+  "show all" bug); the feature this question was diagnostic for
+  (`internal/sectionhash`) was deleted 2026-07-31, so nothing survives to test.
+- **Question 2 closed, no live run needed: the abandoned HTTP-first crawler never
+  reached the empty courses' file sections, it wasn't about client-side rendering**
+  (2026-08-09, autopilot): re-connected Question 1, Question 9's
+  `MenuTreeRenderer.isRenderChildren()` finding, and `httpdiscovery.go`'s own design
+  comment — a course's tree is only ever revealed one navigation per newly-opened
+  branch, never whole in one response, so an implementation that skipped the browser's
+  tree walk (22s, in the same range as a bare per-section HTTP fetch with zero tree
+  navigation) could only ever see default-open branches. Predicts exactly the two
+  courses that came back empty/near-empty (TUDMATH NuMa, Softwaretechnologie) against
+  the three that came back perfect. Corroborated, not just inferred: the only
+  HTTP-discovery code ever committed is built to always take URLs from the browser's
+  own walk, and was verified byte-for-byte correct on all 6 real courses 2026-07-31.
+  Opened Question 29 (real-account load, waits with Question 24 for a fresh day) —
+  full write-up in `docs/sync-speed-model.md`.
 - **Question 28 closed: `go test`'s own build/cache-staleness check, not raw
   compilation or process spin-up, is the noise source behind Question 27's
   unaccounted 6s** (2026-08-09, autopilot, local only, no account): precompiled
@@ -370,60 +396,3 @@ move the rest across.
   count unchanged. **The cost was never the noise:** this is the only signal the
   project has for a real truncation, and firing constantly is why Question 17's
   genuine six-file loss sat unread in those same logs.
-- **The session status says a date now, and the failure toast stopped being
-  optional** (2026-08-03): the landing page read "session saved <mtime>. May
-  still need a fresh login if it expired" — a file timestamp and a shrug. New
-  `internal/sessionstate` reads OPAL's own `authenticated-marker` cookie out of
-  the saved Playwright state; the page now says "valid until Thu 6 Aug, 11:17
-  (2 days left)". Live-verified against the real state file. It is an upper
-  bound, not a promise — OPAL's server-side session can die sooner, which the
-  wording says. Deliberately does *not* gate the Sync button: an expired
-  session is not a blocker (see CLAUDE.md). In the same commit,
-  `notify_on_scheduled_failure` was deleted outright — config key, GUI
-  checkbox and all — because there is no scenario for switching it off, and it
-  structurally could not fire for the failure that matters most (a run that
-  died before `config.Load`). Plus two bits of flavour on the sync page at the
-  maintainer's request, browser-walk tested.
-- **The code budget is gone** (2026-08-03, maintainer's call): `codebudget_test.go`
-  deleted. In its 7 days it never once refused a raise — 11181 → 11898 committed,
-  plus a pending raise to 12025 that died with it — and its comment had grown to
-  213 lines of justification over 84
-  lines of code, which is the "a number I defend is a paragraph I write" failure
-  it was explicitly built to avoid. It did earn two things worth remembering by
-  hand: lower the ceiling when you delete something, and try trimming before
-  growing. `git show 5153cb5:codebudget_test.go` has the file and its full ledger.
-- **The 150ms debounce shipped as the default** (2026-08-03, decision round):
-  `mutationObserverDebounceMs` 300 → 150, the campaign's first user-visible win
-  since it reopened. ~29% off the dominant component of a sync, on 8 byte-identical
-  live runs across two courses 27x apart in size. The "also prove it under
-  contention" precondition was dropped as unmeetable — Question 16 showed the
-  unchanged config already differs from itself there.
-- **Question 17 answered without a live run, and `course_concurrency>1` was NOT
-  clamped** (2026-08-03, decision round): the maintainer rejected the proposed
-  exclusion and asked for the mechanism first. `warnShowAllTruncated` had already
-  fired in the archived log on exactly the two runs that lost files (4/4
-  correlation), naming the branch — so it is a "show all" expansion bug that
-  contention makes more likely, not a property of concurrency. The setting keeps
-  its default of 1 and stays available.
-- **The two unattended Routines merged into one** (2026-08-03): `-sync-speed`
-  is deleted; `opal-downloader-autopilot` now works the backlog first and falls
-  through to the sync-speed campaign. They had been firing milliseconds apart
-  (measured: 1 ms, 75 ms, 9 ms) because Routines only fire while the Desktop app
-  is open and missed runs catch up together — so the ~2h47m cron offset never
-  applied. Consequences: autopilot's backlog work had dried up (its only *Now*
-  item was sync-speed's own campaign), two runs aborted on collision, and one
-  Question-15 attempt was lost to a 22-minute profile deadlock. Four rules changed
-  with the merge — no usage-limit gate at all, *Now*+*Next*+*Noticed* must be
-  clear of unblocked items before the handoff, a byte-diff-proven default may
-  now be shipped, and run length is left to judgement.
-- **Question 25 confirmed live, 3/3: rearming the Wicket watch on the
-  context-destroyed reclick recovers the section** (2026-08-06, autopilot):
-  `crawl.go`'s reclick fallback now mirrors the sibling `AJAX_CALL_FAILURE`
-  retry — rearm before reclicking, await the signal, only fall back to the
-  generic wait if it doesn't come. All 3 live `context-destroyed` hits across
-  a 4-run contention batch recovered cleanly (`expansionSignalled=true` on the
-  retry), zero truncation warnings, all 4 runs at the full 248/248 files. Closes
-  the causal chain Questions 17→25 have chased since 2026-08-03. Opened
-  Question 26: retest Question 23's shelved preview-blocking win now that its
-  named prerequisite is live-tested fixed — full write-up and the deferred
-  run's cost/prediction in `docs/sync-speed-model.md`, "Next experiment".

@@ -14,6 +14,17 @@ this is the human-readable version of why things are the way they are.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Question 25 confirmed live, 3/3: rearming the Wicket watch on the
+  context-destroyed reclick recovers the section** (2026-08-06, autopilot):
+  `crawl.go`'s reclick fallback now mirrors the sibling `AJAX_CALL_FAILURE`
+  retry — rearm before reclicking, await the signal, only fall back to the
+  generic wait if it doesn't come. All 3 live `context-destroyed` hits across
+  a 4-run contention batch recovered cleanly (`expansionSignalled=true` on the
+  retry), zero truncation warnings, all 4 runs at the full 248/248 files. Closes
+  the causal chain Questions 17→25 have chased since 2026-08-03. Opened
+  Question 26: retest Question 23's shelved preview-blocking win now that its
+  named prerequisite is live-tested fixed — full write-up and the deferred
+  run's cost/prediction in `docs/sync-speed-model.md`, "Next experiment".
 - **Question 21's first cycle caught its own wrong assumption within the same
   day** (2026-08-04): timestamped the Wicket signal wait (`signalMs` on the
   `wicket-expand-signal` audit line) expecting to distinguish a bimodal
@@ -25,6 +36,52 @@ record.
   wait error; now it returns and classifies it (`signalWaitErr`). Opens
   Question 22: does it say `context-destroyed`, tying this to the fallback
   `waitForInteractiveLinks` already has for exactly that.
+- **The session status says a date now, and the failure toast stopped being
+  optional** (2026-08-03): the landing page read "session saved <mtime>. May
+  still need a fresh login if it expired" — a file timestamp and a shrug. New
+  `internal/sessionstate` reads OPAL's own `authenticated-marker` cookie out of
+  the saved Playwright state; the page now says "valid until Thu 6 Aug, 11:17
+  (2 days left)". Live-verified against the real state file. It is an upper
+  bound, not a promise — OPAL's server-side session can die sooner, which the
+  wording says. Deliberately does *not* gate the Sync button: an expired
+  session is not a blocker (see CLAUDE.md). In the same commit,
+  `notify_on_scheduled_failure` was deleted outright — config key, GUI
+  checkbox and all — because there is no scenario for switching it off, and it
+  structurally could not fire for the failure that matters most (a run that
+  died before `config.Load`). Plus two bits of flavour on the sync page at the
+  maintainer's request, browser-walk tested.
+- **The code budget is gone** (2026-08-03, maintainer's call): `codebudget_test.go`
+  deleted. In its 7 days it never once refused a raise — 11181 → 11898 committed,
+  plus a pending raise to 12025 that died with it — and its comment had grown to
+  213 lines of justification over 84
+  lines of code, which is the "a number I defend is a paragraph I write" failure
+  it was explicitly built to avoid. It did earn two things worth remembering by
+  hand: lower the ceiling when you delete something, and try trimming before
+  growing. `git show 5153cb5:codebudget_test.go` has the file and its full ledger.
+- **The 150ms debounce shipped as the default** (2026-08-03, decision round):
+  `mutationObserverDebounceMs` 300 → 150, the campaign's first user-visible win
+  since it reopened. ~29% off the dominant component of a sync, on 8 byte-identical
+  live runs across two courses 27x apart in size. The "also prove it under
+  contention" precondition was dropped as unmeetable — Question 16 showed the
+  unchanged config already differs from itself there.
+- **Question 17 answered without a live run, and `course_concurrency>1` was NOT
+  clamped** (2026-08-03, decision round): the maintainer rejected the proposed
+  exclusion and asked for the mechanism first. `warnShowAllTruncated` had already
+  fired in the archived log on exactly the two runs that lost files (4/4
+  correlation), naming the branch — so it is a "show all" expansion bug that
+  contention makes more likely, not a property of concurrency. The setting keeps
+  its default of 1 and stays available.
+- **The two unattended Routines merged into one** (2026-08-03): `-sync-speed`
+  is deleted; `opal-downloader-autopilot` now works the backlog first and falls
+  through to the sync-speed campaign. They had been firing milliseconds apart
+  (measured: 1 ms, 75 ms, 9 ms) because Routines only fire while the Desktop app
+  is open and missed runs catch up together — so the ~2h47m cron offset never
+  applied. Consequences: autopilot's backlog work had dried up (its only *Now*
+  item was sync-speed's own campaign), two runs aborted on collision, and one
+  Question-15 attempt was lost to a 22-minute profile deadlock. Four rules changed
+  with the merge — no usage-limit gate at all, *Now*+*Next*+*Noticed* must be
+  clear of unblocked items before the handoff, a byte-diff-proven default may
+  now be shipped, and run length is left to judgement.
 - **Installer's Chromium-cache-path fix verified in CI and merged** (2026-08-03,
   PR #131): `release.yml` gained a `workflow_dispatch` trigger and a step that
   silently installs the built installer and asserts both browser binaries land

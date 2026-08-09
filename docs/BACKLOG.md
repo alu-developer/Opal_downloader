@@ -22,8 +22,10 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Sync-speed's Question 31 (real-account, needs a
-prediction written before it runs, per Rule 1) is top of the queue in
+_Nothing unblocked. Sync-speed's Question 32 (real-account, needs a
+prediction written before it runs, per Rule 1 — does `course_concurrency=2`
+paired with the 150ms debounce override replicate its 85% 2-course
+wall-clock win at full 349-file scale) is top of the queue in
 `docs/sync-speed-model.md`, "Next experiment" — the ranked list has nothing
 else that's answerable without a live run._
 
@@ -307,6 +309,19 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 31 closed at full 6-course/349-file scale: `course_concurrency>1`'s
+  correctness objection is refuted (empty byte-diff both sides), but
+  concurrency alone is not faster (17% slower in this run) — added
+  `OPAL_COURSE_CONCURRENCY_OVERRIDE` to `filelist_probe_test.go` to test this
+  without ever touching the maintainer's real `config.yaml`** (2026-08-09,
+  autopilot, live run): this cycle's earlier 2-course probe found an ~85%
+  wall-clock win, but that came from pairing concurrency with the 150ms
+  debounce override, not from concurrency by itself — matches this project's
+  own earlier finding (`course_concurrency=2` "lost 9 files and was no
+  faster", 2026-07-26) on the speed half, while overturning it on the
+  correctness half. Opened Question 32 (does the concurrency+debounce pairing
+  replicate the win at full scale) as the campaign's current top-ranked live
+  experiment. Full write-up in `docs/sync-speed-model.md` Question 31/32.
 - **Question 24 closed live, same day the "one live-run batch per day"
   self-caution was retired: 6 trials (3 blocking-on, 3 blocking-off) of the
   one known-flaky section, 0 truncated in any of them** (2026-08-09,

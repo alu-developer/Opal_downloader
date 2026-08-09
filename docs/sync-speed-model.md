@@ -823,7 +823,7 @@ automation it would take to claim it.
 
 ---
 
-### 31. Now that Question 25's fix has 6 clean single-threaded trials behind it (Questions 24/26/27), does it also eliminate the `course_concurrency>1` contention-condition failure rate — and could concurrency be safely reconsidered?
+### 31. ~~Now that Question 25's fix has 6 clean single-threaded trials behind it, does it also eliminate the `course_concurrency>1` contention-condition failure rate?~~ Answered 2026-08-09: yes, at full 349-file scale — but concurrency alone is not faster, only no-longer-lossy; the speed case moved to Question 32
 
 **Opened 2026-08-09 (autopilot), by Question 24's closure.** Every past
 rejection of `course_concurrency>1` (Question 16's 6-file loss, Questions
@@ -916,21 +916,72 @@ standard this cycle otherwise used, and because shipping a default change
 needs the maintainer's own sign-off regardless of the data, per the standing
 correctness-first rule.
 
+**Result: empty diff, 349 files both sides
+(`tmp/filelist-conc1.txt`/`filelist-conc2.txt`, `diff` output empty).**
+`course_concurrency=1`: 349 files, 286 sections, 171.94s. `course_concurrency=2`:
+349 files, same 286 sections, 201.79s. The correctness half of the
+prediction holds cleanly at full scale — Question 25's fix generalizes past
+the one course pair Questions 16/17 originally broke, and `Ordner`
+sections/nested folders across all 6 courses came back identical.
+
+**But the timing half needed a correction, caught immediately by reading
+the run's own numbers rather than declaring victory (Rule 2 against this
+cycle's own earlier framing):** `course_concurrency=2` was not faster here —
+it was 17% *slower* (201.79s vs 171.94s), and its own settle-wait average
+jumped to 531ms (71% of section time) against 179ms (48%) at concurrency=1.
+This is not a new finding — it matches what this project already knew and
+had filed as unresolved (`docs/BACKLOG.md`, "Concurrency REOPENED": the
+2026-07-26 remeasurement found `course_concurrency=2` "lost 9 files and was
+no faster"). What changed today is only the *first* half of that sentence:
+concurrency alone still isn't faster, but at 349/349 files it no longer
+loses any. **The 85% wall-clock reduction this cycle's earlier 2-course
+probe found came from pairing concurrency=2 with the 150ms debounce
+override together — not from concurrency by itself** — and that pairing has
+not yet been run at full 6-course scale. Reopening "`course_concurrency>1`
+is a speed lever" would be overclaiming from this result alone; what this
+result actually reopens is narrower and still real: **the correctness
+objection to `course_concurrency>1` is refuted at full scale**, and the
+speed case now rests entirely on whether the concurrency+debounce
+combination — not concurrency alone — replicates its 2-course win at 349
+files. That is a new, distinct, well-motivated question (31 only tested
+correctness; the speed pairing is untested at this scale), opened below per
+Rule 3.
+
+### 32. Does `course_concurrency=2` combined with the 150ms debounce override replicate its ~85% wall-clock win at full 6-course/349-file scale, and does that combination pass the full byte-diff?
+
+**Opened 2026-08-09, by Question 31's full-scale result.** Needs its own
+prediction (per Rule 1, not written this cycle) before running:
+`OPAL_COURSE_CONCURRENCY_OVERRIDE=2 OPAL_DEBOUNCE_MS_OVERRIDE=150` against
+`TestFileListSnapshot`'s full 6-course run, diffed against the
+`OPAL_COURSE_CONCURRENCY_OVERRIDE=1` baseline already captured this cycle
+(`tmp/filelist-conc1.txt`, 349 files). If both the byte-diff stays empty and
+the wall-clock win holds at anywhere near this cycle's 85% (2-course) or
+even the serial 49.6% (Questions 14/15), this would be the campaign's
+largest single lever yet against the 30s target — worth a dedicated cycle,
+not a rushed extension of this one. Ranked top of the queue for the next
+session that picks up sync-speed work.
+
 ---
 
 ## Next experiment
 
-**Current top of queue: Question 31** (does Question 25's fix also survive
-`course_concurrency>1` contention, potentially reopening a rejected speed
-lever) — needs its own prediction written before running, per Rule 1, not
-done yet. Question 29 (does the tree walk re-fetch nodes) and Question 30
-(bulk-ZIP download, bounded win) remain open below it. Everything below this
-paragraph is the same day's earlier history, read newest-relevant-first:
-Questions 2 and 6 closed by source reading, Question 30 opened and narrowed
-by source reading, then Question 24 closed by a 6-trial live batch that also
-surfaced a `go test` caching hazard (see Question 24's own entry in "What we
-don't know" above for the full result and the caveat it leaves on Questions
-20/21's older data).
+**Current top of queue: Question 32** (does `course_concurrency=2` +
+150ms-debounce *together* replicate this cycle's ~85% 2-course wall-clock
+win at full 6-course/349-file scale) — needs its own prediction written
+before running, per Rule 1, not done yet; potentially the campaign's largest
+single lever yet, so worth a dedicated cycle rather than a rushed extension
+of this one. Question 31 closed today: `course_concurrency>1`'s
+*correctness* objection is refuted at full scale (349/349 files, empty
+diff), but concurrency *alone* is not faster (17% slower in this run) — the
+speed case rests entirely on Question 32's untested combination, not on
+concurrency by itself. Questions 29 (does the tree walk re-fetch nodes) and
+30 (bulk-ZIP download, bounded win) remain open below both. Everything below
+this paragraph is the same day's earlier history, read
+newest-relevant-first: Questions 2 and 6 closed by source reading, Question
+30 opened and narrowed by source reading, then Question 24 closed by a
+6-trial live batch that also surfaced a `go test` caching hazard (see
+Question 24's own entry in "What we don't know" above for the full result
+and the caveat it leaves on Questions 20/21's older data).
 
 **Questions 2 and 6 both closed this cycle (2026-08-09, autopilot, no live run) —
 see "What we don't know" above.** Question 2 had stood as the highest-ranked

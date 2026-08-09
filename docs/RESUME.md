@@ -44,9 +44,25 @@ in a row" batches (their raw logs are gone) — recorded as an open caveat on
 those two closed questions, not a reopening. **`-count=1` is now required
 for any repeated-trial live-run design in this campaign** going forward.
 
-Opened Question 31 (does the Question 25 fix also survive
-`course_concurrency>1` contention — potentially reopening a previously
-rejected concurrency lever): needs its own prediction written and committed
-before it runs, per Rule 1 — not done yet, next up. Full write-up in
-`docs/sync-speed-model.md`; short version also in `docs/BACKLOG.md`'s "Done
-recently".
+Question 31 (does the Question 25 fix also survive `course_concurrency>1`
+contention) ran to completion the same session: 4-trial 2-course probe
+clean (0/6 truncated across it and Q24 combined that day), then a full
+6-course/349-file byte-diff at `course_concurrency=1` vs `=2` — also empty.
+**Correctness is refuted at full scale; speed is not** — concurrency alone
+ran 17% *slower* in the full-account pass, matching what this project
+already knew (`docs/BACKLOG.md`'s "Concurrency REOPENED" entry). The 85%
+wall-clock win the 2-course probe found came from pairing concurrency with
+the 150ms debounce override, not concurrency by itself, and that pairing
+has not been tested at full scale — opened as Question 32, now top of the
+queue, needs its own prediction written and committed before it runs, per
+Rule 1. `OPAL_COURSE_CONCURRENCY_OVERRIDE` was added to
+`filelist_probe_test.go` to make this testable without ever touching the
+maintainer's real `config.yaml` (which stayed at its shipped default of 1
+throughout — verified via `git diff config.yaml` empty at every point in
+this session).
+
+Full write-up in `docs/sync-speed-model.md` (Questions 24, 30, 31, 32);
+short versions in `docs/BACKLOG.md`'s "Done recently". Ten live crawls this
+session (6 for Question 24, 4+2 for Question 31), all against the real
+account, all discovery-only (no downloads, no writes to the real sync
+folder). Six commits, `go build`/`go vet` clean throughout.

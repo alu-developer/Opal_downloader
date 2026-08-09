@@ -23,9 +23,8 @@ here is the failure mode to watch for.
 
 ## Now
 _Nothing unblocked. Sync-speed's Question 24 (repeated-trial safety check for
-preview-blocking under load) and Question 28 (methodology: does `go test`
-compile-time noise explain most of Question 27's headline delta) are both
-queued in `docs/sync-speed-model.md`, "Next experiment"._
+preview-blocking under load, real-account) is queued in
+`docs/sync-speed-model.md`, "Next experiment"._
 
 ---
 
@@ -300,8 +299,15 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 28 closed: `go test`'s own build/cache-staleness check, not raw
+  compilation or process spin-up, is the noise source behind Question 27's
+  unaccounted 6s** (2026-08-09, autopilot, local only, no account): precompiled
+  binary showed near-zero variance (refuting the literal prediction), but the
+  `go test` wrapper itself showed a 3.6s gap between a cache-cold and a cached
+  invocation of the identical test. Sharper mechanism than originally guessed;
+  full write-up in `docs/sync-speed-model.md`.
 - **Question 27 confirmed: warm-session delta is 4.03% total, but only 1.14%
-  lives inside the crawl itself — the rest is `go test` compile noise, opening
+  lives inside the crawl itself — the rest is `go test` overhead, opening
   Question 28** (2026-08-09, autopilot): second clean full-account pass (349
   files both sides, empty diff, no truncation). Full decomposition and the
   incidental third occurrence of the Shibboleth login timeout (this time

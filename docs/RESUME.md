@@ -20,12 +20,13 @@ here sends an unattended run after work that is already done. Clear it.
 
 _Nothing in flight._
 
-Question 27 landed 2026-08-09 (autopilot): warm-session before/after
-confirmed the prediction (4.03% total wall-clock delta, but only 1.14% of it
-is inside the crawl — the rest is `go test` compile-time noise). Full
+Questions 27 and 28 both landed 2026-08-09 (autopilot): Q27 confirmed the
+warm-session prediction (4.03% total wall-clock delta, but only 1.14% of it
+inside the crawl); Q28 (local only) pinned the rest on `go test`'s own
+build/cache-staleness check, not raw compilation or process spin-up. Full
 write-up in `docs/sync-speed-model.md` and `docs/BACKLOG.md`'s "Done
-recently". **Next up:** either Question 24 (repeated-trial safety check for
-preview-blocking under load — real-account, correctness) or Question 28
-(does a precompiled binary confirm the compile-noise explanation —
-local-only, no account needed), both in `docs/sync-speed-model.md`, "Next
-experiment".
+recently". **Next up:** Question 24 (repeated-trial safety check for
+preview-blocking under load — real-account, correctness), `docs/sync-speed-model.md`,
+"Next experiment". Real-account load already spent today on Question 27's
+before/after batch, so Question 24 waits for a fresh day per
+`docs/server-load.md` discipline.

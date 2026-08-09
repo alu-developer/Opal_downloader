@@ -647,28 +647,78 @@ own safety bar and the maintainer's standing shipping rule — but the fix for
 Candidate B now matters to every installation, not just a retest condition,
 and should not sit indefinitely behind lower-ranked questions.
 
-**Question 28 (new, 2026-08-09), methodology not a lever: does `time go test`
-wall-clock noise (compile + process spin-up, not measured separately from
-crawl time) invalidate the small deltas this campaign has been reading off
-it?** Opened by Question 27's own result, below: decomposing its 4.03% total
-wall-clock delta against the audit log's own section-timing total showed only
-1.14% of that delta lives inside the crawl itself — the other ~83% of the
-measured gap (6.0s of 7.25s) is unaccounted for by anything the crawler logs,
-and the most likely source is `go test`'s own per-invocation compile step,
-which this project has never controlled for or measured directly.
-**Prediction:** timing a `go test -c` precompiled binary invoked twice back
-to back (no code change between them) shows run-to-run wall-clock variance
-on the same order as the unaccounted 6.0s here — i.e. that gap is compile/
-process noise, not anything about previews specifically. **Counts as failed
-at:** back-to-back identical-binary runs vary by less than ~2s — that would
-mean the 6.0s gap this cycle was something real (e.g. TU-Fast/OPAL
-server-side session-refresh cost that differs between the `before` and
-`after` env-var invocations) rather than measurement noise, and every past
-"X% wall-clock" number in this file inherited from `time go test` (Questions
-7's fresh-vs-warm framing, 26's 6.8%, this one's 4.03%) would need the same
-decomposition before being trusted at face value. **Cost:** local only, no
-OPAL account, no real-account load — the precompiled binary needs no
-network access to just measure its own startup variance.
+**Ranked low, a methodology fix rather than a live question (opened by
+Question 28, closed below):** would standardizing future sync-speed timing
+protocols on a precompiled binary (removing `go test`'s several-seconds-scale
+build/cache-staleness noise at the root, instead of decomposing around it
+after the fact) meaningfully change any past percentage figure if that
+experiment were rerun? Not worth a dedicated real-account cycle on its own —
+the honest answer from Question 28 is "probably not enough to matter" — but
+worth adopting as the default protocol the next time a genuinely close call
+(a delta under ~5%) needs deciding.
+
+---
+
+## Previous experiment (Question 28, closed 2026-08-09)
+
+**Question 28 — does `time go test` wall-clock noise invalidate the small
+deltas this campaign has been reading off it?** Opened by Question 27's own
+result (above): decomposing its 4.03% total wall-clock delta against the
+audit log's own section-timing total showed only 1.14% of that delta lives
+inside the crawl itself — the other 6.0s of 7.25s unaccounted for by
+anything the crawler logs.
+
+**The literal prediction failed, on its own written criterion.** Precompiled
+(`go test -c`) binary, invoked directly three times back to back, no code
+change, no OPAL account touched (`-test.run TestFileListSnapshot` with
+`OPAL_FILELIST` unset, so the test skips in <1ms): 1.181s, 0.033s, 0.034s.
+That is nowhere near the 6.0s gap Question 27 needed explained, and clears
+the written failure bar (`<~2s variance`) — raw binary process spin-up is
+not the source.
+
+**But that same run pointed straight at the actual mechanism, one layer up.**
+The precompiled-binary test isolates the binary's own startup by construction
+— it removes exactly the step (`go test`'s own build-graph staleness check)
+that was the actual suspect. A direct follow-up measured that step in
+isolation: `go test ./internal/scraper/ -run TestFileListSnapshot -v`, same
+skip-fast condition, twice back to back —
+
+| Invocation | `time` (real) | `go test`'s own reported time |
+|---|---:|---:|
+| 1st (cache cold from the `go build ./...` + `go vet ./...` gate run earlier this cycle) | 4.151s | 2.130s |
+| 2nd (immediately after, nothing changed) | 0.550s | `(cached)` |
+
+A 3.6s gap between two back-to-back invocations of the identical test,
+touching no network, no OPAL account, and skipping before any real test code
+runs — from cache/build-graph state alone. That is the same order of
+magnitude as Question 27's unaccounted 6.0s, and a sharper fit than the
+original "compile/process noise" framing: it is specifically `go test`'s
+package-staleness scan and cache-key bookkeeping, not the binary's own
+process spin-up (already cleared above) and not raw compilation (the 2nd
+run's `(cached)` result means it did not even re-execute the test binary).
+
+**What this settles, and what it doesn't.** It settles the shape of the
+answer to the original question: a several-second, run-to-run wall-clock
+swing with zero relation to previews-blocking or crawl work is a real,
+demonstrated property of this project's own `go test`-based timing harness,
+not a hypothetical. It does not pin down *why* the 1st invocation above was
+cache-cold (most likely: the `go build ./...`/`go vet ./...` gate this same
+cycle ran moments before it, touching the same package graph) or whether
+Question 27's own before/after gap had exactly this cause rather than a
+same-order-of-magnitude coincidence — the two runs in that experiment were
+~3 minutes apart with a live crawl in between, not back-to-back, so cache
+state at each invocation was not controlled for or logged.
+
+**Consequence for the campaign's own numbers, applying Rule 2 against our own
+work:** every past "X% wall-clock" figure in this file that came from
+`time go test` rather than the crawler's own section-timing total (Question
+26's 6.8%, Question 27's 4.03%) carries an unquantified few-seconds-scale
+error bar from this source. None of them are large enough deltas to flip a
+conclusion — Question 26's ship decision rested on the byte-diff, not the
+timing number, exactly as its own writeup already said — but the
+section-timing total (the audit log line, not `time`) is the more
+trustworthy number for any future close call, and future timing protocols
+should prefer it or use a precompiled binary directly.
 
 ---
 

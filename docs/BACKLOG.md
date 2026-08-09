@@ -22,12 +22,45 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Sync-speed's Question 32 (real-account, needs a
-prediction written before it runs, per Rule 1 — does `course_concurrency=2`
-paired with the 150ms debounce override replicate its 85% 2-course
-wall-clock win at full 349-file scale) is top of the queue in
-`docs/sync-speed-model.md`, "Next experiment" — the ranked list has nothing
-else that's answerable without a live run._
+
+**Maintainer decision needed: ship `course_concurrency=2` +
+`OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150` as the new default?**
+`docs/sync-speed-model.md` Question 33 (2026-08-10, autopilot) found this
+combination passes the full 349-file byte-diff twice in a row (no losses)
+and cuts full-account crawl wall-clock by ~36% (211s → ~135s average) — the
+first `course_concurrency>1` setting in the whole campaign to pass
+correctness *and* show a real win. It fixes the exact bug Question 32 found
+the same cycle: the existing `OPAL_DEBOUNCE_MS_OVERRIDE` unconditionally
+tightens the Wicket "show all" signal's hard-cap budget even under
+concurrency, which loses 6 files at full scale; the new override leaves that
+cap alone and only shortens the debounce. Two live-verified options:
+
+- **(a) Ship it as the new default** — `config.yaml`'s `course_concurrency`
+  from 1 to 2, plus wiring the equivalent of
+  `OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150` into the shipped (non-test) code
+  path rather than leaving it as a test-only env var. Fastest path to the
+  ~36% win for every user, but it is only 2 live-verified runs deep (both
+  this session, same account, same day) against a project that has twice
+  before shipped a concurrency change and later found it lossy (Questions
+  16/17) — recommend at least one more clean run, ideally on a different
+  day, before treating it as proven the way Questions 14/15's 8-run debounce
+  change was.
+- **(b) Hold at `course_concurrency=1`, keep the new override test-only** —
+  safer, no change to what every user already has, but leaves a measured
+  ~36% win on the table indefinitely with no plan to revisit it.
+
+**Recommendation: (a), after one more confirmation run on a later day** —
+the mechanism is sharply diagnosed (not just a measured effect, per Rule 2),
+and the project's own standing rule already says a byte-diff-passing default
+may be changed and shipped without waiting on a full campaign close. The
+open item from Question 33 (why Question 31's 2-course probe didn't
+reproduce Question 32's loss at the same tightened cap) is low-priority and
+doesn't block this — it explains *why the old override was unsafe*, not
+whether the new one is.
+
+`docs/sync-speed-model.md` "Next experiment" has the full write-up and
+citations. Question 29 (does the tree walk re-fetch nodes) is the only other
+item on the ranked list, and it's below this.
 
 ---
 
@@ -309,6 +342,14 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Questions 32/33 closed live at full 6-course scale: `course_concurrency=2`
+  + debounce=150 loses 6 files with the existing override (hard cap
+  unintentionally tightened too), but a new decoupled override
+  (`OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE`) passes the full byte-diff twice and
+  cuts wall-clock ~36%** (2026-08-10, autopilot, 4 live runs): first
+  `course_concurrency>1` config in the campaign to pass correctness *and*
+  show a real speed win — now a maintainer decision, see "Now" above. Full
+  write-up in `docs/sync-speed-model.md` Questions 32/33.
 - **Question 31 closed at full 6-course/349-file scale: `course_concurrency>1`'s
   correctness objection is refuted (empty byte-diff both sides), but
   concurrency alone is not faster (17% slower in this run) — added

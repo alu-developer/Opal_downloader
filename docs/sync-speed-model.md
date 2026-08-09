@@ -1104,27 +1104,70 @@ unilaterally, per the standing correctness-first/maintainer-sign-off rule.
 **Running this now, same session** — one more live run, no new unknowns
 introduced beyond what the prediction above already names.
 
+**Result: clean, and repeated once given how consequential this one is.**
+Run 1 (`OPAL_COURSE_CONCURRENCY_OVERRIDE=2
+OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150`): **349/349 files, empty diff against
+this cycle's fresh conc=1 baseline**, 132.93s (`tmp/q33-conc2-keepcap150-run.log`).
+Question 31's own write-up flagged that a single run at each concurrency is
+"still one sample, not the repeated-trial standard" for a result this
+consequential, so ran a second trial before writing this up: run 2 — again
+349/349, empty diff against both the baseline and run 1
+(`tmp/q33-run2.log`), 137.68s. Two clean runs, consistent ~135s average, no
+variance in file count either time.
+
+**This is the campaign's first `course_concurrency>1` configuration to pass
+the full byte-diff with a real, repeated wall-clock win** — a ~36% reduction
+against this cycle's own fresh conc=1 baseline (211.4s test time) and still
+~21% faster than Question 31's warm-session conc=1 figure (171.94s),
+despite this cycle's baseline having to pay for a fresh login. The
+mechanism holds up exactly as diagnosed: decoupling the debounce shortening
+from the hard-cap tightening keeps Questions 14/15's proven-safe debounce
+win on the common path (most sections settle in ~180ms, nowhere near either
+cap) while leaving the rare slow-to-settle Wicket "show all" section its
+full 6000ms patience — the section that lost 6 files in Question 32 came
+back complete in both runs here.
+
+**Not shipped — reaches the maintainer as a decision, not a unilateral
+default change, per the standing correctness-first/sign-off rule.** See
+`docs/BACKLOG.md` "Now" for the concrete options.
+
+**Leaves one open question per Rule 3:** why did Question 31's contention
+probe (2-course, `OPAL_DEBOUNCE_MS_OVERRIDE=150`, same tightened 4000ms cap
+Question 32 also used) come back clean 4/4 times on a *smaller* 2-course
+pair, while Question 32 lost files with the same tightened cap at full
+6-course scale? The working theory above is "a third course's worth of
+render load was enough to push the same section past a 4000ms cap that held
+at 2 courses" — plausible (more concurrent tabs competing for the same
+event loop is a real mechanism, not a guess) but not directly measured; no
+instrumentation from either run captured per-section wait duration to
+confirm the Vorlesung section's signal actually took longer at 6-course
+scale than it did in Question 31's 2-course probe. Low priority given
+Question 33 already found the fix that matters (decouple the caps), but
+worth naming so nobody assumes the 4000ms-cap mechanism is fully nailed
+down rather than well-supported.
+
 ---
 
 ## Next experiment
 
-**Current top of queue: Question 32** (does `course_concurrency=2` +
-150ms-debounce *together* replicate this cycle's ~85% 2-course wall-clock
-win at full 6-course/349-file scale) — needs its own prediction written
-before running, per Rule 1, not done yet; potentially the campaign's largest
-single lever yet, so worth a dedicated cycle rather than a rushed extension
-of this one. Question 31 closed today: `course_concurrency>1`'s
-*correctness* objection is refuted at full scale (349/349 files, empty
-diff), but concurrency *alone* is not faster (17% slower in this run) — the
-speed case rests entirely on Question 32's untested combination, not on
-concurrency by itself. Questions 29 (does the tree walk re-fetch nodes) and
-30 (bulk-ZIP download, bounded win) remain open below both. Everything below
-this paragraph is the same day's earlier history, read
-newest-relevant-first: Questions 2 and 6 closed by source reading, Question
-30 opened and narrowed by source reading, then Question 24 closed by a
-6-trial live batch that also surfaced a `go test` caching hazard (see
-Question 24's own entry in "What we don't know" above for the full result
-and the caveat it leaves on Questions 20/21's older data).
+**No local-only ranked question left; the campaign's live-run arm just
+closed with the biggest result it has produced.** Question 32
+(2026-08-10, autopilot) tested `course_concurrency=2` +
+`OPAL_DEBOUNCE_MS_OVERRIDE=150` together at full 6-course scale and found it
+loses 6 files — diagnosed to that override unconditionally pinning the hard
+cap to the serial 4000ms value even under concurrency, starving the same
+contention-sensitive Wicket "show all" signal Questions 17/19/20/21 already
+chased. Question 33, opened the same cycle, decoupled the two
+(`OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE`, debounce shortened, hard cap left at
+the concurrent default) and got the first `course_concurrency>1`
+configuration in the whole campaign to pass the full byte-diff *with* a real
+speed win — 349/349 files clean twice, ~135s average against a 211s fresh
+baseline (~36% faster). **This is now a decision for the maintainer, not
+another open question** — see `docs/BACKLOG.md` "Now" for the concrete
+options. Questions 29 (does the tree walk re-fetch nodes) and 5 (is "30s"
+even tied to discovery, maintainer decision already given, stays low) remain
+open below. Everything below this paragraph is earlier history, read
+newest-relevant-first.
 
 **Questions 2 and 6 both closed this cycle (2026-08-09, autopilot, no live run) —
 see "What we don't know" above.** Question 2 had stood as the highest-ranked

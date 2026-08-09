@@ -18,16 +18,21 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight (2026-08-10, autopilot):** Question 32's prediction is written
-and committed (`docs/sync-speed-model.md`). About to run two fresh
-`TestFileListSnapshot` live crawls against the real account: a
-`course_concurrency=1` baseline (`OPAL_FILELIST=q32-conc1`), then the
-untested combination `OPAL_COURSE_CONCURRENCY_OVERRIDE=2
-OPAL_DEBOUNCE_MS_OVERRIDE=150` (`OPAL_FILELIST=q32-conc2-deb150`), then a
-byte-diff between them. Discovery-only, scratch `download_path`, no writes
-to the real sync folder or `config.yaml`. If this turn dies mid-run, the two
-`tmp/filelist-q32-*.txt` files (if either completed) are the only recoverable
-state — rerun the missing side and diff.
+_Nothing in flight._
+
+Questions 32 and 33 landed 2026-08-10 (autopilot): Q32 (the untested
+`course_concurrency=2` + `OPAL_DEBOUNCE_MS_OVERRIDE=150` combination loses 6
+files at full 6-course scale — the override unconditionally tightens the
+Wicket "show all" hard cap even under concurrency) and Q33 (a new decoupled
+override, `OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE`, fixes it — 349/349 files
+clean twice, ~36% faster). This is the campaign's first `course_concurrency>1`
+config to pass the full byte-diff with a real win, and it's now a maintainer
+decision (`docs/BACKLOG.md` "Now", options + recommendation written) rather
+than an open question. 4 live crawls this session, all discovery-only
+against the real account, no writes to the sync folder or `config.yaml`.
+Report cadence: cycle count since the last 5-cycle report (2026-08-09) is
+now at 9 (Q24, 31, 32, 33 — treating 32/33 as two cycles since each got its
+own prediction) — one more cycle due before the next report.
 
 Six questions landed 2026-08-09 (autopilot): Q27 (warm-session delta
 confirmed, mostly `go test` noise), Q28 (pinned that noise to `go test`'s

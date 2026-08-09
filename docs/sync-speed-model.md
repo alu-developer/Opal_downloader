@@ -137,14 +137,44 @@ best-fitting inference from the surviving numbers and design comments, not a
 code-level proof of that specific historical bug. It does not affect the current
 (parked, verify-mode-only) design's correctness, which is independently verified.
 
-**New open question (Question 29, rule 3, not run this cycle):** now that
-`isRenderChildren()`'s open-node/selection-path scoping is established as the
-reason a full tree enumeration costs one navigation per newly-revealed branch,
-does the *browser* crawler's own tree walk ever re-fetch a node's page more than
-once — once per child discovered under it — and if so, is that a measurable,
-avoidable request multiplier? Not measured; untested candidate for the leverage
-ranking, and unlike Question 24 it needs no repeated-trial design, just one
-instrumented live run against the real account, not yet run this cycle.
+### 29. ~~Does the browser crawler's own tree walk ever re-fetch a node's page more than once?~~ Closed 2026-08-10 (autopilot, pure source reading, no live run needed) — no, by construction
+
+**Opened by Question 2's close:** now that `isRenderChildren()`'s open-node/
+selection-path scoping is established as the reason a full tree enumeration
+costs one navigation per newly-revealed branch, does the crawler's own BFS
+ever re-fetch a node's page more than once — once per child discovered
+under it?
+
+**Answered by rereading the two functions that actually gate the BFS, not
+by running anything.** `collectCourseFiles` (`crawl.go:122-137`) only ever
+pops and visits a URL after checking `visited[currentKey]` — a duplicate
+pop is dropped before the section is ever navigated to. The other half,
+`appendSectionFolderTargets` (`crawl.go:1324-1333`), is the only place new
+children get queued, and it checks *both* `visited[key]` and `queued[key]`
+before appending — a child already visited, or already sitting in the queue
+from some other section's candidates linking to the same node, is silently
+dropped rather than queued a second time. Between the two, a node's
+`sectionKey` can enter the queue at most once and be navigated to at most
+once, for the lifetime of one course's crawl — this is not a measured
+property, it is what the code does on every path, so Rule 2's bar (a
+mechanism sharp enough to have predicted the answer) is met without a live
+run.
+
+**Honest residual, not chased further:** this proves no re-fetch *given*
+`sectionKey` correctly treats two URLs that refer to the same underlying
+OPAL node as equal. `sectionKey` (`crawl.go:1391+`) already does real
+normalization work for `/CourseNode/` URLs (extracting the ID and a
+lower-cased, percent-decoded suffix via `courseNodeSectionKeyRe`) — if some
+OPAL URL variant for the same node fell outside what that regex + suffix
+handling normalizes, the dedup could miss it and this question's answer
+would flip for that specific URL shape. No such variant is known to exist
+today, and none of this campaign's byte-diffs (345/349-file ground truth,
+many runs) have ever shown a duplicate-content symptom that would indicate
+one. Not worth its own live-instrumented run: a synthetic re-fetch would
+have to be manufactured to test it, and the real-world signal that would
+reveal a gap (an unexpectedly high section-visit count against a known
+section total) has never fired in any of this campaign's real-account runs.
+Low-priority residual, not a reopening.
 
 ### 3. ~~Why does `ctx.Route` cost 30%?~~ Answered 2026-08-01, see report below
 On every route, whatever pattern is passed in, Playwright installs
@@ -1164,10 +1194,12 @@ configuration in the whole campaign to pass the full byte-diff *with* a real
 speed win — 349/349 files clean twice, ~135s average against a 211s fresh
 baseline (~36% faster). **This is now a decision for the maintainer, not
 another open question** — see `docs/BACKLOG.md` "Now" for the concrete
-options. Questions 29 (does the tree walk re-fetch nodes) and 5 (is "30s"
-even tied to discovery, maintainer decision already given, stays low) remain
-open below. Everything below this paragraph is earlier history, read
-newest-relevant-first.
+options. Question 29 closed the same cycle by source reading (the BFS's own
+`visited`/`queued` dedup makes a re-fetch structurally impossible). **The
+ranked list is now empty** — only Question 5 remains (is "30s" even tied to
+discovery; maintainer decision already given 2026-08-03, stays low and not
+actionable without a fresh maintainer conversation). Everything below this
+paragraph is earlier history, read newest-relevant-first.
 
 **Questions 2 and 6 both closed this cycle (2026-08-09, autopilot, no live run) —
 see "What we don't know" above.** Question 2 had stood as the highest-ranked
@@ -2592,6 +2624,67 @@ Every 5 cycles, each ending with a recommendation: keep going or stop, and why. 
 decision is the maintainer's, not a counter's — no cap on the campaign, the kill criterion
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
+
+### 2026-08-10 (autopilot): five cycles, Questions 24/31/32/33/29 — keep going, and this round produced the campaign's biggest single result
+
+Cycles since the last report: Question 24 (closed live, 6 trials, 0
+truncated, surfaced the `go test -count=1` caching hazard), Question 31
+(closed live at full 6-course scale: `course_concurrency>1`'s correctness
+objection refuted, but concurrency alone is 17% slower with the concurrent-
+default 500ms/6000ms settle budget), Question 32 (closed live: the untested
+`course_concurrency=2` + `OPAL_DEBOUNCE_MS_OVERRIDE=150` combination loses 6
+files at full scale — diagnosed to that override unconditionally tightening
+the Wicket "show all" signal's hard cap to the serial 4000ms value even
+under concurrency), Question 33 (closed live: a new decoupled override,
+`OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE`, keeps the concurrent 6000ms hard cap
+while still shortening the debounce — 349/349 files clean across two runs,
+~36% faster than the fresh conc=1 baseline), and Question 29 (closed by
+source reading, no live run: the crawl's own `visited`/`queued` maps make a
+node re-fetch structurally impossible).
+
+**What changed since the last report.** This round did what the previous
+one predicted it might not be able to — the ranked list had gone genuinely
+empty of local-only questions, and every remaining one needed a live run.
+Four live crawls against the real account (Questions 24's 6 trials plus
+Question 31's 4+2 plus Question 32's 2 plus Question 33's 2 — 14 live runs
+total this round, the campaign's heaviest single reporting period) produced
+the sharpest chain of the whole campaign: each question's result directly
+motivated and de-risked the next one, from "does the old fix survive
+contention" (31) through "why isn't concurrency alone faster" (32's
+diagnosis) to "fix the actual bug, not just avoid it" (33). The result is
+the first `course_concurrency>1` configuration ever to pass this project's
+own non-negotiable full byte-diff *and* show a real, twice-confirmed
+wall-clock win (~36%) — bigger than any single lever this campaign has
+found since the 150ms debounce change itself. It is not yet shipped; it
+reaches the maintainer as a two-option decision in `docs/BACKLOG.md` "Now"
+per the standing correctness-first/sign-off rule, with a recommendation
+(ship after one more day's confirmation run) rather than an open question.
+
+**What is still open.** The ranked list in "What we don't know" is now
+empty except Question 5 (concealment-class work; maintainer already
+declined to pivot to it 2026-08-03, stays low). Two known residuals, both
+explicitly low-priority and not reopenings: Question 33's own note that
+Question 31's 2-course contention probe didn't reproduce Question 32's
+6-file loss at the same tightened hard cap (plausible mechanism: a third
+course's render load pushing the same section past 4000ms, not directly
+instrumented); and Question 29's residual that its "no re-fetch" proof
+depends on `sectionKey` correctly normalizing every real OPAL URL variant
+for the same node, untested beyond the campaign's own byte-diffs never
+showing a duplicate-content symptom. Neither blocks anything currently
+queued. `docs/BACKLOG.md`'s session-lock collision bug and the login-timeout
+recurrence are both still open, unchanged this round.
+
+**Recommendation: keep going, but the next cycle should be the maintainer's
+call, not another autopilot experiment.** Five questions closed, the ranked
+list is empty for the first time with nothing waiting on a live run either,
+and the one open item left (ship the concurrency+debounce default) is
+explicitly the maintainer's decision per the standing rule — manufacturing
+another speed question right now would be working around that decision
+point rather than reaching it. If the maintainer approves shipping, the
+natural next autopilot cycle is the one more same-day-or-later confirmation
+run the recommendation calls for, then wiring the override into the
+non-test code path. If they decline, the ranked list is genuinely empty and
+"When ideas run out" (top of this file) is the honest next move.
 
 ### 2026-08-09 (autopilot): five cycles, Questions 27/28/2/6/30 — keep going, but the ranked list is now genuinely empty without a live run
 

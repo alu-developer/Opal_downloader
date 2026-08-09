@@ -14,6 +14,46 @@ this is the human-readable version of why things are the way they are.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Question 7 closed, no live run needed: it was already answered by data
+  collected for Questions 13-15, just never connected back** (2026-08-06,
+  autopilot): the two remaining candidates for "what fills the settle wait, if
+  not network transfer" (browser parsing/layout, or a JS widget) both predict
+  real browser-side work should dominate the unexplained ~70%. Question 13's
+  CDP profiling had already measured that ceiling directly — Script+Layout+
+  RecalcStyle at 11.4%, even the broadest `TaskDuration` metric at 24.4% (and
+  flagged as an overestimate). Question 14/15 then clinched the mechanism:
+  halving `mutationObserverDebounceMs` lost zero files over 8 real-account
+  runs on two courses 27x apart in size — only possible if the removed 150ms
+  was margin the browser had already finished before, not time it needed. So
+  the settle wait is mostly the crawler's own fixed timers outliving actual
+  completion, not browser work of any kind. Full write-up:
+  `docs/sync-speed-model.md` Question 7.
+- **Question 20 closed inconclusive, and said so plainly** (2026-08-04):
+  raising the Wicket signal-wait ceiling to 15000ms produced 3 clean
+  contention runs in a row (248/248/248 files) — but at this condition's
+  ~33-50% historical failure rate that is not proof of "pure delay", just a
+  plausible outcome either way. The diagnostic tool
+  (`OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE`) is built and reusable; what's
+  missing is an actual latency distribution, not another blind batch —
+  Question 21.
+- **Question 19 closed, its own prediction wrong: the Wicket signal doesn't
+  arrive late, it doesn't arrive at all** (2026-08-04): new
+  `wicket-expand-signal` audit line (`crawl.go`) plus a contention probe
+  (`showallsignal_probe_test.go`) caught `expansionSignalled=false` in both
+  runs that lost the Vorlesung folder's tail — the click fires, Wicket's
+  `AJAX_CALL_DONE` just never shows up within the 4000ms budget. Refutes
+  Candidate B (late signal), reopens Candidate A split into "pure delay" vs.
+  "never issued" — Question 20.
+- **The truncation alarm was a broken detector, not a truncation** (2026-08-03,
+  Question 18): the warning that had fired on every run for two days was
+  counting raw table rows, so it flagged the tutorial *enrolment* table — which
+  holds no files — every single time its pager disappeared on expansion. Live
+  href-level probe: not one lost row was file-shaped, nothing has ever been
+  missing there, and the 345-file ground truth is fine. It now counts file rows
+  and stays quiet on sections with none; re-verified live, warning gone, file
+  count unchanged. **The cost was never the noise:** this is the only signal the
+  project has for a real truncation, and firing constantly is why Question 17's
+  genuine six-file loss sat unread in those same logs.
 - **Question 25 confirmed live, 3/3: rearming the Wicket watch on the
   context-destroyed reclick recovers the section** (2026-08-06, autopilot):
   `crawl.go`'s reclick fallback now mirrors the sibling `AJAX_CALL_FAILURE`

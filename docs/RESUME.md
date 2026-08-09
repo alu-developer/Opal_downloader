@@ -20,19 +20,23 @@ here sends an unattended run after work that is already done. Clear it.
 
 _Nothing in flight._
 
-Questions 32 and 33 landed 2026-08-10 (autopilot): Q32 (the untested
+Five questions landed 2026-08-10 (autopilot): Q32 (the untested
 `course_concurrency=2` + `OPAL_DEBOUNCE_MS_OVERRIDE=150` combination loses 6
 files at full 6-course scale — the override unconditionally tightens the
-Wicket "show all" hard cap even under concurrency) and Q33 (a new decoupled
+Wicket "show all" hard cap even under concurrency), Q33 (a new decoupled
 override, `OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE`, fixes it — 349/349 files
-clean twice, ~36% faster). This is the campaign's first `course_concurrency>1`
-config to pass the full byte-diff with a real win, and it's now a maintainer
-decision (`docs/BACKLOG.md` "Now", options + recommendation written) rather
-than an open question. 4 live crawls this session, all discovery-only
-against the real account, no writes to the sync folder or `config.yaml`.
-Report cadence: cycle count since the last 5-cycle report (2026-08-09) is
-now at 9 (Q24, 31, 32, 33 — treating 32/33 as two cycles since each got its
-own prediction) — one more cycle due before the next report.
+clean twice, ~36% faster), and Q29 (closed by source reading: the crawl's
+own `visited`/`queued` dedup makes a node re-fetch structurally impossible).
+Q32/33 together are the campaign's biggest single result: the first
+`course_concurrency>1` config to pass the full byte-diff with a real win.
+Not shipped — it's a maintainer decision now (`docs/BACKLOG.md` "Now",
+two options + a recommendation), not an open question. 4 live crawls this
+session, all discovery-only against the real account, no writes to the sync
+folder or `config.yaml`. Fifth-cycle report appended to
+`docs/sync-speed-model.md` covering Q24/31/32/33/29 — the ranked question
+list is now empty except Question 5 (maintainer already declined to pivot
+to it 2026-08-03). **Next autopilot cycle should not manufacture a new
+speed question** — it's the maintainer's decision to make first.
 
 Six questions landed 2026-08-09 (autopilot): Q27 (warm-session delta
 confirmed, mostly `go test` noise), Q28 (pinned that noise to `go test`'s

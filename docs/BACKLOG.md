@@ -59,8 +59,10 @@ doesn't block this — it explains *why the old override was unsafe*, not
 whether the new one is.
 
 `docs/sync-speed-model.md` "Next experiment" has the full write-up and
-citations. Question 29 (does the tree walk re-fetch nodes) is the only other
-item on the ranked list, and it's below this.
+citations. Question 29 (does the tree walk re-fetch nodes) closed the same
+cycle by source reading — the ranked list in `docs/sync-speed-model.md` is
+now empty except Question 5 (concealment-class work, already declined by
+the maintainer 2026-08-03).
 
 ---
 
@@ -342,6 +344,14 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 29 closed, no live run needed: the crawl's own `visited`/`queued`
+  dedup makes a node re-fetch structurally impossible** (2026-08-10,
+  autopilot, source reading): `appendSectionFolderTargets` checks both maps
+  before ever queuing a child (`crawl.go:1328-1333`), so a node's `sectionKey`
+  can enter the BFS at most once per course crawl. Residual, not chased: this
+  assumes `sectionKey` normalizes every real URL variant for the same node,
+  untested beyond the campaign's byte-diffs never showing a duplicate-content
+  symptom. Full write-up in `docs/sync-speed-model.md` Question 29.
 - **Questions 32/33 closed live at full 6-course scale: `course_concurrency=2`
   + debounce=150 loses 6 files with the existing override (hard cap
   unintentionally tightened too), but a new decoupled override
@@ -442,47 +452,3 @@ move the rest across.
   needs a warm-session rerun) and re-ranked Question 24 up (the residual risk
   to Question 17's still-unfixed Candidate-B bug now applies to every user,
   not just a retest account) — full write-up in `docs/sync-speed-model.md`.
-- **Question 7 closed, no live run needed: it was already answered by data
-  collected for Questions 13-15, just never connected back** (2026-08-06,
-  autopilot): the two remaining candidates for "what fills the settle wait, if
-  not network transfer" (browser parsing/layout, or a JS widget) both predict
-  real browser-side work should dominate the unexplained ~70%. Question 13's
-  CDP profiling had already measured that ceiling directly — Script+Layout+
-  RecalcStyle at 11.4%, even the broadest `TaskDuration` metric at 24.4% (and
-  flagged as an overestimate). Question 14/15 then clinched the mechanism:
-  halving `mutationObserverDebounceMs` lost zero files over 8 real-account
-  runs on two courses 27x apart in size — only possible if the removed 150ms
-  was margin the browser had already finished before, not time it needed. So
-  the settle wait is mostly the crawler's own fixed timers outliving actual
-  completion, not browser work of any kind. Full write-up:
-  `docs/sync-speed-model.md` Question 7. Leaves a real, unrun question: how
-  far below 150ms can the debounce go before correctness actually breaks —
-  ranked below Question 26, needs the same live byte-diff protocol, not done
-  this cycle.
-- **Question 20 closed inconclusive, and said so plainly** (2026-08-04):
-  raising the Wicket signal-wait ceiling to 15000ms produced 3 clean
-  contention runs in a row (248/248/248 files) — but at this condition's
-  ~33-50% historical failure rate that is not proof of "pure delay", just a
-  plausible outcome either way. The diagnostic tool
-  (`OPAL_WICKET_SIGNAL_TIMEOUT_MS_OVERRIDE`) is built and reusable; what's
-  missing is an actual latency distribution, not another blind batch —
-  Question 21, deliberately spread across more than one cycle to bound
-  today's live server load (6 contention crawls already).
-- **Question 19 closed, its own prediction wrong: the Wicket signal doesn't
-  arrive late, it doesn't arrive at all** (2026-08-04): new
-  `wicket-expand-signal` audit line (`crawl.go`) plus a contention probe
-  (`showallsignal_probe_test.go`) caught `expansionSignalled=false` in both
-  runs that lost the Vorlesung folder's tail — the click fires, Wicket's
-  `AJAX_CALL_DONE` just never shows up within the 4000ms budget. Refutes
-  Candidate B (late signal), reopens Candidate A split into "pure delay" vs.
-  "never issued" — Question 20.
-- **The truncation alarm was a broken detector, not a truncation** (2026-08-03,
-  Question 18): the warning that had fired on every run for two days was
-  counting raw table rows, so it flagged the tutorial *enrolment* table — which
-  holds no files — every single time its pager disappeared on expansion. Live
-  href-level probe: not one lost row was file-shaped, nothing has ever been
-  missing there, and the 345-file ground truth is fine. It now counts file rows
-  and stays quiet on sections with none; re-verified live, warning gone, file
-  count unchanged. **The cost was never the noise:** this is the only signal the
-  project has for a real truncation, and firing constantly is why Question 17's
-  genuine six-file loss sat unread in those same logs.

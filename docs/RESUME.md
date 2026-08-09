@@ -18,7 +18,16 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**In flight (2026-08-10, autopilot):** Question 32's prediction is written
+and committed (`docs/sync-speed-model.md`). About to run two fresh
+`TestFileListSnapshot` live crawls against the real account: a
+`course_concurrency=1` baseline (`OPAL_FILELIST=q32-conc1`), then the
+untested combination `OPAL_COURSE_CONCURRENCY_OVERRIDE=2
+OPAL_DEBOUNCE_MS_OVERRIDE=150` (`OPAL_FILELIST=q32-conc2-deb150`), then a
+byte-diff between them. Discovery-only, scratch `download_path`, no writes
+to the real sync folder or `config.yaml`. If this turn dies mid-run, the two
+`tmp/filelist-q32-*.txt` files (if either completed) are the only recoverable
+state — rerun the missing side and diff.
 
 Six questions landed 2026-08-09 (autopilot): Q27 (warm-session delta
 confirmed, mostly `go test` noise), Q28 (pinned that noise to `go test`'s

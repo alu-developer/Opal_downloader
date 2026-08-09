@@ -949,17 +949,76 @@ Rule 3.
 
 ### 32. Does `course_concurrency=2` combined with the 150ms debounce override replicate its ~85% wall-clock win at full 6-course/349-file scale, and does that combination pass the full byte-diff?
 
-**Opened 2026-08-09, by Question 31's full-scale result.** Needs its own
-prediction (per Rule 1, not written this cycle) before running:
-`OPAL_COURSE_CONCURRENCY_OVERRIDE=2 OPAL_DEBOUNCE_MS_OVERRIDE=150` against
-`TestFileListSnapshot`'s full 6-course run, diffed against the
-`OPAL_COURSE_CONCURRENCY_OVERRIDE=1` baseline already captured this cycle
-(`tmp/filelist-conc1.txt`, 349 files). If both the byte-diff stays empty and
-the wall-clock win holds at anywhere near this cycle's 85% (2-course) or
-even the serial 49.6% (Questions 14/15), this would be the campaign's
-largest single lever yet against the 30s target — worth a dedicated cycle,
-not a rushed extension of this one. Ranked top of the queue for the next
-session that picks up sync-speed work.
+**Opened 2026-08-09, by Question 31's full-scale result.**
+
+**Mechanism, sharpened 2026-08-10 (autopilot) by rereading `navigation.go`
+rather than assuming Question 31's own framing — this is why concurrency
+alone was slower, not just that it was:** `contentSettleWaitBudget`
+(`navigation.go:416`) already ships `mutationObserverDebounceMs = 150.0` as
+the `course_concurrency=1` default (lowered from 300 on 2026-08-03, Question
+14/15's own win) — so Question 31's "conc=1" baseline (171.94s, 349 files)
+already includes the 150ms debounce; there was never a slower serial
+baseline still on 300ms to compare against. But at `course_concurrency>1`
+the same function silently switches to
+`mutationObserverConcurrentDebounceMs/-HardCapMs = 500.0/6000.0`
+(`navigation.go:156-157`) — a >3x wider settle-and-cap budget, unconditional,
+with no override needed to trigger it. `OPAL_DEBOUNCE_MS_OVERRIDE` is the
+only path back down to 150ms once concurrency is on, and it forces the
+*serial* hard cap (4000ms) too, not the wider concurrent one
+(`navigation.go:426-430`). So Question 31's "concurrency alone, 17% slower"
+result is explained without needing a new mechanism: two courses ran in
+parallel, but each individual section inside them waited over 3x longer to
+be called settled, and that per-section tax outweighed the parallelism gain
+at 6-course scale. Question 32 is therefore not a fresh unknown so much as
+completing an equation whose other three terms are already measured
+(serial debounce win: Questions 14/15; concurrency's correctness: Question
+31; concurrency's default-budget cost: Question 31 again) — the only untested
+term is whether combining them holds together at full scale rather than just
+at the 2-course pair Question 31 tried it on first.
+
+**Prediction, written before running (2026-08-10), per Rule 1.** Design: two
+fresh same-session `TestFileListSnapshot` runs (not reusing yesterday's
+`tmp/filelist-conc1.txt` — the account is student-facing course content that
+can change day to day, e.g. a new upload, and a stale baseline would
+confound a byte-diff whose entire job is catching exactly that kind of
+silent difference):
+- `OPAL_FILELIST=q32-conc1 OPAL_COURSE_CONCURRENCY_OVERRIDE=1` — same
+  conditions as Question 31's already-shipped default, refreshed today as
+  this cycle's baseline.
+- `OPAL_FILELIST=q32-conc2-deb150 OPAL_COURSE_CONCURRENCY_OVERRIDE=2
+  OPAL_DEBOUNCE_MS_OVERRIDE=150` — the untested combination.
+
+Both via `go test ./internal/scraper/ -run TestFileListSnapshot -v -count=1
+-timeout 30m` (`-count=1` mandatory per Question 24's caching-hazard finding).
+
+*Expected numbers:* file sets identical between the two runs (whatever the
+account's current total is — 349 at last count, may differ slightly today,
+which is exactly why a fresh baseline matters more than the absolute
+number). Wall-clock: the conc=1 baseline should land close to Question 31's
+171.94s (same config, one day later). The combo run's mechanism predicts it
+should beat that baseline by a real margin — reclaiming the >3x per-section
+settle-time tax the concurrent-default budget was paying in Question 31's
+"17% slower" result — but not by the 2-course pair's ~85%, because that
+figure came from a small course paired with the account's single largest
+course and is not representative of the full 6-course mix. A defensible
+range: 90-150s (roughly a 15-45% improvement on 171.94s), with anything
+outside that range still reported honestly rather than rounded to fit.
+
+**Kill criterion:** any non-empty diff between the two file sets closes the
+*correctness* half as failed — `course_concurrency` stays at 1 regardless of
+timing, no matter how large a speed win the same run shows, per the
+standing correctness-first rule. If the diff is empty but the combo run is
+not meaningfully faster than the fresh conc=1 baseline (i.e. within measurement
+noise or slower, mirroring Question 31's own "17% slower" surprise), the
+*speed* half closes as "the combination does not generalize past the
+2-course pair" — a real, useful negative result, not a failed cycle, since
+Rule 2 only requires the explanation to be sharp enough to have predicted
+it, not that the prediction turn out right. A shipped default change either
+way still needs the maintainer's own sign-off, per the standing rule.
+
+**Running this now, same session** — both runs are the existing test with
+existing env-var hooks, no new code, and the rationing retirement (see
+"Next experiment" above) still applies.
 
 ---
 

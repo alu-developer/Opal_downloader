@@ -429,9 +429,25 @@ func (s *OpalScraper) contentSettleWaitBudget() (debounceMs, hardCapMs float64) 
 		}
 	}
 	if s.effectiveCourseConcurrency() > 1 {
-		return mutationObserverConcurrentDebounceMs, mutationObserverConcurrentHardCapMs
+		debounceMs, hardCapMs = mutationObserverConcurrentDebounceMs, mutationObserverConcurrentHardCapMs
+	} else {
+		debounceMs, hardCapMs = mutationObserverDebounceMs, mutationObserverHardCapMs
 	}
-	return mutationObserverDebounceMs, mutationObserverHardCapMs
+	// OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE: docs/sync-speed-model.md Question 33
+	// (2026-08-10) - OPAL_DEBOUNCE_MS_OVERRIDE above always pins hardCapMs to
+	// the serial 4000ms value, even at course_concurrency>1, which conflates
+	// two different changes (shorter debounce, shorter hard cap) into one
+	// override. Question 32 found that combination loses files under real
+	// 2-course contention on the exact Wicket "show all" section Questions
+	// 16/17 first found; this override isolates the debounce half only,
+	// keeping whichever hard cap concurrency would already have selected, so
+	// the two can be told apart. Off by default.
+	if v := os.Getenv("OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE"); v != "" {
+		if ms, err := strconv.ParseFloat(v, 64); err == nil && ms > 0 {
+			debounceMs = ms
+		}
+	}
+	return debounceMs, hardCapMs
 }
 
 // contentSettleWaitScript is injected via page.Evaluate by

@@ -1020,6 +1020,90 @@ way still needs the maintainer's own sign-off, per the standing rule.
 existing env-var hooks, no new code, and the rationing retirement (see
 "Next experiment" above) still applies.
 
+**Result: correctness fails, exactly per the kill criterion, and the loss is
+sharply diagnosable.** Fresh conc=1 baseline: 349 files, 213.7s wall
+(`tmp/q32-conc1-run.log`) — this run needed a fresh login (saved session had
+expired), so its wall-clock is not directly comparable to Question 31's
+warm-session 171.94s; the file count is what matters here. Combo run
+(`OPAL_COURSE_CONCURRENCY_OVERRIDE=2 OPAL_DEBOUNCE_MS_OVERRIDE=150`): **343
+files, 6 short**, in 132.0s wall (`tmp/q32-conc2-deb150-run.log`) — and its
+own log names the cause directly: `Warning: section .../Vorlesung offered a
+"show all" control but the expansion did not add any files ... this section
+is capped at its first page (20 files) and later files are missing`. The
+byte-diff (`diff tmp/filelist-q32-conc1.txt tmp/filelist-q32-conc2-deb150.txt`)
+confirms exactly 6 files missing, all `Vorlesung_7`/`_7p`/`_8`/`_8p`/`_9_10`/
+`_9_10p` in Algorithmen und Datenstrukturen's Vorlesung section — the same
+course, same section, same file-shaped loss Questions 16 and 17 originally
+found before Question 25's fix existed.
+
+**Diagnosed, not just observed, before writing this down (Rule 2):**
+rereading `contentSettleWaitBudget` (`navigation.go:426-430`) shows
+`OPAL_DEBOUNCE_MS_OVERRIDE` unconditionally returns `mutationObserverHardCapMs`
+(4000ms, the *serial* hard cap) regardless of `course_concurrency` — so the
+combo run gave the Wicket "show all" AJAX signal a 4000ms budget to arrive
+under real 2-course contention, not the 6000ms the concurrent-default path
+would have given it. That is a 33% narrower window on exactly the mechanism
+this campaign has repeatedly found to be contention-sensitive (Questions
+17/19/20/21: the signal doesn't arrive late under load, it sometimes doesn't
+arrive at all within budget). Question 31's clean 4-trial contention probe
+used this same override+concurrency=2 combination on a smaller 2-course pair
+and did not lose files there — so this is not "the override is broken", it
+is "a 4000ms budget is not always enough once a *third* course's worth of
+rendering is competing for the same event loop," which a 2-course probe
+would not reliably surface. This sharpens, rather than contradicts, Question
+25's fix: the reclick-recovery path works when it gets a chance to run, but
+a hard cap tight enough can end the wait before Wicket's signal — or even
+the failure that would trigger a reclick — ever fires.
+
+**Closed: the untested combination does not ship.** `course_concurrency`
+stays at 1, `OPAL_DEBOUNCE_MS_OVERRIDE` stays off by default, exactly as the
+kill criterion specified. The mechanism above is precise enough that it
+would have predicted this outcome in advance (Rule 2) — the debounce-only
+change (Questions 14/15, safe, shipped) and the hard-cap-tightening change
+(new here) were never actually validated separately; Question 32 tested them
+bundled and the bundle is what failed. That bundling is worth undoing rather
+than treating this as a dead end — Question 33, opened below, tests the
+debounce shortening alone with the wider concurrent hard cap left intact.
+
+### 33. Does the debounce shortening alone — without also tightening the hard cap — recover Question 32's 6-course speed win while keeping the concurrent hard cap's correctness margin?
+
+**Opened 2026-08-10 (autopilot), by Question 32's diagnosed failure.** Added
+`OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE` (`navigation.go`) — same debounce
+override as `OPAL_DEBOUNCE_MS_OVERRIDE`, but preserves whichever hard cap
+`course_concurrency` already selected (6000ms at concurrency>1) instead of
+pinning it to the serial 4000ms value. No other code touched; `go
+build`/`go vet` clean.
+
+**Prediction, written before running (2026-08-10), per Rule 1.** Design: one
+more `TestFileListSnapshot` run, `OPAL_COURSE_CONCURRENCY_OVERRIDE=2
+OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150`, diffed against this cycle's already-
+fresh `tmp/filelist-q32-conc1.txt` baseline (349 files, same session, same
+day — no staleness risk this time).
+
+*Expected numbers:* if Question 32's diagnosis is right — that the *hard
+cap*, not the debounce, is what starved the Wicket signal — this run should
+come back with all 349 files (empty diff), because the section that lost
+files gets its full 6000ms patience again even though sections finish
+sampling faster once they do go quiet. Wall-clock: expect a smaller win than
+Question 32's failed combo (132.0s), since a slow-to-settle section can still
+consume up to 6000ms same as today's shipped default, but still faster than
+the fresh conc=1 baseline (213.7s) on the (majority of) sections that were
+never anywhere near the cap — most of the win Questions 14/15 measured was
+in avoiding an oversized *debounce*, not the rarely-hit hard cap, so shaving
+the debounce alone should still recover a real chunk of it.
+
+**Kill criterion:** any non-empty diff against the 349-file baseline closes
+this exactly like Question 32 — the hard cap was not the (whole) explanation,
+`course_concurrency` stays at 1, and whatever is left of the mechanism goes
+back to open. If the diff is empty, this becomes the first
+`course_concurrency>1` configuration in the whole campaign to pass the full
+byte-diff *and* show a real wall-clock improvement over the conc=1 default —
+worth taking to the maintainer as a proposed default change, not shipping it
+unilaterally, per the standing correctness-first/maintainer-sign-off rule.
+
+**Running this now, same session** — one more live run, no new unknowns
+introduced beyond what the prediction above already names.
+
 ---
 
 ## Next experiment

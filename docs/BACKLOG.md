@@ -22,9 +22,10 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Sync-speed's Question 27 is queued (`docs/sync-speed-model.md`,
-"Next experiment") but deliberately not run same-day as the Question 26 before/after
-batch — real-account load discipline, see that file. Next cycle, fresh day._
+_Nothing unblocked. Sync-speed's Question 24 (repeated-trial safety check for
+preview-blocking under load) and Question 28 (methodology: does `go test`
+compile-time noise explain most of Question 27's headline delta) are both
+queued in `docs/sync-speed-model.md`, "Next experiment"._
 
 ---
 
@@ -299,6 +300,13 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 27 confirmed: warm-session delta is 4.03% total, but only 1.14%
+  lives inside the crawl itself — the rest is `go test` compile noise, opening
+  Question 28** (2026-08-09, autopilot): second clean full-account pass (349
+  files both sides, empty diff, no truncation). Full decomposition and the
+  incidental third occurrence of the Shibboleth login timeout (this time
+  showing where it got stuck) in `docs/sync-speed-model.md` and this file's
+  login-timeout Noticed entry.
 - **Question 26 confirmed live, zero-diff, and preview-blocking shipped as the
   default** (2026-08-07, autopilot): full real-account before/after
   (`filelist_probe_test.go`) found 349 files both ways, empty diff, no

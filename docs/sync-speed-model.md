@@ -634,36 +634,109 @@ not; the byte-diff, not this number, is what decided the ship.
 
 ## Next experiment
 
-**Question 27 (new, 2026-08-07): with a warm session on both sides, what is
-previews-blocking's actual wall-clock saving — and does it clear the ~3%
-Question 8 predicted, or land closer to the ~30 MB/course bandwidth story
-with little time effect?** Question 26's 6.8% delta is confounded by an
-unequal starting condition (fresh login vs. warm session), and does not by
-itself confirm or refute Question 8's local-probe prediction (cache-off
-dominates the CDP tax at 60.7%, pause/resume only 3.1%) at full-account
-scale. **Prediction:** with both passes starting from an already-valid saved
-session (`ensureSession` skips login on both), the delta narrows to within a
-few percent of Question 8's ~3% fetch-only tax — i.e. previews-blocking is
-now close to free in time, and its value is almost entirely the ~30 MB/course
-transfer saved, not discovery speed. **Counts as failed at:** the delta stays
-anywhere near today's 6.8%, or grows — that would mean something beyond the
-login-confound is at play and Question 8's local-probe number does not
-transfer to the full account. **Cost:** two more full 6-course crawls, real
-account — same class as Question 26, so subject to the same one-batch-per-day
-load discipline (`docs/server-load.md`); already spent today's batch on
-Question 26 itself. Next cycle, fresh day.
+**Carried forward, still top of the queue (Question 24, re-ranked up
+2026-08-05):** preview-blocking is no longer this maintainer's own account
+under an env flag — it is now every user's default. Question 26's one clean
+pass, now joined by Question 27's second clean pass below, is reassuring but
+still not the repeated-trial design that would separate "raw CDP amplifies
+Question 17's pre-existing Candidate-B bug under load" from "fires rarely
+enough not to matter in practice". Question 17's Candidate B (Wicket's "show
+all" AJAX call reporting done while its DOM rows never land) is still open
+and unfixed. Nothing here blocks shipping — Question 26 passed the project's
+own safety bar and the maintainer's standing shipping rule — but the fix for
+Candidate B now matters to every installation, not just a retest condition,
+and should not sit indefinitely behind lower-ranked questions.
 
-**Also carried forward, re-ranked up from "low" (Question 24, 2026-08-05):**
-preview-blocking is no longer this maintainer's own account under an env
-flag — it is now every user's default. Question 26's one clean pass is
-reassuring but is not the repeated-trial design that would separate "raw CDP
-amplifies Question 17's pre-existing Candidate-B bug under load" from "fires
-rarely enough not to matter in practice". Question 17's Candidate B (Wicket's
-"show all" AJAX call reporting done while its DOM rows never land) is still
-open and unfixed. Nothing here blocks shipping — Question 26 passed the
-project's own safety bar and the maintainer's standing shipping rule — but
-the fix for Candidate B now matters to every installation, not just a retest
-condition, and should not sit indefinitely behind lower-ranked questions.
+**Question 28 (new, 2026-08-09), methodology not a lever: does `time go test`
+wall-clock noise (compile + process spin-up, not measured separately from
+crawl time) invalidate the small deltas this campaign has been reading off
+it?** Opened by Question 27's own result, below: decomposing its 4.03% total
+wall-clock delta against the audit log's own section-timing total showed only
+1.14% of that delta lives inside the crawl itself — the other ~83% of the
+measured gap (6.0s of 7.25s) is unaccounted for by anything the crawler logs,
+and the most likely source is `go test`'s own per-invocation compile step,
+which this project has never controlled for or measured directly.
+**Prediction:** timing a `go test -c` precompiled binary invoked twice back
+to back (no code change between them) shows run-to-run wall-clock variance
+on the same order as the unaccounted 6.0s here — i.e. that gap is compile/
+process noise, not anything about previews specifically. **Counts as failed
+at:** back-to-back identical-binary runs vary by less than ~2s — that would
+mean the 6.0s gap this cycle was something real (e.g. TU-Fast/OPAL
+server-side session-refresh cost that differs between the `before` and
+`after` env-var invocations) rather than measurement noise, and every past
+"X% wall-clock" number in this file inherited from `time go test` (Questions
+7's fresh-vs-warm framing, 26's 6.8%, this one's 4.03%) would need the same
+decomposition before being trusted at face value. **Cost:** local only, no
+OPAL account, no real-account load — the precompiled binary needs no
+network access to just measure its own startup variance.
+
+---
+
+## Previous experiment (Question 27, closed 2026-08-09)
+
+**Question 27 — with a warm session on both sides, does previews-blocking's
+wall-clock saving clear Question 8's ~3% fetch-only prediction, or land
+closer to the ~30 MB/course bandwidth story with little time effect?**
+Warmed the session first with a standalone `login` run (see below — it
+independently reproduced the tracked 300s Shibboleth timeout, then succeeded
+on retry in 5.95s, confirming the profile was left clean and authenticated).
+Both timed passes then ran back to back, same warm session,
+`filelist_probe_test.go` (`OPAL_FILELIST=before OPAL_BLOCK_FILE_PREVIEWS=0`
+then `OPAL_FILELIST=after`), `tmp/q27-before-run.log` / `tmp/q27-after-run.log`.
+
+**Result: prediction confirmed, and the decomposition sharpened it further
+than the top-line number alone would.**
+
+| | before (previews off) | after (previews on, default) |
+|---|---:|---:|
+| Files | 349 | 349 |
+| `diff` | — | empty |
+| `warnShowAllTruncated` | none | none |
+| Total wall-clock (`time`) | 180.135s | 172.884s |
+| Section-timing total (audit log) | 106.802s | 105.584s |
+
+Total wall-clock delta: **7.251s, 4.03%** — well clear of the failure
+criterion (anywhere near Question 26's 6.8%) and inside "a few percent" of
+Question 8's ~3% prediction. Zero-diff, zero-truncation, same as Question 26
+— a second clean full-account pass on the correctness question Question 24
+still tracks separately.
+
+**The sharper finding: only 1.14% of that 4.03% lives inside the crawl
+itself.** The section-timing total the crawler logs on every run — the same
+number Questions 7, 13-15 already used as the load-bearing metric, unlike
+the `time`-wrapped wall-clock this file has otherwise reported — moved by
+only 1.218s (106.802s → 105.584s, 1.14%), a fifth of the total delta. The
+remaining 6.033s is not accounted for by discovery time either (3.4s → 3.2s,
+noise-sized). That leaves the majority of this cycle's headline number
+sitting in `go test`'s own per-invocation overhead (compile, process
+spin-up) — never separately measured until this cycle needed to explain a
+gap between two numbers that should have moved together and did not.
+
+**What that means for Question 8's transfer:** the number that actually
+compares to Question 8's local-probe prediction (~3% fetch-only tax,
+cache-off dominant at 60.7%) is the in-crawl 1.14%, not the top-line 4.03% —
+and 1.14% is, if anything, *closer* to "close to free" than the prediction
+itself called for. The local probe's ~3% was itself an upper-bound-flavoured
+estimate (Question 8's own header numbers), so a full-account number landing
+below it is consistent, not surprising.
+
+**Honest residual, why this isn't fully closed on the letter of Rule 2:** the
+6.033s gap has one plausible mechanism (compile/process noise) but no
+confirming measurement yet — a `go test -c` precompiled-binary back-to-back
+comparison would either confirm it as noise or reopen it as something real.
+That is Question 28, below, and it is explicitly a methodology question, not
+a previews-blocking one: it also puts a caveat on every past "X% wall-clock"
+number in this file that came from `time go test` rather than the audit log's
+own section-timing total, including Question 26's own 6.8%.
+
+**Also recorded, not a Question 27 finding but discovered while running
+it:** warming the session hit the tracked "one unexplained 300s login
+timeout" (`docs/BACKLOG.md`, Noticed) a third time — this occurrence, for
+the first time, showed *where* the page was stuck (Shibboleth's own
+`shiblogin` URL, before ever reaching OPAL), narrowing the suspect list to
+TU-Fast/Shibboleth rather than this project's own post-login code, which was
+never reached. Full write-up and the immediate-retry evidence (5.95s,
+ruling out a standing block) in `docs/BACKLOG.md`.
 
 ---
 

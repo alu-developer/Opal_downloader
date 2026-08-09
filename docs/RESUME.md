@@ -20,10 +20,12 @@ here sends an unattended run after work that is already done. Clear it.
 
 _Nothing in flight._
 
-Question 26 landed 2026-08-07 (autopilot): preview-blocking passed its retest
-byte-diff and shipped as the default. Full write-up in
-`docs/sync-speed-model.md` and `docs/BACKLOG.md`'s "Done recently". **Next
-up:** Question 27 (`docs/sync-speed-model.md`, "Next experiment") — a
-warm-session before/after to get a clean timing number for the win just
-shipped, deliberately deferred to a fresh day for real-account load
-discipline.
+Question 27 landed 2026-08-09 (autopilot): warm-session before/after
+confirmed the prediction (4.03% total wall-clock delta, but only 1.14% of it
+is inside the crawl — the rest is `go test` compile-time noise). Full
+write-up in `docs/sync-speed-model.md` and `docs/BACKLOG.md`'s "Done
+recently". **Next up:** either Question 24 (repeated-trial safety check for
+preview-blocking under load — real-account, correctness) or Question 28
+(does a precompiled binary confirm the compile-noise explanation —
+local-only, no account needed), both in `docs/sync-speed-model.md`, "Next
+experiment".

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,6 +31,12 @@ import (
 //	OPAL_FILELIST=after                               go test ./internal/scraper/ -run TestFileListSnapshot -v -timeout 30m
 //	diff "tmp/filelist-before.txt" "tmp/filelist-after.txt"
 //
+// OPAL_COURSE_CONCURRENCY_OVERRIDE=<n> overrides config.yaml's
+// course_concurrency for this run only (docs/sync-speed-model.md Question
+// 31: does course_concurrency>1 still lose files at full-account scale, now
+// that Question 25's reclick-recovery fix is in place). Never edit
+// config.yaml itself for this - it is the maintainer's real config.
+//
 // An empty diff is the only acceptable result.
 func TestFileListSnapshot(t *testing.T) {
 	label := os.Getenv("OPAL_FILELIST")
@@ -47,8 +54,17 @@ func TestFileListSnapshot(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
+	courseConcurrency := loaded.App.CourseConcurrency
+	if v := os.Getenv("OPAL_COURSE_CONCURRENCY_OVERRIDE"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			t.Fatalf("OPAL_COURSE_CONCURRENCY_OVERRIDE=%q: %v", v, err)
+		}
+		courseConcurrency = n
+	}
+
 	sc := New(loaded.Credentials.URL, loaded.Credentials.StateFile)
-	sc.SetCourseConcurrency(loaded.App.CourseConcurrency)
+	sc.SetCourseConcurrency(courseConcurrency)
 	sc.SetSectionConcurrency(loaded.App.SectionConcurrency)
 	sc.SetSkipEnrollmentSections(loaded.App.SkipEnrollmentSections)
 	defer sc.Close()

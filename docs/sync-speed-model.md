@@ -879,6 +879,43 @@ file count from this narrower two-course probe.
 (see "Next experiment" above) applies here too, and the experiment is
 already built and cheap (one `go test` invocation, no new code).
 
+**Result: clean.** All 4 runs found the same 248 files
+(`tmp/q31-contention-run.log`) — `baseSelfDiff`, `overSelfDiff`, and
+`crossDiff` all empty, matching the predicted "all empty" branch exactly.
+`baseline-1` logged one transient `net::ERR_NETWORK_IO_SUSPENDED` navigation
+warning (a section retried and, per the final matching count, still landed
+in the file set — a local network hiccup, not a Wicket/OPAL signal issue;
+noted, not chased, since it did not cost a file). Timing is a second,
+unplanned finding: `override` (150ms debounce) averaged 100.7s wall clock
+against `baseline`'s 668.2s for the same 2-course, concurrency=2 crawl — a
+~85% reduction, and the 49.6% settle+stable-time saving Questions 14/15
+measured serially now replicates under real contention too.
+
+**This is strong evidence at 2-course/248-file scale, but not yet the
+project's own non-negotiable bar.** `docs/BACKLOG.md`'s "Non-negotiable"
+section requires the byte-for-byte diff against the full 345-file ground
+truth for anything touching discovery — this probe covers only 2 of the 6
+configured courses. Rather than stop on a promising-but-partial result,
+added a minimal, reusable override (`OPAL_COURSE_CONCURRENCY_OVERRIDE`,
+`internal/scraper/filelist_probe_test.go` — no other code touched, `go
+build`/`go vet` clean) so `TestFileListSnapshot` can run the full account at
+`course_concurrency=2` without ever editing the maintainer's real
+`config.yaml` (which stays at its shipped default of 1 throughout).
+
+**Second prediction, written before running, per Rule 1:** two full-account
+`TestFileListSnapshot` runs, `OPAL_COURSE_CONCURRENCY_OVERRIDE=1` then `=2`,
+diffed. Expect identical file sets at whatever count the account currently
+has (349 in Questions 26/27's most recent snapshots) — a direct extension of
+this cycle's 2-course result to the full 6-course/345-ground-truth scale.
+**Counts as refuted by any diff at all**, in which case `course_concurrency`
+stays at 1 and this closes as "safe at 2 courses, not at 6" rather than a
+blanket reopening. **Counts as strong (not yet final) support for
+reconsidering the default** if the diff is empty — final because a single
+run at each concurrency is still one sample, not the repeated-trial
+standard this cycle otherwise used, and because shipping a default change
+needs the maintainer's own sign-off regardless of the data, per the standing
+correctness-first rule.
+
 ---
 
 ## Next experiment

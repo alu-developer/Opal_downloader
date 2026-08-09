@@ -22,10 +22,10 @@ here is the failure mode to watch for.
 ---
 
 ## Now
-_Nothing unblocked. Sync-speed's Questions 24, 29 and 30 (all real-account,
-all need a live run — 30 additionally waits on 24 by its own kill
-criterion) are queued in `docs/sync-speed-model.md`, "Next experiment" —
-the ranked question list has nothing left that's answerable without one._
+_Nothing unblocked. Sync-speed's Question 31 (real-account, needs a
+prediction written before it runs, per Rule 1) is top of the queue in
+`docs/sync-speed-model.md`, "Next experiment" — the ranked list has nothing
+else that's answerable without a live run._
 
 ---
 
@@ -307,6 +307,22 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 24 closed live, same day the "one live-run batch per day"
+  self-caution was retired: 6 trials (3 blocking-on, 3 blocking-off) of the
+  one known-flaky section, 0 truncated in any of them** (2026-08-09,
+  autopilot): the original prediction borrowed the wrong reference failure
+  rate (Question 17/20/21's ~33–50% is a *contention*-condition number; this
+  probe deliberately runs single-threaded) — corrected and closed per Rule 2
+  rather than just reported as a miss. Real finding along the way: `go test`
+  silently cached and replayed one trial instead of re-running it (identical
+  env vars, no `-count=1`) — confirmed by a byte-identical log; every
+  subsequent run forced `-count=1`. That hazard cannot be retroactively
+  ruled out for Questions 20/21's older "N clean runs in a row" batches
+  (their raw logs no longer exist), recorded as an open caveat, not a
+  reopening. Opened Question 31: does the Question 25 fix also survive
+  `course_concurrency>1` contention, potentially reopening a previously
+  rejected speed lever. Full write-up in `docs/sync-speed-model.md`
+  Question 24/31.
 - **Question 30 opened and mostly closed same-cycle, no live run: OpenOLAT's
   folder browser does offer a participant-reachable bulk-ZIP-download of a whole
   `Ordner` subtree, but this project's own metadata parsing (`files.go`) only

@@ -823,7 +823,63 @@ automation it would take to claim it.
 
 ---
 
+### 31. Now that Question 25's fix has 6 clean single-threaded trials behind it (Questions 24/26/27), does it also eliminate the `course_concurrency>1` contention-condition failure rate — and could concurrency be safely reconsidered?
+
+**Opened 2026-08-09 (autopilot), by Question 24's closure.** Every past
+rejection of `course_concurrency>1` (Question 16's 6-file loss, Questions
+17/20/21's ~33–50% failure rate under contention) predates Question 25's
+fix (2026-08-06): rearming the Wicket watch and waiting on its own signal
+when a reclick follows a `context-destroyed` failure. That fix has now been
+tested clean 6 times serially (Question 24, this cycle) plus twice at full
+6-course scale (Questions 26/27) — but never once *under the actual
+contention condition it was designed to survive*. If contention's failure
+mode was always downstream of the same context-destroyed-reclick gap
+Question 25 closed, re-enabling `course_concurrency>1` might now be safe,
+which would be a genuine, previously-closed speed lever (concurrent course
+crawling), not just a correctness fix.
+
+**Prediction, to be written and committed before this runs, per Rule 1** (not
+done this cycle — this is a new question, not yet an experiment design):
+matched-condition batch at `course_concurrency=2` (Question 16/17's original
+setting), same courses, with and without the Question 25 fix's code path
+exercised (it always runs now, so really: repeated trials at
+`course_concurrency=2` today vs. the archived pre-fix failure rate). Expect
+either (a) the historical ~33–50% failure rate collapses to near-zero,
+matching this cycle's serial result, or (b) contention still fails at
+roughly its old rate, meaning contention introduces a genuinely separate
+race (e.g. two sections' Wicket signals interleaving) that Question 25's
+single-section fix does not reach.
+
+**Kill criterion:** if even 1 of a small repeated batch (3-4 runs) at
+`course_concurrency=2` loses files the way Question 16/17 did, this closes
+as "contention is a distinct mechanism, not fixed by Question 25" and
+`course_concurrency` stays at its default of 1. If all runs are clean, this
+does not by itself prove safety (same sample-size caveat Question 20 already
+named) but would be strong enough to justify a larger byte-diff-verified
+batch before considering a default change — any default change still needs
+the full 345-file byte-diff bar per the standing shipping rule, not just a
+clean file count.
+
+**Not run this cycle** — Question 24's live-run budget for today (6 trials)
+already went to closing Question 24 itself; this is the natural next live
+experiment for a future cycle, ranked above Questions 29/30 since it could
+reopen an entire rejected speed lever rather than shave a smaller cost.
+
+---
+
 ## Next experiment
+
+**Current top of queue: Question 31** (does Question 25's fix also survive
+`course_concurrency>1` contention, potentially reopening a rejected speed
+lever) — needs its own prediction written before running, per Rule 1, not
+done yet. Question 29 (does the tree walk re-fetch nodes) and Question 30
+(bulk-ZIP download, bounded win) remain open below it. Everything below this
+paragraph is the same day's earlier history, read newest-relevant-first:
+Questions 2 and 6 closed by source reading, Question 30 opened and narrowed
+by source reading, then Question 24 closed by a 6-trial live batch that also
+surfaced a `go test` caching hazard (see Question 24's own entry in "What we
+don't know" above for the full result and the caveat it leaves on Questions
+20/21's older data).
 
 **Questions 2 and 6 both closed this cycle (2026-08-09, autopilot, no live run) —
 see "What we don't know" above.** Question 2 had stood as the highest-ranked
@@ -870,8 +926,9 @@ does per day* — the maintainer confirmed server load is not a concern here.
 Questions 24, 29 and 30 (in that order, correctness first) may all run in
 the same day going forward; no more "waits for a fresh day" gating.
 
-**Carried forward, still top of the queue needing a live run (Question 24, re-ranked
-up 2026-08-05):** preview-blocking is no longer this maintainer's own account
+**Question 24 — ~~is Question 23's loss purely downstream of Candidate B, or does raw CDP add a distinct failure mode?~~ Answered 2026-08-09: no truncation in 6 live trials, but the prediction's own reference rate was wrong, and the run uncovered a real methodology hazard.**
+
+Preview-blocking is no longer this maintainer's own account
 under an env flag — it is now every user's default. Question 26's one clean
 pass, now joined by Question 27's second clean pass below, is reassuring but
 still not the repeated-trial design that would separate "raw CDP amplifies
@@ -918,6 +975,76 @@ downstream of the pre-existing Candidate-B bug, not amplified by raw CDP.
 pairs, in which case the mitigation `previews.go`'s doc comment already
 named (bounding concurrent `requestPaused` handling) moves from
 "plausible, not worth building yet" to worth building.
+
+**Mid-run methodology finding, worth recording before the result: `go test`
+silently cached and replayed a live-account trial instead of re-running
+it.** Run 2 of the blocking-on batch, invoked identically to run 1 (same
+env vars, no `-count=1`), came back in the exact same wall-clock time
+(107.20s) with a byte-for-byte identical log — `go test`'s own package-level
+test-result cache treats identical inputs (source + env vars actually read
+via `os.Getenv`) as a cache hit and skips execution entirely, printing
+`ok ... (cached)` instead of really invoking Chrome/OPAL again. This is
+different from Question 28's finding (build/cache-*staleness* adding
+latency) — this is the test simply **not running a second time**, silently,
+with no visual difference in the pass output beyond the `(cached)` marker on
+the summary line. Confirmed by `diff`: the two logs differed only in that
+one line. Every subsequent run in this batch used `-count=1` to force real
+execution, verified by distinct timestamps and distinct per-run timing in
+each log. **This is a real risk to any past or future repeated-trial design
+in this campaign that invokes the identical condition back-to-back without
+`-count=1`** — Questions 20 and 21's "3 clean runs in a row" batches fit
+that exact shape (same env override, repeated invocation) and were run
+before this hazard was known; their raw logs (`tmp/showall-signal-timeout-probe.txt`,
+`tmp/signal-latency-probe.log`) no longer exist to audit for `(cached)`
+markers, so this cannot be resolved retroactively — recorded here as an
+open integrity caveat on those two closed questions, not a re-opening,
+since no evidence either confirms or refutes it for them specifically.
+**Going forward, `-count=1` is now required for any repeated-trial live-run
+design in this campaign.**
+
+**Result (6 live trials, all independently verified non-cached): 0 of 6
+reproduced the Part-3 truncation — 0/3 with blocking on, 0/3 with blocking
+off.** All 6 found 210 files, `expansionSignalled=true` every time
+(signal latency 243–295ms, well inside budget), `truncatedPart3=false`
+every time. Raw logs: `tmp/q24-on-run{1,2,3}.log`, `tmp/q24-off-run{1,2,3}.log`.
+
+**The prediction failed on its own written numbers, and the gap is
+explainable, not a mystery (Rule 2):** the ~33–50% reference rate the
+prediction borrowed from Questions 17/19/20 belongs to a *different*
+condition than this probe runs under. `TestPreviewBlockShowAllRegression`'s
+own doc comment (written 2026-08-05, re-read only now) already says so:
+"course_concurrency=1 and section_concurrency=1 in config.yaml, so this is
+NOT the known course/section-contention loss mode." Questions 17/19/20's
+33–50% figure was measured specifically under `course_concurrency>1`
+contention — a setting this project rejected and shipped off by default.
+This prediction copied that number across to a single-course, no-contention
+condition without checking whether the mechanism it describes even applies
+there, which is exactly the kind of unchecked reuse Rule 2 exists to catch.
+The correct comparison class is Question 23's own single prior data point at
+these exact settings (2026-08-05, blocking on: 33 files lost) — one data
+point, now followed by 3 clean ones under the same condition.
+
+**What this does answer, honestly stated:** Question 25's reclick-recovery
+fix (landed 2026-08-06, one day *after* Question 23's loss) already turned
+Question 26 into one clean pass (2026-08-07) and Question 27 into a second
+(2026-08-09) under a full 6-course crawl; this cycle adds a genuine
+repeated-trial design — the thing Question 24 said was missing — narrowly on
+the one section that has ever lost files, and finds no loss in 6 tries, half
+of them with blocking off as a same-day control. That raises confidence the
+fix generalizes and that raw CDP is not adding a distinct failure mode at
+today's shipped settings (course/section concurrency both 1) beyond what
+Question 26/27 already showed. It does **not** touch the separate,
+still-real concurrency-contention condition (Questions 17/20/21's ~33–50%),
+which stays open and stays excluded by the existing `course_concurrency=1`
+default — this cycle says nothing new about it either way.
+
+**Closing per Rule 2:** Question 24's original two-way split (a: purely
+downstream of Candidate B, vs b: raw CDP adds its own failure mode) is
+answered **(a)**, with the caveat that "purely downstream" now specifically
+means "downstream of Candidate B *before* the Question 25 fix" — post-fix,
+neither condition shows the failure at all in this batch. Closed. Candidate
+B itself, under concurrency, remains open and unfixed — separately tracked,
+not resolved by this cycle.
 
 **Ranked low, a methodology fix rather than a live question (opened by
 Question 28, closed below):** would standardizing future sync-speed timing

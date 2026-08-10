@@ -518,9 +518,20 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 	// the browser on 2026-07-31 across all courses), with a guard that falls
 	// back to the browser result if HTTP ever finds fewer files than the
 	// browser in any course. Unset (the default): plain browser crawl.
+	//
+	// OPAL_HTTP_DISCOVERY=2: the Question 36 Step B2 restructure
+	// (scrapeCoursesHTTPFirst) - phase 1 discovers sections entirely over
+	// HTTP (seed from initial_data, expand with the crawl's own predicates)
+	// instead of running a browser crawl first. No browser-result fallback
+	// exists in this mode, unlike "1" - it does not run a browser crawl to
+	// fall back to. Experimental: byte-diff against the ground truth before
+	// relying on it (docs/sync-speed-model.md Question 36 Step B2).
 	httpDiscoveryMode := os.Getenv("OPAL_HTTP_DISCOVERY")
-	if httpDiscoveryMode == "verify" || httpDiscoveryMode == "1" {
+	switch httpDiscoveryMode {
+	case "verify", "1":
 		return s.scrapeCoursesHybrid(ctx, courseFilter, httpDiscoveryMode)
+	case "2":
+		return s.scrapeCoursesHTTPFirst(ctx, courseFilter)
 	}
 	return s.scrapeCoursesBrowser(ctx, courseFilter)
 }

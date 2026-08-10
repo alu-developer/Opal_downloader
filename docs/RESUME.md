@@ -18,4 +18,15 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**In flight (2026-08-10, autopilot): Question 36 Step B2 production restructure.**
+`scrapeCoursesHTTPFirst` (`internal/scraper/orchestrator.go`) and
+`discoverSectionsHTTP` (`internal/scraper/httpdiscovery_seed.go`) are written,
+unit-tested offline, and wired behind `OPAL_HTTP_DISCOVERY=2` in
+`ScrapeWithSavedSession` (`scraper.go`). Build/vet/full test suite pass.
+Not yet done: the live byte-diff against the ground truth
+(`filelist_probe_test.go`, `OPAL_FILELIST=after OPAL_HTTP_DISCOVERY=2` vs a
+fresh `OPAL_FILELIST=before` baseline) that `docs/BACKLOG.md`'s Now item
+requires before this can ship, and the PR (per `CLAUDE.md` - this is one of
+the three paths that has silently lost files before, so no direct push to
+master). If this file is still here and stale, re-run the live diff before
+trusting any partial result already on disk.

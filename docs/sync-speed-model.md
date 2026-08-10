@@ -265,6 +265,32 @@ is seed-from-tree, then let the existing HTTP phase's own discovery expand
 what the seed does not cover — which is what `appendSectionFolderTargets`
 already does for the browser.
 
+**Step B2 result (2026-08-10, autopilot, production code written, prediction
+registered before the live run).** `scrapeCoursesHTTPFirst`
+(`internal/scraper/orchestrator.go`) and `discoverSectionsHTTP`
+(`internal/scraper/httpdiscovery_seed.go`) implement exactly the rider's
+algorithm as the thing `ScrapeWithSavedSession` actually calls
+(`OPAL_HTTP_DISCOVERY=2`) instead of a comparison alongside a browser crawl —
+the browser is used only for `discoverCourseLinks` (the course list, three
+page loads), never for a single section. `discoverSectionsHTTP` applies
+`isNonFileSectionType` at the seed itself (not just during expansion) and
+follows `extractShowAllURLFromHTML` during expansion, the two corrections
+Step B1 named. 5 offline unit tests
+(`internal/scraper/httpdiscovery_seed_test.go`) cover the seed-skip, the
+pagination-recovery mechanism (reproducing Step B1 run 1's exact miss against
+a fake fetcher), and that one section's fetch failure is logged and skipped
+rather than losing the whole course. Build, vet, full suite pass.
+
+*Prediction for the live run, written before running it:* `OPAL_FILELIST=after
+OPAL_HTTP_DISCOVERY=2` against `OPAL_FILELIST=before` (plain browser crawl,
+same session) produces **an empty diff, 349 files both sides**, matching the
+Step B1 rider's 286/286 sections and this project's own current ground truth.
+Wall clock for the after run: **under 130s** (Step B2's own kill line),
+expected near the rider's 71.4s plus whatever `discoverCourseLinks` costs on
+top (not measured by the rider, which ran after an already-open browser
+session). Counts as failed at any non-empty diff, regardless of speed — the
+byte-diff is the gate, not the timing.
+
 ### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
 
 **The pre-registered prediction failed, and that is the finding.** This

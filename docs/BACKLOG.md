@@ -23,33 +23,26 @@ here is the failure mode to watch for.
 
 ## Now
 
-**Restructure the hybrid's phase 1 to discover over HTTP instead of by
-walking the tree in a browser** — `docs/sync-speed-model.md` Question 36 Step
-B2. Everything this needs is measured and closed: the course tree arrives
-complete in each course root's own bytes (Steps A/A2, 261/261 URLs from 6
-requests), and seeding from it then expanding with the crawl's own predicates
-over plain HTTP reproduces **286 of 286 sections, 0 missing**, in 71.4s
-against the same run's 173.8s browser crawl (Step B1, closed after run 1
-failed at 4 sections and pagination was identified as a discovery boundary).
-File extraction on that path was already verified diff=0 on all 6 courses
-(2026-07-31).
+**PR #134 open for review: HTTP-first discovery (Question 36 Step B2)**,
+branch `http-first-discovery-b2`. `scrapeCoursesHTTPFirst`
+(`internal/scraper/httpfirst.go`) replaces the browser tree-walk with a
+per-course root fetch → `ParseCourseTreeNodes` seed → HTTP BFS (the crawl's
+own `appendSectionFolderTargets`/`appendSectionFiles`, following
+`extractShowAllURLFromHTML` for both files and folder-target expansion), gated
+behind `OPAL_HTTP_DISCOVERY=2`. Live-verified 2026-08-10: two consecutive runs
+each found the identical **349 files, byte-for-byte, zero diff** against a
+fresh browser-crawl baseline, in 71.99s/78.90s (prediction was 90-110s,
+failure line 130s). Unit tests added
+(`internal/scraper/httpfirst_test.go`). Full result in
+`docs/sync-speed-model.md` Question 36 Step B2.
 
-What is left is production work, not a question: `scrapeCoursesHybrid`
-(`orchestrator.go`) still runs the whole browser crawl first in *every* mode,
-taking its section set from `VisitRecords`, because its own comment says the
-browser is the only thing that can enumerate the tree — the sentence Question
-34 refuted. Replace that with per-course root fetch → `ParseCourseTreeNodes`
-seed → HTTP BFS, behind an env flag, and byte-diff against the 349-file
-ground truth before it becomes a default.
-
-Two things to carry over from the probe rather than rediscover: the seed must
-apply `isNonFileSectionType` itself (it lives in
-`appendSectionFolderTargets`, which a seed bypasses — 21 needless fetches
-otherwise), and the expansion must follow `extractShowAllURLFromHTML`, because
-rows past a section's pagination cap include sub-sections and not just files.
-
-**This is one of the three paths that have silently lost files before, so it
-goes as a PR per `CLAUDE.md`, not straight to master.**
+**This is one of the three paths that have silently lost files before, so per
+`CLAUDE.md` it went as a PR rather than straight to master — this entry is
+the maintainer's flag that it is waiting for that look, not an open
+question.** Noted in passing, not chased: the browser baseline's *first*
+attempt that morning found only 121 files (two normally-populated courses at
+0), a pre-existing browser-crawl flakiness class; a second baseline run came
+back clean at 349 and is what the diff used.
 
 ---
 

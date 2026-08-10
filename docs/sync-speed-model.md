@@ -188,6 +188,50 @@ diff=0 on all 6 courses 2026-07-31 and untouched since. Re-fetching every
 section to re-prove it would double the request count for a known answer.
 Section discovery is the only thing Step B changes.
 
+**Step B1 result, run 1 (2026-08-10, live): the section prediction FAILED at
+4 missing of 286 — and the cause is sharp enough to have predicted it.** Report
+`tmp/httpfirst-sections.txt`. Result: 286 browser sections, 303 HTTP fetches,
+**4 missing, 21 extra**, HTTP-first discovery **62.9s** against the same run's
+browser crawl at 152.6s.
+
+*The 4 missing are all one mechanism, and it is pagination.* Every one is a
+sub-path under the single Softwaretechnologie node `1615865126729195011`:
+`32-st-faq-komplexe-objekte.md`, `33-st-faq-kontextmodell.md`,
+`34-35-st-faq-statecharts.md`, `36-37-st-faq-scenarios.md`. Diagnosed offline
+against dumps already on disk, not guessed: all four appear in
+`tmp/baseline/part3-showall.html` and **none** of them appears in
+`tmp/baseline/part3-raw.html`, while `30-st-faq-*.md` — inside the same
+section's first 20 rows — appears in both. So they live past a paginated
+section's first page. `fetchSectionFilesHTTP` already follows the
+`pager-showAllLink` toggle for *files*; the probe's folder-target expansion
+fetched the raw body and did not. **The generalisable finding: rows beyond a
+pagination cap include sub-sections, not only files** — pagination is a
+discovery boundary, not just a file-listing one. This is the same
+"show all" surface Questions 17/19/22/25 have chased on the browser side,
+appearing for the first time on the HTTP side.
+
+*The 21 extra are benign and expected in hindsight.* They are the enrollment,
+forum and root nodes the browser path skips — the run log names each one
+("structurally cannot hold files"). The probe seeded every tree node without
+applying `isNonFileSectionType`, because that filter lives inside
+`appendSectionFolderTargets`, which the seed bypasses. Extras cost requests,
+never files, so they are a cost item and not a correctness one.
+
+*The timing half beat its prediction.* 62.9s registered against 80–110s
+predicted and a 130s kill line, on 303 fetches — i.e. ~208ms/section against
+the 315ms/section the 2026-07-31 probe measured. Not investigated this cycle;
+recorded as Question 38 below.
+
+**Step B1 run 2 — amended prediction, registered 2026-08-10 before re-running.**
+The fix is the one line of mechanism the diagnosis names: follow
+`extractShowAllURLFromHTML` in the expansion path and merge its candidates,
+exactly as `fetchSectionFilesHTTP` does for files. *Expected:* **0 missing in
+all 6 courses**, extras unchanged at 21, fetches up by roughly the number of
+paginated sections (3 were flagged in Softwaretechnologie on 2026-07-31), and
+discovery still under 90s. *Counts as failed:* any missing section — and a
+*different* missing section than these four would mean pagination was only one
+of several boundaries, which is the outcome worth knowing.
+
 **Step B2 (production restructure, after B1).** Replacing phase 1 with one root
 fetch per course and feeding the tree's URLs into the existing HTTP phase
 lands the full 6-course run at **90–110s** against the 207s floor, with a
@@ -261,6 +305,24 @@ steered this project since 2026-07-21 and is misleading. jstree does render
 client-side, but the *data* is server-delivered in the first response, so no
 browser is needed to enumerate it. Corrected in place. The consequence is
 Question 36 above.
+
+### 38. Why is an HTTP section fetch ~208ms now when it measured 315ms on 2026-07-31? — OPEN, opened 2026-08-10 by Question 36 Step B1
+
+Step B1's run did 303 authenticated section fetches in 62.9s — ~208ms each,
+a third faster than the 315ms/section the 2026-07-31 probe measured over the
+same account and the same code path. Nothing in this cycle touched the fetch
+path, so the candidates are external (server load, time of day, network) or
+methodological (the older number came from a probe that fetched a fixed
+164-URL list; this one interleaves parsing between requests, which would make
+it *slower*, not faster).
+
+*Why it matters rather than being trivia:* every projection of an HTTP-first
+crawl's floor uses this constant. At 315ms the 280-section account projects
+~88s; at 208ms it projects ~58s. The 30s target is a different distance away
+depending which is real, and one of the two numbers is measured under
+conditions nobody wrote down. *Cheapest decisive step:* re-run Step B1's
+probe on a different day and compare, since it now records its own timing —
+no new instrument needed.
 
 ### 37. Does a page the crawl already fetches carry file data the crawl then navigates again to fetch? — OPEN, the unanswered half of Question 34
 

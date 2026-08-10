@@ -171,6 +171,25 @@ func TestHTTPFirstSectionDiscovery(t *testing.T) {
 			found[k] = current
 
 			candidates := parseHTTPSectionCandidates(body)
+
+			// Follow the pagination toggle before expanding. A paginated
+			// section's first page carries only ~20 rows, and the rows beyond
+			// it include SUB-SECTIONS, not just files - which is what the
+			// first run of this probe got wrong. It missed exactly the four
+			// .md sub-paths that live past Part-3's first page, and those four
+			// appear in tmp/baseline/part3-showall.html while being absent
+			// from tmp/baseline/part3-raw.html. fetchSectionFilesHTTP already
+			// does this for files; folder-target expansion needs it too.
+			if rel := extractShowAllURLFromHTML(body); rel != "" {
+				showURL := resolveURL(sc.opalURL, rel)
+				showBody, serr := get(showURL)
+				if serr != nil {
+					t.Errorf("%s: GET show-all %s: %v", ct.title, showURL, serr)
+				} else {
+					fetched++
+					candidates = append(candidates, parseHTTPSectionCandidates(showBody)...)
+				}
+			}
 			queue, _ = appendSectionFolderTargets(queue, queued, visited, candidates,
 				sc.opalURL, ct.repoID, current, root, ct.title, sectionTitles,
 				loaded.App.SkipEnrollmentSections)

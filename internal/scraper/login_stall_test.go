@@ -82,8 +82,21 @@ func TestStalledOnlyMatchesAnUntouchedLoginPage(t *testing.T) {
 	if (loginSignals{URL: opalURL, FieldCount: 2, FilledFields: 0}).stalled() {
 		t.Error("a page past the login flow must never be reloaded")
 	}
-	if (loginSignals{URL: loginURL, FieldCount: 0, FilledFields: 0}).stalled() {
-		t.Error("a login-flow page with no fields at all is a redirect or a 2FA wait, not a stall")
+	// REVERSED 2026-08-10. This used to assert the opposite - that a
+	// login-flow page with no fields is "a redirect or a 2FA wait, not a
+	// stall" - and that assumption is what let all three unexplained 300s
+	// login timeouts run their full budget with no reload. The third one
+	// recorded where it was stuck: ".../opal/shiblogin;jsessionid=...", the
+	// Shibboleth IdP's processing screen, which has no fields, so it could
+	// never be called stalled and was never nudged.
+	//
+	// The redirect-in-progress case the old assertion was protecting is
+	// already covered a level up: stalled() is only consulted after
+	// loginQuietMs with no observable movement, and changedFrom treats a URL
+	// change, a field-count change and an unreadable page all as movement. A
+	// real redirect moves; this one sat still for five minutes.
+	if !(loginSignals{URL: loginURL, FieldCount: 0, FilledFields: 0}).stalled() {
+		t.Error("a login-flow page sitting still with nothing to fill in is the Shibboleth stall this must now catch")
 	}
 	if (loginSignals{Unknown: true}).stalled() {
 		t.Error("a page that could not be read must never be treated as stalled")
@@ -132,5 +145,22 @@ func TestReadLoginSignalsToleratesNilPage(t *testing.T) {
 	s := New("", "")
 	if got := s.readLoginSignals(nil); !got.Unknown {
 		t.Fatalf("expected a nil page to read as Unknown, got %+v", got)
+	}
+}
+
+// The specific page that produced all three 300s login timeouts. Kept as its
+// own test with the real URL shape, because the mechanism was only identified
+// after the third occurrence and the URL is the evidence that identified it.
+func TestShibbolethProcessingScreenCountsAsStalled(t *testing.T) {
+	const shibURL = "https://bildungsportal.sachsen.de/opal/shiblogin;jsessionid=ABC123?0"
+
+	// No fields: it is an interstitial, not a form.
+	if !(loginSignals{URL: shibURL, FieldCount: 0, FilledFields: 0}).stalled() {
+		t.Fatal("the Shibboleth processing screen must be reloadable, or a stall there costs the full 300s budget")
+	}
+	// And it is still a login-flow URL by the reload guard's own test, so
+	// reloadStalledLoginPage will act on it rather than skip it.
+	if !looksLikeLoginPageURL(shibURL) {
+		t.Fatal("reloadStalledLoginPage would refuse to reload this URL, making stalled() moot")
 	}
 }

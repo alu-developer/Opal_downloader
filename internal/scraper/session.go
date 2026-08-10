@@ -569,19 +569,37 @@ func (a loginSignals) changedFrom(b loginSignals) bool {
 }
 
 // stalled reports whether this reading is the specific shape that a TU-Fast
-// that never fired leaves behind: still sitting in the login flow, showing
-// fields to fill, with nothing filled in.
+// that never fired leaves behind: still sitting in the login flow, with
+// nothing typed in anywhere.
 //
 // The "nothing filled in" part is what makes this safe in a way the old timer
 // was not. A human typing their password by hand keeps the page on a login
 // URL, so the previous code would reload and wipe what they had typed once its
 // 45 seconds were up. A filled field now means somebody or something is
 // working, and the page is left alone.
+//
+// A PAGE WITH NO FIELDS AT ALL COUNTS AS STALLED (changed 2026-08-10). This
+// used to additionally require FieldCount > 0, which meant a login-flow page
+// offering nothing to fill could never be called stalled and so was never
+// reloaded - it simply waited out the full loginTotalBudgetMs (300s) and
+// failed. That is the shape of all three unexplained 300s login timeouts in
+// docs/BACKLOG.md, and the third one recorded where it was stuck:
+// ".../opal/shiblogin;jsessionid=...", the Shibboleth IdP's own
+// login-processing screen, which is a redirect interstitial and not a form.
+// The maintainer's report that "TU-Fast still has no fast reload when it hangs
+// itself up" survived the 2026-07-26 work for exactly this reason.
+//
+// Dropping the field requirement does not weaken the typing guard, because
+// FilledFields is 0 whenever FieldCount is: the condition is now simply "on a
+// login URL with nothing entered". A page that is genuinely progressing is
+// still protected by the caller, which only consults this after loginQuietMs
+// with no observable movement at all (changedFrom covers URL and field counts,
+// and an unreadable page counts as movement).
 func (a loginSignals) stalled() bool {
 	if a.Unknown {
 		return false
 	}
-	return looksLikeLoginPageURL(a.URL) && a.FieldCount > 0 && a.FilledFields == 0
+	return looksLikeLoginPageURL(a.URL) && a.FilledFields == 0
 }
 
 // readLoginSignals takes one reading of the login page. Any failure is

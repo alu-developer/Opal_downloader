@@ -150,7 +150,15 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 				// failed save only costs the banner coming back next launch -
 				// which is what it did every time before this endpoint existed.
 				el.style.display = 'none';
-				fetch('/scheduled-status/dismiss', { method: 'POST' }).catch(function () {});
+				// Send the timestamp this page actually rendered. If a
+				// scheduled run finishes between page load and this click, the
+				// server must not mark the new, never-shown failure dismissed
+				// just because the button was pressed - see the handler.
+				fetch('/scheduled-status/dismiss', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ timestamp: String(status.timestamp || '') })
+				}).catch(function () {});
 			});
 			el.appendChild(dismiss);
 

@@ -2,7 +2,9 @@ package gui
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/statuslog"
@@ -77,17 +79,32 @@ func (s *server) handleScheduledStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// dismissRequest is the body bannerChrome's Dismiss button sends: the
+// timestamp of the run the page actually rendered.
+type dismissRequest struct {
+	Timestamp string `json:"timestamp"`
+}
+
 // handleScheduledStatusDismiss records that the user has dismissed the
-// banner for whatever the current status file says, so it stays dismissed
-// across GUI restarts.
+// banner for the run they were shown, so it stays dismissed across GUI
+// restarts.
 //
-// Takes no request body on purpose: the timestamp to dismiss is read from
-// the status file server-side, so there is nothing a caller can hand over to
-// get some other run marked dismissed, and no parsing to get wrong. If there
-// is nothing to dismiss (no status file, or the last run succeeded) it is a
-// no-op that still answers 204 - the banner has already hidden itself
-// client-side by then, and reporting an error for a button that visibly
-// worked would be worse than doing nothing.
+// The body carries the timestamp the page rendered, and the dismissal is
+// only written when it still matches the status file. Without that check the
+// handler dismissed whatever the file said *at click time* (weekly review,
+// 2026-08-10): if a scheduled run finished in the window between page load
+// and the click, the click silently dismissed the new, never-shown failure
+// instead of the one on screen - defeating the notification for exactly the
+// run the user most needed to see. Narrow window, but the failure is silent
+// and costs a whole run's report.
+//
+// A request with no body, or one whose timestamp cannot be parsed, still
+// dismisses the current status: an already-open page from an older build
+// sends nothing, and refusing there would break the button for the one
+// person running it. Mismatches answer 204 rather than an error - the banner
+// has already hidden itself client-side, and a visible failure for a button
+// that plainly worked would be worse than a no-op. The stale run reappears
+// on the next page load, which is the correct outcome: it was never seen.
 func (s *server) handleScheduledStatusDismiss(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -100,6 +117,20 @@ func (s *server) handleScheduledStatusDismiss(w http.ResponseWriter, r *http.Req
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+
+	// io.LimitReader: this is a local GUI, but a handler that reads an
+	// unbounded body on a POST is a habit worth not having.
+	var req dismissRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err == nil {
+		if seen, perr := time.Parse(time.RFC3339Nano, strings.TrimSpace(req.Timestamp)); perr == nil {
+			if !seen.Equal(status.Timestamp) {
+				// The user dismissed a different run than the one on file.
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+	}
+
 	if err := writeDismissedFunc(status.Timestamp); err != nil {
 		// Same "degrade silently" contract as the banner itself: the click
 		// already hid it for this session, and a failed write only means it

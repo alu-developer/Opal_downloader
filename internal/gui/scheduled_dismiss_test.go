@@ -131,3 +131,76 @@ func TestBannerDismissPostsToTheServer(t *testing.T) {
 		t.Fatal("dismissal must not go back to localStorage: the GUI's port, and so its origin, changes every launch")
 	}
 }
+
+// The race the weekly review found (2026-08-10): the handler used to re-read
+// the status file at click time and dismiss whatever it found. If a scheduled
+// run finished between page load and the click, the click silently dismissed
+// the new failure - which the user had never seen - instead of the one on
+// screen. The banner for that run then never appeared again.
+func TestDismissIgnoresARunTheUserNeverSaw(t *testing.T) {
+	shown := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
+	// A newer run landed while the page was open.
+	current := time.Date(2026, 8, 10, 4, 0, 0, 0, time.UTC)
+	withScheduledStatusFake(t, func() (statuslog.Status, bool) { return failureStatusAt(current), true })
+	stored := withDismissFakes(t)
+
+	srv := &server{}
+	req := httptest.NewRequest(http.MethodPost, "/scheduled-status/dismiss",
+		strings.NewReader(`{"timestamp":"`+shown.Format(time.RFC3339Nano)+`"}`))
+	rec := httptest.NewRecorder()
+	srv.handleScheduledStatusDismiss(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if !stored.IsZero() {
+		t.Fatalf("dismissing the run on screen must not mark the newer, unseen run dismissed; stored %v", *stored)
+	}
+}
+
+func TestDismissWritesWhenTheTimestampStillMatches(t *testing.T) {
+	ts := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
+	withScheduledStatusFake(t, func() (statuslog.Status, bool) { return failureStatusAt(ts), true })
+	stored := withDismissFakes(t)
+
+	srv := &server{}
+	req := httptest.NewRequest(http.MethodPost, "/scheduled-status/dismiss",
+		strings.NewReader(`{"timestamp":"`+ts.Format(time.RFC3339Nano)+`"}`))
+	rec := httptest.NewRecorder()
+	srv.handleScheduledStatusDismiss(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if !stored.Equal(ts) {
+		t.Fatalf("stored = %v, want the dismissed run's timestamp %v", *stored, ts)
+	}
+}
+
+// An already-open page from a build before this change sends no body. That
+// must keep working rather than leaving the one user with a dead button.
+func TestDismissWithoutABodyStillDismissesTheCurrentRun(t *testing.T) {
+	ts := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
+	withScheduledStatusFake(t, func() (statuslog.Status, bool) { return failureStatusAt(ts), true })
+	stored := withDismissFakes(t)
+
+	srv := &server{}
+	req := httptest.NewRequest(http.MethodPost, "/scheduled-status/dismiss", nil)
+	rec := httptest.NewRecorder()
+	srv.handleScheduledStatusDismiss(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if !stored.Equal(ts) {
+		t.Fatalf("a bodyless dismiss must still dismiss the current run; stored %v", *stored)
+	}
+}
+
+// The client half: the button has to send what it rendered, or the server's
+// check above can never fire.
+func TestBannerDismissSendsTheRenderedTimestamp(t *testing.T) {
+	if !strings.Contains(bannerChrome, "status.timestamp") {
+		t.Fatal("the Dismiss button must send the timestamp the page rendered")
+	}
+}

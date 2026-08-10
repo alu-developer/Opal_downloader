@@ -229,8 +229,14 @@ discovery) was root-caused (PR #64/#65, live-tested against the real TU
 Dresden account) to an AJAX-render race specific to *concurrent* course
 crawling - not to a per-section retry bug. `course_concurrency=3` (the old
 default) silently lost 21% of files across 2 whole courses; `=5` lost 76%.
-The code default is `course_concurrency=1` (serial) since PR #65, and queue
-task `fix-course-level-crawl-flakiness` (2026-07-13) re-confirmed this live:
+**The code default is `course_concurrency=2` since 2026-08-10** (raised from
+the serial 1 it had been since PR #65 — see `DefaultCourseConcurrency`'s doc
+comment for the three-run byte-diff evidence and the debounce change it ships
+with). So "check `course_concurrency`" now means: `2` is the expected value
+and is byte-verified at full account scale; `3` has not been re-measured
+since any of the 2026-08 work; `4` and above is known-lossy. Queue task
+`fix-course-level-crawl-flakiness` (2026-07-13) re-confirmed the serial path
+live:
 three consecutive `list --dev --profile --debug-clicks --course-concurrency
 1` runs against the real account produced byte-identical per-course file
 counts every time (341 files, same 8 courses discovered, same 7
@@ -238,7 +244,7 @@ content-bearing courses), with zero section-level Goto/extraction failures
 in any run.
 
 **A config.yaml with an explicit `course_concurrency: 3` (or higher) silently
-overrides the safer code default** - `internal/config/config.go`'s `Load()`
+overrides the code default** - `internal/config/config.go`'s `Load()`
 only substitutes `DefaultCourseConcurrency` when the field is unset or
 non-positive, so an old config file written before PR #65 keeps running at
 the data-lossy concurrency level even though a fresh/default config

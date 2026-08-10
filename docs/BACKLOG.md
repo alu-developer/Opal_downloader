@@ -23,52 +23,45 @@ here is the failure mode to watch for.
 
 ## Now
 
-**Maintainer decision needed: ship `course_concurrency=2` +
-`OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150` as the new default?**
-`docs/sync-speed-model.md` Question 33 (2026-08-10, autopilot) found this
-combination passes the full 349-file byte-diff twice in a row (no losses)
-and cuts full-account crawl wall-clock by ~36% (211s → ~135s average) — the
-first `course_concurrency>1` setting in the whole campaign to pass
-correctness *and* show a real win. It fixes the exact bug Question 32 found
-the same cycle: the existing `OPAL_DEBOUNCE_MS_OVERRIDE` unconditionally
-tightens the Wicket "show all" signal's hard-cap budget even under
-concurrency, which loses 6 files at full scale; the new override leaves that
-cap alone and only shortens the debounce. Two live-verified options:
-
-- **(a) Ship it as the new default** — `config.yaml`'s `course_concurrency`
-  from 1 to 2, plus wiring the equivalent of
-  `OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150` into the shipped (non-test) code
-  path rather than leaving it as a test-only env var. Fastest path to the
-  ~36% win for every user. Now 3 live-verified clean runs deep (349/349
-  files, empty diff, every time) against a project that has twice before
-  shipped a concurrency change and later found it lossy (Questions 16/17) —
-  but all 3 are still same-session/same-day (2026-08-10); recommend one
-  clean run on a *different* day before treating it as proven the way
-  Questions 14/15's 8-run debounce change was — server-side conditions on a
-  second day are the one variable none of the 3 runs so far have varied.
-- **(b) Hold at `course_concurrency=1`, keep the new override test-only** —
-  safer, no change to what every user already has, but leaves a measured
-  ~36% win on the table indefinitely with no plan to revisit it.
-
-**Recommendation: (a), after one clean run on a different calendar day** —
-the mechanism is sharply diagnosed (not just a measured effect, per Rule 2),
-and the project's own standing rule already says a byte-diff-passing default
-may be changed and shipped without waiting on a full campaign close. The
-open item from Question 33 (why Question 31's 2-course probe didn't
-reproduce Question 32's loss at the same tightened cap) is low-priority and
-doesn't block this — it explains *why the old override was unsafe*, not
-whether the new one is.
-
-`docs/sync-speed-model.md` "Next experiment" has the full write-up and
-citations. Question 29 (does the tree walk re-fetch nodes) closed the same
-cycle by source reading — the ranked list in `docs/sync-speed-model.md` is
-now empty except Question 5 (concealment-class work, already declined by
-the maintainer 2026-08-03).
+**The session-lock collision bug** — the maintainer's pick for where the
+next cycles go (decision round 2026-08-10), chosen over more speed work
+because correctness comes first and because this bug undermines the
+"several sessions at once is safe" assumption the whole autopilot setup
+rests on. Two real incidents, neither producing the `ErrProfileLocked` the
+design exists to produce; the 2026-08-06 one collapsed silently to 0 files
+for three runs straight. Current best candidate (D) and the concrete next
+steps are in this file's Noticed section — start with the cheap
+instrumentation, not with a deliberate reproduction, since candidate D says
+the damage is server-side and a reproduction would be re-triggering it.
 
 ---
 
 ## Next
-_Nothing queued._
+
+**Raise `course_concurrency` past 2.** Maintainer asked for it in the same
+decision round. `3` has not been measured since any of the 2026-08 work and
+`4` lost 9 files the last time it was tried (2026-07-21) — so this is a
+byte-for-byte parity sweep at 3 first, with the same 349-file baseline
+discipline Questions 31–33 used, and it only proceeds if 3 is clean. Do not
+skip straight to 4.
+
+**Re-read the HTML the crawl already loads, and look for what isn't in it.**
+Also from the decision round. Two separate questions, both currently
+unasked by the campaign, which has only ever measured *timing* of the
+existing navigation:
+- Does a page the crawl already fetches contain file/section data the crawl
+  then goes and fetches again by navigating? If so that is a free win, no
+  extra requests.
+- Is there anything in the served HTML pointing at content that is *not*
+  loaded there — embedded JSON, Wicket component metadata, `data-` attributes,
+  inline script config, hidden nodes, `<link rel>` hints — that would reveal
+  a node's children without a navigation per branch? This bears directly on
+  Question 2/9's finding that the tree is only ever revealed one navigation
+  per newly-opened branch; if that is only true of the *rendered* DOM and not
+  of the response payload, the crawl's fundamental shape changes.
+Open these as ranked questions in `docs/sync-speed-model.md` with the usual
+written-first prediction. Source reading and saved HTML, no live account run
+needed to start.
 
 ---
 
@@ -98,8 +91,12 @@ Delete an entry when it is done, or when it turns out not to matter.
   down: `docs/tufast-security.md`, incl. the mitigations that actually apply.
 
 - **OPAL's WebDAV isn't broken — it never mapped participant course content
-  (2026-08-04).** Full write-up in `docs/opal-webdav-student-access.md`,
-  including a send-ready letter to BPS. Two loose ends worth remembering: (a)
+  (2026-08-04).** Full write-up in `docs/opal-webdav-student-access.md`.
+  **Closed 2026-08-10 (decision round): the maintainer has sent a message to
+  BPS himself and closed the letter thread** — the draft in that doc's §7 is
+  no longer waiting on anybody. Nothing further to do unless BPS answers, in
+  which case the answer belongs in that doc. Two loose ends worth
+  remembering: (a)
   OPAL hands *students* a token-authenticated personal RSS feed covering
   subscribed folders — a possible cheap change-detector that needs no browser;
   (b) if BPS ever answers the letter, the answer belongs in that doc.
@@ -345,6 +342,16 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **`course_concurrency=2` shipped as the new default, together with the
+  concurrent settle debounce at 150ms** (2026-08-10, decision round): the
+  maintainer chose to ship immediately rather than wait for the different-day
+  confirmation run the recommendation asked for — the three clean 349-file runs
+  are all from 2026-08-10, which is the residual risk.
+  `DefaultCourseConcurrency` (`internal/config/config.go`) and
+  `mutationObserverConcurrentDebounceMs` (`internal/scraper/navigation.go`) are
+  one change and revert together. Also fixed `config.example.yaml`, which had
+  been claiming a default of 2 on 2026-07-21's since-overturned reasoning the
+  entire time the code default was actually 1.
 - **Question 29 closed, no live run needed: the crawl's own `visited`/`queued`
   dedup makes a node re-fetch structurally impossible** (2026-08-10,
   autopilot, source reading): `appendSectionFolderTargets` checks both maps

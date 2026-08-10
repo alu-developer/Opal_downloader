@@ -342,7 +342,13 @@ answer in three lines rather than making a demand.
 
 ## 7. Draft letter
 
-Send-ready, not sent. Adjust the personal bits.
+**Status 2026-08-10 (decision round): the maintainer reports having sent a
+message to BPS himself and asked for this thread to be closed.** Exactly which
+of the arguments below went out is not recorded here, so treat the draft as
+history rather than as the sent text. If BPS answers, the answer belongs in
+this doc. Nothing here is waiting on anybody.
+
+The draft as it stood, unchanged:
 
 Sharpened 2026-08-04: **one request instead of three questions.** The earlier
 draft asked separately about WebDAV and about "some other token-based access",

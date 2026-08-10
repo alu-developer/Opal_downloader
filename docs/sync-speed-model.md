@@ -78,6 +78,68 @@ never empty, never larger than at the end).
 
 ## What we don't know (sorted by leverage)
 
+### 34. Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?
+
+**Opened 2026-08-10 (maintainer's request, decision round).** The maintainer's
+words: *"look back at html. Look if you can maybe use some of the stuff loaded
+there. Also really look in the pages, whether or not you could find anything
+that indicates stuff that is not directly loaded there."* Ranked top because
+it is the only open question that could change the crawl's *shape* rather
+than its constants, and because the whole campaign so far has measured the
+timing of the existing navigation without ever auditing what the responses
+already contain.
+
+Two halves, deliberately kept together since one pass over the same saved
+HTML answers both:
+
+- **Reuse.** Does a page the crawl already fetches carry file or section data
+  that the crawl subsequently goes and fetches again by navigating? A hit
+  here is free — fewer requests, no new risk surface.
+- **Concealed structure.** Is there anything in the *response payload* that
+  reveals a node's children without opening that branch — embedded JSON,
+  Wicket component metadata or behaviour URLs, `data-` attributes, inline
+  script config, `<link rel>` hints, `display:none` subtrees the renderer
+  emitted anyway? This is the sharp version, because Questions 2 and 9
+  established that the tree is only ever revealed one navigation per
+  newly-opened branch — but both looked at the *rendered DOM*, via
+  `MenuTreeRenderer.isRenderChildren()`. If the served bytes are less
+  frugal than the rendered tree, the ~207s crawl floor is a property of how
+  this project reads the response, not of what the server sends.
+
+*How it gets answered:* source reading plus saved HTML, no live account run
+needed to start — OpenOLAT is open source (`MenuTreeRenderer` and the
+`Ordner`/`BCWebService` path are already cited in this file and in
+`docs/opal-webdav-student-access.md` §4), and a single captured section
+response is enough to check the payload half. Prediction gets written before
+anything is measured, per Rule 1.
+
+*What would make it a dead end:* `isRenderChildren()` gating the *serialized*
+output too, i.e. unopened branches genuinely absent from the bytes. That is
+the likely outcome for the concealed-structure half and should be stated as
+the prediction rather than discovered as a disappointment.
+
+### 35. Is `course_concurrency=3` byte-clean at full scale on the shipped 150ms/6000ms concurrent budget?
+
+**Opened 2026-08-10 (maintainer's request, decision round).** With 2 now
+shipped (Question 33), the maintainer asked to push concurrency higher. This
+is a parity sweep, not an open mechanism question: 3 has not been measured
+since *any* of the 2026-08 work (its last data point is 2026-07-21, before
+the debounce change, before Question 25's fix, before Question 33's
+decoupling), and 4 lost 9 files when last measured. Same discipline as
+Questions 31–33: `OPAL_COURSE_CONCURRENCY_OVERRIDE=3`, full 6-course
+`TestFileListSnapshot` with `-count=1`, diffed byte-for-byte against a fresh
+same-session 349-file conc=2 baseline.
+
+*Kill criterion, written now:* any non-empty diff stops this at 2 for good
+rather than opening a hunt — the mechanism behind loss under contention is
+already known (Questions 16/17's Wicket "show all" bug, still unfixed) and
+finding it again at a higher concurrency teaches nothing new. Do not test 4
+unless 3 is clean twice.
+
+*Sequencing note:* ranked below Question 34 on purpose. 34 needs no account
+and could invalidate the premise that more concurrent tabs is the lever
+worth pushing; 35 costs live runs against the real account either way.
+
 ### 1. What is OPAL actually rendering? — now read up, see below
 ~~OpenOLAT is open source. This campaign spent ten days guessing at the live
 server what it does.~~ Answered 2026-07-31, see "Next experiment" below for the
@@ -1222,6 +1284,23 @@ were a same-session fluke," not "this needs to be observed on a different
 day's server conditions too." Not closing that ask; leaving it for whichever
 session runs on 2026-08-11 or later.
 
+**SHIPPED 2026-08-10 (maintainer's decision, decision round).** Asked whether
+to ship now or after a different-day confirmation run, the maintainer chose
+*sofort ausliefern* — ship immediately, without waiting. Recorded plainly: the
+different-day run was the recommendation and it did not happen, so the residual
+risk named above is now carried in production rather than retired. What
+actually shipped, as two constants that are one change:
+`config.DefaultCourseConcurrency` 1 → 2, and
+`mutationObserverConcurrentDebounceMs` 500 → 150 with
+`mutationObserverConcurrentHardCapMs` left at 6000 (the decoupling this
+question found). `OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE` stays for A/B work but no
+longer gates the behaviour. The maintainer's own `config.yaml` had an explicit
+`course_concurrency: 1` overriding the code default, so that was set to 2 too —
+otherwise the decision would have changed nothing on the one account that
+actually runs. Symptom to watch for if a later day disagrees: a silently short
+count from one paginated section, with `warnShowAllTruncated` in the run log —
+the same shape 2026-07-26 saw.
+
 ---
 
 ## Next experiment
@@ -1238,14 +1317,25 @@ chased. Question 33, opened the same cycle, decoupled the two
 the concurrent default) and got the first `course_concurrency>1`
 configuration in the whole campaign to pass the full byte-diff *with* a real
 speed win — 349/349 files clean twice, ~135s average against a 211s fresh
-baseline (~36% faster). **This is now a decision for the maintainer, not
-another open question** — see `docs/BACKLOG.md` "Now" for the concrete
-options. Question 29 closed the same cycle by source reading (the BFS's own
-`visited`/`queued` dedup makes a re-fetch structurally impossible). **The
-ranked list is now empty** — only Question 5 remains (is "30s" even tied to
-discovery; maintainer decision already given 2026-08-03, stays low and not
-actionable without a fresh maintainer conversation). Everything below this
-paragraph is earlier history, read newest-relevant-first.
+baseline (~36% faster). Question 29 closed the same cycle by source reading
+(the BFS's own `visited`/`queued` dedup makes a re-fetch structurally
+impossible).
+
+**Decided and shipped 2026-08-10 (decision round): the maintainer chose to
+ship Question 33's configuration immediately, without the different-day
+confirmation run the recommendation asked for.** Details and the residual
+risk are at the end of Question 33's entry above.
+
+**The ranked list is no longer empty.** The same decision round added two
+questions from the maintainer directly: **Question 34** (does the HTML the
+crawl already receives point at content it has to navigate for — reuse, and
+concealed structure in the payload) and **Question 35** (`course_concurrency=3`
+parity sweep on the newly shipped budget). 34 goes first: it needs no live
+account run and could change the crawl's shape rather than its constants,
+whereas 35 spends real-account runs to move a constant. Question 5 also
+remains (is "30s" even tied to discovery; maintainer declined the pivot
+2026-08-03, stays low). Everything below this paragraph is earlier history,
+read newest-relevant-first.
 
 **Questions 2 and 6 both closed this cycle (2026-08-09, autopilot, no live run) —
 see "What we don't know" above.** Question 2 had stood as the highest-ranked
@@ -2731,6 +2821,16 @@ natural next autopilot cycle is the one more same-day-or-later confirmation
 run the recommendation calls for, then wiring the override into the
 non-test code path. If they decline, the ranked list is genuinely empty and
 "When ideas run out" (top of this file) is the honest next move.
+
+**Answered same day (decision round, 2026-08-10).** The maintainer approved
+shipping and skipped the confirmation run, so the override is wired into the
+non-test path now (Question 33's closing note). He also set the direction
+this report said was his to set, and it is not another timing lever: the
+correctness thread first (`docs/BACKLOG.md`'s session-lock collision bug is
+now the top item), then Question 34 (read the HTML the crawl already gets —
+"When ideas run out"'s *read the other side* move, applied to the payload
+rather than the manuals) and Question 35 (concurrency 3). So this campaign
+continues, but no longer as the only thread.
 
 ### 2026-08-09 (autopilot): five cycles, Questions 27/28/2/6/30 — keep going, but the ranked list is now genuinely empty without a live run
 

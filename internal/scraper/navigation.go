@@ -153,7 +153,27 @@ const mutationObserverHardCapMs = 4000.0
 // concurrency=2 while keeping serial crawls on the tighter budget above
 // (this only applies when effectiveCourseConcurrency() > 1 - see
 // contentSettleWaitBudget below).
-const mutationObserverConcurrentDebounceMs = 500.0
+//
+// Debounce lowered 500 -> 150 on 2026-08-10 (maintainer's decision, decision
+// round), on the evidence of docs/sync-speed-model.md Questions 32 and 33.
+// The hard cap deliberately stays at 6000ms, and that split is the whole
+// point: Question 32 ran course_concurrency=2 with the older
+// OPAL_DEBOUNCE_MS_OVERRIDE, which pins *both* values to the serial budget,
+// and lost 6 files at full 6-course scale - starving the rare
+// slow-to-settle Wicket "show all" section (Questions 16/17's bug) of the
+// patience the 6000ms cap exists to give it. Question 33 shortened the
+// debounce alone (OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE, still available for
+// A/B work) and passed the full 349-file byte-diff three times running,
+// ~36% faster wall-clock than the fresh course_concurrency=1 baseline
+// (211s -> ~135s). Mechanism: most sections settle in ~180ms, nowhere near
+// either cap, so the debounce was the binding constant on the common path
+// while the cap only ever binds on the rare contended section.
+//
+// The three confirming runs were all on 2026-08-10. The maintainer chose to
+// ship without waiting for a different-day run (see docs/BACKLOG.md); if a
+// later run ever comes back short, this constant and
+// config.DefaultCourseConcurrency are the pair to revert together.
+const mutationObserverConcurrentDebounceMs = 150.0
 const mutationObserverConcurrentHardCapMs = 6000.0
 
 var sectionTitleWhitespaceRe = regexp.MustCompile(`\s+`)

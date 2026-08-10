@@ -340,7 +340,41 @@ const (
 	// it again needs a fresh byte-for-byte parity sweep, not this history:
 	// these numbers are a property of one account's course mix and of whatever
 	// the serial path currently costs, and both have moved before.
-	DefaultCourseConcurrency = 1
+	//
+	// BACK TO 2 (2026-08-10, maintainer's decision in a decision round). The
+	// fresh parity sweep the paragraph above asked for was run, at full
+	// 6-course/349-file scale, and both halves of the 2026-07-26 case against
+	// 2 were overturned - but only in combination with the concurrent
+	// debounce change that shipped alongside this one
+	// (mutationObserverConcurrentDebounceMs, internal/scraper/navigation.go,
+	// 500 -> 150ms with the 6000ms hard cap left alone). The two are one
+	// change and revert together.
+	//
+	//   docs/sync-speed-model.md Question 31 (2026-08-09): concurrency=2 with
+	//     the untouched 500ms/6000ms budget - empty byte-diff (correctness
+	//     objection refuted) but 17% *slower*, so on its own still not worth
+	//     shipping.
+	//   Question 32 (2026-08-10): concurrency=2 + the old
+	//     OPAL_DEBOUNCE_MS_OVERRIDE=150 - loses 6 files. That override pins
+	//     the hard cap to the serial 4000ms too, which starves the same
+	//     Wicket "show all" section Questions 16/17 found. This is the
+	//     mechanism behind 2026-07-26's "one run in five" loss above.
+	//   Question 33 (2026-08-10): concurrency=2 + debounce alone shortened,
+	//     hard cap left at 6000ms - 349/349 files, empty byte-diff, three
+	//     runs in a row; ~135s against a 211s fresh-login serial baseline
+	//     (~36%), crawl-only 111.5s/117.8s/121.0s against serial's 107.0s.
+	//
+	// All three clean runs were on one calendar day (2026-08-10). The
+	// maintainer chose to ship rather than wait for a different-day
+	// confirmation; the residual risk is that server-side conditions on
+	// another day behave differently, and the symptom to watch for is the
+	// same one 2026-07-26 saw - a silently short file count from one
+	// paginated section, with warnShowAllTruncated in the run log.
+	//
+	// Still unverified above 2: the 2026-07-21 note about concurrency 4
+	// losing 9 files stands, and 3 has not been re-measured since any of
+	// this. Do not raise further without its own byte-for-byte sweep.
+	DefaultCourseConcurrency = 2
 
 	// DefaultSectionConcurrency is how many of a single course's sections are
 	// visited at once, *within* that course's BFS crawl.

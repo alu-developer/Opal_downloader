@@ -15,6 +15,14 @@ func courseRootHTML(treeNodes string) string {
 	return fmt.Sprintf(`<html><body>var initial_data=[%s];</body></html>`, treeNodes)
 }
 
+func fileNames(files []FileRef) []string {
+	var out []string
+	for _, f := range files {
+		out = append(out, f.Name)
+	}
+	return out
+}
+
 func TestDiscoverSectionsHTTPSeedsFromTreeAndExpandsSubPaths(t *testing.T) {
 	const opalURL = "https://bildungsportal.sachsen.de/opal/"
 	course := CourseRef{RepoID: "1", Title: "C", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1"}
@@ -26,6 +34,9 @@ func TestDiscoverSectionsHTTPSeedsFromTreeAndExpandsSubPaths(t *testing.T) {
 	// sub-path CourseNode/22/Sub is a folder row INSIDE that node's own page,
 	// which only fetching CourseNode/22 and expanding can discover - the
 	// thing Step B1 proved works (docs/sync-speed-model.md Question 36).
+	// file.pdf lives one level deeper still, inside the sub-path's own body -
+	// proof that a section's files are extracted from the same fetch that
+	// discovers it, not a second one.
 	node22HTML := `<a href="https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub" title="Sub">Sub</a>`
 	subHTML := `<a href="https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub/file.pdf" data-file-name="file.pdf"><span>file.pdf</span></a>`
 
@@ -35,29 +46,19 @@ func TestDiscoverSectionsHTTPSeedsFromTreeAndExpandsSubPaths(t *testing.T) {
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22":     {body: node22HTML, status: 200},
 	}}
 
-	sections, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil)
+	files, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if reqs != 3 {
-		t.Errorf("expected 3 requests (root, node22, sub-path), got %d", reqs)
+		t.Errorf("expected 3 requests (root, node22, sub-path) - not a second fetch per section for files, got %d", reqs)
 	}
-	var urls []string
-	for _, s := range sections {
-		urls = append(urls, s.URL)
+	names := fileNames(files)
+	if len(names) != 1 || names[0] != "file.pdf" {
+		t.Fatalf("expected exactly [file.pdf], got %v", names)
 	}
-	want := []string{
-		course.URL,
-		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22",
-		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub",
-	}
-	if len(urls) != len(want) {
-		t.Fatalf("sections: got %v want %v", urls, want)
-	}
-	for i, w := range want {
-		if urls[i] != w {
-			t.Errorf("section %d: got %q want %q", i, urls[i], w)
-		}
+	if files[0].SectionURL != "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub" {
+		t.Errorf("file attributed to wrong section: %+v", files[0])
 	}
 }
 
@@ -76,7 +77,7 @@ func TestDiscoverSectionsHTTPSkipsNonFileSectionAtSeed(t *testing.T) {
 	}}
 
 	var errored []string
-	sections, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, true, func(url string, _ error) {
+	files, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, true, func(url string, _ error) {
 		errored = append(errored, url)
 	})
 	if err != nil {
@@ -88,8 +89,8 @@ func TestDiscoverSectionsHTTPSkipsNonFileSectionAtSeed(t *testing.T) {
 	if len(errored) != 0 {
 		t.Errorf("node-en should never have been fetched, but got a section error for: %v", errored)
 	}
-	if len(sections) != 1 || sections[0].URL != course.URL {
-		t.Errorf("expected only the course root as a section, got %+v", sections)
+	if len(files) != 0 {
+		t.Errorf("expected no files (the root page carries none in this fixture), got %+v", files)
 	}
 }
 
@@ -115,18 +116,13 @@ func TestDiscoverSectionsHTTPFollowsShowAllDuringExpansion(t *testing.T) {
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": {body: subHTML, status: 200},
 	}}
 
-	sections, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil)
+	files, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var found bool
-	for _, s := range sections {
-		if s.URL == "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("PREDICTION FAILED (Step B1 run 1's exact miss): sub-path past the pagination cap was not discovered. sections: %+v", sections)
+	names := fileNames(files)
+	if len(names) != 1 || names[0] != "file.pdf" {
+		t.Errorf("PREDICTION FAILED (Step B1 run 1's exact miss): sub-path past the pagination cap was not discovered. files: %v", names)
 	}
 }
 
@@ -135,12 +131,12 @@ func TestDiscoverSectionsHTTPRootFetchFailureIsFatal(t *testing.T) {
 	fetcher := &fakeHTTPFetcher{responses: map[string]fakeHTTPResponse{
 		course.URL: {body: "not found", status: 404},
 	}}
-	sections, _, err := discoverSectionsHTTP(fetcher, course, "https://opal/", false, nil)
+	files, _, err := discoverSectionsHTTP(fetcher, course, "https://opal/", false, nil)
 	if err == nil {
 		t.Fatal("expected an error when the course root itself cannot be fetched")
 	}
-	if sections != nil {
-		t.Errorf("expected no sections on a fatal root failure, got %+v", sections)
+	if files != nil {
+		t.Errorf("expected no files on a fatal root failure, got %+v", files)
 	}
 }
 
@@ -153,14 +149,16 @@ func TestDiscoverSectionsHTTPSectionFetchFailureIsLoggedAndSkipped(t *testing.T)
 		`{"id":"id23","text":"Andere",` +
 		`"a_attr":{"href":"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/23","title":"Andere","class":"node-bc"}}`)
 
+	node23HTML := `<a href="https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/23/file.pdf" data-file-name="file.pdf"><span>file.pdf</span></a>`
+
 	fetcher := &fakeHTTPFetcher{responses: map[string]fakeHTTPResponse{
 		course.URL: {body: rootHTML, status: 200},
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22": {body: "forbidden", status: 403},
-		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/23": {body: "<html></html>", status: 200},
+		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/23": {body: node23HTML, status: 200},
 	}}
 
 	var errored []string
-	sections, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, func(url string, _ error) {
+	files, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, func(url string, _ error) {
 		errored = append(errored, url)
 	})
 	if err != nil {
@@ -169,17 +167,8 @@ func TestDiscoverSectionsHTTPSectionFetchFailureIsLoggedAndSkipped(t *testing.T)
 	if len(errored) != 1 || errored[0] != "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22" {
 		t.Errorf("expected onSectionError called once for CourseNode/22, got %v", errored)
 	}
-	var urls []string
-	for _, s := range sections {
-		urls = append(urls, s.URL)
-	}
-	want := []string{course.URL, "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/23"}
-	if len(urls) != len(want) {
-		t.Fatalf("sections: got %v want %v (the failing node22 must be absent, node23 must still be found)", urls, want)
-	}
-	for i, w := range want {
-		if urls[i] != w {
-			t.Errorf("section %d: got %q want %q", i, urls[i], w)
-		}
+	names := fileNames(files)
+	if len(names) != 1 || names[0] != "file.pdf" {
+		t.Errorf("expected node23's file.pdf despite node22's failure, got %v", names)
 	}
 }

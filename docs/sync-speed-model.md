@@ -344,6 +344,47 @@ small, bounded, explainable gap instead of taking the whole run down. Timing
 prediction unchanged (under 130s), now genuinely testable since the run can
 actually finish.
 
+**Live run 2 result (2026-08-10): the byte-diff PASSED — 349 files, empty
+diff — but the timing prediction failed badly, and the cause was this
+method's own design, not the network.** `tmp/filelist-after.txt` vs
+`tmp/filelist-before.txt`: identical, 349 lines each. But the run logged `6
+courses, 302 section requests, 302 file requests, 4m45.5s` — **604 HTTP
+requests**, roughly double Step B1's 313-request rider, and the wall clock
+blew through the 130s kill line by more than 2x.
+
+*Diagnosed, sharp enough to have predicted it in advance if anyone had
+checked the request count against the rider's before running:*
+`scrapeCoursesHTTPFirst`'s first version called `discoverSectionsHTTP` to
+find each course's section URLs, then called the existing
+`fetchSectionFilesHTTP` **again, per section**, to get its files — two full
+fetches of every one of 302 sections, where the browser path (and the rider)
+only ever fetch a section once. The rider never measured this because it
+deliberately only tested discovery ("Deliberately not re-tested: file
+extraction..."); nothing before this live run exercised the full two-phase
+shape end to end at production scale.
+
+*Fix (2026-08-10, same cycle):* `discoverSectionsHTTP` now extracts files
+from each section's body at the exact point it is already being parsed for
+child-folder candidates — one fetch serves both jobs, via a new
+`extractSectionFiles` helper that runs the identical `appendSectionFiles`
+predicate `fetchSectionFilesHTTP` uses (so the merge key and dedupe behavior
+are unchanged). `fetchSectionFilesHTTP` itself is untouched, since the
+existing `verify`/`1` modes still call it directly and it is not the thing
+that needed fixing. `scrapeCoursesHTTPFirst` simplified to match — no more
+per-section second loop. All 5 `httpdiscovery_seed_test.go` tests rewritten
+around the function's new `[]FileRef` return and still pass, including a
+fixture where a file lives two levels below the tree seed (root → tree node
+→ sub-path → file), proof the one-fetch shape still reaches it.
+
+**Live run 3, amended prediction, registered before re-running:** same
+349-file empty-diff expectation, and now a request-count check too — **at
+most ~320 requests** (313 the rider measured, plus room for `discoverCourseLinks`'s
+overhead and normal account drift since 2026-08-10's earlier measurements),
+counted as failed above 400. Wall clock: **under 130s**, counted as failed
+above that line for a *speed* verdict, but note a byte-diff pass at any
+speed is still real evidence the algorithm is correct — only the "ship as
+the default" question depends on the timing number.
+
 ### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
 
 **The pre-registered prediction failed, and that is the finding.** This

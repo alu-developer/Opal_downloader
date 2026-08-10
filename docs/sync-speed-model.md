@@ -265,6 +265,32 @@ is seed-from-tree, then let the existing HTTP phase's own discovery expand
 what the seed does not cover — which is what `appendSectionFolderTargets`
 already does for the browser.
 
+**Step B2 result (2026-08-10, live, autopilot): confirmed, zero diff, two
+independent runs.** `scrapeCoursesHTTPFirst` (`internal/scraper/httpfirst.go`,
+branch `http-first-discovery-b2`) replaces the browser tree-walk entirely
+(course discovery still uses the browser - a different page than any course's
+content tree) behind `OPAL_HTTP_DISCOVERY=2`. Verified with the established
+`TestFileListSnapshot` harness (course/section/name/URL, not just a count):
+a fresh browser-crawl baseline found all **349 files** (a first attempt at the
+same baseline that morning found only 121, with two normally-populated courses
+reporting 0 - a pre-existing browser-crawl flakiness class this project
+already knows about, not something this change caused or investigated
+further this cycle), then two consecutive `OPAL_HTTP_DISCOVERY=2` runs each
+found the identical **349 files, byte-for-byte, zero diff** against that
+baseline and against each other. Timing: 71.99s and 78.90s wall clock
+(includes config load and course discovery, not just the crawl) against the
+prediction's 90-110s and the 130s failure line - inside on both runs.
+**Still gated behind the env flag and living on a PR branch, not master**,
+per `CLAUDE.md`'s rule for the three discovery paths that have silently lost
+files before - this result is what that PR asks the maintainer to look at,
+not a self-certified default flip.
+
+Not re-verified this cycle: the flaky-browser-baseline anomaly itself (121
+files, two courses at 0) is a new, undiagnosed data point worth a future
+question if it recurs - recorded here rather than chased, since a second
+browser run immediately after came back clean and this cycle's job was
+Step B2, not that.
+
 ### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
 
 **The pre-registered prediction failed, and that is the finding.** This

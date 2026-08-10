@@ -1,0 +1,44 @@
+TREE COVERAGE: 6 courses, 349 files crawled, 282 tree nodes, 261 visited bare URLs, 0 MISSING
+
+2026 LA20
+  root            : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377
+  tree nodes      : 36
+  visited bare    : 33
+  MISSING from tree: 0
+  visited subpaths : 0 (tree cannot carry these)
+  tree subpaths    : 0 (expected 0)
+Analysis
+  root            : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912
+  tree nodes      : 33
+  visited bare    : 29
+  MISSING from tree: 0
+  visited subpaths : 0 (tree cannot carry these)
+  tree subpaths    : 0 (expected 0)
+Softwaretechnologie (SoSe 26)
+  root            : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883
+  tree nodes      : 158
+  visited bare    : 152
+  MISSING from tree: 0
+  visited subpaths : 16 (tree cannot carry these)
+  tree subpaths    : 0 (expected 0)
+Algorithmen und Datenstrukturen
+  root            : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881
+  tree nodes      : 4
+  visited bare    : 1
+  MISSING from tree: 0
+  visited subpaths : 3 (tree cannot carry these)
+  tree subpaths    : 0 (expected 0)
+So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20)
+  root            : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53722382336
+  tree nodes      : 37
+  visited bare    : 34
+  MISSING from tree: 0
+  visited subpaths : 0 (tree cannot carry these)
+  tree subpaths    : 0 (expected 0)
+TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+  root            : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53769273345
+  tree nodes      : 14
+  visited bare    : 12
+  MISSING from tree: 0
+  visited subpaths : 0 (tree cannot carry these)
+  tree subpaths    : 0 (expected 0)

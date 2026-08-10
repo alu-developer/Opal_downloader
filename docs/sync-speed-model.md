@@ -138,6 +138,29 @@ course whose tree really is lazy (`"children":true` branches, which the
 parser tolerates and which would then show up precisely as missing nodes).
 Cost: 6 requests on top of a crawl that was going to run anyway.
 
+**Step A2 result (2026-08-10, live, 6 courses, 349 files): confirmed exactly —
+0 missing, in every course.** Full report `tmp/tree-coverage.txt`. **261 of 261
+visited bare CourseNode URLs recovered from 6 HTTP requests**, 282 tree nodes,
+0 sub-path URLs in any tree, 0 courses short. Per course (tree nodes / visited
+bare / missing): Softwaretechnologie 158/152/0, So26 Programmieren 37/34/0,
+2026 LA20 36/33/0, Analysis 33/29/0, TUDMATH NuMa 14/12/0, Algorithmen und
+Datenstrukturen 4/1/0. The gap between tree nodes and visited is in every case
+the root node plus the enrollment/forum nodes the existing filters drop on
+purpose — the run log shows each one being skipped by name.
+
+Two things worth keeping from it. **TUDMATH NuMa is one of the two courses the
+abandoned 2026-07-21 HTTP crawler returned 0 files for**, and its tree comes
+back complete (12/12) from one request — independent corroboration of Question
+2's diagnosis that the old implementation scraped rendered anchors rather than
+this payload, and that nothing about those courses was ever unreachable.
+**Algorithmen und Datenstrukturen is the counter-shape to watch:** only 1 of
+its 4 visited section URLs is a bare course node, the other 3 are sub-paths, so
+for that course the tree seeds almost nothing. Total sub-paths across the
+account are 19 of 280 (16 Softwaretechnologie + 3 AuD), so the seed covers
+93% — but it is not evenly distributed and Step B must not assume it is.
+
+*Whole-run cost of the rider:* 6 requests on a 234s run.
+
 **Step B (live, next cycle, not run here).** Replacing phase 1 with one root
 fetch per course and feeding the tree's URLs into the existing HTTP phase
 lands the full 6-course run at **90–110s** against the 207s floor, with a

@@ -105,9 +105,12 @@ var baselineSectionURLRe = regexp.MustCompile(`^(https://\S*?/RepositoryEntry/\d
 //
 // Predicted before the parser existed: 147 of 147 bare CourseNode URLs
 // recovered, 0 missing, 0 of the 16 sub-path URLs recovered, and no recovered
-// URL the crawl never visited except the 4 node-fo forums the existing filters
-// drop on purpose (the root carries no CourseNode href at all, so it does not
-// appear here the way the prediction's "known 5" assumed).
+// URL the crawl never visited except a known 5 - the course root node itself
+// and the 4 node-fo forums the existing filters drop on purpose. (The root
+// node does carry its own CourseNode href, unlike the bare
+// .../RepositoryEntry/<id> URL the crawl records for the course; an earlier
+// draft of this test asserted 4 and was wrong against its own registered
+// prediction.)
 //
 // Skipped when the dumps are absent (fresh clone, CI) so the suite stays
 // hermetic, following TestParseHTTPSectionCandidatesAgainstCapturedDump.
@@ -176,14 +179,25 @@ func TestParseCourseTreeNodesAgainstCapturedCourseRoot(t *testing.T) {
 			extra = append(extra, n.Class+" "+n.Title)
 		}
 	}
-	// Predicted: exactly the 4 node-fo forums.
-	if len(extra) != 4 {
-		t.Errorf("expected exactly 4 never-visited tree nodes (the node-fo forums), got %d: %v", len(extra), extra)
+	// Predicted: exactly 5 - the course root node plus the 4 node-fo forums.
+	// Anything else here means the tree offers the crawl a node it has never
+	// visited, which is a correctness question (a new section to fetch, or a
+	// filter that would need to learn to drop it) and not a speed one.
+	if len(extra) != 5 {
+		t.Errorf("expected exactly 5 never-visited tree nodes (the root node and the 4 node-fo forums), got %d: %v", len(extra), extra)
 	}
+	forums := 0
 	for _, e := range extra {
-		if !strings.HasPrefix(e, "node-fo ") {
-			t.Errorf("a never-visited tree node is not one of the expected forums: %q", e)
+		switch {
+		case strings.HasPrefix(e, "node-fo "):
+			forums++
+		case strings.HasPrefix(e, "node-root "):
+		default:
+			t.Errorf("a never-visited tree node is neither the root nor a forum: %q", e)
 		}
+	}
+	if forums != 4 {
+		t.Errorf("expected 4 node-fo forums among the never-visited nodes, got %d: %v", forums, extra)
 	}
 
 	// The other half of the prediction: a course-node tree structurally cannot

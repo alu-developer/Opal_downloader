@@ -161,7 +161,34 @@ account are 19 of 280 (16 Softwaretechnologie + 3 AuD), so the seed covers
 
 *Whole-run cost of the rider:* 6 requests on a 234s run.
 
-**Step B (live, next cycle, not run here).** Replacing phase 1 with one root
+**Step B1 (live, prediction registered 2026-08-10 before the run).** Step A2
+proved the *seed* is complete; it did not prove the seed plus expansion
+reproduces the whole section set. The 7% it cannot seed (19 sub-paths of 280)
+is unevenly distributed — 3 of Algorithmen und Datenstrukturen's 4 sections —
+so "93% covered" is not a safe basis for the restructure.
+`TestHTTPFirstSectionDiscovery` (`httpfirst_probe_test.go`) runs the Step B
+algorithm as a rider on an ordinary crawl: seed each course from its root's
+`initial_data`, then BFS over plain HTTP using the crawl's *own* predicates
+(`parseHTTPSectionCandidates` + `appendSectionFolderTargets`), and diff the
+resulting section set against that same run's `VisitRecords`, keyed by
+`sectionKey`.
+
+*Expected:* **0 missing sections in all 6 courses.** *Mechanism:* the tree
+supplies every bare course node directly, and a sub-path is a folder row in
+its parent node's server-rendered file table — the same markup the browser
+reads, reached by the same two functions, so a sub-path the browser queues
+from a rendered candidate is a sub-path HTTP queues from the identical
+candidate. *Counts as failed:* one missing section. *Secondary expectation:*
+HTTP-first discovery finishes in **80–110s** (280 sections at the 315ms/section
+measured 2026-07-31, plus 6 root fetches), against the browser crawl's ~207s;
+counts as failed above 130s.
+
+*Deliberately not re-tested:* file extraction from a section's HTML, verified
+diff=0 on all 6 courses 2026-07-31 and untouched since. Re-fetching every
+section to re-prove it would double the request count for a known answer.
+Section discovery is the only thing Step B changes.
+
+**Step B2 (production restructure, after B1).** Replacing phase 1 with one root
 fetch per course and feeding the tree's URLs into the existing HTTP phase
 lands the full 6-course run at **90–110s** against the 207s floor, with a
 byte-for-byte empty diff. Mechanism: the 164-URL HTTP probe measured 31.7s

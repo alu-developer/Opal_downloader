@@ -78,7 +78,130 @@ never empty, never larger than at the end).
 
 ## What we don't know (sorted by leverage)
 
-### 34. Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?
+### 36. Can the hybrid's phase 1 be seeded from `initial_data` instead of from a full browser tree walk? — OPEN, opened 2026-08-10 by Question 34's answer
+
+**This is Question 34's consequence, and it is the largest single structural
+change this campaign has ever had a reason to try.** `scrapeCoursesHybrid`
+(`orchestrator.go`) runs the complete 207s browser crawl *first*, in every
+mode including `mode=1`, and takes its section-URL set from
+`s.VisitRecords()` — i.e. from the browser having already visited every
+section. Its own comment states the reason: the browser is *"the only thing
+that can enumerate the JS-rendered section tree"*. Question 34 refutes that
+sentence. `mode=1`'s measured 254s vs 207s (i.e. slower) is entirely
+explained by paying for the browser walk and then paying again for HTTP;
+nothing about the HTTP half was the problem.
+
+*Prediction, written 2026-08-10 before any implementation, per Rule 1.* Two
+steps, and only the first is done in this cycle because only the first needs
+no live account:
+
+**Step A (offline, this cycle).** A parser over `initial_data` reproduces the
+bare-`CourseNode` half of the crawl's own recorded section set exactly.
+Expected numbers for `tmp/baseline/sw-root.html` against
+`tmp/baseline/swt-all-sections.txt`: **147 of 147 bare CourseNode URLs
+recovered, 0 missing, and 0 of the 16 sub-path URLs recovered.** Mechanism:
+`initial_data` is a *course-node* tree, so a sub-path like
+`/CourseNode/1615865126729195011/Part-3` is a folder entry inside one node's
+own file browser and structurally cannot appear in it. Counts as failed at
+any missing bare URL, or at any recovered URL the crawl never visited other
+than the known 5 (the root itself and the 4 forums the existing filters drop
+on purpose).
+
+**Step B (live, next cycle, not run here).** Replacing phase 1 with one root
+fetch per course and feeding the tree's URLs into the existing HTTP phase
+lands the full 6-course run at **90–110s** against the 207s floor, with a
+byte-for-byte empty diff. Mechanism: the 164-URL HTTP probe measured 31.7s
+serial for this course (`tmp/baseline/swt-probe.log`), the browser walk it
+replaces is the 207s, and 6 root fetches are noise. Counts as failed above
+130s, and counts as *rejected regardless of speed* on any non-empty
+byte-diff. Known incompleteness to design for rather than discover: the 16
+sub-paths, and the 3 sections the same probe flagged as advertising a pager.
+
+*Why it is not simply "ship the hybrid":* the sub-path and pager gaps mean
+the tree gives phase 1 a *seed*, not a finished section set. The honest shape
+is seed-from-tree, then let the existing HTTP phase's own discovery expand
+what the seed does not cover — which is what `appendSectionFolderTargets`
+already does for the browser.
+
+### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
+
+**The pre-registered prediction failed, and that is the finding.** This
+entry said on 2026-08-10, before the work: *"What would make it a dead end:
+`isRenderChildren()` gating the serialized output too, i.e. unopened branches
+genuinely absent from the bytes. That is the likely outcome for the
+concealed-structure half and should be stated as the prediction rather than
+discovered as a disappointment."* It is not the outcome. The serialized bytes
+are far less frugal than the rendered tree.
+
+**What is actually in the response.** Every course page carries
+`var initial_data=[...]` in a plain `<script>` — jstree's own data payload,
+emitted server-side. For Softwaretechnologie it is the **complete 152-node
+course tree**, nested to depth 3, each node carrying its absolute
+`.../CourseNode/<id>` href in `a_attr.href` and its `node-<type>` class in
+`li_attr.class`. Exactly **one** node carries `"state":{"opened":true}` — the
+root — so this is emphatically not the open-branch scoping Question 9
+measured. The adjacent jstree config is
+`data: function(node,datacb){if(node.id==="#"){datacb(initial_data)}else{load(datacb,node)}}`,
+i.e. the lazy per-branch `load()` path Question 9 found is only ever reached
+for nodes *not already in* `initial_data` — and here that set is empty.
+
+**Checked against the crawl's own record, not by eye.** Of the 164 distinct
+section URLs in `tmp/baseline/swt-all-sections.txt`, 147 are bare
+`CourseNode` URLs and **every one of the 147 is present in that single
+response's tree**; zero visited-but-absent. The 5 tree nodes never visited
+are the root itself and 4 `node-fo` forums the existing filters exclude
+deliberately. Depth histogram 1/14/54/83 — so the tree the crawl reaches
+through at least 4 sequential BFS levels is fully present after **one** page
+load.
+
+**Present everywhere, not a property of the root page.** All six saved
+Softwaretechnologie dumps (root, entry, sec1–3, part3-raw, part3-showall)
+carry the identical 152-node payload, and an unrelated course's dump
+(`internal/scraper/tmp/htmlstability-a.html`) carries its own 38-node one. It
+also arrives over plain authenticated HTTP: `tmp/baseline/sw-root.html` is a
+server response, not a browser DOM dump — its tree is still raw JSON in a
+script tag, with only 54 `<li>` elements in the whole document against 152
+tree nodes, because jstree had not run.
+
+**The honest limit of the result.** The tree is a *course-node* tree and
+nothing more. The other 17 of the 164 URLs are 1 course root and 16 sub-paths
+(`/CourseNode/1615865126729195011/Part-1…Part-4` and 11 `.md` documents) —
+folder entries inside a single node's own file browser, which no course-node
+tree can contain. So this removes the tree walk, not all discovery: **90% of
+this course's section URLs come free, the remaining 10% still need that one
+node's own response.**
+
+**The reuse half of the question is not answered** and stays open below as
+Question 37 — this cycle spent its budget on the sharper half.
+
+**What it changes:** `httpdiscovery.go`'s design comment (*"OPAL renders the
+course-content navigation TREE client-side (a browser has to walk it)"*) has
+steered this project since 2026-07-21 and is misleading. jstree does render
+client-side, but the *data* is server-delivered in the first response, so no
+browser is needed to enumerate it. Corrected in place. The consequence is
+Question 36 above.
+
+### 37. Does a page the crawl already fetches carry file data the crawl then navigates again to fetch? — OPEN, the unanswered half of Question 34
+
+Question 34's reuse half, deliberately left for its own cycle after the
+concealed-structure half turned out to be a hit and consumed the budget. The
+sharp version now that the tree is understood: the crawl visits every one of
+a course's 147 nodes, but `initial_data` already tells it each node's *type*
+(`node-sp` 74, `node-bc` 32, `node-st` 22, `node-iqtest` 8, `node-bib` 6,
+`node-fo` 4, `node-tu` 2, `node-info` 1, `node-en` 1, `node-ll` 1 for
+Softwaretechnologie). `isNonFileSectionType` (`section_type.go`) already
+skips `node-en` — but only *after* a navigation has revealed the class in the
+DOM. Reading it from the tree instead would skip those nodes without ever
+fetching them, and the same live cross-check that admitted `node-en`
+(documented in that file) could then be run over the other types cheaply,
+against saved HTML rather than the account.
+
+*Kill criterion:* if the type-to-file-capability check cannot be made from
+saved dumps alone, this drops behind Question 36 rather than spending live
+runs — 36 is worth ~100s and this is worth at most the 4 forum visits plus
+whatever `node-iqtest`/`node-bib` turn out to be.
+
+#### 34, as it was pre-registered (kept verbatim — this is the prediction that failed)
 
 **Opened 2026-08-10 (maintainer's request, decision round).** The maintainer's
 words: *"look back at html. Look if you can maybe use some of the stuff loaded

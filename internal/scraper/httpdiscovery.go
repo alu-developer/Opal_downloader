@@ -13,6 +13,25 @@ import (
 //     has to walk it), but renders leaf file tables SERVER-SIDE, so a plain
 //     authenticated HTTP GET of a section URL returns the file anchors in its
 //     markup. Measured 2026-07-31.
+//
+//     CORRECTED 2026-08-10 (docs/sync-speed-model.md Question 34): the first
+//     half of that sentence is misleading and steered this file's design.
+//     jstree does render client-side, but its DATA is server-delivered in the
+//     very first response - every course page carries `var initial_data=[...]`
+//     holding the COMPLETE course-node tree (152 nodes nested to depth 3 for
+//     Softwaretechnologie, each with its absolute CourseNode href), not the
+//     open-branch fragment MenuTreeRenderer.isRenderChildren() puts in the
+//     rendered DOM. Checked against the crawl's own visit record: 147 of 147
+//     bare CourseNode URLs recovered from one response. So no browser is
+//     needed to ENUMERATE the tree; parseCourseTreeNodes below does it from
+//     bytes. What the tree cannot supply is sub-paths INSIDE a node's own file
+//     browser (16 of that course's 164 URLs), which still need that node's
+//     response.
+
+//   - Consequence, not yet acted on: scrapeCoursesHybrid still runs the whole
+//     browser crawl before the HTTP phase, which is why mode=1 measured 254s
+//     against the browser's own 207s. That ordering is a leftover of the
+//     corrected belief above, not a constraint. See Question 36.
 //   - The browser spends ~0.67s per section, most of it a settle wait that
 //     proves the file table has finished rendering. An HTTP GET of the same
 //     URL skips that wait entirely because there is no render to wait on.

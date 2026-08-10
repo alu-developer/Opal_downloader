@@ -110,7 +110,7 @@ func TestDiscoverSectionsHTTPFollowsShowAllDuringExpansion(t *testing.T) {
 	subHTML := `<a href="https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub/file.pdf" data-file-name="file.pdf"><span>file.pdf</span></a>`
 
 	fetcher := &fakeHTTPFetcher{responses: map[string]fakeHTTPResponse{
-		course.URL:      {body: rootHTML, status: 200},
+		course.URL: {body: rootHTML, status: 200},
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22": {body: firstPage, status: 200},
 		resolvedShowAll: {body: showAll, status: 200},
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": {body: subHTML, status: 200},

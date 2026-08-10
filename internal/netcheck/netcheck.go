@@ -153,6 +153,42 @@ func Describe(ctx context.Context, rawURL string, cause error) error {
 	return &describedError{sentence: sentence, class: checkErr, cause: detail}
 }
 
+// AppendSentence returns err with extra added to its user-facing sentence -
+// that is, BEFORE the "(technical detail: ...)" marker rather than after it.
+//
+// This exists because appending with fmt.Errorf("%w ...", err, extra) puts the
+// new text past that marker, and the GUI's banner (bannerChrome in
+// internal/gui/chrome.go) splits on exactly that marker and folds everything
+// after it into a collapsed <details>. A reassurance sentence appended the
+// obvious way is therefore never visible by default - which is what happened
+// to the scheduled-run give-up message: the banner showed only the raw
+// technical cause and hid the "the next scheduled sync will try again" line
+// the whole feature existed to show (weekly review, 2026-08-10).
+//
+// The marker's format is owned by this package, so the safe way to extend a
+// message lives here too. Classification and cause are preserved, so
+// errors.Is still finds ErrOffline/ErrUnreachable and the underlying cause.
+// An error this package did not produce is appended to the old way, since
+// there is no sentence to extend.
+func AppendSentence(err error, extra string) error {
+	if err == nil {
+		return nil
+	}
+	extra = strings.TrimSpace(extra)
+	if extra == "" {
+		return err
+	}
+	var described *describedError
+	if errors.As(err, &described) {
+		return &describedError{
+			sentence: strings.TrimSpace(described.sentence) + " " + extra,
+			class:    described.class,
+			cause:    described.cause,
+		}
+	}
+	return fmt.Errorf("%w %s", err, extra)
+}
+
 // describedError carries the user-facing sentence, the ErrOffline/
 // ErrUnreachable classification, and the technical cause as one error.
 type describedError struct {

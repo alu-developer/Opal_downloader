@@ -882,9 +882,10 @@ var networkRetryDelays = []time.Duration{
 // real network and without actually sleeping for a quarter of an hour - the
 // same convention updaterCheckLatest above already uses.
 var (
-	networkOnline   = netcheck.Online
-	networkDescribe = netcheck.Describe
-	networkSleep    = time.Sleep
+	networkOnline         = netcheck.Online
+	networkDescribe       = netcheck.Describe
+	networkAppendSentence = netcheck.AppendSentence
+	networkSleep          = time.Sleep
 )
 
 // waitForNetworkBeforeScheduledRun blocks until the configured OPAL host is
@@ -920,8 +921,11 @@ func waitForNetworkBeforeScheduledRun(ctx context.Context, opalURL string) error
 		// Came back in the moment between the last check and this one.
 		return nil
 	}
-	return fmt.Errorf("%w Waited %s for the connection to come back, then gave up - the next scheduled sync will try again on its own",
-		err, waited)
+	// netcheck.AppendSentence, not fmt.Errorf("%w ..."): the reassurance has to
+	// land before the "(technical detail: ...)" marker, or the GUI banner folds
+	// it away and shows only the raw cause. See that function's doc comment.
+	return networkAppendSentence(err,
+		fmt.Sprintf("Waited %s for the connection to come back, then gave up - the next scheduled sync will try again on its own.", waited))
 }
 
 // buildScheduledRunStatus composes the statuslog.Status a `sync --scheduled`

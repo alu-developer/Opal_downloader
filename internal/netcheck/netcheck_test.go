@@ -105,6 +105,63 @@ func TestDescribeLeadsWithPlainLanguage(t *testing.T) {
 	}
 }
 
+// The bug this guards (weekly review, 2026-08-10): the scheduled-run give-up
+// message appended its reassurance with fmt.Errorf("%w ...", err, extra),
+// which puts it AFTER the "(technical detail: " marker. bannerChrome
+// (internal/gui/chrome.go) splits on that marker and folds everything past it
+// into a collapsed <details>, so the one sentence the retry feature exists to
+// show - that the next scheduled sync will try again - was never visible by
+// default. Anything appended to a netcheck error has to land in the sentence.
+func TestAppendSentenceKeepsExtraTextBeforeTheTechnicalDetail(t *testing.T) {
+	fakeNetwork(t, errors.New("lookup bildungsportal.sachsen.de: no such host"), nil)
+
+	base := Describe(context.Background(), testURL, errors.New("net::ERR_NAME_NOT_RESOLVED"))
+	if base == nil {
+		t.Fatal("Describe() = nil, want an offline error")
+	}
+
+	const extra = "Waited 15m0s for the connection to come back, then gave up - the next scheduled sync will try again on its own."
+	err := AppendSentence(base, extra)
+	msg := err.Error()
+
+	marker := strings.Index(msg, "(technical detail: ")
+	if marker < 0 {
+		t.Fatalf("expected the technical-detail marker to survive, got: %s", msg)
+	}
+	at := strings.Index(msg, extra)
+	if at < 0 {
+		t.Fatalf("appended sentence missing entirely, got: %s", msg)
+	}
+	if at > marker {
+		t.Fatalf("appended sentence landed after the technical-detail marker, so the GUI banner would hide it.\n got: %s", msg)
+	}
+	if !strings.HasPrefix(msg, "No internet connection.") {
+		t.Fatalf("the plain sentence must still lead, got: %s", msg)
+	}
+	if !errors.Is(err, ErrOffline) {
+		t.Fatalf("AppendSentence must preserve the classification for exit codes: %v", err)
+	}
+	if !strings.Contains(msg, "net::ERR_NAME_NOT_RESOLVED") {
+		t.Fatalf("AppendSentence must preserve the technical cause, got: %s", msg)
+	}
+}
+
+func TestAppendSentenceIsANoopWithoutText(t *testing.T) {
+	if got := AppendSentence(nil, "anything"); got != nil {
+		t.Fatalf("AppendSentence(nil, ...) = %v, want nil", got)
+	}
+	base := errors.New("plain")
+	if got := AppendSentence(base, "   "); got != base {
+		t.Fatalf("empty extra must return the original error unchanged, got %v", got)
+	}
+	// An error this package did not build has no sentence to extend; appending
+	// the old way is correct there and must still carry errors.Is.
+	got := AppendSentence(base, "more")
+	if !errors.Is(got, base) || !strings.Contains(got.Error(), "more") {
+		t.Fatalf("foreign error should be wrapped with the extra appended, got %v", got)
+	}
+}
+
 func TestDescribeSeparatesOpalBeingDownFromBeingOffline(t *testing.T) {
 	fakeNetwork(t, nil, errors.New("connection refused"))
 

@@ -18,4 +18,31 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+## In flight: Question 34 (2026-08-10, autopilot)
+
+**Status: the concealed-structure half is answered, and the pre-registered
+prediction was wrong — the whole course tree IS in the first response.**
+
+`var initial_data=[...]` in the course page's own HTML carries the *complete*
+152-node tree for Softwaretechnologie, nested to depth 3, every node with its
+absolute `CourseNode/<id>` href and its `node-<type>` class. Checked against
+the crawl's own recorded visit set (`tmp/baseline/swt-all-sections.txt`):
+**147 visited course-node ids, 0 of them absent from that tree.** Only 1 node
+carries `"state":{"opened":true}` (the root), so the payload is emphatically
+not scoped to open branches the way the rendered DOM is.
+
+Present identically in every saved page of that course (root, entry, sec1-3,
+part3-raw, part3-showall) and in the unrelated course
+`internal/scraper/tmp/htmlstability-a.html` (38 nodes).
+
+**What this bears on:** `docs/sync-speed-campaign.md`'s "Hybrid mode=1: 254s
+against 207s, slower, *because HTTP can only start after the browser has
+delivered the URLs*". That premise is what this finding removes.
+
+**Next step when resuming:** check `internal/scraper/httpdiscovery.go` (parked,
+verify-mode-only, byte-verified on all 6 courses 2026-07-31) — can it be seeded
+from `initial_data` after one page load instead of after a full browser tree
+walk. Then write the prediction for that experiment BEFORE running it.
+
+Not yet done: the "reuse" half of Question 34 (does a page already fetched
+carry file data the crawl re-fetches by navigating).

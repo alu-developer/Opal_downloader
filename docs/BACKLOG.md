@@ -23,33 +23,26 @@ here is the failure mode to watch for.
 
 ## Now
 
-**Restructure the hybrid's phase 1 to discover over HTTP instead of by
-walking the tree in a browser** — `docs/sync-speed-model.md` Question 36 Step
-B2. Everything this needs is measured and closed: the course tree arrives
-complete in each course root's own bytes (Steps A/A2, 261/261 URLs from 6
-requests), and seeding from it then expanding with the crawl's own predicates
-over plain HTTP reproduces **286 of 286 sections, 0 missing**, in 71.4s
-against the same run's 173.8s browser crawl (Step B1, closed after run 1
-failed at 4 sections and pagination was identified as a discovery boundary).
-File extraction on that path was already verified diff=0 on all 6 courses
-(2026-07-31).
+**Question 36 Step B2 is implemented, live-verified, and waiting on a
+maintainer PR decision** — `docs/sync-speed-model.md` Question 36 Step B2,
+branch `restructure-hybrid-http-first-discovery`. `scrapeCoursesHTTPFirst`
+(`orchestrator.go`) + `discoverSectionsHTTP` (`httpdiscovery_seed.go`)
+replace the browser tree walk with seed-from-`initial_data` + HTTP BFS,
+behind `OPAL_HTTP_DISCOVERY=2`. Three live runs today found and fixed two
+real bugs first (an untimed `fetch.Get` that hung 20+ minutes; a double
+fetch per section that cost 4m45s and 604 requests) before the third run
+passed clean: **349 files, byte-for-byte empty diff against the browser
+crawl, 302 HTTP requests, 65.6s discovery+HTTP** against the ~207s browser
+floor this replaces.
 
-What is left is production work, not a question: `scrapeCoursesHybrid`
-(`orchestrator.go`) still runs the whole browser crawl first in *every* mode,
-taking its section set from `VisitRecords`, because its own comment says the
-browser is the only thing that can enumerate the tree — the sentence Question
-34 refuted. Replace that with per-course root fetch → `ParseCourseTreeNodes`
-seed → HTTP BFS, behind an env flag, and byte-diff against the 349-file
-ground truth before it becomes a default.
-
-Two things to carry over from the probe rather than rediscover: the seed must
-apply `isNonFileSectionType` itself (it lives in
-`appendSectionFolderTargets`, which a seed bypasses — 21 needless fetches
-otherwise), and the expansion must follow `extractShowAllURLFromHTML`, because
-rows past a section's pagination cap include sub-sections and not just files.
-
-**This is one of the three paths that have silently lost files before, so it
-goes as a PR per `CLAUDE.md`, not straight to master.**
+**Not shipped as the default — this is one of the three paths that have
+silently lost files before, so per `CLAUDE.md` it goes as a PR, not straight
+to master.** The PR itself carries the maintainer decision: ship
+`OPAL_HTTP_DISCOVERY=2` as the new default now (today's evidence is clean
+but all three runs are the same day/account-state, the same caveat
+`course_concurrency=2` carried when it shipped), or wait for a
+different-day confirmation run first. Recommendation in the PR is to ship
+now, matching the precedent decision on `course_concurrency=2`.
 
 ---
 

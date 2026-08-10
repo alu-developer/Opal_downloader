@@ -385,6 +385,49 @@ above that line for a *speed* verdict, but note a byte-diff pass at any
 speed is still real evidence the algorithm is correct — only the "ship as
 the default" question depends on the timing number.
 
+**Live run 3 result (2026-08-10): PASSED both gates.** `302 HTTP requests`
+(inside the predicted ≤320), HTTP phase **65.6s** (`3.5s` course discovery +
+`65.6s` HTTP), matching Step B1's own 71.4s rider closely — and
+`diff tmp/filelist-before.txt tmp/filelist-after.txt` is **empty, byte for
+byte, 349 files both sides**. This run's saved session had expired, so it
+also incidentally re-confirmed unattended TU-Fast login still completes on
+its own mid-test (`CLAUDE.md`'s standing note) — the extra ~57s that shows
+in the test's total 122.42s belongs to that re-login, not to discovery; the
+number that answers Question 36 is the 65.6s HTTP-phase line the code logs
+separately.
+
+**Step B2 is closed: the browser is no longer needed anywhere in
+discovery.** `OPAL_HTTP_DISCOVERY=2` reproduces the full 349-file ground
+truth in ~69s total HTTP+discovery cost (excluding one-time login), against
+the plain browser crawl's ~207s floor named at the top of this file — a
+structural win, not a tuning one, because it changes what the 207s floor
+even measures. Shipped behind the flag on branch
+`restructure-hybrid-http-first-discovery`, not yet the default — per
+`docs/BACKLOG.md`'s own instruction this is one of the three paths that has
+silently lost files before, so flipping the default is a PR for the
+maintainer to land, not an autopilot decision. See that PR for the
+default-now vs. wait-a-day options.
+
+**New open questions this closure leaves, ranked:**
+1. Does `OPAL_HTTP_DISCOVERY=2` still pass the byte-diff on a *different*
+   day/account-state, the same confirmation step Questions 31–33 applied to
+   `course_concurrency`? Not yet run — today's three live runs (including
+   this one) are all 2026-08-10.
+2. Question 35 (raise `course_concurrency` past 2) was explicitly deferred
+   pending this closure (`docs/BACKLOG.md` "Next", recommendation (a)):
+   worth re-asking now, since it tunes a browser crawl this mode no longer
+   runs during discovery — though `course_concurrency` still governs how
+   many courses `discoverSectionsHTTP` could run in parallel if that were
+   ever added (it currently runs courses serially; not measured whether
+   that costs anything against the 65.6s already achieved).
+3. `scrapeCoursesHTTPFirst` currently discovers all courses' files, then
+   returns everything in one batch — no `PhaseSection` progress events
+   during the HTTP phase (removed when the two-fetch design was collapsed
+   into one), so a GUI sync using this mode shows less granular live
+   progress than the browser path. Not a correctness gap, but worth a
+   follow-up if this becomes the default and the GUI's progress bar looks
+   wrong to real use.
+
 ### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
 
 **The pre-registered prediction failed, and that is the finding.** This

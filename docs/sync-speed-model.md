@@ -107,6 +107,37 @@ any missing bare URL, or at any recovered URL the crawl never visited other
 than the known 5 (the root itself and the 4 forums the existing filters drop
 on purpose).
 
+**Step A result (2026-08-10): confirmed on the registered numbers.**
+`ParseCourseTreeNodes` (`internal/scraper/coursetree.go`) reads the payload;
+`TestParseCourseTreeNodesAgainstCapturedCourseRoot` decides it. 152 tree
+nodes from one response, **147 of 147** visited bare URLs covered, 0 missing,
+0 sub-paths, and exactly the 5 never-visited nodes predicted. The one
+correction was the test's, not the prediction's — an early draft asserted 4
+never-visited nodes where this entry had registered 5, because the root node
+carries its own `CourseNode` href unlike the bare `RepositoryEntry` URL the
+crawl records.
+
+**Step A2 (live, prediction registered 2026-08-10 before the run).** Step A is
+n=1: one course, and the course this repo's saved HTML is richest for — the
+exact shape of evidence that has misled this campaign before (Question 31's
+2-course probe, Question 24's cached-replay). Before Step B is built on it,
+one ordinary crawl carries a rider: `TestCourseTreeCoverage`
+(`coursetree_probe_test.go`) runs the crawl unchanged, then issues **one**
+extra HTTP GET per course root — strictly after the browser is done, per
+`fetchSectionFilesHTTP`'s concurrency invariant — and compares each course's
+tree against that course's own `VisitRecords`.
+
+*Expected:* **0 missing bare CourseNode URLs, in all 6 courses**, and 0
+sub-path URLs in any tree. *Mechanism:* `initial_data` is emitted by the
+course-run page unconditionally for the whole tree; nothing observed in it is
+conditional on course size, depth or element type, and the one course
+measured is the account's largest and deepest (152 nodes, depth 3). *Counts
+as failed:* any single course missing ≥1 bare URL — and that failure would be
+the more interesting result, since the only mechanism that produces it is a
+course whose tree really is lazy (`"children":true` branches, which the
+parser tolerates and which would then show up precisely as missing nodes).
+Cost: 6 requests on top of a crawl that was going to run anyway.
+
 **Step B (live, next cycle, not run here).** Replacing phase 1 with one root
 fetch per course and feeding the tree's URLs into the existing HTTP phase
 lands the full 6-course run at **90–110s** against the 207s floor, with a

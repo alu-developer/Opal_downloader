@@ -1203,6 +1203,25 @@ that band (e.g. back near the 211s conc=1 baseline, which would suggest
 the override isn't taking effect this session), reopens Question 33 rather
 than just adding a third clean tally mark.
 
+**Result: matches prediction — 349/349 files, empty diff against the
+conc=1 baseline** (`tmp/filelist-q33confirm3.txt` vs
+`tmp/filelist-q32-conc1.txt`, `diff` clean). This run's saved session had
+expired, so `go test`'s own wall-clock (179.28s) includes a fresh
+interactive login and is not directly comparable to runs 1/2's 132.93s/
+137.68s (which reused a warm session, like the conc=1 baseline's 211.44s
+included its own fresh login for the same reason). The crawl-only figure
+the tool logs separately from login — `section timing over 286 sections:
+total 2m1.03s` — is the correct like-for-like number: 121.03s, against
+run 1/2's 111.5s/117.8s and the conc=1 baseline's own crawl-only 107.0s.
+Squarely the same band, no regression. Raw log: `tmp/q33-confirm3-run.log`.
+
+Three clean runs now, same mechanism each time, still all in one session
+(2026-08-10). The different-day confirmation `docs/BACKLOG.md`'s "Now" item
+asked for is still genuinely open — this only rules out "the first two runs
+were a same-session fluke," not "this needs to be observed on a different
+day's server conditions too." Not closing that ask; leaving it for whichever
+session runs on 2026-08-11 or later.
+
 ---
 
 ## Next experiment

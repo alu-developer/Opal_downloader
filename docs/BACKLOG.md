@@ -39,17 +39,18 @@ cap alone and only shortens the debounce. Two live-verified options:
   from 1 to 2, plus wiring the equivalent of
   `OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150` into the shipped (non-test) code
   path rather than leaving it as a test-only env var. Fastest path to the
-  ~36% win for every user, but it is only 2 live-verified runs deep (both
-  this session, same account, same day) against a project that has twice
-  before shipped a concurrency change and later found it lossy (Questions
-  16/17) — recommend at least one more clean run, ideally on a different
-  day, before treating it as proven the way Questions 14/15's 8-run debounce
-  change was.
+  ~36% win for every user. Now 3 live-verified clean runs deep (349/349
+  files, empty diff, every time) against a project that has twice before
+  shipped a concurrency change and later found it lossy (Questions 16/17) —
+  but all 3 are still same-session/same-day (2026-08-10); recommend one
+  clean run on a *different* day before treating it as proven the way
+  Questions 14/15's 8-run debounce change was — server-side conditions on a
+  second day are the one variable none of the 3 runs so far have varied.
 - **(b) Hold at `course_concurrency=1`, keep the new override test-only** —
   safer, no change to what every user already has, but leaves a measured
   ~36% win on the table indefinitely with no plan to revisit it.
 
-**Recommendation: (a), after one more confirmation run on a later day** —
+**Recommendation: (a), after one clean run on a different calendar day** —
 the mechanism is sharply diagnosed (not just a measured effect, per Rule 2),
 and the project's own standing rule already says a byte-diff-passing default
 may be changed and shipped without waiting on a full campaign close. The

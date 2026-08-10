@@ -44,7 +44,51 @@ below.
 
 ---
 
+**The offline-retry banner hides the one sentence it exists to show (weekly
+review, 2026-08-10).** `waitForNetworkBeforeScheduledRun`
+(`cmd/opal-downloader/root.go`) builds its give-up error as `err` (from
+`netcheck.Describe`, which already ends `"...try again. (technical detail:
+...)"`) plus `" Waited %s for the connection to come back, then gave up - the
+next scheduled sync will try again on its own"` appended *after* that marker.
+`bannerChrome`'s client script (`internal/gui/chrome.go`) splits the message
+at the first `"(technical detail: "` and folds everything past it into a
+collapsed `<details>`. Since the reassurance sentence comes after the marker,
+it's always inside the fold — the banner shows only the raw technical cause by
+default, never the "don't worry, it'll retry" line the whole feature was built
+to surface. 100% reproducible whenever the retry-exhausted path fires, not an
+edge case. Fix: build the give-up message with the reassurance sentence before
+the technical detail, or have `chrome.go` treat it as part of the visible
+text.
+
+**The scheduled-run dismiss endpoint can dismiss a run the user never saw
+(weekly review, 2026-08-10).** `handleScheduledStatusDismiss`
+(`internal/gui/scheduled_status.go`) takes no request body and re-reads
+whatever `readScheduledStatusFunc()` returns *at click time* to decide which
+timestamp to mark dismissed, rather than the timestamp the page actually
+fetched and displayed. If a scheduled run finishes and overwrites the status
+file in the window between page load and the user clicking Dismiss, the click
+silently dismisses the new, never-shown failure instead of the one on screen
+— defeating the point of the notification for that run. Narrow window (needs
+a scheduled run to complete while the banner is open), so not urgent, but it's
+the same feature this round's "Dismiss stays dismissed" fix targeted. Fix:
+have the client send the timestamp it rendered, and only write the dismissal
+if it still matches the current status file's timestamp.
+
+---
+
 ## Next
+
+**`netcheck.Check`'s DNS lookup and TCP dial share one 6s budget, so slow-but-
+up can misreport as fully offline (weekly review, 2026-08-10).** Both
+`lookupHost` and `dialTCP` (`internal/netcheck/netcheck.go`) run under the
+same `context.WithTimeout(ctx, DefaultTimeout)` (6s), sequentially. Congested
+Wi-Fi where DNS alone takes close to 6s hits the shared deadline and is
+classified `ErrOffline` ("no internet connection") even though the machine is
+online, just slow — the specific offline-vs-down-vs-slow confusion this module
+exists to avoid. Low impact: `sync --scheduled`'s retry loop still runs
+regardless of which message is shown, so the only cost is a wrong sentence in
+a rare case. Fix, if picked up: give each call its own smaller timeout, or
+just split `DefaultTimeout` between the two steps.
 
 **TU-Fast still has no fast reload when it hangs itself up** — maintainer,
 2026-08-10, reported as still open after the 2026-07-26 work that replaced

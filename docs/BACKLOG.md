@@ -53,38 +53,6 @@ goes as a PR per `CLAUDE.md`, not straight to master.**
 
 ---
 
-**The offline-retry banner hides the one sentence it exists to show (weekly
-review, 2026-08-10).** `waitForNetworkBeforeScheduledRun`
-(`cmd/opal-downloader/root.go`) builds its give-up error as `err` (from
-`netcheck.Describe`, which already ends `"...try again. (technical detail:
-...)"`) plus `" Waited %s for the connection to come back, then gave up - the
-next scheduled sync will try again on its own"` appended *after* that marker.
-`bannerChrome`'s client script (`internal/gui/chrome.go`) splits the message
-at the first `"(technical detail: "` and folds everything past it into a
-collapsed `<details>`. Since the reassurance sentence comes after the marker,
-it's always inside the fold — the banner shows only the raw technical cause by
-default, never the "don't worry, it'll retry" line the whole feature was built
-to surface. 100% reproducible whenever the retry-exhausted path fires, not an
-edge case. Fix: build the give-up message with the reassurance sentence before
-the technical detail, or have `chrome.go` treat it as part of the visible
-text.
-
-**The scheduled-run dismiss endpoint can dismiss a run the user never saw
-(weekly review, 2026-08-10).** `handleScheduledStatusDismiss`
-(`internal/gui/scheduled_status.go`) takes no request body and re-reads
-whatever `readScheduledStatusFunc()` returns *at click time* to decide which
-timestamp to mark dismissed, rather than the timestamp the page actually
-fetched and displayed. If a scheduled run finishes and overwrites the status
-file in the window between page load and the user clicking Dismiss, the click
-silently dismisses the new, never-shown failure instead of the one on screen
-— defeating the point of the notification for that run. Narrow window (needs
-a scheduled run to complete while the banner is open), so not urgent, but it's
-the same feature this round's "Dismiss stays dismissed" fix targeted. Fix:
-have the client send the timestamp it rendered, and only write the dismissal
-if it still matches the current status file's timestamp.
-
----
-
 ## Next
 
 **`netcheck.Check`'s DNS lookup and TCP dial share one 6s budget, so slow-but-
@@ -457,6 +425,18 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Both weekly-review bugs in the offline/dismiss set fixed** (2026-08-10,
+  autopilot): the retry banner's reassurance sentence was appended *after*
+  netcheck's `(technical detail: ` marker, and `bannerChrome` folds everything
+  past that marker away — so the one line the feature existed to show was
+  never visible. Fixed with `netcheck.AppendSentence`, which extends the
+  sentence rather than the string and keeps the classification and cause for
+  `errors.Is`; the regression test asserts the ordering by index, so the old
+  `fmt.Errorf` form fails it. And Dismiss now sends the timestamp the page
+  rendered, with the handler only writing the dismissal when it still matches
+  — a run that landed while the banner was open can no longer be dismissed
+  unseen. Verified live in the GUI against a real failed run, with the POST
+  intercepted so the maintainer's actual notification was not consumed.
 - **The browser turned out to be unnecessary for discovery: the whole course
   tree is already in the first response, and HTTP-first finds all 286 sections
   in 41% of the crawl's wall clock** (2026-08-10, autopilot, 3 live runs):

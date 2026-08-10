@@ -517,10 +517,20 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 	// OPAL_HTTP_DISCOVERY=1: return the HTTP result (verified diff=0 against
 	// the browser on 2026-07-31 across all courses), with a guard that falls
 	// back to the browser result if HTTP ever finds fewer files than the
-	// browser in any course. Unset (the default): plain browser crawl.
+	// browser in any course.
+	// OPAL_HTTP_DISCOVERY=2: skip the browser tree-walk entirely - discover
+	// and fetch every course's content over HTTP end to end (see
+	// scrapeCoursesHTTPFirst, httpfirst.go). This is the Question 36/Step B2
+	// restructure docs/BACKLOG.md describes; it has not yet passed a live
+	// byte-diff against the 349-file ground truth
+	// (scripts/compare-visit-runs.ps1), so it stays opt-in until it has.
+	// Unset (the default): plain browser crawl.
 	httpDiscoveryMode := os.Getenv("OPAL_HTTP_DISCOVERY")
-	if httpDiscoveryMode == "verify" || httpDiscoveryMode == "1" {
+	switch httpDiscoveryMode {
+	case "verify", "1":
 		return s.scrapeCoursesHybrid(ctx, courseFilter, httpDiscoveryMode)
+	case "2":
+		return s.scrapeCoursesHTTPFirst(ctx, courseFilter)
 	}
 	return s.scrapeCoursesBrowser(ctx, courseFilter)
 }

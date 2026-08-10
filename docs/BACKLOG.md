@@ -55,18 +55,6 @@ goes as a PR per `CLAUDE.md`, not straight to master.**
 
 ## Next
 
-**`netcheck.Check`'s DNS lookup and TCP dial share one 6s budget, so slow-but-
-up can misreport as fully offline (weekly review, 2026-08-10).** Both
-`lookupHost` and `dialTCP` (`internal/netcheck/netcheck.go`) run under the
-same `context.WithTimeout(ctx, DefaultTimeout)` (6s), sequentially. Congested
-Wi-Fi where DNS alone takes close to 6s hits the shared deadline and is
-classified `ErrOffline` ("no internet connection") even though the machine is
-online, just slow — the specific offline-vs-down-vs-slow confusion this module
-exists to avoid. Low impact: `sync --scheduled`'s retry loop still runs
-regardless of which message is shown, so the only cost is a wrong sentence in
-a rare case. Fix, if picked up: give each call its own smaller timeout, or
-just split `DefaultTimeout` between the two steps.
-
 **TU-Fast still has no fast reload when it hangs itself up** — maintainer,
 2026-08-10, reported as still open after the 2026-07-26 work that replaced
 the flat 45s wait. Source reading this round found a mechanism that fits,
@@ -425,6 +413,15 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **`netcheck.Check`'s two steps no longer share one deadline — and the fix is
+  the opposite of the one that was suggested** (2026-08-10, autopilot): lookup
+  and dial each get their own full `DefaultTimeout` instead of splitting it.
+  The review proposed halving the shared budget; that was tried first and
+  makes the reported symptom *worse*, because a slow-but-working DNS lookup
+  then fails at 3s instead of 6s. Kept as a measured fact rather than an
+  argument — `TestCheckGivesTheDialItsOwnBudgetAfterASlowLookup` fails under
+  the split and passes under the full budget. Cost: a comprehensively broken
+  network takes up to 12s to say so instead of 6s.
 - **Both weekly-review bugs in the offline/dismiss set fixed** (2026-08-10,
   autopilot): the retry banner's reassurance sentence was appended *after*
   netcheck's `(technical detail: ` marker, and `bannerChrome` folds everything

@@ -71,14 +71,31 @@ func Check(ctx context.Context, rawURL string) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
-	defer cancel()
-
-	if _, err := lookupHost(ctx, host); err != nil {
+	// Each step gets its OWN DefaultTimeout rather than sharing one deadline
+	// across both, so neither can starve the other. Sharing it meant a
+	// slow-but-successful DNS lookup could consume nearly the whole 6s and
+	// leave the dial running against an already-expired context - a machine
+	// that is online, merely on congested Wi-Fi, reported as a network
+	// failure (weekly review, 2026-08-10).
+	//
+	// NOT the split the review suggested ("split DefaultTimeout between the
+	// two steps"): halving it makes the lookup fail at 3s instead of 6s, so
+	// the exact case complained about - DNS that is slow but works - starts
+	// being reported as offline *sooner*. That is measured, not argued;
+	// TestCheckGivesTheDialItsOwnBudgetAfterASlowLookup fails under the split
+	// and passes here. The cost of a full budget each is that a
+	// comprehensively broken network takes up to 12s to say so instead of 6s,
+	// which only happens when something is already wrong and which
+	// `sync --scheduled`'s ~15-minute retry loop does not care about.
+	lookupCtx, cancelLookup := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancelLookup()
+	if _, err := lookupHost(lookupCtx, host); err != nil {
 		return fmt.Errorf("%w (could not look up %s: %v)", ErrOffline, host, err)
 	}
 
-	conn, err := dialTCP(ctx, addr)
+	dialCtx, cancelDial := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancelDial()
+	conn, err := dialTCP(dialCtx, addr)
 	if err != nil {
 		return fmt.Errorf("%w (could not connect to %s: %v)", ErrUnreachable, addr, err)
 	}

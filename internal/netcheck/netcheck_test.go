@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeNetwork replaces the package's real DNS/dial for one test and restores
@@ -219,5 +220,48 @@ func TestHostPortDefaultsPortFromScheme(t *testing.T) {
 		if addr != tc.want {
 			t.Fatalf("hostPort(%q) = %q, want %q", tc.url, addr, tc.want)
 		}
+	}
+}
+
+// The bug this guards (weekly review, 2026-08-10): lookup and dial shared one
+// 6s deadline, so a slow-but-working DNS lookup could consume nearly all of it
+// and leave the dial to fail on an already-expired context - reported as
+// ErrOffline ("no internet connection") on a machine that is online and merely
+// slow. Confusing those two states is the one thing this package exists to
+// prevent.
+func TestCheckGivesTheDialItsOwnBudgetAfterASlowLookup(t *testing.T) {
+	origLookup, origDial := lookupHost, dialTCP
+	t.Cleanup(func() { lookupHost, dialTCP = origLookup, origDial })
+
+	// A lookup that takes most of the shared budget, but succeeds.
+	slow := DefaultTimeout - DefaultTimeout/4
+	lookupHost = func(ctx context.Context, _ string) ([]string, error) {
+		select {
+		case <-time.After(slow):
+			return []string{"203.0.113.1"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	// A dial that needs a modest amount of time. Under one shared deadline
+	// its context is already expired when it starts.
+	var dialDeadlineLeft time.Duration
+	dialTCP = func(ctx context.Context, _ string) (net.Conn, error) {
+		if dl, ok := ctx.Deadline(); ok {
+			dialDeadlineLeft = time.Until(dl)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		client, server := net.Pipe()
+		_ = server.Close()
+		return client, nil
+	}
+
+	if err := Check(context.Background(), testURL); err != nil {
+		t.Fatalf("Check() = %v, want nil: a slow lookup must not make an online machine look offline", err)
+	}
+	if dialDeadlineLeft <= 0 {
+		t.Fatalf("the dial started with %s left on its deadline; it must get its own budget", dialDeadlineLeft)
 	}
 }

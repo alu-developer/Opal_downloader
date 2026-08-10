@@ -1176,6 +1176,33 @@ Question 33 already found the fix that matters (decouple the caps), but
 worth naming so nobody assumes the 4000ms-cap mechanism is fully nailed
 down rather than well-supported.
 
+**Third confirmation run, prediction written before running (2026-08-10,
+autopilot, new session).** `docs/BACKLOG.md`'s "Now" item recommends "at
+least one more clean run, ideally on a different day" before treating this
+as proven. This is not that — same calendar day as the two runs above,
+just a later session with its own fresh login — recorded honestly as a
+same-day third sample, not a different-day one; the different-day
+confirmation the recommendation actually asked for is still open. Not
+opening a new ranked question (RESUME.md's own note: no new speed question
+until the maintainer decides on shipping) — this only adds evidence to
+Question 33, already closed.
+
+Design: `OPAL_COURSE_CONCURRENCY_OVERRIDE=2 OPAL_DEBOUNCE_MS_KEEPCAP_OVERRIDE=150`,
+one more `TestFileListSnapshot` run (`-count=1`), diffed against
+`tmp/filelist-q32-conc1.txt` (this session's own fresh 349-file conc=1
+baseline — same session as runs 1/2, so still a valid comparison point,
+config.yaml unchanged throughout at `course_concurrency: 1`).
+
+*Expected:* empty diff, 349/349 files, wall-clock in the ~130-140s band the
+first two runs both landed in (132.93s, 137.68s) — no reason to expect a
+third run to behave differently given the mechanism (decoupled hard cap)
+is a static code change, not a timing coincidence.
+
+*Kill criterion:* any non-empty diff, or a wall-clock materially outside
+that band (e.g. back near the 211s conc=1 baseline, which would suggest
+the override isn't taking effect this session), reopens Question 33 rather
+than just adding a third clean tally mark.
+
 ---
 
 ## Next experiment

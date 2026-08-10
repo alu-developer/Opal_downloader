@@ -55,24 +55,6 @@ goes as a PR per `CLAUDE.md`, not straight to master.**
 
 ## Next
 
-**TU-Fast still has no fast reload when it hangs itself up** — maintainer,
-2026-08-10, reported as still open after the 2026-07-26 work that replaced
-the flat 45s wait. Source reading this round found a mechanism that fits,
-and it is a gap rather than a tuning number: `loginSignals.stalled()`
-(`internal/scraper/session.go`) only ever calls a page stalled when it
-`looksLikeLoginPageURL && FieldCount > 0 && FilledFields == 0`, so a page
-with **no input fields at all** can never be stalled and waits out the full
-`loginTotalBudgetMs` (300s) with no reload. That is the shape of the three
-unexplained 300s login timeouts in Noticed below — the third recorded where
-it was stuck (`.../opal/shiblogin;jsessionid=...`), a Shibboleth processing
-screen, not a form. Options, cheapest first: (a) treat a login-flow URL that
-is completely unchanged for the quiet window as stalled even with zero
-fields, keeping the "never reload a page with something typed into it" guard
-for pages that do have fields; (b) also shorten the 300s budget once two
-reloads have produced no movement; (c) leave the detector alone and only add
-the missing telemetry. Recommend (a). Needs one live login to verify, since
-the stall has never been reproduced on demand.
-
 **Raise `course_concurrency` past 2** — `docs/sync-speed-model.md`
 Question 35. Maintainer asked for it in the same decision round. `3` has not
 been measured since any of the 2026-08 work and `4` lost 9 files the last
@@ -413,6 +395,20 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **TU-Fast's missing fast reload traced to a real gap and fixed: a login page
+  with no fields could never be called stalled** (2026-08-10, autopilot,
+  option (a) as recommended): `loginSignals.stalled()` required
+  `FieldCount > 0`, so the Shibboleth processing screen
+  (`.../opal/shiblogin;jsessionid=...`) — an interstitial, not a form — was
+  unreachable by the condition and waited out the full 300s budget. That is
+  the shape of all three unexplained 300s login timeouts. The condition is now
+  "on a login URL with nothing entered"; the guard protecting a human's typing
+  is unchanged, because `FilledFields` is 0 whenever `FieldCount` is. The old
+  test asserted the buggy behaviour in words and is reversed with the
+  reasoning kept. **Verified live**: an interactive `login` completed
+  unattended afterwards, and a full `list` returned the usual 349 files. Not
+  verified against a real stall — it has never been reproduced on demand, so
+  what a live run can show is that normal login is unaffected.
 - **`netcheck.Check`'s two steps no longer share one deadline — and the fix is
   the opposite of the one that was suggested** (2026-08-10, autopilot): lookup
   and dial each get their own full `DefaultTimeout` instead of splitting it.

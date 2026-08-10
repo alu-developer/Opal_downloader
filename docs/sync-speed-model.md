@@ -291,6 +291,59 @@ top (not measured by the rider, which ran after an already-open browser
 session). Counts as failed at any non-empty diff, regardless of speed — the
 byte-diff is the gate, not the timing.
 
+**Live run 1 (2026-08-10): FAILED, but not on the byte-diff — the run never
+finished.** `OPAL_FILELIST=before` (plain browser) completed normally: 349
+files, matching the ground truth, though its own log shows real transient
+network trouble during the window (`net::ERR_CONNECTION_TIMED_OUT` on a
+handful of sections, one 3m1s no-progress warning that then recovered).
+`OPAL_FILELIST=after OPAL_HTTP_DISCOVERY=2`, run immediately after in a fresh
+process, made visible progress (dozens of sections fetched, correctly
+reporting 0 files for several genuinely-empty ones) and then stalled for
+**20+ minutes** with zero progress before Go's own `-timeout 20m` killed the
+test. The goroutine dump at kill time is unambiguous:
+`discoverSectionsHTTP` → `httpGetText` → Playwright
+`apiRequestContextImpl.Fetch`, blocked inside `fetch.Get`.
+
+*Diagnosed, not guessed, and sharp enough to predict the failure: neither
+`discoverSectionsHTTP` (new) nor the pre-existing `fetchSectionFilesHTTP`
+ever passed a `Timeout` to `fetch.Get`.* Playwright's own docs claim a
+30000ms per-request default when none is passed — not observed in practice
+here (the block ran past 20 minutes with no error surfacing at all). Whatever
+the exact reason the documented default didn't fire, the mechanism explaining
+the *failure* doesn't depend on it: **the entire HTTP discovery/fetch path,
+including the already-shipped `verify`/`1` modes, has had no explicit
+per-request timeout since it was written on 2026-07-31.** Contrast with the
+browser path, where every single `Page.Goto` carries an explicit 15–20s
+`Timeout` (`session.go`'s `SetDefaultTimeout`/`SetDefaultNavigationTimeout`)
+and `crawl.go` already retries a timed-out navigation and moves on. The two
+runs' network trouble was very likely the same ordinary transient flakiness
+(both hit it in the same few-minute window against the same account) — the
+finding is not "the network was unusually bad for this test," it's that nothing
+in the HTTP path was ever built to survive that trouble the way the browser
+path already was.
+
+*Fix (2026-08-10, same cycle): every `fetch.Get` call in both files now
+passes an explicit 20000ms `Timeout` (`httpGetOptions()`,
+`httpdiscovery_fetch.go`) — matching the browser's own
+`SetDefaultNavigationTimeout(20000)` budget. A timed-out section fetch is now
+just another per-section error: logged via `onSectionError`/`logging.Warn`
+and skipped, exactly like a 403 or a malformed response already was, rather
+than hanging the whole run. Offline tests unaffected (`fakeHTTPFetcher.Get`
+already accepted and ignored the variadic options). Rule 2: this
+explanation — no bounded timeout anywhere on this path — would have predicted
+today's specific failure shape (progress, then total silent stall, then a
+hard kill with no error) in advance, so run 1 counts as diagnosed, not just
+failed.
+
+**Live run 2, amended prediction, registered before re-running:** same
+comparison, same expectation — **0 missing, 0 extra beyond the seed's known
+21, 349 files, empty diff** — with the addition that any individual section
+allowed to fail (logged via `onSectionError`) now counts as a *miss* in the
+diff rather than a silent hang, so a transient stall this time shows up as a
+small, bounded, explainable gap instead of taking the whole run down. Timing
+prediction unchanged (under 130s), now genuinely testable since the run can
+actually finish.
+
 ### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
 
 **The pre-registered prediction failed, and that is the finding.** This

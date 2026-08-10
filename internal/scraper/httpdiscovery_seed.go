@@ -14,12 +14,13 @@ import "fmt"
 // (orchestrator.go) calls instead of running one.
 
 // httpGetText issues one authenticated GET and returns the response body,
-// erroring on a transport failure or a non-200 status. Small enough that
-// fetchSectionFilesHTTP (httpdiscovery_fetch.go) inlines its own copy rather
-// than share this one; kept separate here so this file has no dependency
-// beyond httpFetcher.
+// erroring on a transport failure or a non-200 status. Always passes
+// httpGetOptions() (httpdiscovery_fetch.go) - see httpFetchTimeoutMs's doc
+// comment for why an explicit timeout is not optional here: without one, a
+// single stalled connection wedges this whole method with no bounded
+// failure, confirmed live 2026-08-10.
 func httpGetText(fetch httpFetcher, url string) (string, error) {
-	resp, err := fetch.Get(url)
+	resp, err := fetch.Get(url, httpGetOptions())
 	if err != nil {
 		return "", err
 	}

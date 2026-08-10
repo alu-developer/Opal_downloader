@@ -36,8 +36,21 @@ func probeLogOptions(console io.Writer) logging.Options {
 	return logging.Options{Console: console, Verbose: true}
 }
 
-func captureProbeLogs(t *testing.T) {
+// beginLiveProbe is the single entry point every live probe in this package
+// calls first. It does two things a live probe must not be able to forget:
+// turns on verbose diagnostic logging (the reason documented above), and
+// takes the crawl overlap lock so this probe cannot run while another
+// opal-downloader process is crawling the same account (requireQuietAccount,
+// probeoverlap_test.go - see there for the two incidents that cost).
+//
+// It was called captureProbeLogs until 2026-08-10, when the overlap guard
+// was added. Renamed rather than left alone: a helper named for logging is a
+// helper a new probe will copy without the guard, and "the probe forgot the
+// safety step" is how both collisions happened.
+func beginLiveProbe(t *testing.T) {
 	t.Helper()
+
+	requireQuietAccount(t)
 
 	closeLogs, err := logging.Setup(probeLogOptions(testLogWriter{t: t}))
 	if err != nil {
@@ -69,14 +82,14 @@ func (w testLogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TestCaptureProbeLogsShowsDiagnosticWarnings is the reason to trust the helper
+// TestBeginLiveProbeShowsDiagnosticWarnings is the reason to trust the helper
 // above: it proves the exact record the 2026-07-29 run lost now arrives.
 //
 // Deliberately asserts both directions. Without the fix a Warn is dropped, so a
 // test that only checked "it appears afterwards" would also pass against a
 // logging package that shows everything always, and would not notice the
 // default being loosened for every CLI user at the same time.
-func TestCaptureProbeLogsShowsDiagnosticWarnings(t *testing.T) {
+func TestBeginLiveProbeShowsDiagnosticWarnings(t *testing.T) {
 	const msg = "course \"Softwaretechnologie\" crawled successfully but found 0 files"
 
 	var quiet bytes.Buffer

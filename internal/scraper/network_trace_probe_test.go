@@ -34,7 +34,7 @@ func TestNetworkTraceDuringSectionCrawl(t *testing.T) {
 	if os.Getenv("OPAL_NETWORK_TRACE") == "" {
 		t.Skip("set OPAL_NETWORK_TRACE=1 to run the real-account network trace probe")
 	}
-	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
+	beginLiveProbe(t) // see probelogging_test.go for the day a suppressed Warn cost
 
 	// The package's working directory during `go test` is internal/scraper, so
 	// the repo's own config.yaml is two levels up. A hardcoded absolute path

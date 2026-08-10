@@ -60,6 +60,9 @@ func TestWicketExpandSignalLatencyDistribution(t *testing.T) {
 	if os.Getenv("OPAL_SIGNAL_LATENCY_TRACE") == "" {
 		t.Skip("set OPAL_SIGNAL_LATENCY_TRACE=1 to run the real-account signal-latency probe (docs/sync-speed-model.md Question 21)")
 	}
+	// This probe sets up its own logging rather than calling beginLiveProbe,
+	// so it has to take the overlap guard itself. See probeoverlap_test.go.
+	requireQuietAccount(t)
 
 	var logBuf bytes.Buffer
 	closeLogs, err := logging.Setup(probeLogOptions(&multiWriter{t: t, buf: &logBuf}))

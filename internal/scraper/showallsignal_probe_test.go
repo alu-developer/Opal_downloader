@@ -68,9 +68,12 @@ func TestShowAllSignalUnderContention(t *testing.T) {
 	if os.Getenv("OPAL_SHOWALL_SIGNAL_TRACE") == "" {
 		t.Skip("set OPAL_SHOWALL_SIGNAL_TRACE=1 to run the real-account show-all signal probe (docs/sync-speed-model.md Question 19)")
 	}
+	// This probe sets up its own logging rather than calling beginLiveProbe,
+	// so it has to take the overlap guard itself. See probeoverlap_test.go.
+	requireQuietAccount(t)
 
 	// Capture into a buffer (for grepping) in addition to t.Logf (for
-	// visibility while the run is in progress) - captureProbeLogs
+	// visibility while the run is in progress) - beginLiveProbe
 	// (probelogging_test.go) only does the latter.
 	var logBuf bytes.Buffer
 	closeLogs, err := logging.Setup(probeLogOptions(&multiWriter{t: t, buf: &logBuf}))
@@ -216,7 +219,7 @@ func TestShowAllSignalUnderContention(t *testing.T) {
 
 // multiWriter fans logging output out to both t.Logf (so the run is visible
 // live under -v) and an in-memory buffer (so this test can grep its own
-// audit lines back out afterward - captureProbeLogs, probelogging_test.go,
+// audit lines back out afterward - beginLiveProbe, probelogging_test.go,
 // only does the former).
 type multiWriter struct {
 	t   *testing.T

@@ -68,7 +68,7 @@ func TestShowAllHrefDelta(t *testing.T) {
 	if os.Getenv("OPAL_SHOWALL_HREF_TRACE") == "" {
 		t.Skip("set OPAL_SHOWALL_HREF_TRACE=1 to run the real-account show-all href probe (docs/sync-speed-model.md Question 18)")
 	}
-	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
+	beginLiveProbe(t) // see probelogging_test.go for the day a suppressed Warn cost
 
 	loaded, err := config.Load(filepath.Join("..", "..", "config.yaml"))
 	if err != nil {

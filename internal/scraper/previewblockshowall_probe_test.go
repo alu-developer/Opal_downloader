@@ -66,6 +66,9 @@ func TestPreviewBlockShowAllRegression(t *testing.T) {
 	if os.Getenv("OPAL_PREVIEWBLOCK_SHOWALL_TRACE") == "" {
 		t.Skip("set OPAL_PREVIEWBLOCK_SHOWALL_TRACE=1 to run the real-account Question 23 regression probe (docs/sync-speed-model.md Question 23)")
 	}
+	// This probe sets up its own logging rather than calling beginLiveProbe,
+	// so it has to take the overlap guard itself. See probeoverlap_test.go.
+	requireQuietAccount(t)
 	if os.Getenv(blockPreviewsEnv) == "" {
 		t.Fatalf("set %s=1 too - this probe traces the regression, it does not reproduce a baseline", blockPreviewsEnv)
 	}

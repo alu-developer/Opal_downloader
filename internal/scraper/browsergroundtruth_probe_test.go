@@ -36,7 +36,7 @@ func TestBrowserGroundTruthProbe(t *testing.T) {
 	if courseFilter == "" {
 		t.Skip("set OPAL_BROWSER_GROUNDTRUTH=<course name substring>")
 	}
-	captureProbeLogs(t)
+	beginLiveProbe(t)
 
 	const repo = `C:\07_Arbeitszeug\Open_github\Opal_downloader`
 	loaded, err := config.Load(filepath.Join(repo, "config.yaml"))

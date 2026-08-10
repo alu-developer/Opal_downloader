@@ -32,7 +32,7 @@ func TestTreeWalkTimingProbe(t *testing.T) {
 	if url == "" {
 		t.Skip("set OPAL_TREEWALK_URL=<section url with subfolders>")
 	}
-	captureProbeLogs(t)
+	beginLiveProbe(t)
 
 	const repo = `C:\07_Arbeitszeug\Open_github\Opal_downloader`
 	loaded, err := config.Load(filepath.Join(repo, "config.yaml"))

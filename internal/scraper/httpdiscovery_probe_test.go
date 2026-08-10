@@ -72,7 +72,7 @@ func TestHTTPDiscoveryProbe(t *testing.T) {
 	if urlFile == "" {
 		t.Skip("set OPAL_HTTPPROBE=<file with one section URL per line>")
 	}
-	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
+	beginLiveProbe(t) // see probelogging_test.go for the day a suppressed Warn cost
 
 	const repo = `C:\07_Arbeitszeug\Open_github\Opal_downloader`
 	loaded, err := config.Load(filepath.Join(repo, "config.yaml"))

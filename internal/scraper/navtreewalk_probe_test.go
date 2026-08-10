@@ -42,7 +42,7 @@ func TestNavTreeWalkProbe(t *testing.T) {
 	if rootURL == "" {
 		t.Skip("set OPAL_NAVTREE_ROOT=<course root RepositoryEntry URL> (and optionally OPAL_NAVTREE_EXPECTED=<n>)")
 	}
-	captureProbeLogs(t)
+	beginLiveProbe(t)
 
 	const repo = `C:\07_Arbeitszeug\Open_github\Opal_downloader`
 	loaded, err := config.Load(filepath.Join(repo, "config.yaml"))

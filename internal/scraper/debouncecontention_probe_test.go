@@ -59,7 +59,7 @@ func TestDebounceOverrideUnderContention(t *testing.T) {
 	if os.Getenv("OPAL_DEBOUNCE_CONTENTION_TRACE") == "" {
 		t.Skip("set OPAL_DEBOUNCE_CONTENTION_TRACE=1 to run the real-account contention probe (docs/sync-speed-model.md Question 16)")
 	}
-	captureProbeLogs(t) // see probelogging_test.go for the day a suppressed Warn cost
+	beginLiveProbe(t) // see probelogging_test.go for the day a suppressed Warn cost
 
 	loaded, err := config.Load(filepath.Join("..", "..", "config.yaml"))
 	if err != nil {

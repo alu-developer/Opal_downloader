@@ -417,6 +417,26 @@ func runLogin(args []string) error {
 		return err
 	}
 
+	// `login` does no crawl, so it takes the same overlap lock for a
+	// different reason: it is the last holder of the login profile's
+	// persistent browser context that ran outside any coarse lock.
+	// LoginWithBrowser sets forceInteractive, and ensureSession's
+	// shouldRelaunchHeadlessAfterInteractiveLogin then deliberately leaves
+	// that visible persistent context open until this process exits - while
+	// the session mutex it held has already been released. A second process
+	// entering its own interactive login in that window has nothing but
+	// isUserDataDirLocked (profile.go, explicitly best-effort - see its own
+	// "not conclusive proof of a lock" comment) between it and a bare
+	// LaunchPersistentContext against a profile Chromium is already using,
+	// whose failure mode is a raw 180s Playwright launch timeout rather than
+	// ErrProfileLocked. That is precisely the 2026-08-02 incident in
+	// docs/BACKLOG.md.
+	releaseOverlap, err := acquireCrawlOverlapLock()
+	if err != nil {
+		return err
+	}
+	defer releaseOverlap()
+
 	sc := scraper.New(credentials.URL, credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
@@ -438,6 +458,15 @@ func runLogin(args []string) error {
 	printUpdateFooter()
 	return nil
 }
+
+// acquireCrawlOverlapLock is a package-level indirection over
+// synclock.AcquireDefault, mirroring internal/syncer's acquireSyncLock for
+// the same reason: it lets a test exercise the overlap guard's behaviour
+// without touching the real ~/.opal-downloader/sync.lock. It is the *same*
+// lock a sync takes, deliberately - a `list` and a `sync` crawl the same
+// account through the same OPAL server-side session, so they have to
+// contend with each other, not each with their own private lock.
+var acquireCrawlOverlapLock = synclock.AcquireDefault
 
 func runList(args []string) error {
 	configPath := filepath.Join(projectDir(), "config.yaml")
@@ -521,6 +550,35 @@ func runList(args []string) error {
 		fmt.Print(visitlog.FormatReport(visitlog.Aggregate(records)))
 		return nil
 	}
+
+	// Overlap guard, held for the whole crawl below - the same
+	// ~/.opal-downloader/sync.lock a `sync` run takes for its own duration
+	// (internal/syncer's acquireSyncLock).
+	//
+	// `list` used to take no lock at all, which made it the one full-crawl
+	// entry point a scheduled `sync` could silently interleave with. Both
+	// real collision incidents docs/BACKLOG.md records (2026-08-02,
+	// 2026-08-06) involved an unlocked crawl running against the same
+	// account at the same time as another one, and neither produced
+	// ErrProfileLocked - because scraper's own session lock
+	// (session_lock_windows.go) deliberately covers only session
+	// *establishment*, on the assumption that the crawl afterwards touches
+	// no shared resource. That assumption holds locally (each crawl gets its
+	// own throwaway browser context) but not server-side: every context is
+	// seeded from the same storage-state cookie file, so two crawls present
+	// one authenticated OPAL session identity to a Wicket backend that is
+	// stateful per session. See that file's doc comment and candidate (D) in
+	// docs/BACKLOG.md.
+	//
+	// So this is deliberately the coarse lock, not a new mechanism: a second
+	// crawl now gets synclock.ErrHeld naming the holder's PID and start time
+	// in seconds, instead of interleaving and possibly reporting 0 files with
+	// no error at all.
+	releaseOverlap, err := acquireCrawlOverlapLock()
+	if err != nil {
+		return err
+	}
+	defer releaseOverlap()
 
 	sc := scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)

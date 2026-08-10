@@ -192,6 +192,52 @@ CLI - the scheduled run failed fast with `Error: a sync is already running
 (PID ..., started at ...)` (exit code 4) instead of racing it, exactly as
 designed.
 
+### What may run at the same time (concurrency model, corrected 2026-08-10)
+
+**One crawl of this account at a time, whoever starts it.** There are two
+different locks and they cover different things; confusing them cost real
+file loss twice.
+
+| Lock | Covers | Held by |
+|---|---|---|
+| `~/.opal-downloader/sync.lock` (`internal/synclock`) | a whole crawl, or a whole login | `sync` (CLI, GUI and scheduled alike, via `syncer.SyncCoursesWithProgress`), `list` and `login` (both since 2026-08-10), every live probe test in `internal/scraper` (since 2026-08-10, via `beginLiveProbe`) |
+| `Local\opal-downloader-session-…` named mutex (`internal/scraper/session_lock_windows.go`) | session *establishment* only — reading/writing the session-state file, and the interactive login browser | every `ensureSession` call, i.e. `login`/`list`/`sync` |
+
+A second crawl gets `a sync is already running (PID …, started at …)` and
+exit code 4 within seconds. That is the intended outcome, not a bug — wait
+for the first to finish.
+
+**Why the crawl needs a lock at all, when each crawl has its own browser
+context:** because they do not have their own *OPAL* session. Every context
+is seeded from the same `session_state_file` cookie jar, so concurrent
+crawls present one authenticated identity to a Wicket backend that is
+stateful server-side per session. `docs/BACKLOG.md` records the two
+incidents this produced: 2026-08-02 (a scheduled sync died with a raw 180s
+Playwright launch timeout, a manual probe hung 22 minutes, two orphaned
+`chrome.exe` left behind) and 2026-08-06 (three consecutive runs reported
+**0 files for every course, exit 0, no error**). Neither raised
+`ErrProfileLocked`, because the session mutex was never the lock that could
+have caught them.
+
+**And why `login` takes the crawl lock even though it never crawls:** it is
+the last holder of the login profile that ran outside any coarse lock.
+`LoginWithBrowser` sets `forceInteractive`, and
+`shouldRelaunchHeadlessAfterInteractiveLogin` then deliberately leaves the
+visible persistent-context browser open until the process exits — after the
+session mutex has been released. `list --dev` has the same shape for the same
+reason (developer mode keeps the visible context and crawls in it). In that
+window the only thing standing between a second process and a bare
+`LaunchPersistentContext` on a profile Chromium is already using is
+`isUserDataDirLocked`, which its own code calls not conclusive — and its
+failure mode is a raw 180s Playwright launch timeout, exactly what
+2026-08-02 reported. That window is now inside the coarse lock.
+
+**Consequence for agent sessions:** two Claude Code sessions in this
+checkout can no longer silently interleave crawls — the second one's probe
+now refuses with the holder's PID. `tasklist | findstr chrome.exe` remains a
+useful pre-flight check for *orphaned* browsers left by a killed run, but it
+is no longer the guard.
+
 Hypothesis 1 was then tested directly: rebuilt from current master
 (`c7c4dd0`, includes PR #91/#92) and ran that real GUI sync (6 real
 courses, 168 files discovered) with process-window monitoring throughout

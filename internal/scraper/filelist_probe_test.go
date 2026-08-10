@@ -47,7 +47,7 @@ func TestFileListSnapshot(t *testing.T) {
 	// Without this the run reports only its own totals, and a course that
 	// crawled to nothing says so at a level the console drops. See
 	// probelogging_test.go for the day that cost.
-	captureProbeLogs(t)
+	beginLiveProbe(t)
 
 	loaded, err := config.Load(filepath.Join("..", "..", "config.yaml"))
 	if err != nil {

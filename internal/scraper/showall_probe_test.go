@@ -28,7 +28,7 @@ func TestShowAllProbe(t *testing.T) {
 	if showAllURL == "" {
 		t.Skip("set OPAL_SHOWALL_URL=<full pager-showAllLink AJAX url>")
 	}
-	captureProbeLogs(t)
+	beginLiveProbe(t)
 
 	const repo = `C:\07_Arbeitszeug\Open_github\Opal_downloader`
 	loaded, err := config.Load(filepath.Join(repo, "config.yaml"))

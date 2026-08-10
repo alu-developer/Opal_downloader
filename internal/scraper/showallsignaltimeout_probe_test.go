@@ -53,6 +53,9 @@ func TestShowAllSignalTimeoutOverride(t *testing.T) {
 	if os.Getenv("OPAL_SHOWALL_SIGNAL_TIMEOUT_TRACE") == "" {
 		t.Skip("set OPAL_SHOWALL_SIGNAL_TIMEOUT_TRACE=1 to run the real-account show-all signal-timeout probe (docs/sync-speed-model.md Question 20)")
 	}
+	// This probe sets up its own logging rather than calling beginLiveProbe,
+	// so it has to take the overlap guard itself. See probeoverlap_test.go.
+	requireQuietAccount(t)
 
 	overrideMs := os.Getenv("OPAL_SHOWALL_SIGNAL_TIMEOUT_VALUE")
 	if overrideMs == "" {

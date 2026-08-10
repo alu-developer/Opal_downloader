@@ -23,28 +23,6 @@ here is the failure mode to watch for.
 
 ## Now
 
-**The session-lock collision bug** — the maintainer's pick for where the
-next cycles go (decision round 2026-08-10), chosen over more speed work
-because correctness comes first and because this bug undermines the
-"several sessions at once is safe" assumption the whole autopilot setup
-rests on. Two real incidents, neither producing the `ErrProfileLocked` the
-design exists to produce; the 2026-08-06 one collapsed silently to 0 files
-for three runs straight. Current best candidate (D) and the concrete next
-steps are in this file's Noticed section — start with the cheap
-instrumentation, not with a deliberate reproduction, since candidate D says
-the damage is server-side and a reproduction would be re-triggering it.
-
----
-
-## Next
-
-**Raise `course_concurrency` past 2.** Maintainer asked for it in the same
-decision round. `3` has not been measured since any of the 2026-08 work and
-`4` lost 9 files the last time it was tried (2026-07-21) — so this is a
-byte-for-byte parity sweep at 3 first, with the same 349-file baseline
-discipline Questions 31–33 used, and it only proceeds if 3 is clean. Do not
-skip straight to 4.
-
 **Re-read the HTML the crawl already loads, and look for what isn't in it.**
 Also from the decision round. Two separate questions, both currently
 unasked by the campaign, which has only ever measured *timing* of the
@@ -59,9 +37,22 @@ existing navigation:
   Question 2/9's finding that the tree is only ever revealed one navigation
   per newly-opened branch; if that is only true of the *rendered* DOM and not
   of the response payload, the crawl's fundamental shape changes.
-Open these as ranked questions in `docs/sync-speed-model.md` with the usual
-written-first prediction. Source reading and saved HTML, no live account run
-needed to start.
+Open as Question 34 in `docs/sync-speed-model.md` (already written up there,
+including what would make it a dead end). Source reading and saved HTML, no
+live account run needed to start, so it goes ahead of the concurrency sweep
+below.
+
+---
+
+## Next
+
+**Raise `course_concurrency` past 2** — `docs/sync-speed-model.md`
+Question 35. Maintainer asked for it in the same decision round. `3` has not
+been measured since any of the 2026-08 work and `4` lost 9 files the last
+time it was tried (2026-07-21), so this is a byte-for-byte parity sweep at 3
+first, against a fresh same-session conc=2 baseline, with the same discipline
+Questions 31–33 used. Do not skip to 4, and do not open a hunt if 3 comes
+back short — stop at 2.
 
 ---
 
@@ -285,6 +276,51 @@ Delete an entry when it is done, or when it turns out not to matter.
     course page would point elsewhere). None of today's evidence captured
     that, because nobody was looking for it at the time.
 
+  **Update 2026-08-10 (source reading, no live run): guarded, and a second
+  mechanism found that explains the incident candidate D could not.** The
+  collision is now blocked at a level above both locks, and the reason no
+  amount of work on `acquireSessionLock` would have caught either incident is
+  clear: **it was never the lock that could.** It covers session
+  *establishment*; both incidents happened while at least one process was
+  past it.
+  - **Verified gap, the actual bug:** `list` did a full crawl and took **no
+    overlap lock at all**, while `sync` has held `~/.opal-downloader/sync.lock`
+    for its entire duration since PR #82. So a scheduled sync and a manual
+    `list` were free to crawl concurrently, as were two probe runs — and the
+    campaign's probe tests took no lock either, which is what actually
+    collided both times.
+  - **Candidate (E), new, and it fits 2026-08-02 where D fits 2026-08-06.**
+    `shouldRelaunchHeadlessAfterInteractiveLogin` deliberately keeps the
+    *visible persistent-context browser on the shared login profile* open
+    past ensureSession's return for `login` (forceInteractive) and for
+    `--dev` — i.e. after the session mutex has been released. A second
+    process entering interactive login in that window has only
+    `isUserDataDirLocked` (`profile.go`) between it and a bare
+    `LaunchPersistentContext` against a profile Chromium already holds, and
+    that check is explicitly best-effort ("not conclusive proof of a lock",
+    its own comment). Its failure mode is a raw Playwright launch timeout,
+    not `ErrProfileLocked` — which is exactly the 180000ms error 2026-08-02
+    reported, and the campaign's own probe commands are documented as
+    `list --dev --profile --debug-clicks`.
+  - **Fix shipped (2026-08-10):** `list` and `login` now take the same
+    `sync.lock` for their whole duration, and every live probe in
+    `internal/scraper` takes it too — `captureProbeLogs` was renamed
+    `beginLiveProbe` and does it centrally, so a new probe cannot be written
+    without the guard. A second crawl gets `a sync is already running (PID …,
+    started at …)` and exit code 4 in seconds. Tests:
+    `cmd/opal-downloader/listoverlap_test.go` (refusal + correct exit code,
+    and that `--visit-report` stays lock-free since it is offline);
+    `internal/scraper/probeoverlap_test.go`.
+  - **What is still not proven:** candidate D itself. The fix prevents the
+    collision rather than demonstrating the server-side mechanism, and the
+    "grep the responding page at the moment a run returns 0 files" step above
+    is still the way to confirm it — but it now needs a *deliberate*
+    collision to study, which is no longer something an accident will hand
+    us. Given the guard, that is the right trade: leave D as
+    well-supported-not-proven rather than re-triggering a bug that silently
+    loses files. `session_lock_windows.go`'s doc comment carries the
+    correction so nobody re-derives "safe to run fully in parallel" from it.
+
 ---
 
 ## Standing work
@@ -342,6 +378,21 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The two-collision session-lock bug is guarded, and the reason no work on
+  `acquireSessionLock` would ever have caught it is now written down**
+  (2026-08-10, source reading, no live run): `list` did a full crawl while
+  taking no overlap lock at all — `sync` has held `sync.lock` for its whole
+  duration since PR #82 — and the campaign's own probe tests took none
+  either, which is what actually collided both times. `list`, `login` and
+  every live probe now hold that same lock; a second crawl gets
+  `a sync is already running (PID …)` and exit code 4 in seconds instead of
+  interleaving. Found candidate (E) on the way, which explains 2026-08-02's
+  raw Playwright launch timeout where candidate (D) only explains
+  2026-08-06's silent 0-file collapse: `login` and `--dev` keep the visible
+  persistent context on the shared login profile open *past* the session
+  mutex's release, guarded only by the explicitly-inconclusive
+  `isUserDataDirLocked`. Full write-up in this file's Noticed section; the
+  concurrency model is now a table in `docs/OPERATIONS.md`.
 - **`course_concurrency=2` shipped as the new default, together with the
   concurrent settle debounce at 150ms** (2026-08-10, decision round): the
   maintainer chose to ship immediately rather than wait for the different-day

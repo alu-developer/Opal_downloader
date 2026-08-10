@@ -51,9 +51,32 @@ import (
 // Deliberately scoped to only the session-establishment phase, not the crawl
 // that follows: once ensureSession returns, each process's crawl runs
 // against its own throwaway headless browser/context (or, for the standalone
-// `login` command, has nothing left to do) with no further shared-resource
-// access, so multiple crawls are safe to run fully in parallel. See
-// docs/OPERATIONS.md for the resulting documented concurrency model.
+// `login` command, has nothing left to do) with no further *local*
+// shared-resource access. See docs/OPERATIONS.md for the resulting
+// documented concurrency model.
+//
+// CORRECTION 2026-08-10: this comment used to end "...so multiple crawls are
+// safe to run fully in parallel". That is only true locally, and the
+// distinction cost real file loss twice. Every crawl's context is seeded from
+// the same session_state_file cookie jar (ctxOpts.StorageStatePath,
+// session.go) - so two local Chromium processes present one *identical*
+// authenticated OPAL session identity to a Wicket backend that is stateful
+// server-side per session. Both collision incidents in docs/BACKLOG.md
+// (2026-08-02, 2026-08-06) are consistent with that and with nothing else:
+// no ErrProfileLocked on either side, and on 2026-08-06 a silent collapse to
+// 0 files for both courses that persisted across three further runs - which
+// a purely local lock contention cannot produce, because a restarted process
+// would have self-healed.
+//
+// So the lock this file provides is correct for what it covers, and it was
+// never the thing that should have caught either incident. Overlapping
+// *crawls* are guarded one level up instead, by the coarse
+// ~/.opal-downloader/sync.lock (internal/synclock): held by `sync` for its
+// whole duration, by `list` since 2026-08-10, and by every live probe test in
+// this package since the same day (requireQuietAccount,
+// probeoverlap_test.go). Do not reintroduce the "safe to run fully in
+// parallel" claim without evidence that the *server-side* session tolerates
+// it, which nothing has established.
 func acquireSessionLock(profileDir, stateFile string, timeout time.Duration) (release func(), err error) {
 	name, err := sessionMutexName(profileDir, stateFile)
 	if err != nil {

@@ -1,0 +1,60 @@
+HTTP-FIRST SECTION DISCOVERY: 6 courses | browser sections 286 | http fetched 313 | MISSING 0 | extra 21
+browser crawl 2m53.78s (includes login) | http-first discovery 1m11.356s
+
+2026 LA20
+  browser sections : 34
+  tree seed        : 36
+  http discovered  : 37 (fetched 37)
+  MISSING          : 0
+  extra            : 3
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/102408704615627
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/102519308332760
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/1709609352182565009
+Analysis
+  browser sections : 30
+  tree seed        : 33
+  http discovered  : 34 (fetched 35)
+  MISSING          : 0
+  extra            : 4
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757212677092428003
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431705760008
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431727257008
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1759286429502163012
+Softwaretechnologie (SoSe 26)
+  browser sections : 169
+  tree seed        : 158
+  http discovered  : 175 (fetched 178)
+  MISSING          : 0
+  extra            : 6
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1615865126719828011
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1615951726359860007
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1742441986125078005
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1742441986129346005
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1742441986132646005
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1742441986134754005
+Algorithmen und Datenstrukturen
+  browser sections : 5
+  tree seed        : 4
+  http discovered  : 8 (fetched 10)
+  MISSING          : 0
+  extra            : 3
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1771558760922192006
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1775529461522481011
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53290106881/CourseNode/1776047917707372006
+So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20)
+  browser sections : 35
+  tree seed        : 37
+  http discovered  : 38 (fetched 38)
+  MISSING          : 0
+  extra            : 3
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53722382336/CourseNode/1753065481771771008
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53722382336/CourseNode/1753065481774468008
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53722382336/CourseNode/1753065481915300008
+TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+  browser sections : 13
+  tree seed        : 14
+  http discovered  : 15 (fetched 15)
+  MISSING          : 0
+  extra            : 2
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53769273345/CourseNode/1695781921220323006
+    extra  : https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53769273345/CourseNode/1695781921370673006

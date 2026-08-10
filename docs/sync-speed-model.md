@@ -232,7 +232,24 @@ discovery still under 90s. *Counts as failed:* any missing section — and a
 *different* missing section than these four would mean pagination was only one
 of several boundaries, which is the outcome worth knowing.
 
-**Step B2 (production restructure, after B1).** Replacing phase 1 with one root
+**Step B1 result, run 2 (2026-08-10, live): confirmed on every registered
+number.** Report `docs/measurements-httpfirst-run2-2026-08-10.txt`. **286 of
+286 sections discovered, 0 missing, in all 6 courses**; extras unchanged at 21
+exactly as predicted; fetches 303 → 313, i.e. 10 paginated sections across the
+account; discovery **71.4s** against the same run's browser crawl at 173.8s,
+inside the under-90s line. The diagnosis would have predicted the failure in
+advance and the fix it named produced the predicted result, so Rule 2 is met
+and Step B1 closes.
+
+**What this establishes.** The browser is not needed to discover *anything*:
+not the tree (Step A/A2) and not the sub-sections behind a pagination cap
+(Step B1). One authenticated HTTP GET per course root plus one per section —
+plus one per paginated section — reproduces the crawl's entire section set,
+in ~40% of the browser crawl's wall clock, on a path whose file extraction was
+already verified diff=0. The 207s floor in "What we know" is a property of
+this project's discovery method, not of OPAL.
+
+**Step B2 (production restructure, now unblocked).** Replacing phase 1 with one root
 fetch per course and feeding the tree's URLs into the existing HTTP phase
 lands the full 6-course run at **90–110s** against the 207s floor, with a
 byte-for-byte empty diff. Mechanism: the 164-URL HTTP probe measured 31.7s

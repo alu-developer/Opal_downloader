@@ -231,13 +231,20 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<!-- Not an <h2>: these are pointers elsewhere, not settings. Two sections
 	     that looked exactly like the real ones but held nothing you could set
 	     were the maintainer's "weird: verweis in foldersettings auf automatic
-	     sync genauso wie der zum browser" (2026-07-27). -->
+	     sync genauso wie der zum browser" (2026-07-27).
+
+	     The sentence about the dedicated browser profile path was cut on
+	     2026-08-10, same maintainer, same complaint one level down: "es gibt
+	     da so verweise auf so random zeug wie browser und so. Das kann
+	     komplett raus." It named an internal implementation detail (which
+	     profile directory the login runs in) on a page where nothing can be
+	     done about it - a user reading it learns only that there is
+	     something here they do not understand. -->
 	<p class="elsewhere">Configured elsewhere:
 		<a href="/schedule">Automatic sync</a> (running once a day on its own)
 		&middot;
 		<a href="/tufast-setup">TU-Fast</a> (automatic 2FA, so login needs no
-		clicks). Login always uses a dedicated browser profile at
-		<code>~/.opal-downloader/login-profile</code>.</p>
+		clicks).</p>
 
 	<p class="back"><a href="/">&larr; Back</a></p>
 

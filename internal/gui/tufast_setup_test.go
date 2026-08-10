@@ -84,7 +84,10 @@ func TestHandleTUFastSetupOpen_CreatesDirAndLaunchesBrowser(t *testing.T) {
 	if !strings.Contains(launchedURL, scraper.TUFastExtensionID) {
 		t.Fatalf("launched URL = %q, want it to reference the TU-Fast extension ID", launchedURL)
 	}
-	if !strings.Contains(rec.Body.String(), "Opened Chromium") {
+	// Asserts the success branch rendered, not the browser build's name: the
+	// message deliberately stopped saying "Chromium" and stopped printing
+	// the profile path in the 2026-08-10 wording pass (see the template).
+	if !strings.Contains(rec.Body.String(), "Opened TU-Fast&#39;s install page") {
 		t.Fatalf("body missing success message: %s", rec.Body.String())
 	}
 }

@@ -48,20 +48,26 @@ import (
 // to the user (per this task's "GUI must degrade silently" acceptance
 // criterion).
 //
-// Dismissal is tracked in the browser's localStorage, keyed by the
-// status's own timestamp: dismissing writes that timestamp under a fixed
-// key, and a banner is only ever shown when the *current* status's
-// timestamp differs from the dismissed one - so dismissing today's failure
-// keeps it hidden on every subsequent page load until a *new* scheduled run
-// writes a new timestamp (success or another failure), without needing any
-// server-side "dismissed" state.
+// Dismissal is recorded on the server (POST /scheduled-status/dismiss,
+// which writes the dismissed run's timestamp to a file next to the status
+// file - see internal/statuslog's dismissFileName), and enforced there too:
+// handleScheduledStatus answers `null` for a status that has been
+// dismissed, so a dismissed banner never even reaches this script.
+//
+// It used to be tracked in the browser's localStorage, which did not
+// survive closing the window: the GUI binds an ephemeral port
+// (gui.Options.Port defaults to 0), so every launch is a different origin
+// and gets a different, empty localStorage. That is the "dismiss it and it
+// is back next time you open it" bug the maintainer reported (2026-08-10).
+//
+// Keyed by the status's own timestamp on both sides, so dismissing today's
+// failure hides today's failure only - the next scheduled run writes a new
+// timestamp and, if it fails too, that is news and shows again.
 const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></div>
 	<script>
 	(function () {
 		function render(status) {
 			if (!status || status.outcome === 'success') { return; }
-			var key = 'opal-downloader:dismissed-scheduled-run';
-			if (window.localStorage && localStorage.getItem(key) === status.timestamp) { return; }
 			var el = document.getElementById('scheduled-sync-banner');
 			if (!el) { return; }
 			el.textContent = '';
@@ -86,9 +92,47 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 				staleness = ' Nothing has run in the ' + ageDays + ' days since, so the daily sync is not working at all - check Automatic sync.';
 			}
 
+			// Split the plain-language part of the message from the
+			// technical cause internal/netcheck appends for logs and bug
+			// reports. The banner is read by someone who wants to know what
+			// to do about it, and a Playwright/DNS error dragged across two
+			// lines is exactly the "not meaningful for normal users"
+			// complaint this pass is answering - but throwing the cause away
+			// would make a real fault undiagnosable, so it moves into a
+			// fold-out instead of disappearing.
+			var message = String(status.message || '').replace(/\s+$/, '');
+			var detail = '';
+			var cut = message.indexOf('(technical detail: ');
+			if (cut > -1) {
+				detail = message.slice(cut);
+				message = message.slice(0, cut).replace(/\s+$/, '');
+			}
+			// Only add the full stop the sentence needs if the message did
+			// not bring its own: messages used to be error-string fragments
+			// with no punctuation, while the plain-language ones are whole
+			// sentences, and appending to those produced "...try again..".
+			if (!/[.!?]$/.test(message)) { message += '.'; }
+
 			var text = document.createElement('span');
-			text.textContent = 'Last scheduled sync (' + dateStr + ') ' + label + ': ' + status.message + '.' + staleness + ' ';
+			text.textContent = 'Last scheduled sync (' + dateStr + ') ' + label + ': ' + message + staleness + ' ';
 			el.appendChild(text);
+
+			if (detail) {
+				var details = document.createElement('details');
+				details.style.display = 'inline-block';
+				details.style.margin = '0 0.5rem';
+				var summary = document.createElement('summary');
+				summary.textContent = 'Details';
+				summary.style.cursor = 'pointer';
+				summary.style.display = 'inline';
+				details.appendChild(summary);
+				var detailText = document.createElement('div');
+				detailText.textContent = detail;
+				detailText.style.fontSize = '0.85em';
+				detailText.style.marginTop = '0.35rem';
+				details.appendChild(detailText);
+				el.appendChild(details);
+			}
 
 			var link = document.createElement('a');
 			link.href = '/sync?autostart=1';
@@ -102,8 +146,11 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 			dismiss.textContent = 'Dismiss';
 			dismiss.style.marginLeft = '0.75rem';
 			dismiss.addEventListener('click', function () {
-				if (window.localStorage) { localStorage.setItem(key, status.timestamp); }
+				// Hide first, save second: the click must feel instant, and a
+				// failed save only costs the banner coming back next launch -
+				// which is what it did every time before this endpoint existed.
 				el.style.display = 'none';
+				fetch('/scheduled-status/dismiss', { method: 'POST' }).catch(function () {});
 			});
 			el.appendChild(dismiss);
 

@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/logging"
+	"github.com/alu-developer/opal-downloader/internal/netcheck"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -263,7 +265,7 @@ func (s *OpalScraper) isAuthenticated() (bool, error) {
 	}
 	_, err := s.gotoPolitely(page, s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
-		return false, fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
+		return false, netcheck.Describe(context.Background(), s.opalURL, err)
 	}
 	pageURL := strings.ToLower(page.URL())
 	if strings.Contains(pageURL, "login") || strings.Contains(pageURL, "shib") || strings.Contains(pageURL, "idp") {
@@ -295,6 +297,21 @@ func (s *OpalScraper) isAuthenticated() (bool, error) {
 const sessionLockAcquireTimeout = 6 * time.Minute
 
 func (s *OpalScraper) ensureSession(forceInteractive bool) error {
+	// Cheapest possible thing first: is this machine online at all? Every
+	// entry point into the program (CLI list/sync, the GUI's own "Sync now"
+	// job, smoke-check) reaches OPAL through this function, so one check
+	// here is what makes an offline run say "No internet connection" in a
+	// second instead of launching a browser, waiting for it to fail, and
+	// handing the user a raw net::ERR_NAME_NOT_RESOLVED page-navigation
+	// dump - see internal/netcheck's package doc for the report behind this.
+	//
+	// A DNS lookup plus one TCP connect against the configured OPAL host is
+	// milliseconds on a healthy connection, against a crawl measured in
+	// minutes, so this is not a path worth making conditional.
+	if err := netcheck.Describe(context.Background(), s.opalURL, nil); err != nil {
+		return err
+	}
+
 	profileDir, err := LoginProfileDir()
 	if err != nil {
 		return err
@@ -379,7 +396,7 @@ func (s *OpalScraper) ensureSession(forceInteractive bool) error {
 	logging.User("Please complete login in the opened browser window (TU-Fast/2FA supported).")
 	_, err = s.gotoPolitely(page, s.opalURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded})
 	if err != nil {
-		return fmt.Errorf("could not reach OPAL at %s - check your internet connection and opal_url in config.yaml: %w", s.opalURL, err)
+		return netcheck.Describe(context.Background(), s.opalURL, err)
 	}
 	if err := s.waitForLoggedInCourseLink(); err != nil {
 		return err

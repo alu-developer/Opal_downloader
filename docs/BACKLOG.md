@@ -46,6 +46,24 @@ below.
 
 ## Next
 
+**TU-Fast still has no fast reload when it hangs itself up** — maintainer,
+2026-08-10, reported as still open after the 2026-07-26 work that replaced
+the flat 45s wait. Source reading this round found a mechanism that fits,
+and it is a gap rather than a tuning number: `loginSignals.stalled()`
+(`internal/scraper/session.go`) only ever calls a page stalled when it
+`looksLikeLoginPageURL && FieldCount > 0 && FilledFields == 0`, so a page
+with **no input fields at all** can never be stalled and waits out the full
+`loginTotalBudgetMs` (300s) with no reload. That is the shape of the three
+unexplained 300s login timeouts in Noticed below — the third recorded where
+it was stuck (`.../opal/shiblogin;jsessionid=...`), a Shibboleth processing
+screen, not a form. Options, cheapest first: (a) treat a login-flow URL that
+is completely unchanged for the quiet window as stalled even with zero
+fields, keeping the "never reload a page with something typed into it" guard
+for pages that do have fields; (b) also shorten the 300s budget once two
+reloads have produced no movement; (c) leave the detector alone and only add
+the missing telemetry. Recommend (a). Needs one live login to verify, since
+the stall has never been reproduced on demand.
+
 **Raise `course_concurrency` past 2** — `docs/sync-speed-model.md`
 Question 35. Maintainer asked for it in the same decision round. `3` has not
 been measured since any of the 2026-08 work and `4` lost 9 files the last
@@ -378,6 +396,18 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Four maintainer reports from 2026-08-10 fixed in one pass: an offline
+  machine now says so, a scheduled run waits for the connection instead of
+  losing the day, Dismiss stays dismissed, and the browser/Chromium jargon is
+  gone from Settings and TU-Fast setup** (2026-08-10): new `internal/netcheck`
+  classifies "you are offline" apart from "OPAL is down" and is checked once
+  at the top of `ensureSession`, so every entry point (CLI, GUI, scheduled)
+  fails in ~0.1s with a plain sentence instead of a raw Playwright
+  `net::ERR_NAME_NOT_RESOLVED` dump; `sync --scheduled` retries over ~15
+  minutes first and exits 5 if still offline. The banner's dismissal moved
+  from the browser's localStorage to a file, because the GUI binds a fresh
+  ephemeral port every launch and localStorage is per-origin — that, not the
+  banner logic, was the whole "dismiss and it's back next time" bug.
 - **The two-collision session-lock bug is guarded, and the reason no work on
   `acquireSessionLock` would ever have caught it is now written down**
   (2026-08-10, source reading, no live run): `list` did a full crawl while

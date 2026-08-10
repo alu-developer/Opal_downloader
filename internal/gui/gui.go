@@ -164,6 +164,7 @@ func newMux(srv *server, configPath string) *http.ServeMux {
 	mux.HandleFunc("/feedback", srv.withRecover(srv.handleFeedbackPage))
 	mux.HandleFunc("/feedback/open", srv.withRecover(srv.handleFeedbackOpen))
 	mux.HandleFunc("/scheduled-status", srv.withRecover(srv.handleScheduledStatus))
+	mux.HandleFunc("/scheduled-status/dismiss", srv.withRecover(srv.handleScheduledStatusDismiss))
 	mux.HandleFunc("/logo.svg", srv.withRecover(handleLogo))
 	registerSyncRoutes(mux, srv, configPath)
 	return mux

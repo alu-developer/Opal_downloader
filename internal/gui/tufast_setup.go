@@ -303,15 +303,16 @@ func (s *server) handleTUFastSetupOpen(w http.ResponseWriter, r *http.Request) {
 		launch = defaultLaunchBrowserAt
 	}
 	if err := launch(tuFastWebStoreURL); err != nil {
-		data.OpenResult = fmt.Sprintf("Created %s, but could not launch the browser: %s", data.ProfileDir, err)
+		data.OpenResult = fmt.Sprintf("Could not open the install page: %s", err)
 		data.OpenResultOK = false
 		s.renderTUFastSetup(w, data)
 		return
 	}
 
-	data.OpenResult = fmt.Sprintf(
-		"Opened Chromium against the dedicated login profile at %s, at TU-Fast's Chrome Web Store listing. In that window: click \"Add to Chrome\", then log into OPAL/Shibboleth once to complete 2FA/device registration. After that, every future login/sync auto-completes - nothing else to configure. Come back here and click \"Check again\" once you're done.",
-		data.ProfileDir)
+	// Names no profile path and no browser build: the user is looking at the
+	// window this just opened, and what they need is the two things to do in
+	// it. See the template's own note on the 2026-08-10 wording pass.
+	data.OpenResult = "Opened TU-Fast's install page in a new window. In that window: click \"Add to Chrome\", then log into OPAL once so TU-Fast can register your 2FA. After that, logging in happens by itself and there is nothing else to set up. Come back here and click \"Check again\" when you're done."
 	data.OpenResultOK = true
 	s.renderTUFastSetup(w, data)
 }
@@ -363,7 +364,7 @@ func (s *server) handleTUFastSetupCopy(w http.ResponseWriter, r *http.Request) {
 	if len(result.BackedUpDirs) > 0 {
 		msg += fmt.Sprintf(" Previous data was kept, not deleted, at: %s.", strings.Join(result.BackedUpDirs, ", "))
 	}
-	msg += " Restart the browser for the target profile (if it's open) to pick this up."
+	msg += " If a login window is open right now, close and reopen it so it picks this up."
 	data.CopyResult = msg
 	data.CopyResultOK = true
 	s.renderTUFastSetup(w, data)
@@ -417,11 +418,19 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 <body>
 	` + bannerChrome + `
 	<h1>TU-Fast setup</h1>
+	{{/* This used to read "opal-downloader always logs in and syncs using
+	     Playwright's bundled Chromium against one dedicated profile at
+	     <path> - never your everyday browser. See
+	     docs/browser-profile-strategy.md for the full background." Cut
+	     2026-08-10 on the maintainer's report that the Chromium/profile
+	     references on this page confuse and help nobody ("wo ploetzlich was
+	     von chromium und so steht"). What a user needs from that paragraph
+	     is the promise, not the mechanism: their own browser and their own
+	     logins are not touched. Everything else was implementation detail
+	     addressed to nobody who reads this page. */}}
 	<p class="hint">
-		opal-downloader always logs in and syncs using Playwright's bundled
-		Chromium against one dedicated profile at
-		<code>{{.ProfileDir}}</code> - never your everyday browser. See
-		docs/browser-profile-strategy.md for the full background.
+		Logging in happens in a separate window of its own. Your everyday
+		browser, and everything you are logged into there, is never touched.
 	</p>
 
 	{{/* Always shown once, regardless of which section below is currently
@@ -449,25 +458,23 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 	     earlier process lifetime. See this page's task for the bug this
 	     fixes. */}}
 	<div class="status ok">
-		TU-Fast is already installed in the dedicated profile
-		(<code>{{.ProfileDir}}</code>). Nothing more to do here - login/sync
-		will use it automatically.
+		TU-Fast is already installed. Nothing more to do here - logging in
+		and syncing will use it automatically from now on.
 	</div>
 	{{if .DetectedSourceDir}}
 	<h2>Optional: skip a manual login</h2>
 	<p class="hint">
-		TU-Fast also looks logged in at <code>{{.DetectedSourceDir}}</code>
-		on this machine. If the dedicated profile hasn't completed its own
-		OPAL/Shibboleth login yet, you can copy that already-working login
-		data over instead of doing it by hand.
+		You already have TU-Fast set up and logged in elsewhere on this
+		computer. If you would rather not log in by hand once more, that
+		existing login can be copied over instead.
 	</p>
 	<form method="post" action="/tufast-setup/copy">
 		<div class="field">
-			<label for="source_user_data_dir">Source browser's user data directory</label>
+			<label for="source_user_data_dir">Where that existing login is (filled in for you)</label>
 			<input type="text" id="source_user_data_dir" name="source_user_data_dir" value="{{.CopySourceUserDataDir}}">
 		</div>
 		<div class="field">
-			<label for="source_profile_directory">Source profile directory (optional)</label>
+			<label for="source_profile_directory">Which profile, if that browser has several (optional)</label>
 			<input type="text" id="source_profile_directory" name="source_profile_directory" value="{{.CopySourceProfileDir}}" placeholder="Default">
 		</div>
 		<button type="submit">Copy TU-Fast login data</button>
@@ -492,12 +499,18 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 
 	{{else if eq .ConsentState "pending_confirm"}}
 	<h2>Confirm before installing</h2>
+	{{/* The one place on this page where the technical words stay. "A
+	     third-party extension" is precisely what is being consented to
+	     here, and TestHandleTUFastSetupConsent_YesRevealsExplicitInstall-
+	     Warning asserts both words are present: keeping consent text plain
+	     is not the same as making it vague about what gets installed. */}}
 	<div class="disclaimer">
-		This installs <strong>TU-Fast</strong>, a third-party browser
-		extension, into the dedicated profile above. It will be able to
-		read and fill in your OPAL username, password, and 2FA code.
-		opal-downloader itself never sees or stores this data - TU-Fast
-		keeps it in that browser profile.
+		This installs <strong>TU-Fast</strong>, a third-party extension - an
+		add-on written by someone outside this project, which fills in your
+		TU login for you. It will be able to read and fill in your OPAL
+		username, password, and 2FA code. opal-downloader itself never sees
+		or stores any of that; TU-Fast keeps it, and it stays on this
+		computer.
 	</div>
 	<form class="inline-form" method="post" action="/tufast-setup/consent">
 		<input type="hidden" name="choice" value="confirm">
@@ -510,9 +523,10 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 
 	{{else if eq .ConsentState "declined"}}
 	<div class="status warn">
-		You chose to log in to OPAL manually. TU-Fast will not be installed
-		or used. Manual <code>login</code> (typing your credentials/2FA
-		yourself in the dedicated profile) still works as before.
+		You chose to log in to OPAL yourself. TU-Fast will not be installed
+		or used. Logging in by hand keeps working exactly as before - you
+		will just be asked for your password and 2FA code each time the
+		saved login runs out.
 	</div>
 	<form method="post" action="/tufast-setup/consent">
 		<input type="hidden" name="choice" value="reset">
@@ -524,34 +538,31 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 	     ahead of this whole ConsentState branch) */}}
 
 	{{if .DetectedSourceDir}}
-	<h2>Step A: Install TU-Fast in the dedicated profile</h2>
+	<h2>Step A: Install TU-Fast</h2>
 	<p class="hint">
-		Creates the profile directory above if it doesn't exist yet, and
-		opens a Chromium window there, straight at TU-Fast's Chrome Web
-		Store listing. Installing the extension and completing the
-		OPAL/Shibboleth 2FA/device-registration login are consent/identity
-		actions - do those two steps yourself in the window that opens;
-		nothing here clicks through them for you.
+		Opens a window at TU-Fast's install page. Two things there are yours
+		to do, because they are your identity and your consent: click "Add
+		to Chrome" to install it, then log into OPAL once so it can register
+		your 2FA. Nothing here clicks through those for you.
 	</p>
 	<form method="post" action="/tufast-setup/open">
-		<button type="submit">Open Chromium in the Chrome Web Store</button>
+		<button type="submit">Open the TU-Fast install page</button>
 	</form>
 
-	<h2>Step B: Copy your existing login data</h2>
+	<h2>Step B: Copy your existing login</h2>
 	<p class="hint">
-		Detected TU-Fast already installed and logged in at
-		<code>{{.DetectedSourceDir}}</code> on this machine - this can copy
-		just its stored login/2FA data into the dedicated profile above,
-		skipping a second manual login. Enabled once step A is detected
-		done; click "Check again" after installing.
+		You already have TU-Fast set up and logged in elsewhere on this
+		computer, so that login can be copied over instead of doing step A's
+		login a second time. Becomes available once step A is done - click
+		"Check again" after installing.
 	</p>
 	<form method="post" action="/tufast-setup/copy">
 		<div class="field">
-			<label for="source_user_data_dir">Source browser's user data directory</label>
+			<label for="source_user_data_dir">Where that existing login is (filled in for you)</label>
 			<input type="text" id="source_user_data_dir" name="source_user_data_dir" value="{{.CopySourceUserDataDir}}">
 		</div>
 		<div class="field">
-			<label for="source_profile_directory">Source profile directory (optional)</label>
+			<label for="source_profile_directory">Which profile, if that browser has several (optional)</label>
 			<input type="text" id="source_profile_directory" name="source_profile_directory" value="{{.CopySourceProfileDir}}" placeholder="Default">
 		</div>
 		<button type="submit" disabled title="Finish step A first, then click &quot;Check again&quot;">Copy TU-Fast login data</button>
@@ -559,17 +570,15 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 	<p class="back"><a href="/tufast-setup">&#8635; Check again</a></p>
 
 	{{else}}
-	<h2>Install TU-Fast in the dedicated profile</h2>
+	<h2>Install TU-Fast</h2>
 	<p class="hint">
-		Creates the profile directory above if it doesn't exist yet, and
-		opens a Chromium window there, straight at TU-Fast's Chrome Web
-		Store listing. Installing the extension and completing the
-		OPAL/Shibboleth 2FA/device-registration login are consent/identity
-		actions - do those two steps yourself in the window that opens;
-		nothing here clicks through them for you.
+		Opens a window at TU-Fast's install page. Two things there are yours
+		to do, because they are your identity and your consent: click "Add
+		to Chrome" to install it, then log into OPAL once so it can register
+		your 2FA. Nothing here clicks through those for you.
 	</p>
 	<form method="post" action="/tufast-setup/open">
-		<button type="submit">Open Chromium in the Chrome Web Store</button>
+		<button type="submit">Open the TU-Fast install page</button>
 	</form>
 	<p class="back"><a href="/tufast-setup">&#8635; Check again</a></p>
 	{{end}}

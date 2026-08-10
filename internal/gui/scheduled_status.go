@@ -15,6 +15,14 @@ import (
 // not) on the machine running the tests.
 var readScheduledStatusFunc = statuslog.ReadDefault
 
+// readDismissedFunc/writeDismissedFunc are the same indirection for the
+// banner's dismissal marker (see statuslog's dismissFileName for why the
+// marker is a file rather than the browser's localStorage it used to be).
+var (
+	readDismissedFunc  = statuslog.ReadDismissedDefault
+	writeDismissedFunc = statuslog.WriteDismissedDefault
+)
+
 // scheduledStatusResponse is the small JSON shape bannerChrome's client-side
 // script (gui.go) fetches on every page load. Only the fields the banner
 // actually needs are exposed - FilesDownloaded/FilesSkipped/FilesErrored
@@ -52,9 +60,52 @@ func (s *server) handleScheduledStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Dismissal is decided here, on the server, rather than by the script in
+	// bannerChrome: the GUI serves from a fresh ephemeral port on every
+	// launch, so anything the page remembers per origin (localStorage,
+	// sessionStorage, a cookie bound to that port) is gone the next time the
+	// window opens. That is the whole of the "dismiss does not stick" bug.
+	if statuslog.IsDismissed(readDismissedFunc(), status.Timestamp) {
+		_, _ = w.Write([]byte("null"))
+		return
+	}
+
 	_ = json.NewEncoder(w).Encode(scheduledStatusResponse{
 		Outcome:   string(status.Outcome),
 		Message:   status.Message,
 		Timestamp: status.Timestamp.Format(time.RFC3339Nano),
 	})
+}
+
+// handleScheduledStatusDismiss records that the user has dismissed the
+// banner for whatever the current status file says, so it stays dismissed
+// across GUI restarts.
+//
+// Takes no request body on purpose: the timestamp to dismiss is read from
+// the status file server-side, so there is nothing a caller can hand over to
+// get some other run marked dismissed, and no parsing to get wrong. If there
+// is nothing to dismiss (no status file, or the last run succeeded) it is a
+// no-op that still answers 204 - the banner has already hidden itself
+// client-side by then, and reporting an error for a button that visibly
+// worked would be worse than doing nothing.
+func (s *server) handleScheduledStatusDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	status, ok := readScheduledStatusFunc()
+	if !ok {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := writeDismissedFunc(status.Timestamp); err != nil {
+		// Same "degrade silently" contract as the banner itself: the click
+		// already hid it for this session, and a failed write only means it
+		// comes back next launch - not something to show an error page over.
+		http.Error(w, "could not save the dismissal", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

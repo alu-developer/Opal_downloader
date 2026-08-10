@@ -17,6 +17,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/gui"
 	"github.com/alu-developer/opal-downloader/internal/logging"
+	"github.com/alu-developer/opal-downloader/internal/netcheck"
 	"github.com/alu-developer/opal-downloader/internal/notify"
 	"github.com/alu-developer/opal-downloader/internal/procguard"
 	"github.com/alu-developer/opal-downloader/internal/report"
@@ -43,6 +44,13 @@ const (
 	exitCodeGenericError       = 1
 	exitCodeTUFastNotReady     = 3
 	exitCodeSyncAlreadyRunning = 4
+	// exitCodeOffline means the machine had no working network connection -
+	// nothing about this program or the user's setup is broken, and a rerun
+	// once the connection is back will simply work. Distinguishable for the
+	// same reason as the two above: an unattended run has nobody reading
+	// stdout, and "the Wi-Fi was off" should not look like "the sync is
+	// broken" to whatever inspects the run afterwards.
+	exitCodeOffline = 5
 )
 
 // updateCheckTimeout bounds how long the best-effort "is a newer version
@@ -221,6 +229,8 @@ func exitCodeForError(err error) int {
 		return exitCodeTUFastNotReady
 	case errors.Is(err, synclock.ErrHeld):
 		return exitCodeSyncAlreadyRunning
+	case errors.Is(err, netcheck.ErrOffline):
+		return exitCodeOffline
 	default:
 		return exitCodeGenericError
 	}
@@ -783,6 +793,22 @@ func runSync(args []string) (err error) {
 		loaded.App.SkipEnrollmentSections = false
 	}
 
+	// A scheduled run fires at a fixed time of day at a machine nobody is
+	// watching, and the single most likely reason it finds no network is
+	// that the connection has not come up yet (a laptop just woken, a Wi-Fi
+	// that reconnects a minute after login). Failing the whole day's sync
+	// over that would be silly, so wait it out first - see
+	// waitForNetworkBeforeScheduledRun. Only --scheduled waits: an
+	// interactive run has a human in front of it who can see the message
+	// and fix the Wi-Fi themselves, and making them stare at a frozen
+	// terminal for a quarter of an hour instead would be worse than the
+	// error.
+	if scheduled {
+		if err = waitForNetworkBeforeScheduledRun(context.Background(), loaded.Credentials.URL); err != nil {
+			return err
+		}
+	}
+
 	sc = scraper.New(loaded.Credentials.URL, loaded.Credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	sc.SetDebugClicks(debugClicks)
@@ -832,6 +858,70 @@ func runSync(args []string) (err error) {
 	timing.PrintTotalSummary(totalTimer.Elapsed())
 	printUpdateFooter()
 	return nil
+}
+
+// networkRetryDelays is how long a scheduled run waits, and how often, for a
+// connection to come back before giving up on the day.
+//
+// Rising rather than fixed, and capped at about a quarter of an hour in
+// total: the case this exists for is a connection that is seconds or minutes
+// away from coming up (a machine just woken, a Wi-Fi that reconnects shortly
+// after login), and those are caught by the first one or two waits. Waiting
+// hours instead would only hold a browser-less process open against a
+// connection that is genuinely down, while making the daily run overlap the
+// next one.
+var networkRetryDelays = []time.Duration{
+	30 * time.Second,
+	time.Minute,
+	2 * time.Minute,
+	5 * time.Minute,
+	7 * time.Minute,
+}
+
+// Package-level indirections so the retry loop can be unit tested without a
+// real network and without actually sleeping for a quarter of an hour - the
+// same convention updaterCheckLatest above already uses.
+var (
+	networkOnline   = netcheck.Online
+	networkDescribe = netcheck.Describe
+	networkSleep    = time.Sleep
+)
+
+// waitForNetworkBeforeScheduledRun blocks until the configured OPAL host is
+// reachable, or until networkRetryDelays is exhausted, in which case it
+// returns the plain-language offline error (wrapping netcheck.ErrOffline, so
+// exitCodeForError and any caller's errors.Is still see what happened).
+//
+// This is the "would it be smart to restart scheduled runs when the internet
+// failed" question (maintainer, 2026-08-10) answered inside the run itself
+// rather than by re-triggering the whole scheduled task: retrying here needs
+// no scheduler support, cannot double-fire against a run that is already
+// working, and keeps a single status-file entry per scheduled day instead of
+// one per retry.
+func waitForNetworkBeforeScheduledRun(ctx context.Context, opalURL string) error {
+	if networkOnline(ctx, opalURL) {
+		return nil
+	}
+
+	waited := time.Duration(0)
+	for i, delay := range networkRetryDelays {
+		fmt.Printf("No internet connection yet. Waiting %s, then trying again (attempt %d of %d).\n",
+			delay, i+1, len(networkRetryDelays))
+		networkSleep(delay)
+		waited += delay
+		if networkOnline(ctx, opalURL) {
+			fmt.Printf("Connection is back after %s. Continuing with the sync.\n", waited)
+			return nil
+		}
+	}
+
+	err := networkDescribe(ctx, opalURL, nil)
+	if err == nil {
+		// Came back in the moment between the last check and this one.
+		return nil
+	}
+	return fmt.Errorf("%w Waited %s for the connection to come back, then gave up - the next scheduled sync will try again on its own",
+		err, waited)
 }
 
 // buildScheduledRunStatus composes the statuslog.Status a `sync --scheduled`

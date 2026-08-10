@@ -138,6 +138,98 @@ func DefaultHistoryPath() (string, error) {
 	return filepath.Join(home, ".opal-downloader", historyFileName), nil
 }
 
+// dismissFileName holds the timestamp of the failure the user has already
+// dismissed in the GUI banner, under ~/.opal-downloader/.
+//
+// This used to live in the browser's localStorage, which looked like the
+// smaller solution and was in fact broken: the GUI binds an *ephemeral* port
+// (net.Listen on 127.0.0.1:0 - see gui.Options.Port), so every launch serves
+// from a different origin, and localStorage is scoped per origin. Dismissing
+// therefore held only until the window was closed, which is exactly what the
+// maintainer reported (2026-08-10: "wenn dismiss geclicked wird, dann ist es
+// beim naechsten oeffnen wieder da"). A file next to the status file it
+// refers to is immune to that, and to the user clearing browser data.
+const dismissFileName = "dismissed-scheduled-run.json"
+
+// dismissRecord is the JSON shape of the dismiss file: the timestamp of the
+// dismissed run, formatted exactly as the status file writes it. Storing the
+// timestamp rather than a bare "dismissed" boolean is what makes a *new*
+// failure show up again on its own - see IsDismissed.
+type dismissRecord struct {
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// DefaultDismissPath returns the real dismiss-marker path used in
+// production: ~/.opal-downloader/dismissed-scheduled-run.json.
+func DefaultDismissPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home directory for the dismissed-run file: %w", err)
+	}
+	return filepath.Join(home, ".opal-downloader", dismissFileName), nil
+}
+
+// WriteDismissed records that the run stamped at ts has been dismissed.
+func WriteDismissed(path string, ts time.Time) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating directory for the dismissed-run file: %w", err)
+	}
+	data, err := json.MarshalIndent(dismissRecord{Timestamp: ts}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding the dismissed-run marker: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("writing the dismissed-run file at %s: %w", path, err)
+	}
+	return nil
+}
+
+// ReadDismissed returns the timestamp last passed to WriteDismissed, or the
+// zero time when there is none. Degrades the same way Read does: a missing,
+// unreadable or corrupt file is simply "nothing dismissed", never an error -
+// the worst case being that a banner the user already dismissed comes back,
+// which is the state this whole file exists to improve on and not something
+// worth failing a page load over.
+func ReadDismissed(path string) time.Time {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}
+	}
+	var rec dismissRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return time.Time{}
+	}
+	return rec.Timestamp
+}
+
+// WriteDismissedDefault is WriteDismissed against DefaultDismissPath().
+func WriteDismissedDefault(ts time.Time) error {
+	path, err := DefaultDismissPath()
+	if err != nil {
+		return err
+	}
+	return WriteDismissed(path, ts)
+}
+
+// ReadDismissedDefault is ReadDismissed against DefaultDismissPath().
+func ReadDismissedDefault() time.Time {
+	path, err := DefaultDismissPath()
+	if err != nil {
+		return time.Time{}
+	}
+	return ReadDismissed(path)
+}
+
+// IsDismissed reports whether the run stamped at ts is the one that was
+// dismissed. Compared by instant (Time.Equal), not by formatted string, so a
+// timezone or formatting difference between writer and reader cannot
+// silently un-dismiss a banner. A *newer* run never matches an older
+// dismissal, which is the point: dismissing today's failure hides today's
+// failure, and tomorrow's failure is news again.
+func IsDismissed(dismissed, ts time.Time) bool {
+	return !dismissed.IsZero() && dismissed.Equal(ts)
+}
+
 // AppendHistory adds status as one more line to the rolling history file at
 // path, trimming to the most recent maxHistoryEntries afterward. status.
 // Message goes through the same SanitizeMessage boundary as Write - this

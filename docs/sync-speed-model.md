@@ -3044,6 +3044,52 @@ decision is the maintainer's, not a counter's — no cap on the campaign, the ki
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
 
+### 2026-08-10 (autopilot, second run of the day): five cycles, Questions 34/36-A/36-A2/36-B1×2 — keep going; the browser has been shown unnecessary for discovery
+
+Cycles since the last report: Question 34 (answered from saved HTML — the
+pre-registered prediction failed), Question 36 Step A (parser, offline,
+confirmed), Step A2 (live, 6 courses, confirmed), Step B1 run 1 (live, failed
+at 4 missing, diagnosed), Step B1 run 2 (live, confirmed and closed).
+
+**What is known now that was not five cycles ago.** The premise the whole
+crawl rests on is false. Since 2026-07-21 this project has believed a browser
+is required to enumerate a course's section tree — `httpdiscovery.go`'s design
+comment said so, Questions 2 and 9 supported it from OpenOLAT's
+`MenuTreeRenderer.isRenderChildren()`, and `scrapeCoursesHybrid` runs the full
+207s browser crawl *in every mode* because of it. `isRenderChildren()` scopes
+the **rendered DOM**. The **response** carries `var initial_data=[...]`, the
+complete course-node tree, in every course page. Measured, not argued: 261 of
+261 visited course-node URLs across all 6 courses, from 6 HTTP requests.
+Then Step B1 closed the remaining 7%: seeding from that tree and expanding with
+the crawl's own predicates over plain HTTP reproduces **286 of 286 sections,
+0 missing**, in 71.4s against the same run's 173.8s browser crawl.
+
+Two mechanisms were added to the model on the way. Pagination is a **discovery**
+boundary, not only a file-listing one — the rows past a section's ~20-row cap
+include sub-sections, which is what run 1's four missing files were, diagnosed
+from dumps already on disk rather than by another run. And the 21 "extra"
+sections HTTP-first finds are the enrollment/forum/root nodes the browser skips,
+because `isNonFileSectionType` lives inside `appendSectionFolderTargets`, which
+a tree seed bypasses.
+
+**What is still open.** Step B2, the production restructure, which is the only
+reason any of this matters and is now the campaign's top item — with the
+honest note that it touches the code path that has silently lost files twice,
+so it is byte-diff-gated and PR-gated per `CLAUDE.md`. Question 38 (an HTTP
+section fetch measured ~208–228ms here against 315ms on 2026-07-31, and every
+floor projection uses that constant: ~58s vs ~88s for this account). Question
+37, Question 34's untouched reuse half. Question 35 (`course_concurrency=3`)
+is unchanged but its value has dropped — it tunes the browser crawl that Step
+B2 would largely replace; recommendation in `docs/BACKLOG.md`.
+
+**Recommendation: keep going, and spend the next cycles on Step B2 rather than
+on any timing lever.** This is the first time the campaign has had a change
+that alters the crawl's shape instead of its constants, it is measured rather
+than argued at every step, and the 30s target is reachable from a ~71s
+discovery floor in a way it never was from 207s. The competing item
+(concurrency 3) optimises the thing Step B2 replaces, and running it first
+would spend live runs on a path that may be about to become dead code.
+
 ### 2026-08-10 (autopilot): five cycles, Questions 24/31/32/33/29 — keep going, and this round produced the campaign's biggest single result
 
 Cycles since the last report: Question 24 (closed live, 6 trials, 0

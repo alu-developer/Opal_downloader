@@ -23,24 +23,33 @@ here is the failure mode to watch for.
 
 ## Now
 
-**Re-read the HTML the crawl already loads, and look for what isn't in it.**
-Also from the decision round. Two separate questions, both currently
-unasked by the campaign, which has only ever measured *timing* of the
-existing navigation:
-- Does a page the crawl already fetches contain file/section data the crawl
-  then goes and fetches again by navigating? If so that is a free win, no
-  extra requests.
-- Is there anything in the served HTML pointing at content that is *not*
-  loaded there — embedded JSON, Wicket component metadata, `data-` attributes,
-  inline script config, hidden nodes, `<link rel>` hints — that would reveal
-  a node's children without a navigation per branch? This bears directly on
-  Question 2/9's finding that the tree is only ever revealed one navigation
-  per newly-opened branch; if that is only true of the *rendered* DOM and not
-  of the response payload, the crawl's fundamental shape changes.
-Open as Question 34 in `docs/sync-speed-model.md` (already written up there,
-including what would make it a dead end). Source reading and saved HTML, no
-live account run needed to start, so it goes ahead of the concurrency sweep
-below.
+**Restructure the hybrid's phase 1 to discover over HTTP instead of by
+walking the tree in a browser** — `docs/sync-speed-model.md` Question 36 Step
+B2. Everything this needs is measured and closed: the course tree arrives
+complete in each course root's own bytes (Steps A/A2, 261/261 URLs from 6
+requests), and seeding from it then expanding with the crawl's own predicates
+over plain HTTP reproduces **286 of 286 sections, 0 missing**, in 71.4s
+against the same run's 173.8s browser crawl (Step B1, closed after run 1
+failed at 4 sections and pagination was identified as a discovery boundary).
+File extraction on that path was already verified diff=0 on all 6 courses
+(2026-07-31).
+
+What is left is production work, not a question: `scrapeCoursesHybrid`
+(`orchestrator.go`) still runs the whole browser crawl first in *every* mode,
+taking its section set from `VisitRecords`, because its own comment says the
+browser is the only thing that can enumerate the tree — the sentence Question
+34 refuted. Replace that with per-course root fetch → `ParseCourseTreeNodes`
+seed → HTTP BFS, behind an env flag, and byte-diff against the 349-file
+ground truth before it becomes a default.
+
+Two things to carry over from the probe rather than rediscover: the seed must
+apply `isNonFileSectionType` itself (it lives in
+`appendSectionFolderTargets`, which a seed bypasses — 21 needless fetches
+otherwise), and the expansion must follow `extractShowAllURLFromHTML`, because
+rows past a section's pagination cap include sub-sections and not just files.
+
+**This is one of the three paths that have silently lost files before, so it
+goes as a PR per `CLAUDE.md`, not straight to master.**
 
 ---
 
@@ -115,6 +124,14 @@ time it was tried (2026-07-21), so this is a byte-for-byte parity sweep at 3
 first, against a fresh same-session conc=2 baseline, with the same discipline
 Questions 31–33 used. Do not skip to 4, and do not open a hunt if 3 comes
 back short — stop at 2.
+
+**Recommendation, 2026-08-10 — worth a moment before this is run:** it tunes
+the browser crawl that Question 36 Step B2 would largely replace. If B2 lands,
+these live runs were spent on soon-to-be-dead code. Options: (a) do B2 first
+and re-ask whether concurrency 3 still matters afterwards — recommended, it
+costs nothing but ordering; (b) run the sweep anyway as insurance in case B2
+fails its byte-diff; (c) drop 35. Not blocking: this is a sequencing call and
+(a) is the default unless the maintainer says otherwise.
 
 ---
 
@@ -440,6 +457,20 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **The browser turned out to be unnecessary for discovery: the whole course
+  tree is already in the first response, and HTTP-first finds all 286 sections
+  in 41% of the crawl's wall clock** (2026-08-10, autopilot, 3 live runs):
+  Question 34 asked whether the served HTML conceals structure the crawl
+  navigates for, and pre-registered "probably not" as its prediction. Wrong —
+  every course page carries `var initial_data=[...]`, jstree's complete
+  server-emitted course-node tree, which `isRenderChildren()` scopes only in
+  the *rendered DOM*. 261 of 261 visited URLs across 6 courses from 6 requests
+  (Steps A/A2), then 286 of 286 sections with 0 missing once expansion follows
+  the pagination toggle (Step B1). New mechanism recorded: rows past a
+  section's ~20-row cap include sub-sections, so pagination is a discovery
+  boundary. Question 38 opened (fetch latency measured 208–228ms here vs 315ms
+  on 2026-07-31; every floor projection uses that constant). `CLAUDE.md` gained
+  the maintainer's note that needing a live crawl is never a reason to defer.
 - **Four maintainer reports from 2026-08-10 fixed in one pass: an offline
   machine now says so, a scheduled run waits for the connection instead of
   losing the day, Dismiss stays dismissed, and the browser/Chromium jargon is

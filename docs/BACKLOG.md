@@ -163,6 +163,23 @@ Delete an entry when it is done, or when it turns out not to matter.
   further — a single transient stall with no persisting evidence isn't worth
   a live-debugging session, and the capture gap fix already did its job by
   answering the question it was built for.
+
+  **Update 2026-08-10 (autopilot): a mechanism that explains all three, and
+  it was in this project's code after all.** The URL the capture-gap fix
+  recorded turned out to be the whole clue. `loginSignals.stalled()` required
+  `FieldCount > 0`, so a login-flow page with no input fields — exactly what
+  `.../opal/shiblogin;jsessionid=...` is, an interstitial rather than a form —
+  could never be classified as stalled, was therefore never reloaded, and ran
+  out the full 300s `loginTotalBudgetMs`. That is the same 5-minute failure
+  all three occurrences reported. So the earlier narrowing to "TU-Fast or
+  OPAL, not this project" was half wrong: whatever *causes* the page to sit
+  there is still theirs, but the reason it cost 300s instead of ~8s was ours.
+  Fixed (see Done recently); verified only in the sense that a normal login is
+  unaffected, since the stall has never been reproducible on demand. If a
+  fourth occurrence appears, the thing to check is whether the run log now
+  shows a `login-stall-reload` audit entry — its absence would mean the page
+  was still moving enough to defeat `changedFrom`, which would be a new
+  finding rather than a repeat.
 - **Two concurrent Routines colliding on the shared browser profile produced a
   hard failure, not the clean serialization `acquireSessionLock` is supposed
   to give (2026-08-02).** Running the Question 15 sync-speed probe manually

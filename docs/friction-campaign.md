@@ -72,6 +72,15 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
+**Next surface: 2 (CLI everyday use).** Walk 1 was the GUI. Keep this line
+current at the end of every walk — it is what an unattended run reads to avoid
+walking the same surface twice, which is the cheapest way for this campaign to
+quietly stop finding anything.
+
+Who runs this: the **`opal-downloader-autopilot`** routine, phase 2, one walk
+per run, after it has emptied the backlog and before it does a sync-speed
+cycle. A live session can of course walk any time.
+
 Blast radius granted at open: **anything, including install and uninstall.**
 Real account, real config, real download folder. Reversible sabotage (expire
 the session, break the config, kill a run mid-sync) is explicitly in scope —

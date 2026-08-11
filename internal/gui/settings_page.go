@@ -40,6 +40,13 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	.checkbox-row label { margin: 0; font-weight: 600; }
 	.path-field { display: flex; gap: 0.4rem; }
 	.path-field input[type=text] { flex: 1; }
+	/* Collapsed by default (see the "open" condition on the details element
+	   below) - the glob-pattern rewrite/override rules used to sit in the
+	   same flat flow as "where do my files go", in front of everyone whether
+	   they used them or not (friction campaign walk 1, docs/BACKLOG.md). */
+	.advanced-rules { border: 1px solid #ddd; border-radius: 6px; padding: 0.1rem 1rem 1rem; margin: 1rem 0 1.5rem; }
+	.advanced-rules summary { cursor: pointer; font-weight: 600; padding: 0.75rem 0; }
+	.advanced-rules[open] summary { border-bottom: 1px solid #eee; margin-bottom: 0.75rem; }
 	/* color is not decoration here: pageStyle's base button rule sets
 	   color:#fff for the blue primary buttons, and a class selector overriding
 	   only the background leaves white text on a near-white fill. */
@@ -184,6 +191,11 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	</div>
 	<p class="hint">Places files in <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code> instead of flat <code>&lt;course&gt;/&lt;file&gt;</code>. The two editors below only apply while this is checked. Changing this after you have already synced moves your existing downloads into the new layout on the next sync - nothing is deleted, and anything that can't be matched is listed in the sync log.</p>
 
+	<details class="advanced-rules"{{if or .SectionFolderNames .SubfolderDestinations}} open{{end}}>
+	<summary>Advanced: rename sections or redirect a specific subfolder</summary>
+	<p class="hint">Most people never need this - it only matters once the plain
+	course/section layout above isn't quite right for one specific case.</p>
+
 	<div class="field">
 		<label>Section folder names</label>
 		<p class="hint">Rename an OPAL section (e.g. <code>*Exercises*</code>) to a custom folder name (e.g. <code>Übungen</code>). Unmatched sections keep OPAL's own name.</p>
@@ -224,6 +236,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		</table>
 		<button type="button" class="add-row-btn" id="add-subfolder-dest-row">+ Add rule</button>
 	</div>
+	</details>
 
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>

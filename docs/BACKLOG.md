@@ -65,19 +65,16 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
 
 - **Fixed 2026-08-11 (autopilot):** raw Playwright internals in the banner,
   the banner never expiring, the on-logon catch-up trigger (Finding 1's
-  recommended repair (b)), and the gitignored-build-artifact scheduling
-  dependency (Finding 2) — see Done recently for all four. Finding 1's
-  repair (a) ("when did a sync last actually succeed" as a general,
-  outcome-independent staleness signal) is **not** built — (b) closes the
-  specific failure mode that was actually observed (event 332, user not
-  logged on), and (a) would be a broader defense-in-depth layer on top,
-  not required to close this finding. Left as a possible future Noticed
-  item, not a commitment.
-
-- **[bloat] `/settings` puts a glob-pattern rules engine in front of everyone.**
-  Section-name rewrite rules and `<course pattern>/<subfolder pattern>`
-  destination overrides sit on the same flat page as "where do my files go",
-  with `*Analysis*/*Vorlesung*` as the help text's example.
+  recommended repair (b)), the gitignored-build-artifact scheduling
+  dependency (Finding 2), and the `/settings` glob-rules bloat (section-name
+  rewrites and subfolder destination overrides now sit collapsed behind an
+  "Advanced" `<details>`, expanded automatically when either is already
+  configured) — see Done recently for all five. Finding 1's repair (a)
+  ("when did a sync last actually succeed" as a general, outcome-independent
+  staleness signal) is **not** built — (b) closes the specific failure mode
+  that was actually observed (event 332, user not logged on), and (a) would
+  be a broader defense-in-depth layer on top, not required to close this
+  finding. Left as a possible future Noticed item, not a commitment.
 
 - **[question] The GUI process exited on its own after ~5 minutes** while in
   use, nobody closing the window. Not yet separable from an artifact of
@@ -493,6 +490,17 @@ move the rest across.
   network-classified failure turns green with the reassurance line, a stale
   one stays red with the staleness sentence, browser-online in both cases.
   Full test suite green.
+- **Finding (bloat) fixed: `/settings`'s glob-pattern rules collapsed behind
+  an "Advanced" disclosure** (2026-08-11, autopilot, verified live in the
+  GUI against both an empty and a populated config): section-name rewrites
+  and subfolder destination overrides no longer sit in the same flat flow
+  as "where do my files go" - both tables now live inside a single
+  `<details>`, closed by default, that opens automatically when either
+  already has a row (so an existing user's configuration is never hidden
+  from them). Nothing about the fields, their names, or their submission
+  changed - purely a visual regrouping. Confirmed collapsed with a fresh
+  scratch config and expanded with the real config.yaml's existing
+  subfolder override.
 - **Finding 1's recommended repair (b) shipped: an on-logon catch-up trigger,
   guarded against over-firing** (2026-08-11, autopilot, live-verified against
   real Task Scheduler under a scratch task name): the scheduled task now

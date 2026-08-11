@@ -40,17 +40,20 @@ here is the failure mode to watch for.
 
 ## Next
 
-**`docs/sync-speed-model.md`'s ranked list is Question 39, then Question 41,
-then Question 5.** Question 39 (does anything still cross-validate
-HTTP-first's correctness against an independent browser crawl now that it
-ships as the default, or did that check quietly disappear) is a process/
-product question, not a live-run one — whoever picks it up should bring
-options. Question 40 (does `scrapeCoursesHTTPFirst` benefit from its own
-course-level concurrency) is closed live 2026-08-11: empty diff, 349/349,
-41.6s vs 56.7s baseline — see Done recently. Not promoted to default, one
-run against this project's own two-run bar; Question 41 (a second,
-different-day confirming run, and whether default-promotion is in scope for
-that cycle) is the new speed-line head.
+**`docs/sync-speed-model.md`'s ranked list is Question 39, then Question 5.**
+Question 39 (does anything still cross-validate HTTP-first's correctness
+against an independent browser crawl now that it ships as the default, or did
+that check quietly disappear) is a process/product question, not a live-run
+one — whoever picks it up should bring options; it is currently Blocked
+above, waiting on the maintainer's pick among the three options already
+written up. Question 41 (a second confirming run for Question 40's
+course-level HTTP concurrency) is closed 2026-08-11: **no** — the second run
+lost 6 files (one paginated section, `Algorithmen und Datenstrukturen` ->
+`Vorlesung`), confirming the exact "shared `APIRequestContext` under
+concurrent load" hazard the question existed to rule out. No production
+impact (the override was never wired to a default); nothing further planned
+on this thread. See Done recently and `docs/sync-speed-model.md` Question 41
+for the full mechanism.
 
 ---
 
@@ -483,6 +486,16 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 41 closed: course-level HTTP concurrency's second confirming
+  run lost 6 files, overturning the first run's clean result and closing
+  the promotion question as a no-go** (2026-08-11, autopilot, 2 live runs):
+  `OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2` dropped one paginated section's
+  6 files (`Algorithmen und Datenstrukturen` -> `Vorlesung`) on identical
+  code to the first (clean) run — confirms the exact "shared
+  `APIRequestContext` under concurrent load" hazard Question 40's own
+  implementation notes had flagged as unproven. No production impact, the
+  override was never wired to a default. Full mechanism in
+  `docs/sync-speed-model.md` Question 41.
 - **Four friction-campaign GUI-walk-1 findings fixed** (2026-08-11,
   autopilot): `status` now runs the same `os.MkdirAll` a sync calls first, so
   a broken `download_path` (typo'd drive letter, path under a file) is

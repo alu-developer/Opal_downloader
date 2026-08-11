@@ -778,7 +778,7 @@ question hard the first time around? Ranked above the original Question 35's
 residual (the rollback path is not what ships) but behind Question 39
 (correctness safety net) per the standing correctness-first rule.
 
-### 41. Does a second confirming run (different day) also produce an empty diff at `OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2`, and is promoting it to the shipped default then in scope for that cycle? — OPEN, opened 2026-08-11 by Question 40's first-run result
+### 41. ~~Does a second confirming run (different day) also produce an empty diff at `OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2`, and is promoting it to the shipped default then in scope for that cycle?~~ Closed 2026-08-11 (autopilot, second live run, same day but a fresh interactive login and ~6h after the first pair) — **no: the second run lost 6 files. The hazard the question was written to rule out is real, just intermittent, and this closes the promotion question as a no-go.**
 
 Question 40 (below) found an empty diff at concurrency=2 on its first live
 run: 349/349 files, 41.6s discovery against a 56.7s serial baseline, both
@@ -801,6 +801,68 @@ second run - if it fails once out of two, that is not noise to average away,
 it is exactly the "shared object under concurrent load" hazard Question 40
 was written to rule out, and it should stop the promotion, not average
 against the clean run.
+
+**Result, run 2026-08-11 (autopilot, ~15:00 -> ~21:22, machine and account
+confirmed quiet first - no `chrome.exe`/`go`/`opal-downloader`/`node`
+processes, `git log -3` nothing from another session in the preceding hours).
+Not literally a different calendar day, but materially different conditions
+from the first pair: hours later, a different session, and a saved session
+that had expired, so the baseline run went through a fresh interactive
+TU-Fast/2FA login rather than reusing the first run's warm session.**
+`OPAL_FILELIST=before` (serial, concurrency=1): **349 files**, 76.0s
+discovery / 97.4s test (slower than the first run's 56.7s baseline - the
+fresh login's own cost, not a discovery regression). `OPAL_FILELIST=after
+OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2`: **343 files**, 52.3s discovery /
+57.3s test. `diff tmp/filelist-before.txt tmp/filelist-after.txt`: **6 files
+missing**, all from one section: "Algorithmen und Datenstrukturen" ->
+"Vorlesung" -> `Vorlesung_7.pdf`/`_7p.pdf`/`_8.pdf`/`_8p.pdf`/`_9_10.pdf`/
+`_9_10p.pdf`.
+
+**Mechanism, named, not just observed (Rule 2).** All 6 missing files come
+from a single section, and that section is exactly the shape
+`fetchSectionFilesHTTP` (`httpdiscovery_fetch.go`) treats specially: a
+paginated one, needing a *second* HTTP GET (the show-all AJAX URL) beyond
+the first page's ~20-row cap to recover the rest. Question 40's own
+implementation notes named the precise risk before any code was written:
+`s.httpDiscoveryFetcher()` returns the browser context's single
+`APIRequestContext` object, not one per goroutine, so concurrency here
+means N goroutines calling `.Get()` on the *same* Playwright object at once
+- "something nothing in this codebase has done before," in that section's
+own words. The first run (ad42760) showed the transport *can* multiplex
+those calls correctly; this run shows it does not always - and the failure
+lands specifically on the two-GET paginated case, consistent with a race
+between one course's show-all follow-up request and a concurrent course's
+own `.Get()` on the same shared object (a dropped/misattributed response,
+not a timeout - `fetchSectionFilesHTTP` logs a warning on an actual GET
+error or non-200 status, and this run's log shows neither, meaning the
+section's first-page fetch itself silently under-reported, or the
+show-all follow-up silently returned the wrong body). This predicts where
+else the same thing would show up: any paginated section (a second `.Get()`
+within one course's own crawl), not sections in general - which fits: this
+run's 6 missing files are the *only* section-shaped loss in the whole diff,
+and the 5 non-paginated courses came through untouched.
+
+**Closes the promotion question definitively.** Per the pre-registered kill
+criterion, one miss out of two runs is not noise to average against the
+first clean run - it is confirmation of the exact hazard the question was
+written to rule out. `OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE` stays a
+test-only override, defaulting to 1 (serial), never wired to
+`config.yaml`'s `course_concurrency` or shipped as a default - no
+production behavior changes as a result of this finding, because none ever
+depended on the override being safe. Not worth a root-cause chase beyond
+the mechanism named above: the override has no path to production without
+someone reopening this question, and the underlying object
+(`playwright.APIRequestContext`) is a third-party dependency, not this
+project's own code - fixing it would mean either giving each goroutine its
+own browser context (heavier than this question's scope) or serializing
+just the paginated-section follow-up fetch, neither of which is worth
+building for a lever that was already secondary to Question 39's
+correctness-safety-net thread and Question 5.
+
+**Next:** nothing further on this thread unless someone wants
+course-level HTTP concurrency badly enough to fund the isolated-context
+rewrite. Question 39 (blocked on the maintainer's pick among three options)
+and Question 5 are what is left on the ranked list.
 
 ### 40. Does `scrapeCoursesHTTPFirst` benefit from course-level concurrency, given it has none today and the hazard class that made the browser path's version hard (Questions 16/17/22/25) does not obviously apply to stateless HTTP GETs? — OPEN, opened 2026-08-11 by Question 35's reframe
 

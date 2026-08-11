@@ -563,6 +563,73 @@ not day-to-day variance, is producing the spread). A missing section would be
 a separate, higher-priority finding (a pagination-fix regression) and stops
 the timing question from being answerable this cycle.
 
+**Result (2026-08-11, live, autopilot): inside the failure bound but under
+the expected band — and the run surfaced two findings bigger than the timing
+question itself.** First attempt at this rerun found `browser sections 0` in
+every course - not a timing result, a broken instrument. Between Question
+38's prediction being written (2026-08-10 evening) and this run, PR #133
+(Question 36 Step B2) merged and HTTP-first became `scrapeCoursesHTTPFirst`'s
+production default. That silently broke two things this probe design leaned
+on, and both are now written up and fixed/reframed separately: the visit-log
+regression (below) and Question 35's premise (also below). Re-ran after
+fixing the first; the second remained (see Question 35).
+
+*The timing number itself, second attempt:* production path (the probe's own
+"browser crawl" ground-truth step, which - per the same finding above - is no
+longer a browser crawl but `scrapeCoursesHTTPFirst` itself) did **303
+requests in 55.93s = 184.6ms/request**; the probe's own separate HTTP-first
+pass did **314 fetched in 59.97s = 191.0ms/request**. Both inside the
+180-300ms line (not failed), both *below* the 200-260ms expected band -
+faster than predicted, not slower. Three data points now cluster at
+185-250ms (2026-08-10's four measurements plus this one) against
+2026-07-31's one measurement at 315ms - a full calendar day later, at a
+different time of day (this run: 2026-08-11 ~13:45 CEST, inferred from a
+response header logged mid-run; 2026-08-10's times were never recorded), the
+result still sits nowhere near 315ms. That is another point in favor of "07-31
+was the slow day" over "08-10 was optimistic," per Rule 1's own registered
+logic, even though the specific 200-260ms band undershot.
+
+**Not closed (Rule 2): the *why* is still not answered, and is not worth
+a fourth live run to chase.** This result narrows "which day is normal" a
+little further but does not name a mechanism for 2026-07-31's slowness
+(server load / time-of-day / something else) - it only adds a data point
+against it. Given the question was already downgraded 2026-08-10 as
+non-load-bearing (Step B2's own direct measurement answers the practical
+question this was ever a proxy for), and every data point since has kept
+saying the same thing, further live runs here would spend account load
+sharpening trivia rather than the "why," which needs an actual mechanism
+(e.g. a captured OPAL server response-time header, or a controlled
+same-account request at a different hour) that no rerun of this same probe
+can provide. **Parked**, not closed - the honest state is "still don't know
+why, but it stopped mattering before the answer did."
+
+**Finding 1 (bigger than the timing question): shipping Step B2 as the
+default silently stopped `internal/visitlog`'s persistent cross-run log from
+accumulating anything.** `scrapeCoursesHTTPFirst` never called
+`recordSectionVisit` - only the browser path did. Every real sync/list run
+since PR #133 merged had been recording 0 section visits, with no error or
+warning (`persistVisitLog`'s own no-op-on-empty behavior, by design, for the
+"scrape failed before visiting anything" case - which this wasn't, but looked
+identical to it). Not a file-loss bug - the crawl's own file-finding
+correctness is unaffected and already byte-verified separately - but a real
+regression in a resource this campaign itself has used as evidence (Question
+37's admission bar: "10 distinct nodes across 7 of the 8 courses, zero
+cross-contamination", built entirely from this log). **Fixed same cycle:**
+`discoverSectionsHTTP` (`internal/scraper/httpdiscovery_seed.go`) now takes
+an `onSectionVisited` callback, called once per section actually reached
+(root included) with its new-files-only count - the same semantics
+`recordSectionVisit`'s own doc comment states for the browser path. Wired in
+`scrapeCoursesHTTPFirst`. New regression test
+(`TestDiscoverSectionsHTTPReportsVisitsForVisitLog`,
+`httpdiscovery_seed_test.go`) asserts one call per reached section with the
+correct count; full local suite green; live-verified working in this same
+cycle's second attempt (298 sections came back in `VisitRecords()`, not 0).
+
+**Finding 2: Question 35's whole premise no longer matches which code path
+ships.** See Question 35's own entry below - `course_concurrency` was never
+wired into `scrapeCoursesHTTPFirst` at all, only into the browser path it
+replaced as the default.
+
 ### 37. Does a page the crawl already fetches carry file data the crawl then navigates again to fetch? — OPEN, the unanswered half of Question 34
 
 Question 34's reuse half, deliberately left for its own cycle after the
@@ -678,6 +745,93 @@ unless 3 is clean twice.
 *Sequencing note:* ranked below Question 34 on purpose. 34 needs no account
 and could invalidate the premise that more concurrent tabs is the lever
 worth pushing; 35 costs live runs against the real account either way.
+
+**Overtaken 2026-08-11 (autopilot, source reading, found while working
+Question 38): this question's premise no longer matches which code path
+ships.** `course_concurrency` / `effectiveCourseConcurrency()` is only ever
+read in `scrapeCoursesBrowser` (`orchestrator.go` line 75,
+`collectCourseFilesConcurrently`) - confirmed by reading, not inferring.
+`scrapeCoursesHTTPFirst`, the production default since PR #133
+(2026-08-11), loops its courses with a single unadorned `for` (`orchestrator.go`
+lines 296-321) - no concurrency knob exists on that path at all. Question 35
+was scoped as "push concurrency higher on the shipped default" when the
+default was still the browser crawl; the default underneath it has since
+changed, so a byte-diff sweep at `course_concurrency=3` would now be tuning
+`OPAL_HTTP_DISCOVERY=0`'s rollback path, not what anyone actually runs.
+
+**Not closed, reframed.** The rollback path still exists and a maintainer
+could still fall back to it, so this isn't nothing - but it is low value
+compared to what the same 55.93s/59.97s HTTP-first timing in Question 38's
+result cycle actually suggests: `scrapeCoursesHTTPFirst` is *itself*
+100% serial across courses today (confirmed above), and each of its 6
+courses' fetch chunks is visible in `tmp/httpfirst-sections.txt`'s per-course
+breakdown (Softwaretechnologie alone: 179 fetched). Concurrent HTTP GETs
+carry none of the browser path's shared-mutable-page hazard that
+`course_concurrency`'s whole cautious history (Questions 16/17/22/25) was
+about - they're stateless round trips over the same authenticated
+`fetch`/`httpFetcher`, already proven safe to reuse (Step B1/B2 both use one
+fetcher for hundreds of sequential requests without incident). **Opens
+Question 40** (below): does course-level concurrency on `scrapeCoursesHTTPFirst`
+itself replicate a speed win the way Question 33 found for the browser path,
+on a code path that structurally avoids the mechanism that made that
+question hard the first time around? Ranked above the original Question 35's
+residual (the rollback path is not what ships) but behind Question 39
+(correctness safety net) per the standing correctness-first rule.
+
+### 40. Does `scrapeCoursesHTTPFirst` benefit from course-level concurrency, given it has none today and the hazard class that made the browser path's version hard (Questions 16/17/22/25) does not obviously apply to stateless HTTP GETs? — OPEN, opened 2026-08-11 by Question 35's reframe
+
+Not yet scoped with a prediction - this is a placeholder for the next cycle
+that picks up the speed line. What is already known: `scrapeCoursesHTTPFirst`
+processes its 6 courses fully serially (`orchestrator.go` lines 296-321, no
+goroutines), and Question 38's 2026-08-11 result measured 55.93s/303 requests
+end to end for that serial loop. Naively parallelizing N courses' HTTP
+fetches could shrink that close to the single slowest course's own share
+(Softwaretechnologie's 179 of 303 fetches is already the long pole) rather
+than the sum. The open question is real, not rhetorical: OPAL's HTTP session
+is authenticated per-cookie and this campaign has never load-tested N
+concurrent authenticated GETs against it the way the browser path's
+concurrency was tested - `Question 33`'s finding that a *browser* crawl's
+correctness hazard was Wicket-AJAX-specific (an artifact of DOM state and
+in-page JS, not of the HTTP session itself) is suggestive but not proof
+that concurrent stateless GETs are equally safe. A byte-diff sweep with the
+same discipline Questions 31-33 used is still the right instrument; a
+prediction has to be written before it runs, per Rule 1.
+
+### 39. Now that HTTP-first discovery is the production default, does anything still cross-validate it against an independent browser crawl - or did shipping it as default quietly remove the only thing that was catching a regression like Question 38's visit-log finding? — OPEN, opened 2026-08-11 by Question 38's result
+
+**Why this ranks above Question 40 (correctness before speed, standing rule).**
+Before PR #133, every live run of `TestHTTPFirstSectionDiscovery` compared
+HTTP-first's output against a *real* browser crawl - two independently-coded
+paths agreeing was the evidence base the whole Step B1/B2 sequence stood on,
+and it is what caught Step B1 run 1's pagination miss and Step B2's
+double-fetch bug. Now that `scrapeCoursesHTTPFirst` **is**
+`ScrapeWithSavedSession`'s default, that comparison silently stopped: this
+same probe, re-run 2026-08-11 for Question 38, reported "MISSING 0" between
+two invocations of the *same* algorithm (the "browser crawl" step and the
+probe's own HTTP pass are both HTTP-first now), which proves internal
+consistency, not correctness against an independent source. The one
+remaining independent verification is the PR #133/#134 byte-diff itself
+(349/349, twice, 2026-08-10) - a point-in-time check, not an ongoing one.
+
+**What would make this urgent vs. not:** if OPAL's server-side rendering of
+`initial_data` or a section's file table ever changes shape (a platform
+upgrade, a config change on BPS's side), HTTP-first could start silently
+missing files with nothing in this project's own test suite positioned to
+notice, since `OPAL_HTTP_DISCOVERY=0` (the browser path, the only thing that
+could still catch it) is opt-in and nobody runs it by default anymore.
+Against that: OPAL/OpenOLAT's markup has not changed shape once in this
+entire campaign's history (2026-07 to 2026-08-11), so the risk is real but
+not evidenced as live.
+
+*Candidate next step, not yet a registered prediction:* a periodic (not
+every-run) correctness spot-check - e.g. `OPAL_HTTP_DISCOVERY=verify` mode
+already exists and does exactly the two-path comparison this question wants;
+the open question is whether anything should *run* it periodically (a
+scheduled Routine, a monthly manual check) now that nothing does by default,
+or whether the one-time PR byte-diff plus this project's general practice of
+re-verifying before any further discovery-path change is enough. A product/
+process decision more than a code one - options belong to whoever picks this
+up, not a live run.
 
 ### 1. What is OPAL actually rendering? — now read up, see below
 ~~OpenOLAT is open source. This campaign spent ten days guessing at the live
@@ -1844,7 +1998,31 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-10 (autopilot, later the same day): Question 36 (both
+**Updated 2026-08-11 (autopilot): PR #133 merged Question 36 Step B2 as the
+production default, Question 38's rerun found and fixed a real regression
+(visit-log stopped accumulating), and the merge overtook Question 35's
+premise. The ranked list is Question 39, then Question 40, then Question 5.**
+Question 38 itself: parked, not closed - three data points now cluster at
+185-250ms against 2026-07-31's 315ms outlier, which is suggestive but not a
+named mechanism, and it stopped being load-bearing back on 2026-08-10 once
+Step B2 was measured directly. **Question 39** (is HTTP-first's correctness
+still cross-validated by anything now that it's the default, or did shipping
+it quietly remove the only thing that was catching a regression like the
+visit-log one) ranks first per the standing correctness-before-speed rule -
+it is a process/product question, not a live-run one, so whoever picks it up
+should bring options, not run an experiment. **Question 40** (does
+`scrapeCoursesHTTPFirst` benefit from its own course-level concurrency, since
+it has none today and the hazard class that made the browser path's version
+hard does not obviously apply to stateless HTTP GETs) is the speed line's
+new head, replacing the old Question 35 - that question's own premise
+(`course_concurrency=3` on "the shipped default") stopped matching reality
+the moment PR #133 changed what the default *is*: `course_concurrency` was
+only ever wired into the browser path Step B2 replaced. Question 5 remains
+lowest (declined pivot, 2026-08-03).
+
+---
+
+**Superseded by the above, kept for the record - Updated 2026-08-10 (autopilot, later the same day): Question 36 (both
 steps) and Question 37 are closed; the ranked list is Question 38, then
 Question 35, then Question 5.** Step B2 (the production HTTP-first
 restructure) is written, unit-tested, and live-verified at zero diff

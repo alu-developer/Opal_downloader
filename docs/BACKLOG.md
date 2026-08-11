@@ -30,15 +30,15 @@ _Nothing currently blocked on the maintainer. See "Next" and
 
 ## Next
 
-**Question 35, raise `course_concurrency` past 2, is downgraded — the path it
-would tune is no longer the default one.** `docs/sync-speed-model.md`
-Question 36 Step B2's `scrapeCoursesHTTPFirst` runs courses serially and does
-not read `course_concurrency` at all; now that it ships as the default (see
-Done recently), the setting only still matters for the `OPAL_HTTP_DISCOVERY=0`
-browser-crawl rollback path. Not worth a live sweep until something exercises
-that path again. If `course_concurrency` ever needs to apply to the
-HTTP-first path's per-course loop instead, that is new work, not a rerun of
-Question 35.
+**`docs/sync-speed-model.md`'s ranked list is Question 39, then Question 40,
+then Question 5.** Question 39 (does anything still cross-validate
+HTTP-first's correctness against an independent browser crawl now that it
+ships as the default, or did that check quietly disappear) is a process/
+product question, not a live-run one — whoever picks it up should bring
+options. Question 40 (does `scrapeCoursesHTTPFirst` benefit from its own
+course-level concurrency, since it has none today) needs a registered
+prediction and a byte-diff sweep before running, same discipline as
+Questions 31-33.
 
 ---
 
@@ -413,6 +413,29 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **HTTP-first discovery silently stopped feeding `internal/visitlog`'s
+  cross-run log the moment it shipped as the default; fixed, and Question
+  35's downgrade sharpened into two new ranked questions** (2026-08-11,
+  autopilot, 1 live run): found while re-running Question 36 Step B1's own
+  probe for Question 38 - `scrapeCoursesHTTPFirst` never called
+  `recordSectionVisit` (only the browser path did), so every real sync/list
+  run since PR #133 merged recorded 0 section visits, silently (no error -
+  `persistVisitLog`'s own no-op-on-empty design). Not a file-loss bug, just a
+  dried-up diagnostics resource. Fixed: `discoverSectionsHTTP` now takes an
+  `onSectionVisited` callback, wired to `s.recordSectionVisit`; regression
+  test added; live-verified (298 sections recorded, not 0). Also confirmed by
+  reading `orchestrator.go` directly: `course_concurrency` was only ever
+  wired into the browser path, never into `scrapeCoursesHTTPFirst` - so
+  Question 35 (already downgraded, see below) is fully moot for what ships,
+  not just lower priority. Opened Question 39 (is HTTP-first's correctness
+  still cross-validated by anything, now that shipping it as default removed
+  the browser-crawl comparison every live run used to get for free) and
+  Question 40 (does the now-fully-serial `scrapeCoursesHTTPFirst` benefit
+  from its own course-level concurrency). Question 38 itself parked, not
+  closed: three data points (55.93s/303req=184.6ms, 59.97s/314req=191.0ms,
+  both today) cluster with 2026-08-10's four against 2026-07-31's 315ms
+  outlier, but the *why* is still unnamed and no longer worth a live run to
+  chase. Full write-up in `docs/sync-speed-model.md` Questions 35/38/39/40.
 - **`OPAL_HTTP_DISCOVERY=2` (HTTP-first discovery, Question 36 Step B2)
   shipped as the default** (2026-08-11, decision round): merged PR #133,
   closed duplicate PR #134 as superseded (it carried the same unfixed

@@ -91,8 +91,19 @@ func extractSectionFiles(existing []FileRef, fileSeen map[string]struct{}, cours
 // per-section error handling in the existing HTTP phase, and (since
 // httpGetOptions gives every fetch an explicit 20s budget) now a bounded
 // failure rather than the indefinite hang Step B2's first live run hit.
+//
+// onSectionVisited (may be nil), if set, is called once per section actually
+// reached (root included) with its title, URL and how many new files that
+// section contributed - the same shape and the same "reached and extracted,
+// not just queued" semantics as the browser path's recordSectionVisit call
+// in collectCourseFiles (crawl.go). Without this, shipping HTTP-first as the
+// default silently stopped internal/visitlog's persistent cross-run log from
+// accumulating anything at all (found 2026-08-11, re-running Question 36's
+// own Step B1 probe after B2 became the default: VisitRecords() came back
+// empty because nothing on this path ever called recordSectionVisit).
+//
 // Returns every file found and the number of HTTP requests issued.
-func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, skipNonFileSections bool, onSectionError func(url string, err error)) ([]FileRef, int, error) {
+func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, skipNonFileSections bool, onSectionError func(url string, err error), onSectionVisited func(sectionTitle, sectionURL string, filesFound int)) ([]FileRef, int, error) {
 	rootBody, err := httpGetText(fetch, course.URL)
 	if err != nil {
 		return nil, 0, fmt.Errorf("HTTP GET course root %s: %w", course.URL, err)
@@ -166,7 +177,11 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 			}
 		}
 
+		filesBefore := len(files)
 		files = extractSectionFiles(files, fileSeen, course, section, candidates, showAllCandidates, showAllURL, opalURL)
+		if onSectionVisited != nil {
+			onSectionVisited(section.Title, current, len(files)-filesBefore)
+		}
 
 		expandCandidates := candidates
 		if showAllCandidates != nil {

@@ -307,7 +307,10 @@ func (s *OpalScraper) scrapeCoursesHTTPFirst(ctx context.Context, courseFilter [
 		onSectionError := func(url string, serr error) {
 			logging.Warn("OPAL_HTTP_DISCOVERY=2: %s: %v", url, serr)
 		}
-		courseFiles, reqs, derr := discoverSectionsHTTP(fetch, course, s.opalURL, s.skipEnrollmentSections, onSectionError)
+		onSectionVisited := func(sectionTitle, sectionURL string, filesFound int) {
+			s.recordSectionVisit(course.Title, sectionTitle, sectionURL, filesFound)
+		}
+		courseFiles, reqs, derr := discoverSectionsHTTP(fetch, course, s.opalURL, s.skipEnrollmentSections, onSectionError, onSectionVisited)
 		totalRequests += reqs
 		if derr != nil {
 			logging.Warn("OPAL_HTTP_DISCOVERY=2: course %q discovery failed: %v", course.Title, derr)

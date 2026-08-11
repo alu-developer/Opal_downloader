@@ -46,7 +46,7 @@ func TestDiscoverSectionsHTTPSeedsFromTreeAndExpandsSubPaths(t *testing.T) {
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22":     {body: node22HTML, status: 200},
 	}}
 
-	files, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil)
+	files, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -59,6 +59,62 @@ func TestDiscoverSectionsHTTPSeedsFromTreeAndExpandsSubPaths(t *testing.T) {
 	}
 	if files[0].SectionURL != "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub" {
 		t.Errorf("file attributed to wrong section: %+v", files[0])
+	}
+}
+
+// TestDiscoverSectionsHTTPReportsVisitsForVisitLog guards the 2026-08-11
+// finding: shipping HTTP-first as the default silently stopped
+// internal/visitlog's persistent cross-run log from accumulating anything,
+// because nothing on this path ever told the caller which sections it had
+// actually reached. onSectionVisited is that missing hook - one call per
+// section reached (root included, since the root's body is read and
+// extracted from just like any other section here), each with the number of
+// NEW files that section contributed, mirroring recordSectionVisit's
+// semantics on the browser path (crawl.go).
+func TestDiscoverSectionsHTTPReportsVisitsForVisitLog(t *testing.T) {
+	const opalURL = "https://bildungsportal.sachsen.de/opal/"
+	course := CourseRef{RepoID: "1", Title: "C", URL: "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1"}
+
+	rootHTML := courseRootHTML(`{"id":"id22","text":"Ordner",` +
+		`"a_attr":{"href":"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22","title":"Ordner","class":"node-bc"}}`)
+	node22HTML := `<a href="https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub" title="Sub">Sub</a>`
+	subHTML := `<a href="https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub/file.pdf" data-file-name="file.pdf"><span>file.pdf</span></a>`
+
+	fetcher := &fakeHTTPFetcher{responses: map[string]fakeHTTPResponse{
+		course.URL: {body: rootHTML, status: 200},
+		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": {body: subHTML, status: 200},
+		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22":     {body: node22HTML, status: 200},
+	}}
+
+	type visit struct {
+		title, url string
+		filesFound int
+	}
+	var visits []visit
+	_, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, func(sectionTitle, sectionURL string, filesFound int) {
+		visits = append(visits, visit{sectionTitle, sectionURL, filesFound})
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(visits) != 3 {
+		t.Fatalf("expected one onSectionVisited call per reached section (root, node22, sub-path), got %d: %+v", len(visits), visits)
+	}
+	want := map[string]int{
+		course.URL: 0,
+		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22":     0,
+		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": 1,
+	}
+	for _, v := range visits {
+		wantCount, ok := want[v.url]
+		if !ok {
+			t.Errorf("unexpected visit for %s", v.url)
+			continue
+		}
+		if v.filesFound != wantCount {
+			t.Errorf("%s: expected filesFound=%d, got %d", v.url, wantCount, v.filesFound)
+		}
 	}
 }
 
@@ -79,7 +135,7 @@ func TestDiscoverSectionsHTTPSkipsNonFileSectionAtSeed(t *testing.T) {
 	var errored []string
 	files, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, true, func(url string, _ error) {
 		errored = append(errored, url)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +172,7 @@ func TestDiscoverSectionsHTTPFollowsShowAllDuringExpansion(t *testing.T) {
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": {body: subHTML, status: 200},
 	}}
 
-	files, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil)
+	files, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +187,7 @@ func TestDiscoverSectionsHTTPRootFetchFailureIsFatal(t *testing.T) {
 	fetcher := &fakeHTTPFetcher{responses: map[string]fakeHTTPResponse{
 		course.URL: {body: "not found", status: 404},
 	}}
-	files, _, err := discoverSectionsHTTP(fetcher, course, "https://opal/", false, nil)
+	files, _, err := discoverSectionsHTTP(fetcher, course, "https://opal/", false, nil, nil)
 	if err == nil {
 		t.Fatal("expected an error when the course root itself cannot be fetched")
 	}
@@ -160,7 +216,7 @@ func TestDiscoverSectionsHTTPSectionFetchFailureIsLoggedAndSkipped(t *testing.T)
 	var errored []string
 	files, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, func(url string, _ error) {
 		errored = append(errored, url)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("a single section's fetch failure must not be fatal for the whole course: %v", err)
 	}

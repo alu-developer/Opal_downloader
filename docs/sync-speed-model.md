@@ -948,6 +948,71 @@ re-verifying before any further discovery-path change is enough. A product/
 process decision more than a code one - options belong to whoever picks this
 up, not a live run.
 
+**Options, written 2026-08-11 (autopilot, source reading only, no live run) -
+this is a maintainer call on a real cost/benefit trade, not something to just
+implement.** Confirmed by reading `orchestrator.go`/`scraper.go`: `verify`
+mode is real and already wired (`ScrapeWithSavedSession` case `"verify"` runs
+`scrapeCoursesHybrid` - full browser crawl *and* full HTTP fetch, serially,
+diffed per course, returns the trusted browser result), but nothing calls it
+outside the `TestHTTPFirstSectionDiscovery` probe test - no CLI flag, no
+Routine, no cron. The existing `opal-downloader-weekly-review` local
+scheduled task (Mondays+Thursdays, `~/.claude/scheduled-tasks/opal-downloader-
+weekly-review/SKILL.md`) is review-only by its own stated rule ("you read and
+report, you do not implement fixes") and already has the worktree +
+config-copy pattern this would need, but running a live crawl is a different
+kind of action than what it does today.
+
+- **(A) Do nothing further.** Keep the one-time PR #133/#134 byte-diff
+  (349/349, twice, 2026-08-10) plus the project's general practice of
+  re-verifying before the *next* discovery-path change. Cost: none. Risk: if
+  OPAL/OpenOLAT's server-side markup ever changes shape between discovery-path
+  changes - which could be a long gap, since this path is not expected to
+  change often now that it ships as default - nothing in this project notices
+  until a human sees missing files. Consistent with "OPAL/OpenOLAT's markup
+  has not changed shape once in this campaign's history," i.e. betting the
+  risk stays as low as it has been.
+
+- **(B) A monthly `OPAL_HTTP_DISCOVERY=verify` spot-check, run from a new Part
+  C on the weekly-review pass, not from `sync`.** Guarded the same way that
+  pass already guards itself (`docs/last-review-commit.txt`'s 2-day check;
+  this would need its own `docs/last-verify-run.txt` timestamp, gated at
+  roughly 30 days). Deliberately *not* wired into `sync --scheduled` or any
+  daily path: `verify` mode runs a full extra browser crawl on top of the
+  HTTP-first one it's checking, which would roughly double the very sync time
+  Step B2 shipped to cut, on every single run. Filing the diff's `missing`
+  count as a `docs/BACKLOG.md` item (mirroring how the friction campaign already
+  files its findings) would surface a real regression at the review pass's own
+  cadence (3-4 days late at worst) instead of never. Cost: one extra full
+  browser crawl (~3-4 minutes going by this session's own 61.9s HTTP-first
+  timing plus a comparable browser-crawl share) roughly once a month, on a
+  pass that already runs unattended. This would be new code, not review - a
+  scope change to what that pass does, which is itself worth flagging rather
+  than sliding in quietly.
+
+- **(C) A cheaper structural tripwire that never runs a second live crawl.**
+  Track a small fingerprint of course shape - e.g. section count per course,
+  or a hash of each course's `initial_data` tree - already visible in data
+  `scrapeCoursesHTTPFirst` collects, and warn if it changes unexpectedly
+  between two ordinary runs. Free (no extra crawl), but a weaker signal: a
+  shape change isn't necessarily a file-count regression, and a real
+  regression (e.g. a file table's markup changing while section shape stays
+  identical) would not necessarily move this fingerprint at all.
+
+**Recommendation: (B), with (C) as a cheap independent addition later, not a
+substitute.** The failure mode Question 39 exists to catch - OPAL silently
+changing shape with nothing positioned to notice - is exactly the class of
+risk this project has treated as unacceptable everywhere else it has found it
+(the whole Questions 17/19/22/25 Wicket chain, the fileChanged nil-guard trap,
+the manifest key migration). A monthly cost of one extra crawl on a pass that
+already runs unattended and already reads `docs/BACKLOG.md` is cheap insurance
+against a systemic blind spot that (A) accepts indefinitely. (C) is worth
+having too, since it is free, but it should not be sold as covering the same
+ground as an actual independent-path comparison - it can be its own small
+follow-up once B (or a decision against B) is settled. Left for the
+maintainer to choose between, since (B) is a real scope change to what the
+weekly-review pass does and (A) is a real acceptance of standing risk - both
+are judgment calls, not something to implement speculatively.
+
 ### 1. What is OPAL actually rendering? — now read up, see below
 ~~OpenOLAT is open source. This campaign spent ten days guessing at the live
 server what it does.~~ Answered 2026-07-31, see "Next experiment" below for the

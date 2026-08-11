@@ -23,8 +23,18 @@ here is the failure mode to watch for.
 
 ## Now
 
-_Nothing currently blocked on the maintainer. See "Next" and
-`docs/sync-speed-model.md`'s ranked open-questions list for what runs next._
+- **Blocked: Question 39 needs a maintainer choice among three options**
+  (2026-08-11, autopilot). Should anything periodically re-verify HTTP-first
+  discovery's correctness against an independent browser crawl, now that
+  shipping it as the default silently removed the only thing that used to do
+  that on every run? `OPAL_HTTP_DISCOVERY=verify` mode already exists and does
+  the comparison — nothing calls it outside a test. Options written up in
+  `docs/sync-speed-model.md` Question 39: **(A)** do nothing further, accept
+  the risk; **(B)** a monthly verify spot-check from the weekly-review pass
+  (new scope for that pass, ~one extra full crawl a month); **(C)** a free
+  structural-fingerprint tripwire, weaker signal, no extra crawl.
+  Recommendation: (B), with (C) as a later independent addition. Needs the
+  maintainer's pick, not further research.
 
 ---
 

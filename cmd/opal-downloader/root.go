@@ -51,7 +51,54 @@ const (
 	// stdout, and "the Wi-Fi was off" should not look like "the sync is
 	// broken" to whatever inspects the run afterwards.
 	exitCodeOffline = 5
+	// exitCodeAlreadySucceededToday means a scheduled run's own dedup guard
+	// (errAlreadySucceededToday below) skipped it because a run already
+	// succeeded today - see that sentinel's doc comment.
+	exitCodeAlreadySucceededToday = 6
 )
+
+// errAlreadySucceededToday is returned by runSync's --scheduled path when
+// today's sync has already completed successfully, so this invocation is a
+// no-op. It exists for internal/scheduler's on-logon trigger
+// (docs/scheduled-sync-plan.md section 4): Task Scheduler passes no way to
+// tell a LogonTrigger firing apart from the daily CalendarTrigger, and a
+// LogonTrigger fires on every logon/unlock - without this guard, a laptop
+// that gets locked and unlocked several times a day would sync that many
+// times too, exactly the "needs its own already-ran-today guard" cost
+// section 4 originally weighed against adding the trigger at all. The
+// original design instead leaned on Task Scheduler's own
+// STARTWHENAVAILABLE to give a fixed-time trigger a "logon-like catch-up
+// for free" - friction campaign walk 1 (2026-08-11, docs/BACKLOG.md
+// Finding 1) found that premise false for the specific case that matters
+// most: when the catch-up window falls while the user is not logged on at
+// all (not just asleep/off), Windows event 332 shows it is consumed and
+// discarded, not deferred, so STARTWHENAVAILABLE alone left three of five
+// days silently unsynced. The logon trigger fills exactly that gap; this
+// guard keeps it from over-firing on days the fixed-time trigger already
+// succeeded.
+var errAlreadySucceededToday = errors.New("a scheduled sync already succeeded earlier today")
+
+// readScheduledStatusForDedup is a package-level indirection over
+// statuslog.ReadDefault, the same test-override convention this file's
+// other package-level function values already use (see
+// acquireCrawlOverlapLock) - tests substitute a fake so they don't depend
+// on (or clobber) a real ~/.opal-downloader/last-scheduled-run.json.
+var readScheduledStatusForDedup = statuslog.ReadDefault
+
+// alreadySucceededToday reports whether the most recent scheduled-run
+// status was a success recorded on the same local calendar day as now. Only
+// OutcomeSuccess counts - a failed or partial run earlier today should
+// still let a later trigger (the fixed daily time, or a logon) try again,
+// which is the whole point of adding the logon trigger as a catch-up.
+func alreadySucceededToday(now time.Time) bool {
+	status, ok := readScheduledStatusForDedup()
+	if !ok || status.Outcome != statuslog.OutcomeSuccess {
+		return false
+	}
+	y1, m1, d1 := status.Timestamp.Local().Date()
+	y2, m2, d2 := now.Local().Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
+}
 
 // updateCheckTimeout bounds how long the best-effort "is a newer version
 // available" check (see printUpdateFooter) is allowed to block a
@@ -231,6 +278,8 @@ func exitCodeForError(err error) int {
 		return exitCodeSyncAlreadyRunning
 	case errors.Is(err, netcheck.ErrOffline):
 		return exitCodeOffline
+	case errors.Is(err, errAlreadySucceededToday):
+		return exitCodeAlreadySucceededToday
 	default:
 		return exitCodeGenericError
 	}
@@ -734,6 +783,16 @@ func runSync(args []string) (err error) {
 	var loaded config.Loaded
 	attemptedLogin := false
 	runStart := time.Now()
+
+	// Checked before the deferred status-writer below is even registered,
+	// and deliberately writes nothing to statuslog: today's real success
+	// entry (written when it happened) already answers "did a sync succeed
+	// today", and overwriting its timestamp with a later no-op skip would
+	// make that answer worse, not better - see errAlreadySucceededToday's
+	// doc comment for why this check exists at all.
+	if scheduled && alreadySucceededToday(runStart) {
+		return errAlreadySucceededToday
+	}
 
 	if scheduled {
 		defer func() {

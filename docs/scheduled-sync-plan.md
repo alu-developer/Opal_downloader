@@ -243,10 +243,28 @@ the machine unscrubbed" constraints.
 
 ## 4. Scheduling mechanism
 
-**Recommendation: Windows Task Scheduler, single task, fixed daily time
-trigger + "run as soon as possible after a missed scheduled start" enabled
-— not an "on logon" trigger as the primary mechanism, and not both
-registered as separate always-on triggers.**
+**Corrected 2026-08-11 (friction campaign walk 1, docs/BACKLOG.md Finding
+1): the "not both" half of the recommendation below turned out to be
+wrong.** Its premise was that STARTWHENAVAILABLE alone gives a fixed-time
+trigger "a logon-like catch-up for free" (see the reasoning's second bullet
+below). Real usage refuted that for the specific case that matters most:
+when the catch-up window falls while the user is not logged on at all (not
+merely asleep), Windows event 332 shows it is consumed and discarded, not
+deferred to the next logon - three of five days went unsynced this way. The
+task now registers a LogonTrigger alongside the CalendarTrigger, with a new
+`errAlreadySucceededToday` dedup guard (`cmd/opal-downloader/root.go`) doing
+the job this section predicted a logon trigger would need ("its own
+already-ran-today guard") - see `internal/scheduler/scheduler_windows.go`'s
+`buildTaskXML` doc comment for the current, authoritative reasoning. The
+rest of this section (why not password-based/LogonType=Password, why not
+`RunOnlyIfNetworkAvailable`, etc.) is unaffected and still describes what
+ships.
+
+**Recommendation (original, 2026-07-16 - see the correction above):
+Windows Task Scheduler, single task, fixed daily time trigger + "run as
+soon as possible after a missed scheduled start" enabled — not an "on
+logon" trigger as the primary mechanism, and not both registered as
+separate always-on triggers.**
 
 Reasoning:
 

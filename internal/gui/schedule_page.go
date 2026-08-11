@@ -177,8 +177,9 @@ var schedulePageTemplate = template.Must(template.New("schedule").Parse(`<!DOCTY
 
 	<p class="hint">Off by default. When it is on, opal-downloader asks Windows
 	to run a sync once a day at the time you choose, catching up automatically
-	if the machine was off or asleep. No password is stored for it, and it only
-	runs while you are logged in to Windows.</p>
+	if the machine was off, asleep, or you weren't logged in yet - including
+	trying again the moment you next log in. No password is stored for it, and
+	it never runs unless you are logged in to Windows.</p>
 
 	<form method="post" action="/schedule" id="schedule-form">
 

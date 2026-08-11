@@ -39,6 +39,7 @@ type registrationInfo struct {
 
 type triggers struct {
 	CalendarTrigger calendarTrigger `xml:"CalendarTrigger"`
+	LogonTrigger    logonTrigger    `xml:"LogonTrigger"`
 }
 
 type calendarTrigger struct {
@@ -49,6 +50,16 @@ type calendarTrigger struct {
 
 type scheduleByDay struct {
 	DaysInterval int `xml:"DaysInterval"`
+}
+
+// logonTrigger is the catch-up trigger added alongside calendarTrigger - see
+// buildTaskXML's doc comment for why this project now registers both rather
+// than relying on STARTWHENAVAILABLE alone. Scoped to the same UserId as
+// principals.Principal so it fires only for this task's own user logging on,
+// not any other account on a shared machine.
+type logonTrigger struct {
+	Enabled bool   `xml:"Enabled"`
+	UserId  string `xml:"UserId,omitempty"`
 }
 
 type principals struct {
@@ -87,13 +98,13 @@ type execAction struct {
 // scheduled-sync task, implementing every design decision in
 // docs/scheduled-sync-plan.md section 4:
 //
-//   - CalendarTrigger with ScheduleByDay/DaysInterval=1 (fixed daily time,
-//     not an "on logon" trigger - see that section's reasoning about logon
-//     firing multiple times a day).
+//   - CalendarTrigger with ScheduleByDay/DaysInterval=1 (fixed daily time)
+//     PLUS a LogonTrigger as a catch-up backstop - see below for why both
+//     are now registered, correcting section 4's original single-trigger
+//     reasoning.
 //   - Settings.StartWhenAvailable=true (STARTWHENAVAILABLE): Task
 //     Scheduler's own built-in catch-up behavior for "machine was
-//     off/asleep at the scheduled time", needing no extra
-//     opal-downloader-side dedup logic.
+//     off/asleep at the scheduled time".
 //   - Principal LogonType=InteractiveToken, RunLevel=LeastPrivilege, and a
 //     UserId set to the current user: the task runs using this user's own
 //     already-logged-on interactive session token, i.e. only while they're
@@ -105,6 +116,22 @@ type execAction struct {
 //     silently skipping it, since this project has no separate "only on
 //     AC power" requirement and skipping would just look like an
 //     unexplained missed run.
+//
+// Why both a CalendarTrigger and a LogonTrigger now, reversing section 4's
+// original "not an on-logon trigger" recommendation: that reasoning leaned
+// on STARTWHENAVAILABLE alone giving "a logon-like catch-up for free".
+// Friction campaign walk 1 (2026-08-11, docs/BACKLOG.md Finding 1) found
+// that false for the case that matters most - Windows event 332 shows a
+// missed run whose catch-up window falls while the user is not logged on
+// at all (not merely asleep) is consumed and discarded, never deferred to
+// the next logon, so real usage lost 3 of 5 days. The LogonTrigger fills
+// that specific gap; MultipleInstancesPolicy=IgnoreNew (already set below)
+// prevents the two triggers colliding if they fire close together, and
+// cmd/opal-downloader's errAlreadySucceededToday guard (root.go) is the
+// "already ran today" dedup section 4 said a logon trigger would need,
+// so a machine that gets locked/unlocked repeatedly does not resync every
+// time - only the first trigger of the day that finds no success yet
+// today actually runs.
 //
 // StartBoundary uses today's date at hhmm:00 in local time (no timezone
 // suffix - Task Scheduler interprets an offset-less StartBoundary as local
@@ -136,6 +163,10 @@ func buildTaskXML(exePath, hhmm string) ([]byte, error) {
 				StartBoundary: startBoundary.Format("2006-01-02T15:04:05"),
 				Enabled:       true,
 				ScheduleByDay: scheduleByDay{DaysInterval: 1},
+			},
+			LogonTrigger: logonTrigger{
+				Enabled: true,
+				UserId:  userID,
 			},
 		},
 		Principals: principals{

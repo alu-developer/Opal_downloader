@@ -41,6 +41,81 @@ func TestCheckExecutableStableRejectsSystemTempDir(t *testing.T) {
 	}
 }
 
+// findGitWorkingTreeRoot backs CheckExecutableStable's newest rejection
+// class (Finding 2, docs/BACKLOG.md, 2026-08-11): a plain `go build .`
+// output sitting in a git checkout is not caught by the go-build-cache or
+// system-temp-dir checks above, but `git clean -xfd` deletes it exactly the
+// same way - live on the maintainer's own machine, a 19-day-stale gitignored
+// main.exe kept being what the schedule pointed at. Tested directly against
+// t.TempDir() rather than through CheckExecutableStable, since any path
+// under a real temp directory is already (correctly) rejected by the
+// earlier system-temp-dir check, which would make a full-stack test unable
+// to isolate this specific rejection reason.
+func TestFindGitWorkingTreeRootFindsAMarkerAboveTheGivenDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "cmd", "opal-downloader")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := findGitWorkingTreeRoot(nested); got != filepath.Clean(root) {
+		t.Fatalf("expected to find the git root at %q, got %q", root, got)
+	}
+}
+
+// A linked worktree's `.git` is a file (pointing at the real repo's
+// worktree admin dir), not a directory - findGitWorkingTreeRoot must treat
+// that as a working tree too, since this project's own CLAUDE.md has every
+// autopilot session build and run from inside exactly such a worktree.
+func TestFindGitWorkingTreeRootTreatsAGitFileAsAWorkingTreeToo(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: ../../.git/worktrees/example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := findGitWorkingTreeRoot(root); got != filepath.Clean(root) {
+		t.Fatalf("expected a .git file to count as a working tree root, got %q", got)
+	}
+}
+
+func TestFindGitWorkingTreeRootReturnsEmptyWhenNoGitAncestorExists(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "no", "git", "here")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := findGitWorkingTreeRoot(dir); got != "" {
+		t.Fatalf("expected no git working tree to be found, got %q", got)
+	}
+}
+
+// TestCheckExecutableStableRejectsAPathInsideThisProjectsOwnCheckout is the
+// full-stack version of the three findGitWorkingTreeRoot tests above,
+// proving the new check actually fires through the public API - using this
+// package's own real, always-git working directory (wherever `go test`
+// happens to run from) rather than a hardcoded path, so it stays portable.
+func TestCheckExecutableStableRejectsAPathInsideThisProjectsOwnCheckout(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := filepath.Join(wd, "opal-downloader.exe")
+
+	gitErr := CheckExecutableStable(candidate)
+	if gitErr == nil {
+		t.Fatalf("expected %q (inside this package's own git checkout) to be rejected", candidate)
+	}
+	if !errors.Is(gitErr, ErrEphemeralExecutable) {
+		t.Fatalf("expected ErrEphemeralExecutable, got %v", gitErr)
+	}
+	if !strings.Contains(gitErr.Error(), "git working directory") {
+		t.Fatalf("expected the error to name the git working directory as the cause, got %q", gitErr)
+	}
+}
+
 func TestCheckExecutableStableAcceptsNormalInstallPaths(t *testing.T) {
 	for _, good := range []string{
 		`C:\Program Files\opal-downloader\opal-downloader.exe`,

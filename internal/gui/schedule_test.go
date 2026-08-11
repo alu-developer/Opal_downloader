@@ -177,6 +177,75 @@ func TestApplyScheduleStatusWarnsInsteadOfRepairingFromAnotherEphemeralBinary(t 
 	}
 }
 
+// The scenario that actually happened on the maintainer's own machine
+// (Finding 2, docs/BACKLOG.md, 2026-08-11): a task registered against a
+// plain `go build .` output sitting in the git checkout - not go-build-cache,
+// not a temp dir, so it passed CheckExecutableStable right up until it
+// gained the git-working-tree check this covers. Uses this package's own
+// real, always-git-tracked directory (via os.Getwd) rather than a hardcoded
+// path, mirroring internal/scheduler's equivalent test, since the new check
+// is a real filesystem walk (os.Stat for a .git marker), not string
+// matching like the ephemeral-path checks above.
+func TestApplyScheduleStatusRepairsAGitCheckoutExecutable(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inRepoExe := filepath.Join(wd, "opal-downloader.exe")
+
+	var gotExe string
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "06:00", ExecutablePath: inRepoExe}, nil
+		},
+		func(exePath, hhmm string) error { gotExe = exePath; return nil },
+		nil,
+		func() (string, error) { return stableExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if gotExe != stableExe {
+		t.Errorf("expected the task to be re-registered against %q, got %q", stableExe, gotExe)
+	}
+	if view.ScheduleNotice == "" {
+		t.Error("a repair away from a git-checkout binary has to be reported, same as any other repair")
+	}
+}
+
+// The maintainer's actual day-to-day case: the registered task AND the
+// binary currently running (e.g. the GUI itself, launched from the same
+// working copy) are both inside the git checkout. Nothing here can safely
+// repair anything - re-registering against the running copy would just
+// point at another binary `git clean -xfd` deletes just as easily - so this
+// must warn, not silently "fix" the schedule with the same doomed path.
+func TestApplyScheduleStatusWarnsWhenBothRegisteredAndRunningAreInAGitCheckout(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inRepoExe := filepath.Join(wd, "opal-downloader.exe")
+
+	var enableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "06:00", ExecutablePath: inRepoExe}, nil
+		},
+		func(string, string) error { enableCalled = true; return nil },
+		nil,
+		func() (string, error) { return inRepoExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if enableCalled {
+		t.Fatal("must not re-register a git-checkout task against another git-checkout binary")
+	}
+	if view.ScheduleError == "" {
+		t.Error("expected the unrepairable git-checkout registration to be reported as an error")
+	}
+}
+
 func TestApplyScheduleStatusFallsBackToWarningWhenRepairFails(t *testing.T) {
 	withScheduleFakes(t,
 		func() (scheduler.Info, error) {

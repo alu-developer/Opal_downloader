@@ -56,6 +56,33 @@ func TestBuildTaskXMLContainsExpectedSettings(t *testing.T) {
 	}
 }
 
+// TestBuildTaskXMLRegistersLogonTriggerAlongsideCalendarTrigger asserts the
+// catch-up trigger added per Finding 1 (docs/BACKLOG.md,
+// buildTaskXML's doc comment) is present and enabled, without displacing
+// the original fixed-time CalendarTrigger - both must fire this project's
+// single Action, since Task Scheduler gives the launched process no way to
+// tell which trigger fired it (that ambiguity is exactly why
+// cmd/opal-downloader's errAlreadySucceededToday guard exists instead of a
+// trigger-specific check).
+func TestBuildTaskXMLRegistersLogonTriggerAlongsideCalendarTrigger(t *testing.T) {
+	raw, err := buildTaskXML(`C:\fake\opal-downloader.exe`, "06:30")
+	if err != nil {
+		t.Fatalf("buildTaskXML: %v", err)
+	}
+	decoded, err := decodeMaybeUTF16(raw)
+	if err != nil {
+		t.Fatalf("decodeMaybeUTF16: %v", err)
+	}
+	xmlText := string(decoded)
+
+	if !strings.Contains(xmlText, "<LogonTrigger>") {
+		t.Errorf("expected task XML to register a LogonTrigger, got:\n%s", xmlText)
+	}
+	if !strings.Contains(xmlText, "<CalendarTrigger>") {
+		t.Errorf("expected task XML to still register the CalendarTrigger, got:\n%s", xmlText)
+	}
+}
+
 func TestBuildTaskXMLRejectsInvalidTime(t *testing.T) {
 	if _, err := buildTaskXML(`C:\fake\opal-downloader.exe`, "not-a-time"); err == nil {
 		t.Fatal("expected buildTaskXML to reject an invalid time, got nil error")

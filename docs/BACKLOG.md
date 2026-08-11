@@ -63,30 +63,16 @@ Found by using the GUI as a normal user, not reported by the maintainer.
 Walk detail, expectations and named causes: `docs/friction-campaign.md`.
 Tags: **blocker** / **wrong** / **friction** / **bloat**.
 
-- **[wrong] Automatic sync silently skipped 3 of the last 5 due days, and the
-  GUI cannot tell you.** Windows dropped the run on 07/08, 09/08 and 11/08
-  (event 332, user not logged on when the catch-up fired); it launched only on
-  08/08 and 10/08. `statuslog` is written *by the sync process*, so a run that
-  never launched writes nothing and the banner keeps showing an older run.
-  Every pre-launch failure is invisible the same way. Two repairs: (a) the GUI
-  should answer "when did a sync last actually succeed?" and warn when that is
-  old — covers the whole class; (b) add an **on-logon trigger** beside the
-  daily one, which needs no stored password and so keeps the `/schedule` page's
-  "no password is stored" promise true. (b) is recommended and needs no
-  decision; the alternative (run whether logged on or not) does need one,
-  because it requires storing a password.
-
-- **[wrong] The daily sync runs a gitignored build artifact.** Task action is
-  `…\Opal_downloader\main.exe`, untracked (`.gitignore:23`) and last built
-  23/07 — 19 days stale, so nothing merged since then has ever run
-  automatically. `git clean -xfd` deletes it and automatic sync dies silently
-  and permanently, with the GUI still showing it as on. Rebuilt from master
-  2026-08-11 as a stopgap; the dependency on a working-directory artifact is
-  the actual fix and is untouched. `installer/opal-downloader.iss` already
-  defines an install location the schedule could point at instead.
-
 - **Fixed 2026-08-11 (autopilot):** raw Playwright internals in the banner,
-  and the banner never expiring — see Done recently for both.
+  the banner never expiring, the on-logon catch-up trigger (Finding 1's
+  recommended repair (b)), and the gitignored-build-artifact scheduling
+  dependency (Finding 2) — see Done recently for all four. Finding 1's
+  repair (a) ("when did a sync last actually succeed" as a general,
+  outcome-independent staleness signal) is **not** built — (b) closes the
+  specific failure mode that was actually observed (event 332, user not
+  logged on), and (a) would be a broader defense-in-depth layer on top,
+  not required to close this finding. Left as a possible future Noticed
+  item, not a commitment.
 
 - **[bloat] `/settings` puts a glob-pattern rules engine in front of everyone.**
   Section-name rewrite rules and `<course pattern>/<subfolder pattern>`
@@ -507,6 +493,42 @@ move the rest across.
   network-classified failure turns green with the reassurance line, a stale
   one stays red with the staleness sentence, browser-online in both cases.
   Full test suite green.
+- **Finding 1's recommended repair (b) shipped: an on-logon catch-up trigger,
+  guarded against over-firing** (2026-08-11, autopilot, live-verified against
+  real Task Scheduler under a scratch task name): the scheduled task now
+  registers a `LogonTrigger` alongside the existing daily `CalendarTrigger` -
+  `docs/scheduled-sync-plan.md` section 4's original "not both, since
+  STARTWHENAVAILABLE gives a logon-like catch-up for free" reasoning is
+  corrected in place, with the walk's own event-332 evidence (3 of 5 days
+  silently unsynced) as the refutation. New `errAlreadySucceededToday` guard
+  (`cmd/opal-downloader/root.go`) is the "already ran today" dedup the
+  original design doc said a logon trigger would need, checked before
+  anything else in the `--scheduled` path (TU-Fast presence, config load,
+  network wait) so a machine locked/unlocked repeatedly costs one cheap
+  status-file read per extra logon, not a resync. Only a recorded
+  **success** suppresses the guard - a failure or partial run earlier today
+  still lets the next trigger retry. Verified live: registered the generated
+  XML under a scratch task name (`schtasks /Create`), confirmed both
+  triggers round-trip through a real `schtasks /Query`, deleted it - the
+  real `OpalDownloaderScheduledSync` task was never touched. `/schedule`
+  page copy updated to match. Full test suite green.
+- **Finding 2 fixed by teaching the existing doomed-schedule repair machinery
+  about git checkouts** (2026-08-11, autopilot): `CheckExecutableStable`
+  (`internal/scheduler/exepath.go`) already rejected go-build-cache and
+  system-temp-dir paths (task #122) but had no concept of "this path is
+  inside a git working tree" - so a plain `go build .` output sitting in
+  the repo (exactly what was actually registered, 19 days stale) passed as
+  "stable" and the maintainer's own `repairDoomedSchedule` self-heal
+  (`internal/gui/schedule.go`) never triggered for it. New
+  `findGitWorkingTreeRoot` walks up from the executable's directory looking
+  for a `.git` entry (file or directory, so a linked worktree counts too),
+  bounded to 12 levels. No new UI or registration-time code needed - the
+  existing GET-render repair/warn path (already covers the go-build-cache
+  and missing-executable classes) now also catches and either repairs or
+  clearly warns about this one, the next time the maintainer opens
+  `/schedule`. Verified via the existing mock-driven repair tests (no real
+  `schtasks.exe` involved) plus two new cases using this package's own real
+  git-tracked working directory rather than a hardcoded path.
 - **Question 41 closed: course-level HTTP concurrency's second confirming
   run lost 6 files, overturning the first run's clean result and closing
   the promotion question as a no-go** (2026-08-11, autopilot, 2 live runs):

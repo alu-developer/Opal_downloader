@@ -305,6 +305,117 @@ func TestBuildScheduledRunStatus_SyncLockHeldIsSkippedNotFailure(t *testing.T) {
 	}
 }
 
+// alreadySucceededToday backs errAlreadySucceededToday (root.go), the guard
+// that keeps the new LogonTrigger (internal/scheduler, Finding 1) from
+// resyncing on every logon/unlock once today's fixed-time or catch-up run
+// has already succeeded.
+func withFakeScheduledStatus(t *testing.T, status statuslog.Status, ok bool) {
+	t.Helper()
+	original := readScheduledStatusForDedup
+	readScheduledStatusForDedup = func() (statuslog.Status, bool) { return status, ok }
+	t.Cleanup(func() { readScheduledStatusForDedup = original })
+}
+
+func TestAlreadySucceededToday_TrueForSameDaySuccessEarlierToday(t *testing.T) {
+	now := time.Date(2026, 8, 11, 18, 0, 0, 0, time.Local)
+	withFakeScheduledStatus(t, statuslog.Status{
+		Timestamp: time.Date(2026, 8, 11, 6, 0, 0, 0, time.Local),
+		Outcome:   statuslog.OutcomeSuccess,
+	}, true)
+
+	if !alreadySucceededToday(now) {
+		t.Fatal("expected alreadySucceededToday to be true for a success recorded earlier the same day")
+	}
+}
+
+func TestAlreadySucceededToday_FalseForSuccessOnAnEarlierDay(t *testing.T) {
+	now := time.Date(2026, 8, 11, 6, 0, 0, 0, time.Local)
+	withFakeScheduledStatus(t, statuslog.Status{
+		Timestamp: time.Date(2026, 8, 10, 6, 0, 0, 0, time.Local),
+		Outcome:   statuslog.OutcomeSuccess,
+	}, true)
+
+	if alreadySucceededToday(now) {
+		t.Fatal("expected alreadySucceededToday to be false for yesterday's success - today's trigger must still run")
+	}
+}
+
+// TestAlreadySucceededToday_FalseForFailureEarlierToday covers the case the
+// guard exists to NOT block: a failed (or partial) run earlier today must
+// not stop a later trigger (fixed-time or logon) from trying again - only a
+// recorded success should suppress a resync.
+func TestAlreadySucceededToday_FalseForFailureEarlierToday(t *testing.T) {
+	now := time.Date(2026, 8, 11, 8, 0, 0, 0, time.Local)
+	withFakeScheduledStatus(t, statuslog.Status{
+		Timestamp: time.Date(2026, 8, 11, 6, 0, 0, 0, time.Local),
+		Outcome:   statuslog.OutcomeFailure,
+	}, true)
+
+	if alreadySucceededToday(now) {
+		t.Fatal("expected alreadySucceededToday to be false after an earlier failure today")
+	}
+}
+
+func TestAlreadySucceededToday_FalseWhenNoStatusFileExists(t *testing.T) {
+	withFakeScheduledStatus(t, statuslog.Status{}, false)
+
+	if alreadySucceededToday(time.Now()) {
+		t.Fatal("expected alreadySucceededToday to be false when there is no status to read")
+	}
+}
+
+func TestExitCodeForError_AlreadySucceededToday(t *testing.T) {
+	if got := exitCodeForError(errAlreadySucceededToday); got != exitCodeAlreadySucceededToday {
+		t.Fatalf("expected exit code %d, got %d", exitCodeAlreadySucceededToday, got)
+	}
+}
+
+// TestSyncScheduledSkipsWhenAlreadySucceededToday is the end-to-end version
+// of the alreadySucceededToday unit tests above: with the new LogonTrigger
+// (internal/scheduler, Finding 1) able to fire `sync --scheduled` on every
+// logon/unlock, this guard has to sit ahead of every other scheduled-run
+// step - TU-Fast presence, config load, network wait - or a machine that
+// gets locked and unlocked repeatedly would pay for all of that on every
+// unlock just to then also try, and fail to improve on, an already-succeeded
+// day. Mirrors TestListRefusesWhileAnotherRunHoldsTheOverlapLock's "never
+// touches the browser" style: this finishes in milliseconds.
+func TestSyncScheduledSkipsWhenAlreadySucceededToday(t *testing.T) {
+	withFakeScheduledStatus(t, statuslog.Status{
+		Timestamp: time.Now().Add(-time.Hour),
+		Outcome:   statuslog.OutcomeSuccess,
+	}, true)
+
+	err := runSync([]string{"--config", writeMinimalConfig(t), "--scheduled"})
+	if !errors.Is(err, errAlreadySucceededToday) {
+		t.Fatalf("expected errAlreadySucceededToday, got %v", err)
+	}
+	if got := exitCodeForError(err); got != exitCodeAlreadySucceededToday {
+		t.Fatalf("expected exit code %d, got %d", exitCodeAlreadySucceededToday, got)
+	}
+}
+
+// The companion negative case: a fixed-time or logon trigger firing on a day
+// with no recorded success yet must run normally (here it fails fast on
+// scraper.ErrTUFastNotReady, since USERPROFILE is redirected to an empty
+// temp dir with no login profile - but critically NOT with
+// errAlreadySucceededToday, proving the guard did not fire). USERPROFILE is
+// redirected (not just the config's own paths) because past this guard the
+// scheduled path also writes a real statuslog entry on return - t.Setenv
+// keeps that write, and scraper.EnsureTUFastPresent's LoginProfileDir()
+// lookup, off the real ~/.opal-downloader/ this machine actually uses.
+func TestSyncScheduledRunsWhenNotYetSucceededToday(t *testing.T) {
+	withFakeScheduledStatus(t, statuslog.Status{}, false)
+	t.Setenv("USERPROFILE", t.TempDir())
+
+	err := runSync([]string{"--config", writeMinimalConfig(t), "--scheduled"})
+	if errors.Is(err, errAlreadySucceededToday) {
+		t.Fatal("expected the scheduled run to proceed past the dedup guard when nothing succeeded today")
+	}
+	if !errors.Is(err, scraper.ErrTUFastNotReady) {
+		t.Fatalf("expected the run to fail fast on the redirected (empty) login profile, got %v", err)
+	}
+}
+
 // `status` used to print the download path unchecked, so a broken path (a
 // typo'd drive letter, a path under a file) validated fine and only
 // surfaced minutes later inside a real sync. Both cases below cover that a

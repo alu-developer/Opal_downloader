@@ -79,7 +79,45 @@ func CheckExecutableStable(exePath string) error {
 				"Build or install opal-downloader to a permanent location and enable the schedule from there",
 			ErrEphemeralExecutable, normalized)
 	}
+	if gitRoot := findGitWorkingTreeRoot(filepath.Dir(normalized)); gitRoot != "" {
+		return fmt.Errorf(
+			"%w (%s is inside the git working directory %s), so `git clean -xfd`, switching branches, or moving/deleting "+
+				"the checkout would silently stop it working - this is exactly how it broke on the maintainer's own machine "+
+				"(2026-08-11, docs/BACKLOG.md Finding 2: a 19-day-stale gitignored main.exe kept being registered). "+
+				"Install opal-downloader (installer/opal-downloader.iss) or build it to a permanent location outside any "+
+				"git checkout, and enable the schedule from there",
+			ErrEphemeralExecutable, normalized, gitRoot)
+	}
 	return nil
+}
+
+// gitWorkingTreeMaxDepth bounds findGitWorkingTreeRoot's upward walk so a
+// path with no git ancestor at all (the common case - most opal-downloader
+// installs are not inside a git checkout) still terminates in a handful of
+// stat calls rather than walking to the filesystem root every time.
+// Repositories nest their .git marker at the checkout root, rarely more than
+// a few levels below where a built binary would sit.
+const gitWorkingTreeMaxDepth = 12
+
+// findGitWorkingTreeRoot walks upward from dir looking for a `.git` entry
+// (a directory for a normal clone, a file for a linked worktree - both mean
+// "this is a git working tree"), returning the directory that has one, or ""
+// if none is found within gitWorkingTreeMaxDepth levels. Existence alone is
+// enough; CheckExecutableStable only needs to know a build artifact sits
+// somewhere `git clean`/a branch switch can reach, not repository details.
+func findGitWorkingTreeRoot(dir string) string {
+	dir = filepath.Clean(dir)
+	for i := 0; i < gitWorkingTreeMaxDepth; i++ {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // withExecutableState fills Info's ExecutablePath/ExecutableMissing. An

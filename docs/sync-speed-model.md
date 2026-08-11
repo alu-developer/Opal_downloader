@@ -386,6 +386,29 @@ with itself, and it is specifically 2026-07-31's 315ms that stands apart. That
 shifts suspicion toward "that day was slower" over "today is unrepresentative,"
 but this is an observation, not the live re-run the *why* still needs.
 
+**Prediction, written 2026-08-11 before running, per Rule 1.** Cheapest
+decisive step named above: re-run `TestHTTPFirstSectionDiscovery`
+(`internal/scraper/httpfirst_probe_test.go`, unchanged since 2026-08-10) on a
+different calendar day. Nothing in the fetch path or the test's own
+methodology has changed since the four 2026-08-10 measurements, so this run
+isolates exactly the external factor (server load / time-of-day / network)
+that is the leading candidate.
+
+*Expected:* per-fetch time (`httpElapsed / totalFetched` from
+`tmp/httpfirst-sections.txt`) lands in the **200-260ms** range, consistent
+with all four 2026-08-10 data points, and `totalMissing = 0` (Step B1 run 2's
+pagination fix is unchanged in this file, so the section-discovery half
+should replicate clean). *Mechanism:* if 2026-08-10 was itself representative
+and 2026-07-31 was the slow day, a second day drawn independently of
+2026-08-10 should reproduce the same cluster rather than split the
+difference. *Counts as failed:* a result outside 180-300ms — either back
+toward 315ms (would mean 2026-08-10 was the outlier, not 2026-07-31, and the
+"which day is normal" question stays open with one more data point against
+it) or below 180ms (would mean neither number is stable and something else,
+not day-to-day variance, is producing the spread). A missing section would be
+a separate, higher-priority finding (a pagination-fix regression) and stops
+the timing question from being answerable this cycle.
+
 ### 37. Does a page the crawl already fetches carry file data the crawl then navigates again to fetch? — OPEN, the unanswered half of Question 34
 
 Question 34's reuse half, deliberately left for its own cycle after the
@@ -1684,10 +1707,14 @@ payoff to a few seconds anyway - not worth chasing further. **Question 38**
 next: cheap (re-run Step B1's probe on a different day, it already records
 its own timing) and the more interesting number now, since every HTTP-first
 timing projection - including Step B2's own result - depends on which of the
-two is real. **Question 35** (`course_concurrency=3` sweep) stays sequenced
-after B2's merge decision per its own recommendation, so as not to spend live
-runs tuning a browser path B2 may retire. Question 5 remains lowest (declined
-pivot, 2026-08-03).
+two is real. **Question 35** (`course_concurrency=3` sweep) is blocked until
+PR #134 (Step B2) gets the maintainer's look, per that PR's own recommendation
+against spending live runs tuning a browser path B2 may retire. (This
+corrects a same-commit inconsistency: Question 38's own entry above says
+"re-rank below Question 35," this paragraph said the opposite order - moot
+either way since 35 cannot run before 134 is resolved, but 38 then 35 then 5
+is the order that doesn't contradict itself.) Question 5 remains lowest
+(declined pivot, 2026-08-03).
 
 **No local-only ranked question left; the campaign's live-run arm just
 closed with the biggest result it has produced.** Question 32

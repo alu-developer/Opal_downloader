@@ -102,6 +102,76 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
 
 ---
 
+## Installer walk (2026-08-11)
+
+Built `opal-downloader-setup.exe` from `99c2fca` and installed it the way a
+new user would: real silent install, real Start Menu shortcut, first run,
+first save, uninstall. The maintainer's own Playwright cache was moved aside
+first, so "Chromium is present afterwards" could only be true because the
+installer put it there. 28 of 30 checks passed; both misses were the test's
+outdated expectations, not the app's behaviour.
+
+**Not a friction-campaign walk**, and deliberately not filed as one: this was
+an engineering verification of a build artifact, run with full knowledge of
+the code and of the bug being checked for. No expectation was registered
+before the click (campaign Rule 1) and insider knowledge was used at every
+step (Rule 4), so nothing here counts as a persona finding. The entries below
+are defects and stale documentation, which stand without the persona; the
+installer surface is still unwalked by the campaign proper.
+
+- **[blocker] The only published release is broken, and predates its own fix
+  by three weeks.** `v0.1.0` (2026-07-14) is what anyone downloading from
+  GitHub gets today. Its installer stages Chromium into
+  `%LOCALAPPDATA%\ms-playwright` while the binary in the same release already
+  read `%USERPROFILE%\.opal-downloader\ms-playwright` (`b352143`, 2026-07-13,
+  one day before the tag) — and `NeedsPlaywrightSetup` probed the same wrong
+  path, so it reported "present" and skipped the `setup` fallback that would
+  have recovered. Result: the GUI opens and `login`/`sync` cannot start a
+  browser. Fixed on master by `9e9ac47` (2026-08-03) and verified there by a
+  `workflow_dispatch` run, but **no tag was ever pushed**, so the fix has
+  never reached a user. A locally built installer from current master was
+  walked end to end and is sound (Chromium lands at the right path, bundle
+  byte-identical to a known-working cache, headless shell executes). Cutting
+  `v0.1.1` is a publishing decision and stays with the maintainer.
+
+- **[wrong] `config.example.yaml` still ships `download_path: "D:/Uni/OPAL"`**,
+  a path that exists on one machine in the world. `init` copies it verbatim,
+  so a CLI-first user's next command reports
+  `Download path: D:/Uni/OPAL (BROKEN: ...)` plus two warnings about settings
+  that have no effect (`section_folder_names` / `subfolder_destinations` with
+  `use_section_subfolders: false`). The GUI's first-run path does not hit
+  this — it now starts from `config.Defaults()` — but the example file is
+  installed alongside the binary and is what `init` hands anyone who never
+  opens the GUI.
+
+- **[friction] Uninstalling leaves ~680 MB behind without saying so.** The
+  bundled Chromium is deliberately `uninsneveruninstall` (uninstalling the
+  app should not break a second install), and the user's own `config.yaml`
+  survives too — both defensible, neither mentioned anywhere. Someone who
+  uninstalls to reclaim space reclaims 23 MB of the 700 they expected.
+
+- **[wrong] `docs/setup-friction.md` describes a `list` that no longer
+  exists.** Findings 3 and 4 and the closing "still genuinely rough" note all
+  assume `list` opens a browser and can leak raw Playwright text. Neither is
+  reachable now: a reachability pre-check fails first (0.0s, a Go network
+  error, wrapped in a written-for-humans sentence), and discovery is HTTP-first
+  by default, so no browser is launched at all — confirmed with
+  `OPAL_HTTP_DISCOVERY=0` too. The doc's own summary table is accurate; the
+  prose above it is three defaults out of date.
+
+- **[question] The GUI asserts "Running the latest version" for a version it
+  cannot compare.** `IsNewerVersion` returns an error for any non-numeric
+  current version (`v0.1.1-dev-99c2fca`, or the plain `dev` default), and the
+  GUI renders that case as "latest" rather than "cannot tell". Harmless for a
+  tagged release; misleading for every build that is not one.
+
+- **Fixed with the commit that filed this walk:** the first-run Settings save
+  wrote `skip_enrollment_sections: false`, flipping a live-confirmed default
+  for every fresh install. `config.Defaults()` now exists so front ends stop
+  hand-listing defaults, and both the render and save paths use it.
+
+---
+
 ## Noticed
 
 Things seen while working on something else and passed over. Not commitments —

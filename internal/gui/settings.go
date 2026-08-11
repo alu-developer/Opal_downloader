@@ -343,17 +343,16 @@ func loadSettingsViewData(configPath string) settingsViewData {
 			// No config.yaml yet: show the form pre-filled with defaults so
 			// the settings page still works as the primary first-run
 			// configuration path.
-			view := loadedToViewData(configPath, config.Loaded{
-				App: config.App{
-					DownloadPath: "./downloads",
-					Courses:      []string{"*"},
-					Sync:         true,
-				},
-				Credentials: config.Credentials{
-					URL:       config.DefaultOPALURL,
-					StateFile: config.DefaultStateFile,
-				},
-			})
+			//
+			// These come from config.Defaults() rather than a struct built
+			// here, because this page's Save writes every field it renders:
+			// any default missing from the struct is silently saved as its
+			// zero value. Found 2026-08-11 walking a fresh install of
+			// opal-downloader-setup.exe - the hand-built version listed
+			// three of the defaults and so wrote skip_enrollment_sections:
+			// false on the first save, turning off a live-confirmed skip
+			// for every new user.
+			view := loadedToViewData(configPath, config.Defaults())
 			view.FirstRun = true
 			return view
 		}
@@ -382,11 +381,18 @@ func handleSettings(configPath string) http.HandlerFunc {
 			// section_folder_names, subfolder_destinations) are preserved
 			// rather than reset to zero values on save. If no config exists
 			// yet, or the existing file can't be parsed, fall back to the
-			// zero value - there's nothing on disk to preserve either way,
-			// and Save's own validation will surface any real problem.
+			// defaults - NOT to config.Loaded{}, which is what this did
+			// until 2026-08-11. Save writes every field of base that the
+			// form does not override, so a zero-valued base persisted
+			// skip_enrollment_sections: false on a new user's first save
+			// (an explicit false, which config.Load then honours over
+			// DefaultSkipEnrollmentSections). Defaults() is what a user who
+			// never opened this page would be running under, so it is the
+			// only correct thing to start from when there is nothing to
+			// preserve. Save's own validation still surfaces real problems.
 			base, err := config.Load(configPath)
 			if err != nil {
-				base = config.Loaded{}
+				base = config.Defaults()
 			}
 
 			view, loaded := parseSettingsForm(r, configPath, base)

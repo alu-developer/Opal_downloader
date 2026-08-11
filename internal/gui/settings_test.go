@@ -58,6 +58,78 @@ func TestSettingsSecondaryButtonsSetTheirOwnTextColour(t *testing.T) {
 	}
 }
 
+// TestHandleSettingsFirstSaveKeepsDefaults is a regression test for the
+// first-run path the Windows installer puts every new user on: setup.exe ->
+// GUI -> Settings -> "Save settings", with no config.yaml in existence yet.
+//
+// loadSettingsViewData used to hand-build the App it renders in that case,
+// listing three defaults (download path, courses, sync) and nothing else.
+// Every other field therefore rendered as its zero value, and because Save
+// writes every field it renders, the very first save wrote
+// skip_enrollment_sections: false - which config.Load honours, since the
+// key is a *bool where "absent" and "false" are different things. So a
+// fresh install silently turned off a live-confirmed structural skip
+// (config.DefaultSkipEnrollmentSections) for the user who never touched it.
+//
+// Found 2026-08-11 by installing a locally built opal-downloader-setup.exe
+// and walking the first run, not by a failing test.
+func TestHandleSettingsFirstSaveKeepsDefaults(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("precondition failed: config.yaml must not exist yet, got err=%v", err)
+	}
+
+	// What a first-run user submits: type a download path, click Save,
+	// leave everything else at whatever the form came pre-filled with.
+	form := url.Values{}
+	form.Set("download_path", filepath.Join(dir, "downloads"))
+	form.Set("sync_all_courses", "on")
+	form.Set("sync", "on")
+
+	req := httptest.NewRequest(http.MethodPost, "/settings", nil)
+	req.PostForm = form
+	req.Form = form
+	rec := httptest.NewRecorder()
+
+	handleSettings(configPath)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from first settings POST, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	after, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load the config the first save wrote: %v", err)
+	}
+
+	if after.App.SkipEnrollmentSections != config.DefaultSkipEnrollmentSections {
+		t.Errorf("first save flipped skip_enrollment_sections: got %v, want the default %v",
+			after.App.SkipEnrollmentSections, config.DefaultSkipEnrollmentSections)
+	}
+
+	// The same class of bug for every other defaulted field: whatever the
+	// first save writes must load back as the defaults a user would have
+	// had if they had never opened the page at all.
+	defaults := config.Defaults()
+	if after.App.DownloadConcurrency != defaults.App.DownloadConcurrency {
+		t.Errorf("download_concurrency: got %d, want default %d",
+			after.App.DownloadConcurrency, defaults.App.DownloadConcurrency)
+	}
+	if after.App.CourseConcurrency != defaults.App.CourseConcurrency {
+		t.Errorf("course_concurrency: got %d, want default %d",
+			after.App.CourseConcurrency, defaults.App.CourseConcurrency)
+	}
+	if after.App.SectionConcurrency != defaults.App.SectionConcurrency {
+		t.Errorf("section_concurrency: got %d, want default %d",
+			after.App.SectionConcurrency, defaults.App.SectionConcurrency)
+	}
+	if after.Credentials.URL != defaults.Credentials.URL {
+		t.Errorf("opal_url: got %q, want default %q", after.Credentials.URL, defaults.Credentials.URL)
+	}
+}
+
 func TestHandleSettingsPostPreservesFieldsWithoutFormInputs(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")

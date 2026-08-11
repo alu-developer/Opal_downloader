@@ -523,7 +523,10 @@ func LoadCredentials(configPath string) (Credentials, error) {
 	if err := loadYAML(configPath, &cfg); err != nil {
 		return Credentials{}, err
 	}
+	return credentialsFromRaw(cfg), nil
+}
 
+func credentialsFromRaw(cfg rawConfig) Credentials {
 	opalURL := strings.TrimSpace(cfg.OPALURL)
 	if opalURL == "" {
 		opalURL = DefaultOPALURL
@@ -538,7 +541,7 @@ func LoadCredentials(configPath string) (Credentials, error) {
 	return Credentials{
 		URL:       opalURL,
 		StateFile: expandHome(stateFile),
-	}, nil
+	}
 }
 
 func Load(configPath string) (Loaded, error) {
@@ -546,11 +549,23 @@ func Load(configPath string) (Loaded, error) {
 	if err := loadYAML(configPath, &cfg); err != nil {
 		return Loaded{}, err
 	}
+	return fromRaw(cfg), nil
+}
 
-	credentials, err := LoadCredentials(configPath)
-	if err != nil {
-		return Loaded{}, err
-	}
+// Defaults is the configuration a user has before any config.yaml exists:
+// exactly what Load would return for an empty one. Front ends that need to
+// show or save settings for a brand-new user must start from this rather
+// than from a hand-built App - a zero-valued App is NOT the default one,
+// and the difference is silent. internal/gui's first-run Settings page
+// built its own and so wrote skip_enrollment_sections: false on the very
+// first save, flipping a live-confirmed default (see
+// DefaultSkipEnrollmentSections) for every fresh install.
+func Defaults() Loaded {
+	return fromRaw(rawConfig{})
+}
+
+func fromRaw(cfg rawConfig) Loaded {
+	credentials := credentialsFromRaw(cfg)
 
 	downloadPath := strings.TrimSpace(cfg.DownloadPath)
 	if downloadPath == "" {
@@ -633,7 +648,7 @@ func Load(configPath string) (Loaded, error) {
 			SkipEnrollmentSections: skipEnrollmentSections,
 		},
 		Credentials: credentials,
-	}, nil
+	}
 }
 
 func ResolveCourseFolder(cfg App, courseName string) (folder string, explicit bool) {

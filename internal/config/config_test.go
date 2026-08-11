@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -484,5 +485,38 @@ func TestValidateRejectsEmptyCourseFolderValue(t *testing.T) {
 	}
 	if err := Validate(loaded); err == nil {
 		t.Fatal("expected error for empty course_folders value, got nil")
+	}
+}
+
+// TestDefaultsMatchesLoadOfEmptyConfig pins Defaults() to Load()'s own
+// defaulting. The two must not be able to drift: Defaults() exists so front
+// ends stop hand-listing defaults for the "no config.yaml yet" case, and a
+// copy that quietly falls behind Load is exactly the bug it was added to
+// prevent (internal/gui's first-run Settings page wrote
+// skip_enrollment_sections: false on a fresh install for that reason).
+func TestDefaultsMatchesLoadOfEmptyConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("failed to write empty config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load of an empty config.yaml failed: %v", err)
+	}
+
+	if !reflect.DeepEqual(Defaults(), loaded) {
+		t.Errorf("Defaults() has drifted from Load() of an empty config.yaml:\n Defaults() = %+v\n Load()     = %+v",
+			Defaults(), loaded)
+	}
+}
+
+// TestDefaultsSkipsEnrollmentSections spells out the one field whose zero
+// value differs from its default, since that asymmetry is what made the
+// first-run bug silent.
+func TestDefaultsSkipsEnrollmentSections(t *testing.T) {
+	if !Defaults().App.SkipEnrollmentSections {
+		t.Fatal("Defaults().App.SkipEnrollmentSections is false; a zero-valued App is not the default one")
 	}
 }

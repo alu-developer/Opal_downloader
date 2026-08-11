@@ -238,6 +238,98 @@ func (s *OpalScraper) scrapeCoursesHybrid(ctx context.Context, courseFilter []st
 	return browserFiles, nil
 }
 
+// scrapeCoursesHTTPFirst is the production restructure docs/sync-speed-model.md
+// Question 36 Step B2 asked for: unlike scrapeCoursesHybrid, phase 1 never runs
+// a browser crawl at all. The browser is used only to list the courses
+// (discoverCourseLinks - three page loads against the dashboard, not a
+// per-course tree walk); every course's files are then discovered and
+// extracted entirely over HTTP by discoverSectionsHTTP, which fetches each
+// section exactly once (seed from the root's initial_data tree, expand with
+// the crawl's own predicates, extract files from the same body already in
+// hand) rather than once for discovery and again for files - see
+// httpdiscovery_seed.go's top doc comment for why that distinction is not
+// cosmetic (Step B2's first live measurement: 604 requests and 4m45s at the
+// old two-fetch shape, against Step B1's 313-request rider).
+//
+// Enabled by OPAL_HTTP_DISCOVERY=2 (see ScrapeWithSavedSession). Proven
+// byte-for-byte lossless as a rider before this method existed:
+// TestHTTPFirstSectionDiscovery (httpfirst_probe_test.go) ran the identical
+// discovery algorithm alongside a real browser crawl and found 286 of 286
+// sections, 0 missing, in 71.4s against that run's 173.8s browser crawl
+// (Step B1 run 2). This method is that same algorithm wired to replace the
+// browser tree walk instead of merely comparing against it - a live
+// before/after run against the ground truth is still required before this
+// becomes the default (see docs/sync-speed-model.md Question 36 Step B2 and
+// docs/BACKLOG.md).
+func (s *OpalScraper) scrapeCoursesHTTPFirst(ctx context.Context, courseFilter []string) ([]RemoteFile, error) {
+	// See scrapeCoursesBrowser's identical defer for why this goes first and
+	// runs for the whole scrape rather than per course.
+	defer s.watchForStall(ctx)()
+
+	if s.getPage() == nil {
+		return nil, errors.New("no page available")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	discoveryTimer := timing.StartTimer()
+	courses, err := s.discoverCourseLinks(courseFilter)
+	discoveryElapsed := discoveryTimer.Elapsed()
+	if err != nil {
+		return nil, preferCancellation(ctx.Err(), err)
+	}
+	logging.User("Found %d course links", len(courses))
+	timing.PrintDiscoverySummary(discoveryElapsed, len(courses))
+	s.publishProgress(DiscoveryProgress{Phase: PhaseCoursesFound, TotalCourses: len(courses)})
+
+	fetch := s.httpDiscoveryFetcher()
+	if fetch == nil {
+		return nil, errors.New("OPAL_HTTP_DISCOVERY=2: no authenticated request context available")
+	}
+
+	remoteFiles := make([]RemoteFile, 0)
+	remoteFileSeen := map[string]struct{}{}
+	totalRequests := 0
+	httpTimer := timing.StartTimer()
+
+	for _, course := range courses {
+		if err := ctx.Err(); err != nil {
+			return remoteFiles, err
+		}
+		s.publishProgress(DiscoveryProgress{
+			Phase:        PhaseCourseStarted,
+			Course:       course.Title,
+			CourseIndex:  s.nextCourseIndex(),
+			TotalCourses: len(courses),
+		})
+
+		onSectionError := func(url string, serr error) {
+			logging.Warn("OPAL_HTTP_DISCOVERY=2: %s: %v", url, serr)
+		}
+		courseFiles, reqs, derr := discoverSectionsHTTP(fetch, course, s.opalURL, s.skipEnrollmentSections, onSectionError)
+		totalRequests += reqs
+		if derr != nil {
+			logging.Warn("OPAL_HTTP_DISCOVERY=2: course %q discovery failed: %v", course.Title, derr)
+			continue
+		}
+		if len(courseFiles) == 0 {
+			logging.Warn("course %q crawled successfully but found 0 files - verify this course actually has no content", course.Title)
+		}
+		remoteFiles = appendUniqueRemoteFiles(remoteFiles, remoteFileSeen, convertFileRefsToRemoteFiles(courseFiles))
+		s.publishProgress(DiscoveryProgress{Phase: PhaseCourseDone, Course: course.Title, FileCount: len(courseFiles)})
+	}
+	httpElapsed := httpTimer.Elapsed()
+	logging.User("OPAL_HTTP_DISCOVERY=2 summary: %d courses, %d HTTP requests, %s",
+		len(courses), totalRequests, httpElapsed)
+	logging.User("Discovered %d remote files", len(remoteFiles))
+
+	if err := ctx.Err(); err != nil {
+		return remoteFiles, err
+	}
+	return remoteFiles, nil
+}
+
 // httpDiscoveryFetcher returns the authenticated HTTP request context the
 // hybrid path uses for leaf-table fetches, or nil if the browser session was
 // torn down. Lives here so the hybrid method reads as one block.

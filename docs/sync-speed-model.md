@@ -428,6 +428,23 @@ default-now vs. wait-a-day options.
    follow-up if this becomes the default and the GUI's progress bar looks
    wrong to real use.
 
+**Resolved 2026-08-11 (decision round): two independent sessions had built
+this same step as separate PRs without knowing about each other — #133
+(above, `restructure-hybrid-http-first-discovery`) and #134
+(`http-first-discovery-b2`, a lighter-weight rebuild of the same algorithm in
+a single new file, 2 live runs, 349/349 zero-diff on both). #134's own
+`fetch.Get` call carried no timeout — the identical unbounded-hang bug run 1
+above found and fixed here — it simply never fired in #134's two runs.
+Maintainer decided: merge #133 (it already found and fixed that bug, plus the
+double-fetch inefficiency, with 3 live runs and 5 tests to #134's 2 runs),
+close #134 as superseded, and ship `OPAL_HTTP_DISCOVERY=2` as the default
+immediately rather than wait for a different-day confirmation run — same
+call as the `course_concurrency=2` precedent (2026-08-10), same residual
+caveat (all live evidence is one day/account-state). Open question 1 above
+(different-day confirmation) is therefore answered by policy, not by a
+fresh run: accepted risk, not proof. Root cause of the duplication and both
+PRs' provenance: see `docs/BACKLOG.md` Noticed section.
+
 ### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
 
 **The pre-registered prediction failed, and that is the finding.** This
@@ -504,6 +521,25 @@ conditions nobody wrote down. *Cheapest decisive step:* re-run Step B1's
 probe on a different day and compare, since it now records its own timing —
 no new instrument needed.
 
+**Downgraded 2026-08-10 (autopilot, later the same day): still open, but no
+longer load-bearing.** This question only ever mattered as a way to *project*
+Step B2's real-world floor before Step B2 existed. Step B2 now exists and has
+been measured directly, end to end, on a live account: 71.99s and 78.90s
+wall-clock for the whole 6-course crawl (PR #134), both inside the
+90-110s/130s-failure prediction band regardless of which per-fetch constant
+is real. So the practical question this was a proxy for is answered by a
+better measurement than either 208ms or 315ms could give. What is left open
+is the "why" itself (server load vs. methodology vs. time-of-day), which is
+worth knowing but no longer worth spending a live run on ahead of anything
+else - re-rank below Question 35 rather than above it. *Also worth noting,
+not yet reconciled:* today's own numbers cluster in the 200-250ms range
+across four independent fetches-per-second-implied measurements (Step B1 run
+2's 208ms, and the two Step B2 production runs' rougher ~230-250ms
+wall-clock/fetch-count estimates) - i.e. 2026-08-10 is internally consistent
+with itself, and it is specifically 2026-07-31's 315ms that stands apart. That
+shifts suspicion toward "that day was slower" over "today is unrepresentative,"
+but this is an observation, not the live re-run the *why* still needs.
+
 ### 37. Does a page the crawl already fetches carry file data the crawl then navigates again to fetch? — OPEN, the unanswered half of Question 34
 
 Question 34's reuse half, deliberately left for its own cycle after the
@@ -523,6 +559,40 @@ against saved HTML rather than the account.
 saved dumps alone, this drops behind Question 36 rather than spending live
 runs — 36 is worth ~100s and this is worth at most the 4 forum visits plus
 whatever `node-iqtest`/`node-bib` turn out to be.
+
+**Closed 2026-08-10 (autopilot, no live run - the persistent visit log
+already had the answer): the type-to-file-capability check for five more
+classes is single-course-strong but not worth building.** Cross-referenced
+`tmp/baseline/sw-root.html`'s tree (via `ParseCourseTreeNodes`) against
+`internal/visitlog`'s persistent cross-run log, which records every section
+this account's real crawls have ever visited going back weeks - a resource
+this cycle didn't need a new run to read. For Softwaretechnologie, every node
+of five classes came back at **0 files across 84-85 independent historical
+runs each**: `node-bib` (6 nodes, "Literaturverzeichnis"/bibliography
+entries), `node-iqtest` (8, self-test quizzes), `node-ll` (1, "Linkliste"),
+`node-info` (1, "News"), `node-tu` (2, Videocampus embeds/playlists) - the
+same order of evidence `node-en`'s own entry in `section_type.go` was
+admitted on (`nonFileSectionTypeClasses`'s doc comment: "10 distinct nodes
+across 7 of the 8 courses, zero cross-contamination").
+
+**Why it stops here instead of shipping.** That comment's own bar is
+*cross-course* confirmation, and this data is one course's tree dump - no
+other course's root HTML was ever saved, so the same check can't be repeated
+elsewhere without either a fresh live fetch (cheap, but a new dependency this
+low-value a question doesn't justify on its own) or waiting for one to be
+saved incidentally by other work. More decisive: **the payoff shrank out from
+under this question while it sat open.** It was scoped against the browser
+crawl, where skipping a node saves a real navigation-plus-settle-wait
+(~180-360ms measured elsewhere in this file). Question 36 Step B2 (this same
+day) replaced that with a bare HTTP GET at ~200ms, so the total available
+saving - at most 18 nodes in this one course - is now on the order of a few
+seconds account-wide, and drops further once B2 merges and HTTP-first is the
+only path left to optimize. Not worth the false-positive risk (a
+mis-classified type silently drops real files, the exact failure class this
+whole file exists to avoid) for a saving that small. Left as a reference for
+whoever revisits it: the audit method (tree class × visit-log file count, no
+live run) is cheap to repeat if a future cycle saves another course's root
+HTML anyway.
 
 #### 34, as it was pre-registered (kept verbatim — this is the prediction that failed)
 
@@ -1750,6 +1820,28 @@ the same shape 2026-07-26 saw.
 ---
 
 ## Next experiment
+
+**Updated 2026-08-10 (autopilot, later the same day): Question 36 (both
+steps) and Question 37 are closed; the ranked list is Question 38, then
+Question 35, then Question 5.** Step B2 (the production HTTP-first
+restructure) is written, unit-tested, and live-verified at zero diff
+(349/349 files, two runs) - it lives on PR #134
+(`http-first-discovery-b2`), not master, per `CLAUDE.md`'s rule for the
+three discovery paths that have silently lost files before, so it is a
+maintainer decision now rather than an open question. Question 37 (does
+`initial_data`'s node type let more sections be skipped without a fetch)
+closed the same day: five more classes came back 0-files-ever in the one
+course with a saved dump, but the project's own admission bar needs
+cross-course confirmation this data doesn't have, and Step B2 shrank the
+payoff to a few seconds anyway - not worth chasing further. **Question 38**
+(why an HTTP fetch measured ~208ms this run against 315ms on 2026-07-31) is
+next: cheap (re-run Step B1's probe on a different day, it already records
+its own timing) and the more interesting number now, since every HTTP-first
+timing projection - including Step B2's own result - depends on which of the
+two is real. **Question 35** (`course_concurrency=3` sweep) stays sequenced
+after B2's merge decision per its own recommendation, so as not to spend live
+runs tuning a browser path B2 may retire. Question 5 remains lowest (declined
+pivot, 2026-08-03).
 
 **No local-only ranked question left; the campaign's live-run arm just
 closed with the biggest result it has produced.** Question 32

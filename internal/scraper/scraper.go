@@ -504,36 +504,38 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 	if err := s.ensureSession(false); err != nil {
 		return nil, err
 	}
-	// Serial-hybrid discovery (option A, docs/RESUME.md): the browser walks the
-	// course-content tree to enumerate section URLs (the part OPAL renders
-	// client-side), then HTTP bulk-fetches each section's leaf file table -
-	// where the ~0.67s/section settle wait actually goes - skipping that wait
-	// because there is no render to wait for over HTTP. HTTP and browser never
-	// run concurrently (measured: that corrupts the shared Wicket session).
+	// OPAL_HTTP_DISCOVERY=2 (the default since 2026-08-11, Question 36 Step
+	// B2): scrapeCoursesHTTPFirst discovers every course's sections entirely
+	// over plain HTTP (seed each course root's initial_data tree, expand with
+	// the crawl's own predicates, following extractShowAllURLFromHTML past a
+	// section's pagination cap) instead of walking the tree in a browser
+	// first. The browser is still used to list courses
+	// (discoverCourseLinks), never to visit a single section. Live-verified
+	// zero-diff against the browser crawl three times on 2026-08-10
+	// (docs/sync-speed-model.md Question 36 Step B2); shipped as the default
+	// on the same evidence standard as course_concurrency=2's precedent.
+	//
+	// OPAL_HTTP_DISCOVERY=0: force the old plain browser crawl
+	// (scrapeCoursesBrowser). Rollback path if "2" ever regresses - kept
+	// deliberately cheap to reach, since this is one of the three discovery
+	// paths that has silently lost files before.
 	//
 	// OPAL_HTTP_DISCOVERY=verify: run BOTH the browser crawl and the HTTP
-	// fetch, serially, and log a per-course diff. Returns the browser result
-	// (the trusted source) so verification can't silently lose files.
-	// OPAL_HTTP_DISCOVERY=1: return the HTTP result (verified diff=0 against
-	// the browser on 2026-07-31 across all courses), with a guard that falls
-	// back to the browser result if HTTP ever finds fewer files than the
-	// browser in any course. Unset (the default): plain browser crawl.
-	//
-	// OPAL_HTTP_DISCOVERY=2: the Question 36 Step B2 restructure
-	// (scrapeCoursesHTTPFirst) - phase 1 discovers sections entirely over
-	// HTTP (seed from initial_data, expand with the crawl's own predicates)
-	// instead of running a browser crawl first. No browser-result fallback
-	// exists in this mode, unlike "1" - it does not run a browser crawl to
-	// fall back to. Experimental: byte-diff against the ground truth before
-	// relying on it (docs/sync-speed-model.md Question 36 Step B2).
+	// fetch (scrapeCoursesHybrid's older two-phase design), serially, and log
+	// a per-course diff. Returns the browser result (the trusted source) so
+	// verification can't silently lose files.
+	// OPAL_HTTP_DISCOVERY=1: return that older hybrid's HTTP result, with a
+	// guard that falls back to the browser result if HTTP ever finds fewer
+	// files than the browser in any course. Superseded by "2" for normal use;
+	// kept for comparison runs.
 	httpDiscoveryMode := os.Getenv("OPAL_HTTP_DISCOVERY")
 	switch httpDiscoveryMode {
 	case "verify", "1":
 		return s.scrapeCoursesHybrid(ctx, courseFilter, httpDiscoveryMode)
-	case "2":
-		return s.scrapeCoursesHTTPFirst(ctx, courseFilter)
+	case "0":
+		return s.scrapeCoursesBrowser(ctx, courseFilter)
 	}
-	return s.scrapeCoursesBrowser(ctx, courseFilter)
+	return s.scrapeCoursesHTTPFirst(ctx, courseFilter)
 }
 
 // DiscoverCourseNames logs in via the saved session and returns the titles

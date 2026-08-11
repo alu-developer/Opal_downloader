@@ -304,3 +304,65 @@ func TestBuildScheduledRunStatus_SyncLockHeldIsSkippedNotFailure(t *testing.T) {
 		t.Fatalf("expected the message to still name the holding PID for diagnosis, got %q", status.Message)
 	}
 }
+
+// `status` used to print the download path unchecked, so a broken path (a
+// typo'd drive letter, a path under a file) validated fine and only
+// surfaced minutes later inside a real sync. Both cases below cover that a
+// writable path now says so, and an unwritable one is caught at `status`
+// time instead.
+func TestRunStatus_ReportsWritableDownloadPath(t *testing.T) {
+	dir := t.TempDir()
+	downloadPath := filepath.Join(dir, "downloads")
+	stateFile := filepath.Join(dir, "state.json")
+
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := "download_path: " + downloadPath + "\nsession_state_file: " + stateFile + "\ncourses:\n  - \"*\"\n"
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+		t.Fatalf("writing config.yaml: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runStatus([]string{"--config", configPath}); err != nil {
+			t.Errorf("runStatus returned error: %v", err)
+		}
+	})
+
+	wantLine := "Download path: " + downloadPath + " (OK)"
+	if !strings.Contains(out, wantLine) {
+		t.Fatalf("expected %q, got:\n%s", wantLine, out)
+	}
+	if info, err := os.Stat(downloadPath); err != nil || !info.IsDir() {
+		t.Fatalf("expected download path to have been created, stat: %v", err)
+	}
+}
+
+func TestRunStatus_FlagsUnwritableDownloadPath(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "state.json")
+
+	// A regular file where a directory segment needs to be: MkdirAll fails
+	// under it on both Windows and Unix, the same way a typo'd drive letter
+	// (the real-world report) fails - a directory simply cannot be created
+	// there.
+	blocker := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing blocker file: %v", err)
+	}
+	downloadPath := filepath.Join(blocker, "downloads")
+
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := "download_path: " + downloadPath + "\nsession_state_file: " + stateFile + "\ncourses:\n  - \"*\"\n"
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+		t.Fatalf("writing config.yaml: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runStatus([]string{"--config", configPath}); err != nil {
+			t.Errorf("runStatus returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Download path: "+downloadPath+" (BROKEN:") {
+		t.Fatalf("expected status to flag the unwritable download path, got:\n%s", out)
+	}
+}

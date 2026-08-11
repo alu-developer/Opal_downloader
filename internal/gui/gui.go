@@ -307,8 +307,9 @@ func renderPanicPage(w http.ResponseWriter, rec any) {
 // tells the user a *second*, separate browser window will open for OPAL
 // login/sync automation, so closing one window doesn't affect the other.
 const disclaimerHTML = `<div class="disclaimer">
-		A separate browser window opens for OPAL login/sync. Closing this
-		window does not stop it, and closing it does not close this window.
+		A separate browser window handles OPAL login and sync. Closing this
+		tab does not stop that window, and closing that window does not close
+		this tab.
 	</div>`
 
 var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
@@ -385,7 +386,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			<p class="cta-note">A sync is already in flight. Following it here won't start a second one.</p>
 		{{else if .SyncReady}}
 			<a class="cta" href="/sync?autostart=1">Sync now</a>
-			<p class="cta-note">Downloads new and updated files for {{if .SyncAllCourses}}all your courses{{else}}your {{.CourseCount}} selected course{{if ne .CourseCount 1}}s{{end}}{{end}}.</p>
+			<p class="cta-note">Downloads new and updated files for {{if .SyncAllCourses}}all your courses{{else}}your {{.CourseCount}} selected course{{if ne .CourseCount 1}}s{{end}}{{end}}. Takes several minutes.</p>
 		{{else if .SetupNeeded}}
 			<a class="cta" href="/settings">Set up opal-downloader</a>
 			<p class="cta-note">{{.SyncBlockedReason}}</p>
@@ -400,7 +401,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			<li><a href="/settings">Settings &ndash; courses and folders</a></li>
 			<li><a href="/schedule">Automatic sync &ndash; run it daily on its own</a></li>
 			<li><a href="/tufast-setup">TU-Fast setup</a></li>
-			<li><a href="/sync">Sync options &amp; developer tools</a></li>
+			<li><a href="/sync">Preview sync, force re-download &amp; developer tools</a></li>
 			<li><a href="/update">Check for updates</a></li>
 			<li><a href="/feedback">Feedback / Problem melden</a></li>
 		</ul>

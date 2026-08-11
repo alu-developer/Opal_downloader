@@ -351,7 +351,19 @@ func runStatus(args []string) error {
 
 	fmt.Printf("Config: %s (OK)\n", configPath)
 	fmt.Printf("OPAL URL: %s\n", loaded.Credentials.URL)
-	fmt.Printf("Download path: %s\n", loaded.App.DownloadPath)
+
+	// `status` claims to be an offline pre-flight check, but printing the
+	// path unchecked only validates that the YAML parsed - not that a sync
+	// could actually write there. A typo'd drive letter (e.g.
+	// "Q:/nope/downloads") passed silently and only surfaced minutes later
+	// inside a real sync. MkdirAll is what a sync itself calls first
+	// (syncer.go), so this reports exactly the failure a sync would hit,
+	// without duplicating validation logic that could drift from it.
+	if mkdirErr := os.MkdirAll(loaded.App.DownloadPath, 0o755); mkdirErr != nil {
+		fmt.Printf("Download path: %s (BROKEN: %v)\n", loaded.App.DownloadPath, mkdirErr)
+	} else {
+		fmt.Printf("Download path: %s (OK)\n", loaded.App.DownloadPath)
+	}
 
 	checkLoginProfileHealth()
 

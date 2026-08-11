@@ -778,6 +778,30 @@ question hard the first time around? Ranked above the original Question 35's
 residual (the rollback path is not what ships) but behind Question 39
 (correctness safety net) per the standing correctness-first rule.
 
+### 41. Does a second confirming run (different day) also produce an empty diff at `OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2`, and is promoting it to the shipped default then in scope for that cycle? — OPEN, opened 2026-08-11 by Question 40's first-run result
+
+Question 40 (below) found an empty diff at concurrency=2 on its first live
+run: 349/349 files, 41.6s discovery against a 56.7s serial baseline, both
+inside the pre-registered prediction. Not itself in question anymore is
+whether the mechanism works *at all* - one clean run already shows the
+shared `APIRequestContext` tolerates two concurrent goroutines' `.Get()`
+calls. What is still open is purely a repetition/promotion question: this
+project's own bar for shipping a discovery-path change as the default was
+two clean byte-diffs (Step B2, PR #133/#134, 2026-08-10), not one, and both
+of Question 40's runs happened minutes apart in the same session against the
+same OPAL server session and course set - closer to one data point on
+incidental conditions than two independent ones. A second run on a different
+day (different account/server state, different time of day) is the cheap
+next step; if it also comes back empty, the question becomes whether
+whoever picks it up should also fold in the `course_concurrency` /
+`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE` unification (Question 40's own noted
+follow-up) as part of the same promotion decision, or ship the override
+alone first and unify later. *Counts as failed:* any missing file on the
+second run - if it fails once out of two, that is not noise to average away,
+it is exactly the "shared object under concurrent load" hazard Question 40
+was written to rule out, and it should stop the promotion, not average
+against the clean run.
+
 ### 40. Does `scrapeCoursesHTTPFirst` benefit from course-level concurrency, given it has none today and the hazard class that made the browser path's version hard (Questions 16/17/22/25) does not obviously apply to stateless HTTP GETs? — OPEN, opened 2026-08-11 by Question 35's reframe
 
 What is already known: `scrapeCoursesHTTPFirst` processes its 6 courses fully
@@ -852,6 +876,41 @@ finding that again at concurrency=3 adds nothing). *Secondary, speed:*
 expected **35-45s** (Softwaretechnologie's 179-fetch share dominates a
 2-way split of ~303 total requests, so not a full 2x speedup), counted as
 uninteresting (not failed, just not the win hoped for) above 50s.
+
+**Result, run 2026-08-11 (machine and account confirmed quiet first - no
+`chrome.exe`, no `go`/`opal-downloader`/`node`, `git log -3` nothing from
+another session in the preceding minutes).** `OPAL_FILELIST=before` (serial,
+concurrency=1, same as Question 38's baseline): 349 files, 56.7s discovery /
+61.9s test. `OPAL_FILELIST=after OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2`:
+349 files, 41.6s discovery / 46.3s test. `diff tmp/filelist-before.txt
+tmp/filelist-after.txt`: **empty.** Both halves of the prediction held:
+349/349 files identical byte-for-byte, and 41.6s sits inside the predicted
+35-45s window - the shared `APIRequestContext` handled two goroutines'
+concurrent `.Get()` calls with no missing, duplicated, or misattributed
+response, and the speedup landed almost exactly where Softwaretechnologie's
+179/303-fetch dominance predicted it would (not a full 2x, as expected).
+**The correctness hazard named above (shared Playwright object across
+goroutines) is empirically unfounded at concurrency=2, on this one run.**
+
+**Not yet promoted to default.** This is one run. PR #133/#134's own
+byte-diff (Question 38's HTTP-first-as-default change) was required to pass
+**twice**, 2026-08-10, before shipping - matching that bar before wiring
+`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2` (or unifying it with
+`course_concurrency`, per the still-open follow-up decision above) into the
+shipped default would need a second confirming run, ideally on a different
+day/account-state than this one. Left as the next step below rather than run
+back-to-back in the same session as the first - two runs minutes apart share
+more incidental state (same OPAL server session, same course set, same
+network path) than two runs on different days, and the thing being checked
+for is exactly the kind of rare transport-level interaction that repetition
+across *different* conditions catches better than repetition across
+identical ones.
+
+**Next open question, ranked above the original Question 35 residual:**
+Question 41 - does a second confirming run (different day) also produce an
+empty diff at concurrency=2, and if so, is promoting the default in scope
+for a future cycle to decide alongside the `course_concurrency` unification
+follow-up?
 
 ### 39. Now that HTTP-first discovery is the production default, does anything still cross-validate it against an independent browser crawl - or did shipping it as default quietly remove the only thing that was catching a regression like Question 38's visit-log finding? — OPEN, opened 2026-08-11 by Question 38's result
 
@@ -2054,27 +2113,23 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-11 (autopilot): PR #133 merged Question 36 Step B2 as the
-production default, Question 38's rerun found and fixed a real regression
-(visit-log stopped accumulating), and the merge overtook Question 35's
-premise. The ranked list is Question 39, then Question 40, then Question 5.**
-Question 38 itself: parked, not closed - three data points now cluster at
-185-250ms against 2026-07-31's 315ms outlier, which is suggestive but not a
-named mechanism, and it stopped being load-bearing back on 2026-08-10 once
-Step B2 was measured directly. **Question 39** (is HTTP-first's correctness
-still cross-validated by anything now that it's the default, or did shipping
-it quietly remove the only thing that was catching a regression like the
-visit-log one) ranks first per the standing correctness-before-speed rule -
-it is a process/product question, not a live-run one, so whoever picks it up
-should bring options, not run an experiment. **Question 40** (does
-`scrapeCoursesHTTPFirst` benefit from its own course-level concurrency, since
-it has none today and the hazard class that made the browser path's version
-hard does not obviously apply to stateless HTTP GETs) is the speed line's
-new head, replacing the old Question 35 - that question's own premise
-(`course_concurrency=3` on "the shipped default") stopped matching reality
-the moment PR #133 changed what the default *is*: `course_concurrency` was
-only ever wired into the browser path Step B2 replaced. Question 5 remains
-lowest (declined pivot, 2026-08-03).
+**Updated 2026-08-11 (autopilot, second update same day): Question 40's live
+run landed - empty diff, 349/349 files, concurrency=2 on
+`scrapeCoursesHTTPFirst` cut discovery from 56.7s to 41.6s, squarely inside
+the predicted 35-45s window. Not promoted to default (one run; the project's
+own bar for this kind of change is two, per Step B2's 2026-08-10 practice).
+The ranked list is Question 39, then Question 41, then Question 5.**
+**Question 39** (is HTTP-first's correctness still cross-validated by
+anything now that it's the default) still ranks first per the standing
+correctness-before-speed rule - it is a process/product question, not a
+live-run one, so whoever picks it up should bring options, not run an
+experiment. **Question 41** (does a second confirming run, on a different
+day, also produce an empty diff at concurrency=2 - and if so, is promoting
+`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2` to the shipped default, alongside
+the still-open `course_concurrency` unification, in scope for that cycle to
+decide) is the speed line's new head, replacing Question 40 now that its one
+open sub-question is the repeat-on-a-different-day gate rather than the
+mechanism itself. Question 5 remains lowest (declined pivot, 2026-08-03).
 
 ---
 

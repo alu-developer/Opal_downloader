@@ -780,22 +780,78 @@ residual (the rollback path is not what ships) but behind Question 39
 
 ### 40. Does `scrapeCoursesHTTPFirst` benefit from course-level concurrency, given it has none today and the hazard class that made the browser path's version hard (Questions 16/17/22/25) does not obviously apply to stateless HTTP GETs? — OPEN, opened 2026-08-11 by Question 35's reframe
 
-Not yet scoped with a prediction - this is a placeholder for the next cycle
-that picks up the speed line. What is already known: `scrapeCoursesHTTPFirst`
-processes its 6 courses fully serially (`orchestrator.go` lines 296-321, no
-goroutines), and Question 38's 2026-08-11 result measured 55.93s/303 requests
-end to end for that serial loop. Naively parallelizing N courses' HTTP
-fetches could shrink that close to the single slowest course's own share
-(Softwaretechnologie's 179 of 303 fetches is already the long pole) rather
-than the sum. The open question is real, not rhetorical: OPAL's HTTP session
-is authenticated per-cookie and this campaign has never load-tested N
-concurrent authenticated GETs against it the way the browser path's
-concurrency was tested - `Question 33`'s finding that a *browser* crawl's
-correctness hazard was Wicket-AJAX-specific (an artifact of DOM state and
-in-page JS, not of the HTTP session itself) is suggestive but not proof
-that concurrent stateless GETs are equally safe. A byte-diff sweep with the
-same discipline Questions 31-33 used is still the right instrument; a
-prediction has to be written before it runs, per Rule 1.
+What is already known: `scrapeCoursesHTTPFirst` processes its 6 courses fully
+serially (`orchestrator.go` lines 296-321, no goroutines), and Question 38's
+2026-08-11 result measured 55.93s/303 requests end to end for that serial
+loop. Naively parallelizing N courses' HTTP fetches could shrink that close to
+the single slowest course's own share (Softwaretechnologie's 179 of 303
+fetches is already the long pole) rather than the sum. The open question is
+real, not rhetorical: OPAL's HTTP session is authenticated per-cookie and this
+campaign has never load-tested N concurrent authenticated GETs against it the
+way the browser path's concurrency was tested - `Question 33`'s finding that
+a *browser* crawl's correctness hazard was Wicket-AJAX-specific (an artifact
+of DOM state and in-page JS, not of the HTTP session itself) is suggestive
+but not proof that concurrent stateless GETs are equally safe.
+
+**A second, sharper risk found while scoping the implementation (2026-08-11,
+before writing any code):** `s.httpDiscoveryFetcher()` returns
+`ctx.Request()` - the browser CONTEXT's single `APIRequestContext` object,
+not a fresh one per call. There is no way to give each concurrent course
+worker its own isolated fetcher without opening a second browser context (a
+different, heavier change than this question is scoped for), so
+"concurrent HTTP GETs" here specifically means **N goroutines calling
+`.Get()` on the exact same Playwright object at once** - something nothing in
+this codebase has done before. The nearest precedent is
+`collectCourseFilesConcurrently` already calling `ctx.NewPage()` concurrently
+from N goroutines against one shared `BrowserContext` (a related but
+different object, over the same underlying driver-process transport) without
+incident - suggestive that the transport multiplexes concurrent calls safely,
+but not proof for `APIRequestContext` specifically. This is the real
+correctness question here, not Wicket - if it fails, the likely symptom is
+requests timing out, erroring, or (worse, and what the byte-diff exists to
+catch) a response landing against the wrong in-flight request.
+
+**Implementation, gated per the standing rule ("every experiment behind an
+env flag, off by default").** Reused `collectCourseFilesConcurrently`
+(orchestrator.go) verbatim rather than writing a second worker pool -
+`newHTTPCourseFileCollector` wraps `discoverSectionsHTTP` in the same
+`func(CourseRef) (courseCrawlResult, error)` shape `newCourseFileCollector`
+already provides for the browser path, so both discovery paths now share one
+hardened, already-tested concurrency implementation instead of one bespoke
+serial loop and one worker pool. `discoverSectionsHTTP` also gained a
+`downloadCandidates` map, previously discarded (`extractSectionFiles` always
+passed `nil`) - a real but low-severity gap found while touching this code:
+without it, any HTTP-first-discovered file whose direct-GET download fails
+skips the free counter-refresh retry the browser path gets and falls straight
+to the slow browser-click fallback. Fixed as part of the same refactor since
+`courseCrawlResult` already carries the field and `mergeDownloadCandidates`
+already exists to merge it - not a separate change. New env var
+`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE` (mirrors `OPAL_COURSE_CONCURRENCY_OVERRIDE`'s
+existing test-only pattern) controls concurrency in a probe test; unset,
+`scrapeCoursesHTTPFirst`'s default concurrency is **1 (serial, today's
+unchanged behavior)** - config.yaml's `course_concurrency` is deliberately
+NOT wired into this path yet, so shipping this code does not silently change
+production behavior for anyone, even though `effectiveCourseConcurrency()`
+exists and could seem like the obvious wire-up. Unifying the two concurrency
+knobs is a follow-up decision, not this cycle's.
+
+**Prediction, written 2026-08-11 before running, per Rule 1.** Same
+discipline as Questions 31-33: full 6-course `TestFileListSnapshot`,
+`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2` against a fresh same-session
+serial (concurrency=1) baseline, diffed byte-for-byte.
+
+*Expected:* **empty diff, 349/349 files both sides.** *Mechanism:* if the
+shared-`APIRequestContext` concurrency risk above is unfounded (the
+transport multiplexes correctly, matching the `NewPage()` precedent), two
+courses' independent HTTP fetches should not interact at all - unlike the
+browser path, there is no shared mutable DOM/Wicket state between courses
+here, only independent GET/response pairs. *Counts as failed:* any missing
+file (stops at 2, no hunt, mirroring Question 35's kill criterion - if this
+fails it teaches "the shared fetcher isn't safe for concurrent use," and
+finding that again at concurrency=3 adds nothing). *Secondary, speed:*
+expected **35-45s** (Softwaretechnologie's 179-fetch share dominates a
+2-way split of ~303 total requests, so not a full 2x speedup), counted as
+uninteresting (not failed, just not the win hoped for) above 50s.
 
 ### 39. Now that HTTP-first discovery is the production default, does anything still cross-validate it against an independent browser crawl - or did shipping it as default quietly remove the only thing that was catching a regression like Question 38's visit-log finding? — OPEN, opened 2026-08-11 by Question 38's result
 

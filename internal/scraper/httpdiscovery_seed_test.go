@@ -46,7 +46,7 @@ func TestDiscoverSectionsHTTPSeedsFromTreeAndExpandsSubPaths(t *testing.T) {
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22":     {body: node22HTML, status: 200},
 	}}
 
-	files, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, nil)
+	files, reqs, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestDiscoverSectionsHTTPReportsVisitsForVisitLog(t *testing.T) {
 		filesFound int
 	}
 	var visits []visit
-	_, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, func(sectionTitle, sectionURL string, filesFound int) {
+	_, _, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, func(sectionTitle, sectionURL string, filesFound int) {
 		visits = append(visits, visit{sectionTitle, sectionURL, filesFound})
 	})
 	if err != nil {
@@ -133,7 +133,7 @@ func TestDiscoverSectionsHTTPSkipsNonFileSectionAtSeed(t *testing.T) {
 	}}
 
 	var errored []string
-	files, reqs, err := discoverSectionsHTTP(fetcher, course, opalURL, true, func(url string, _ error) {
+	files, reqs, _, err := discoverSectionsHTTP(fetcher, course, opalURL, true, func(url string, _ error) {
 		errored = append(errored, url)
 	}, nil)
 	if err != nil {
@@ -172,7 +172,7 @@ func TestDiscoverSectionsHTTPFollowsShowAllDuringExpansion(t *testing.T) {
 		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": {body: subHTML, status: 200},
 	}}
 
-	files, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, nil)
+	files, _, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestDiscoverSectionsHTTPRootFetchFailureIsFatal(t *testing.T) {
 	fetcher := &fakeHTTPFetcher{responses: map[string]fakeHTTPResponse{
 		course.URL: {body: "not found", status: 404},
 	}}
-	files, _, err := discoverSectionsHTTP(fetcher, course, "https://opal/", false, nil, nil)
+	files, _, _, err := discoverSectionsHTTP(fetcher, course, "https://opal/", false, nil, nil)
 	if err == nil {
 		t.Fatal("expected an error when the course root itself cannot be fetched")
 	}
@@ -214,7 +214,7 @@ func TestDiscoverSectionsHTTPSectionFetchFailureIsLoggedAndSkipped(t *testing.T)
 	}}
 
 	var errored []string
-	files, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, func(url string, _ error) {
+	files, _, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, func(url string, _ error) {
 		errored = append(errored, url)
 	}, nil)
 	if err != nil {

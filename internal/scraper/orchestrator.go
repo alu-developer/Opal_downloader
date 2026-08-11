@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
@@ -288,20 +291,64 @@ func (s *OpalScraper) scrapeCoursesHTTPFirst(ctx context.Context, courseFilter [
 		return nil, errors.New("OPAL_HTTP_DISCOVERY=2: no authenticated request context available")
 	}
 
-	remoteFiles := make([]RemoteFile, 0)
-	remoteFileSeen := map[string]struct{}{}
-	totalRequests := 0
+	var totalRequests int64
 	httpTimer := timing.StartTimer()
+	remoteFiles := collectCourseFilesConcurrently(ctx, courses, httpFirstCourseConcurrency(),
+		s.newHTTPCourseFileCollector(fetch, len(courses), &totalRequests), s.mergeDownloadCandidates)
+	httpElapsed := httpTimer.Elapsed()
+	logging.User("OPAL_HTTP_DISCOVERY=2 summary: %d courses, %d HTTP requests, %s",
+		len(courses), atomic.LoadInt64(&totalRequests), httpElapsed)
+	logging.User("Discovered %d remote files", len(remoteFiles))
 
-	for _, course := range courses {
-		if err := ctx.Err(); err != nil {
-			return remoteFiles, err
-		}
+	if err := ctx.Err(); err != nil {
+		return remoteFiles, err
+	}
+	return remoteFiles, nil
+}
+
+// httpFirstCourseConcurrency resolves how many courses
+// scrapeCoursesHTTPFirst crawls in parallel. Deliberately NOT wired to
+// config.yaml's course_concurrency (effectiveCourseConcurrency) - see
+// docs/sync-speed-model.md Question 40: shipping course-level concurrency on
+// this path must not silently change production behavior for anyone until a
+// byte-diff sweep has proven concurrent use of the shared
+// APIRequestContext (httpDiscoveryFetcher) safe - nothing in this codebase
+// has issued concurrent requests over one shared APIRequestContext before
+// this. Defaults to 1 (serial, unchanged from before this question).
+// OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=<n> is a test-only override for that
+// sweep, mirroring OPAL_COURSE_CONCURRENCY_OVERRIDE's existing pattern for
+// the browser path (filelist_probe_test.go) - never read from config.yaml.
+func httpFirstCourseConcurrency() int {
+	v := os.Getenv("OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE")
+	if v == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 1
+	}
+	return n
+}
+
+// newHTTPCourseFileCollector returns a function that discovers and fetches
+// one course's files entirely over HTTP (discoverSectionsHTTP), in the same
+// func(CourseRef) (courseCrawlResult, error) shape newCourseFileCollector
+// provides for the browser path - so both discovery paths share one
+// worker-pool implementation (collectCourseFilesConcurrently) instead of a
+// second, separately-written one. Safe to call from multiple goroutines
+// concurrently against the one shared fetch IF Question 40's byte-diff sweep
+// confirms it (see httpFirstCourseConcurrency's doc comment for why that is
+// still an open question, not an assumption). requestCounter accumulates
+// each course's HTTP request count via atomic add, since courseCrawlResult
+// (shared with the browser path) has no field for it and concurrent workers
+// cannot safely share a plain int.
+func (s *OpalScraper) newHTTPCourseFileCollector(fetch httpFetcher, totalCourses int, requestCounter *int64) func(CourseRef) (courseCrawlResult, error) {
+	return func(course CourseRef) (courseCrawlResult, error) {
 		s.publishProgress(DiscoveryProgress{
 			Phase:        PhaseCourseStarted,
 			Course:       course.Title,
 			CourseIndex:  s.nextCourseIndex(),
-			TotalCourses: len(courses),
+			TotalCourses: totalCourses,
 		})
 
 		onSectionError := func(url string, serr error) {
@@ -310,27 +357,23 @@ func (s *OpalScraper) scrapeCoursesHTTPFirst(ctx context.Context, courseFilter [
 		onSectionVisited := func(sectionTitle, sectionURL string, filesFound int) {
 			s.recordSectionVisit(course.Title, sectionTitle, sectionURL, filesFound)
 		}
-		courseFiles, reqs, derr := discoverSectionsHTTP(fetch, course, s.opalURL, s.skipEnrollmentSections, onSectionError, onSectionVisited)
-		totalRequests += reqs
+		files, reqs, downloadCandidates, derr := discoverSectionsHTTP(fetch, course, s.opalURL, s.skipEnrollmentSections, onSectionError, onSectionVisited)
+		atomic.AddInt64(requestCounter, int64(reqs))
 		if derr != nil {
-			logging.Warn("OPAL_HTTP_DISCOVERY=2: course %q discovery failed: %v", course.Title, derr)
-			continue
+			// Wrapped, not logged here - collectCourseFilesConcurrently's own
+			// result-draining loop already logs "Course crawl error: %v" for
+			// every non-nil err, so logging it a second time here would
+			// duplicate the line. Returning an error (rather than nil files)
+			// matches the previous serial loop's behavior: this course
+			// contributes 0 files and the others continue.
+			return courseCrawlResult{}, fmt.Errorf("OPAL_HTTP_DISCOVERY=2: course %q discovery failed: %w", course.Title, derr)
 		}
-		if len(courseFiles) == 0 {
+		if len(files) == 0 {
 			logging.Warn("course %q crawled successfully but found 0 files - verify this course actually has no content", course.Title)
 		}
-		remoteFiles = appendUniqueRemoteFiles(remoteFiles, remoteFileSeen, convertFileRefsToRemoteFiles(courseFiles))
-		s.publishProgress(DiscoveryProgress{Phase: PhaseCourseDone, Course: course.Title, FileCount: len(courseFiles)})
+		s.publishProgress(DiscoveryProgress{Phase: PhaseCourseDone, Course: course.Title, FileCount: len(files)})
+		return courseCrawlResult{files: files, downloadCandidates: downloadCandidates}, nil
 	}
-	httpElapsed := httpTimer.Elapsed()
-	logging.User("OPAL_HTTP_DISCOVERY=2 summary: %d courses, %d HTTP requests, %s",
-		len(courses), totalRequests, httpElapsed)
-	logging.User("Discovered %d remote files", len(remoteFiles))
-
-	if err := ctx.Err(); err != nil {
-		return remoteFiles, err
-	}
-	return remoteFiles, nil
 }
 
 // httpDiscoveryFetcher returns the authenticated HTTP request context the

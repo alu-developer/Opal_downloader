@@ -57,10 +57,10 @@ func httpGetText(fetch httpFetcher, url string) (string, error) {
 // other) because that function issues its own fetches; this one is called
 // with candidates already in hand from discoverSectionsHTTP's own discovery
 // fetch, which is the entire point - see this file's top doc comment.
-func extractSectionFiles(existing []FileRef, fileSeen map[string]struct{}, course CourseRef, section SectionRef, candidates, showAllCandidates []map[string]string, showAllURL, opalURL string) []FileRef {
-	files := appendSectionFiles(existing, fileSeen, candidates, course, section, section.URL, "", "", false, opalURL, nil)
+func extractSectionFiles(existing []FileRef, fileSeen map[string]struct{}, course CourseRef, section SectionRef, candidates, showAllCandidates []map[string]string, showAllURL, opalURL string, downloadCandidates map[string]downloadCandidate) []FileRef {
+	files := appendSectionFiles(existing, fileSeen, candidates, course, section, section.URL, "", "", false, opalURL, downloadCandidates)
 	if showAllCandidates != nil {
-		files = appendSectionFiles(files, fileSeen, showAllCandidates, course, section, showAllURL, "", "", false, opalURL, nil)
+		files = appendSectionFiles(files, fileSeen, showAllCandidates, course, section, showAllURL, "", "", false, opalURL, downloadCandidates)
 	}
 	return files
 }
@@ -102,11 +102,15 @@ func extractSectionFiles(existing []FileRef, fileSeen map[string]struct{}, cours
 // own Step B1 probe after B2 became the default: VisitRecords() came back
 // empty because nothing on this path ever called recordSectionVisit).
 //
-// Returns every file found and the number of HTTP requests issued.
-func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, skipNonFileSections bool, onSectionError func(url string, err error), onSectionVisited func(sectionTitle, sectionURL string, filesFound int)) ([]FileRef, int, error) {
+// Returns every file found, the number of HTTP requests issued, and the
+// downloadCandidates map appendSectionFiles builds alongside them (the
+// counter-refresh retry data download.go's fast-path-miss branch looks up by
+// file URL - see extractSectionFiles's own doc comment for why this must be
+// threaded through rather than discarded).
+func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, skipNonFileSections bool, onSectionError func(url string, err error), onSectionVisited func(sectionTitle, sectionURL string, filesFound int)) ([]FileRef, int, map[string]downloadCandidate, error) {
 	rootBody, err := httpGetText(fetch, course.URL)
 	if err != nil {
-		return nil, 0, fmt.Errorf("HTTP GET course root %s: %w", course.URL, err)
+		return nil, 0, nil, fmt.Errorf("HTTP GET course root %s: %w", course.URL, err)
 	}
 	requests := 1
 
@@ -136,6 +140,7 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 
 	var files []FileRef
 	fileSeen := map[string]struct{}{}
+	downloadCandidates := map[string]downloadCandidate{}
 
 	for len(queue) > 0 {
 		current := queue[0]
@@ -178,7 +183,7 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 		}
 
 		filesBefore := len(files)
-		files = extractSectionFiles(files, fileSeen, course, section, candidates, showAllCandidates, showAllURL, opalURL)
+		files = extractSectionFiles(files, fileSeen, course, section, candidates, showAllCandidates, showAllURL, opalURL, downloadCandidates)
 		if onSectionVisited != nil {
 			onSectionVisited(section.Title, current, len(files)-filesBefore)
 		}
@@ -190,5 +195,5 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 		queue, _ = appendSectionFolderTargets(queue, queued, visited, expandCandidates, opalURL, course.RepoID, current, course.URL, course.Title, sectionTitles, skipNonFileSections)
 	}
 
-	return files, requests, nil
+	return files, requests, downloadCandidates, nil
 }

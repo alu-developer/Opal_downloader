@@ -42,6 +42,69 @@ Questions 31-33.
 
 ---
 
+## Friction campaign — GUI walk 1 (2026-08-11)
+
+Found by using the GUI as a normal user, not reported by the maintainer.
+Walk detail, expectations and named causes: `docs/friction-campaign.md`.
+Tags: **blocker** / **wrong** / **friction** / **bloat**.
+
+- **[wrong] Automatic sync silently skipped 3 of the last 5 due days, and the
+  GUI cannot tell you.** Windows dropped the run on 07/08, 09/08 and 11/08
+  (event 332, user not logged on when the catch-up fired); it launched only on
+  08/08 and 10/08. `statuslog` is written *by the sync process*, so a run that
+  never launched writes nothing and the banner keeps showing an older run.
+  Every pre-launch failure is invisible the same way. Two repairs: (a) the GUI
+  should answer "when did a sync last actually succeed?" and warn when that is
+  old — covers the whole class; (b) add an **on-logon trigger** beside the
+  daily one, which needs no stored password and so keeps the `/schedule` page's
+  "no password is stored" promise true. (b) is recommended and needs no
+  decision; the alternative (run whether logged on or not) does need one,
+  because it requires storing a password.
+
+- **[wrong] The daily sync runs a gitignored build artifact.** Task action is
+  `…\Opal_downloader\main.exe`, untracked (`.gitignore:23`) and last built
+  23/07 — 19 days stale, so nothing merged since then has ever run
+  automatically. `git clean -xfd` deletes it and automatic sync dies silently
+  and permanently, with the GUI still showing it as on. Rebuilt from master
+  2026-08-11 as a stopgap; the dependency on a working-directory artifact is
+  the actual fix and is untouched. `installer/opal-downloader.iss` already
+  defines an install location the schedule could point at instead.
+
+- **[friction] User-facing errors carry raw Playwright internals.** The banner
+  appends `Frame.Goto … playwright: net::ERR_INTERNET_DISCONNECTED … Call log:
+  …` to an otherwise good sentence, because the friendly message wraps the
+  underlying error instead of replacing it. Worse in the wild: the 01/08 and
+  02/08 history entries dump a full Chromium command line into the same banner.
+
+- **[friction] The failure banner never expires.** A transient 10/08 offline
+  failure was still the loudest element on every page ~30h later, with the
+  session valid and the network fine. Dismiss is manual-only; nothing ages a
+  resolved failure out.
+
+- **[friction] The primary button never states how long a sync takes.** "Sync
+  now" gives no duration; the *secondary* "Preview sync" option is the only
+  place the app admits "several minutes". Setting the expectation is free and
+  independent of whatever `docs/sync-speed-model.md` lands on.
+
+- **[friction] "Sync options & developer tools" points at the same page as the
+  main Sync button** (`/sync` vs `/sync?autostart=1`). The label names only the
+  page's third job, so a student avoids the page holding Preview and Force
+  re-download.
+
+- **[friction] The two-window sentence on the landing page** uses "it" and
+  "this window" for both windows in one sentence. Correct, nearly unreadable.
+
+- **[bloat] `/settings` puts a glob-pattern rules engine in front of everyone.**
+  Section-name rewrite rules and `<course pattern>/<subfolder pattern>`
+  destination overrides sit on the same flat page as "where do my files go",
+  with `*Analysis*/*Vorlesung*` as the help text's example.
+
+- **[question] The GUI process exited on its own after ~5 minutes** while in
+  use, nobody closing the window. Not yet separable from an artifact of
+  launching it from a background shell — first item of walk 2.
+
+---
+
 ## Noticed
 
 Things seen while working on something else and passed over. Not commitments —

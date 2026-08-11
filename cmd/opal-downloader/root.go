@@ -23,6 +23,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/report"
 	"github.com/alu-developer/opal-downloader/internal/scheduler"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/sessionstate"
 	"github.com/alu-developer/opal-downloader/internal/smokecheck"
 	"github.com/alu-developer/opal-downloader/internal/statuslog"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
@@ -416,16 +417,63 @@ func runStatus(args []string) error {
 
 	checkLoginProfileHealth()
 
-	info, statErr := os.Stat(loaded.Credentials.StateFile)
-	if statErr != nil || info.Size() == 0 {
-		fmt.Println()
-		fmt.Println("Not logged in yet. Run: opal-downloader login")
-		return nil
-	}
-
 	fmt.Println()
-	fmt.Printf("Logged in: session state file present (%s)\n", loaded.Credentials.StateFile)
+	printLoginStatus(loaded.Credentials.StateFile)
 	return nil
+}
+
+// printLoginStatus is `status`'s login-state line. It used to check only
+// whether the session state file existed and was non-empty ("session state
+// file present"), which cannot tell an hour-old session from one that
+// expired weeks ago - the same "checks presence, not substance" pattern
+// Finding [wrong] (friction campaign walk 1, docs/BACKLOG.md) already found
+// and fixed for the download path below, discovered here in walk 2 by
+// noticing `status` claims to be the offline pre-flight check yet says
+// strictly less than the GUI's landing page, which has read the same file
+// via internal/sessionstate.Inspect (an offline, network-free check by
+// design) since 2026-08-03. Phrasing mirrors the GUI's four states
+// (internal/gui/gui.go's status div) so the two front ends read as one
+// product rather than two separately-worded tools.
+func printLoginStatus(stateFile string) {
+	sess := sessionstate.Inspect(stateFile)
+	switch {
+	case !sess.Present:
+		fmt.Println("Not logged in yet. Run: opal-downloader login")
+	case !sess.KnownExpiry:
+		fmt.Printf("Logged in: session saved %s. How long it stays valid could not be read from the saved session.\n",
+			sess.Saved.Local().Format("Mon 2 Jan, 15:04"))
+	case sess.Expired:
+		fmt.Printf("Logged in: saved session expired on %s. The next sync just logs in again on its own.\n",
+			sess.ValidUntil.Local().Format("Mon 2 Jan, 15:04"))
+	default:
+		fmt.Printf("Logged in: valid until %s (%s left). OPAL can end it sooner; if it does, the next sync logs in again by itself.\n",
+			sess.ValidUntil.Local().Format("Mon 2 Jan, 15:04"), humanizeDuration(sess.Remaining()))
+	}
+}
+
+// humanizeDuration matches internal/gui's humanizeSessionRemaining bucketing
+// (minutes under an hour, hours under two days, days beyond) so the CLI and
+// GUI describe the same remaining time the same way. Duplicated rather than
+// exported/shared: gui is this project's UI layer and cmd is its own
+// front end, and three small buckets are cheaper to keep in sync by reading
+// than to introduce a shared-utility package for.
+func humanizeDuration(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return "under a minute"
+	case d < time.Hour:
+		if minutes := int(d.Minutes()); minutes > 1 {
+			return fmt.Sprintf("%d minutes", minutes)
+		}
+		return "under a minute"
+	case d < 48*time.Hour:
+		if hours := int(d.Hours()); hours != 1 {
+			return fmt.Sprintf("%d hours", hours)
+		}
+		return "1 hour"
+	default:
+		return fmt.Sprintf("%d days", int(d.Hours()/24))
+	}
 }
 
 // checkLoginProfileHealth performs the filesystem-only pre-flight checks

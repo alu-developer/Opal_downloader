@@ -440,3 +440,90 @@ that turns out fine is still a result.
    absolute, backslash absolute, and relative — and the form accepts all
    three without comment. Whether any of them behave differently is unchecked,
    and interacts with the known `default_course_folder` doubled-path bug.
+
+### Walk 2 — 2026-08-11, CLI everyday use
+
+Rotation says CLI next (walk 1 was the GUI). Built current master, ran
+`opal-downloader --help` cold, then drove the commands that help text
+describes as the ordinary read-only ones a person checks first: `status`,
+`list --visit-report`. No flags typed that weren't in the help text; no
+source opened before the finding below was already named.
+
+**Expectation registered before opening it:** `status` is described in its
+own `--help` line as "Offline check: config parses and whether a session
+state file exists" - I expected that second half to actually tell me
+*whether I'm logged in*, not just that a file happens to be sitting there.
+
+#### Finding — `status` reported a session file's presence, not its validity, and said strictly less than the GUI already knows from the same file
+
+`status`'s login line read `Logged in: session state file present
+(C:\Users\alois\.opal_storage_state.json)` regardless of whether that
+session was five minutes old or five weeks expired. Opening the GUI's
+landing page for the same account read `Logged in, valid until Fri 14 Aug,
+21:22 (2 days left)` - a materially more useful sentence, from the same
+file, and both are meant to be *offline, no-browser* checks.
+
+**Cause, named sharply enough to predict where else it shows up:** this is
+the identical "checks presence, not substance" pattern walk 1 already found
+and fixed for `download_path` in this same command - `status` stat'd the
+state file and stopped, exactly like it once did for the download path. The
+substance was not missing from the codebase, only from this call site:
+`internal/sessionstate.Inspect` has existed since 2026-08-03 specifically to
+answer "am I still logged in, and until when?" from one offline file read
+(it already reads OPAL's own `authenticated-marker` cookie expiry), and
+`internal/gui` has used it for its landing page ever since. `status` was
+never wired to it - the prediction ("another offline-check call site skips
+the substance the tool already knows how to compute") held on the first
+place I looked.
+
+**Fixed this walk**, not deferred: `status` now calls
+`sessionstate.Inspect` and reports one of the same four states the GUI
+does (not logged in / present but expiry unknown / expired / valid with
+time remaining), in matching wording. Verified live against the real
+account's own session file - output now reads `Logged in: valid until Fri
+14 Aug, 21:22 (2 days left)`, byte-identical in substance to what the GUI
+already said for the same file. Full test suite green;
+`cmd/opal-downloader/root_test.go` gained four cases (not-logged-in,
+expired, valid-with-remaining, present-but-unknown-expiry) plus a
+`humanizeDuration` unit test.
+
+*Break from persona, for diagnosis only:* read `internal/sessionstate`'s
+package doc and `internal/gui/gui.go`'s status block once the gap was
+already named, to confirm a ready-made fix existed rather than needing new
+design.
+
+#### New questions this walk leaves (Rule 3)
+
+1. **`list --visit-report`'s output is dominated by rows that are "empty on
+   all visits" every single time** (roughly 80% of ~325 rows on the real
+   account, e.g. every course's own top-level node and every purely
+   organisational subfolder). Structurally these may simply be container
+   nodes that never hold files themselves - normal, not a bug - but the
+   report does not distinguish that class from a section that *should* have
+   files and doesn't, so the handful of rows that would actually flag
+   instability (partial-empty, not always-empty) are buried in noise. Not
+   chased further this walk: distinguishing "structurally file-less
+   container" from "a section losing files" needs either a data model change
+   or cross-referencing against actual file counts, not a quick read. Next
+   step for whoever picks this up: check whether any row has `Empty <
+   Visits` at all (this walk did not confirm one either way) - if none do,
+   the always-empty rows may be entirely explainable and the finding is just
+   "the report needs to filter or sort them out of the way," a much smaller
+   fix.
+2. **A real sync ran against the real account partway through this walk
+   (2026-08-11 21:58-22:24, 1 downloaded/299 skipped/49 errored) that this
+   session did not trigger** - none of `status`, `list --visit-report`
+   (confirmed offline by reading their own flag-handling code, not by
+   assumption), or the scratch-config GUI instance used for the `/settings`
+   verification touch the real account or a browser. A second worktree
+   (`worktree-lazy-plotting-diffie`) was found active at the same time,
+   which this project's own conventions treat as the likely explanation
+   (a concurrent session using the shared login profile/`sync.lock`, exactly
+   the "several sessions at once" pattern `CLAUDE.md` expects) rather than
+   evidence of a new bug - but it was not confirmed, since chasing another
+   session's live state was judged not worth interfering with. The 49 file
+   errors themselves are real and current and worth the maintainer's own
+   look (no per-file error detail survives in the shared
+   `~/.opal-downloader/logs/opal-downloader.log` - only discovery-phase
+   entries are logged there, so whatever failed on those 49 files left no
+   trace to read after the fact).

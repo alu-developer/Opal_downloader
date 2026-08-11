@@ -57,28 +57,40 @@ for the full mechanism.
 
 ---
 
-## Friction campaign — GUI walk 1 (2026-08-11)
+## Friction campaign — GUI walk 1, CLI walk 2 (2026-08-11)
 
-Found by using the GUI as a normal user, not reported by the maintainer.
+Found by using the tool as a normal user, not reported by the maintainer.
 Walk detail, expectations and named causes: `docs/friction-campaign.md`.
 Tags: **blocker** / **wrong** / **friction** / **bloat**.
 
 - **Fixed 2026-08-11 (autopilot):** raw Playwright internals in the banner,
   the banner never expiring, the on-logon catch-up trigger (Finding 1's
   recommended repair (b)), the gitignored-build-artifact scheduling
-  dependency (Finding 2), and the `/settings` glob-rules bloat (section-name
+  dependency (Finding 2), the `/settings` glob-rules bloat (section-name
   rewrites and subfolder destination overrides now sit collapsed behind an
   "Advanced" `<details>`, expanded automatically when either is already
-  configured) — see Done recently for all five. Finding 1's repair (a)
-  ("when did a sync last actually succeed" as a general, outcome-independent
-  staleness signal) is **not** built — (b) closes the specific failure mode
-  that was actually observed (event 332, user not logged on), and (a) would
-  be a broader defense-in-depth layer on top, not required to close this
-  finding. Left as a possible future Noticed item, not a commitment.
+  configured), and `status`'s login line reporting only that a session file
+  exists rather than whether it is still valid — see Done recently for all
+  six. Finding 1's repair (a) ("when did a sync last actually succeed" as a
+  general, outcome-independent staleness signal) is **not** built — (b)
+  closes the specific failure mode that was actually observed (event 332,
+  user not logged on), and (a) would be a broader defense-in-depth layer on
+  top, not required to close this finding. Left as a possible future Noticed
+  item, not a commitment.
 
 - **[question] The GUI process exited on its own after ~5 minutes** while in
   use, nobody closing the window. Not yet separable from an artifact of
-  launching it from a background shell — first item of walk 2.
+  launching it from a background shell — deferred to the next GUI-surface
+  walk (walk 2 went to the CLI instead, per the campaign's surface
+  rotation).
+
+- **[question] `list --visit-report`'s output is dominated by rows that are
+  "empty on all visits" every single time** (~80% of ~325 rows on the real
+  account). May simply be structurally file-less container nodes (normal),
+  but the report does not distinguish that from a section actually losing
+  files, so the rows that would flag real instability are buried. Next
+  step: check whether any row ever has `Empty < Visits` at all - not
+  confirmed either way this walk.
 
 - **Fixed 2026-08-11 (autopilot):** the primary button duration, the
   "developer tools" nav label, the two-window sentence, and `status`'s
@@ -461,6 +473,22 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Friction campaign walk 2 (CLI): `status`'s login line now reports
+  session validity, not just file presence** (2026-08-11, autopilot,
+  verified live against the real account's own session file): `status`
+  said `Logged in: session state file present (...)` regardless of whether
+  that session was minutes or weeks old - the same "checks presence, not
+  substance" pattern walk 1 already found and fixed for `download_path` in
+  this same command. `internal/sessionstate.Inspect` has answered "am I
+  still logged in, and until when" from one offline file read (OPAL's own
+  `authenticated-marker` cookie expiry) since 2026-08-03 and the GUI has
+  used it the whole time; `status` was simply never wired to it. Now
+  reports one of the GUI's own four states in matching wording. Verified:
+  output now reads `Logged in: valid until Fri 14 Aug, 21:22 (2 days
+  left)`, matching the GUI exactly for the same file. Four new
+  `cmd/opal-downloader` test cases plus a `humanizeDuration` unit test,
+  full suite green. Full write-up (including two new open questions) in
+  `docs/friction-campaign.md` Walk 2.
 - **Two more friction-campaign GUI-walk-1 findings fixed, and Finding 3's
   original diagnosis corrected on the way** (2026-08-11, autopilot, verified
   live in the GUI against the real `~/.opal-downloader/` status files,

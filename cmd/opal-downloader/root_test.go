@@ -477,3 +477,124 @@ func TestRunStatus_FlagsUnwritableDownloadPath(t *testing.T) {
 		t.Fatalf("expected status to flag the unwritable download path, got:\n%s", out)
 	}
 }
+
+// runStatusConfig writes a minimal config.yaml pointing at stateFile and
+// returns its path - shared by the login-status tests below.
+func runStatusConfig(t *testing.T, dir, stateFile string) string {
+	t.Helper()
+	configPath := filepath.Join(dir, "config.yaml")
+	configYAML := "download_path: " + filepath.Join(dir, "downloads") +
+		"\nsession_state_file: " + stateFile + "\ncourses:\n  - \"*\"\n"
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+		t.Fatalf("writing config.yaml: %v", err)
+	}
+	return configPath
+}
+
+// writeSessionState writes a Playwright-storage-state-shaped JSON file with
+// a single authenticated-marker cookie for bildungsportal.sachsen.de,
+// expiring at expiresAt (unix seconds) - the same cookie
+// internal/sessionstate.Inspect reads.
+func writeSessionState(t *testing.T, path string, expiresAt int64) {
+	t.Helper()
+	body := fmt.Sprintf(`{"cookies":[{"domain":"bildungsportal.sachsen.de","expires":%d,"name":"authenticated-marker","path":"/opal"}]}`, expiresAt)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("writing session state: %v", err)
+	}
+}
+
+// `status` used to report only whether the session state file existed and
+// was non-empty ("session state file present") - unable to tell an hour-old
+// session from a weeks-expired one. These four cover the states
+// internal/sessionstate.Inspect can report, matching the GUI's landing page
+// wording (internal/gui/gui.go) so both front ends read as one product.
+func TestRunStatus_NotLoggedInWhenNoStateFile(t *testing.T) {
+	dir := t.TempDir()
+	configPath := runStatusConfig(t, dir, filepath.Join(dir, "state.json"))
+
+	out := captureStdout(t, func() {
+		if err := runStatus([]string{"--config", configPath}); err != nil {
+			t.Errorf("runStatus returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Not logged in yet. Run: opal-downloader login") {
+		t.Fatalf("expected the not-logged-in message, got:\n%s", out)
+	}
+}
+
+func TestRunStatus_ReportsExpiredSession(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "state.json")
+	writeSessionState(t, stateFile, time.Now().Add(-2*time.Hour).Unix())
+	configPath := runStatusConfig(t, dir, stateFile)
+
+	out := captureStdout(t, func() {
+		if err := runStatus([]string{"--config", configPath}); err != nil {
+			t.Errorf("runStatus returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "saved session expired on") {
+		t.Fatalf("expected an expired-session message, got:\n%s", out)
+	}
+	if strings.Contains(out, "session state file present") {
+		t.Fatalf("expired session must not be reported as merely present, got:\n%s", out)
+	}
+}
+
+func TestRunStatus_ReportsValidSessionWithTimeRemaining(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "state.json")
+	writeSessionState(t, stateFile, time.Now().Add(47*time.Hour).Unix())
+	configPath := runStatusConfig(t, dir, stateFile)
+
+	out := captureStdout(t, func() {
+		if err := runStatus([]string{"--config", configPath}); err != nil {
+			t.Errorf("runStatus returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Logged in: valid until") || !strings.Contains(out, "left)") {
+		t.Fatalf("expected a valid-until message with time remaining, got:\n%s", out)
+	}
+}
+
+func TestRunStatus_ReportsUnknownExpiryWhenMarkerMissing(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "state.json")
+	// A state file with cookies but no authenticated-marker - the shape
+	// sessionstate.Inspect treats as KnownExpiry=false, not "not logged in".
+	if err := os.WriteFile(stateFile, []byte(`{"cookies":[{"domain":"bildungsportal.sachsen.de","expires":-1,"name":"JSESSIONID","path":"/opal"}]}`), 0o644); err != nil {
+		t.Fatalf("writing session state: %v", err)
+	}
+	configPath := runStatusConfig(t, dir, stateFile)
+
+	out := captureStdout(t, func() {
+		if err := runStatus([]string{"--config", configPath}); err != nil {
+			t.Errorf("runStatus returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "could not be read from the saved session") {
+		t.Fatalf("expected an unknown-expiry message, got:\n%s", out)
+	}
+}
+
+func TestHumanizeDuration(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{30 * time.Second, "under a minute"},
+		{5 * time.Minute, "5 minutes"},
+		{90 * time.Minute, "1 hour"},
+		{5 * time.Hour, "5 hours"},
+		{72 * time.Hour, "3 days"},
+	}
+	for _, c := range cases {
+		if got := humanizeDuration(c.d); got != c.want {
+			t.Errorf("humanizeDuration(%v) = %q, want %q", c.d, got, c.want)
+		}
+	}
+}

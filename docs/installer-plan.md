@@ -297,22 +297,68 @@ your PC" warning on first run (and on the downloaded file's "unblock"
 prompt), which reads as scary/untrustworthy to a non-technical user — exactly
 the audience this installer is meant to serve.
 
-Trade-off:
+**The conclusion below — ship unsigned, document the click-through — still
+stands. One premise under it does not.** Re-checked 2026-08-11 against
+Microsoft's current guidance:
 
-| | Buy a code-signing cert | Ship unsigned + document workaround |
+> "EV certificates no longer bypass SmartScreen. Years ago, signing files with
+> an Extended Validation (EV) code signing certificate would result in positive
+> SmartScreen reputation by default, but this behavior no longer exists."
+> — [SmartScreen reputation for Windows app developers](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)
+
+So the "instant reputation" claim in the table below is obsolete, and with it
+the reasoning that EV is the expensive-but-clean option. **No purchasable
+certificate removes the warning on a fresh file** — OV and EV alike show
+"unrecognized app" until the hash accumulates download volume; what signing
+buys is a verified publisher name in the dialog, and reputation that *carries
+across releases* instead of resetting to zero with every new unsigned build.
+The only paths to no warning at all are the Microsoft Store (Store apps are
+re-signed by Microsoft) or accumulated reputation.
+
+Current options, re-priced 2026-08-11:
+
+| Option | Cost | Warning on a fresh release |
 |---|---|---|
-| Cost | EV code-signing certs run roughly $300–600+/year (standard/OV certs are cheaper but SmartScreen reputation still needs to build up over time/downloads even when signed); ongoing renewal burden | $0 |
-| User experience | No SmartScreen warning (EV certs get instant reputation; standard certs still need download-volume reputation to build) | SmartScreen warning every fresh download until enough users click through and Microsoft's reputation system whitelists the hash — which won't happen at this project's likely download volume |
-| Maintainer burden | Cert renewal, secure key storage, signing step in the release process | None beyond a doc note |
-| Fit for this project | A single-maintainer open-source tool with an unknown/small user base (TU Dresden students) | Matches the project's current scale and budget — no other paid infrastructure exists today (no CI signing secrets, no cert vault) |
+| Microsoft Store (MSIX) | $19 one-time individual dev account | **None.** Store-distributed apps are never subject to SmartScreen download warnings. Requires repackaging as MSIX and passing Store review, with the ~250MB bundled Chromium along for the ride |
+| Azure Artifact Signing (ex Trusted Signing) | ~$10/month, no hardware token, signs from GitHub Actions | Shown at first, fades as reputation builds; reputation then persists across releases. **Blocked for this project today:** individual (self-employed) sign-up is limited to USA/Canada; the organization path needs a US/CA/EU/UK *business* entity. A German student has neither |
+| OV certificate from a CA | ~200–400 €/year + hardware token or cloud HSM | Shown at first; publisher name is verified in the dialog. The token requirement breaks unattended CI signing |
+| Unsigned (status quo) | $0 | Shown on every release forever — reputation cannot carry across versions without a shared signing identity |
 
-**Recommendation: ship unsigned for v1, document the SmartScreen "More info →
-Run anyway" workaround prominently** (in the GitHub release notes and a short
-section in the README/installer download page). Revisit code signing only if
-the user base grows enough that the SmartScreen friction becomes a real
-adoption blocker — at that point a standard (non-EV) cert is the pragmatic
-next step, since EV's main advantage (instant reputation) is proportionally
-less valuable than its cost for a project this size.
+**Recommendation: unchanged — ship unsigned, document the "More info → Run
+anyway" click-through prominently** (both in the release notes and in the
+README; since 2026-08-11 `release.yml` emits the note automatically rather than
+relying on a maintainer to paste it). Revisit only if the user base grows
+enough that the friction becomes a real adoption blocker, or if Artifact
+Signing's individual tier opens up in the EU — that, not an EV certificate, is
+the next step to take.
+
+### Does distributing via winget avoid the warning? No — verified 2026-08-11
+
+Checked because it looks like the obvious free workaround: publish a manifest
+to `microsoft/winget-pkgs`, tell users `winget install ...`, and the shell
+never launches the downloaded `.exe` with a Mark-of-the-Web on it.
+
+It does not work, and the failure mode is **worse than the warning it was
+meant to avoid**:
+
+- SmartScreen still fires on the unsigned installer under winget — and winget
+  reports the install as *successful* while nothing is installed. From the
+  worked example on the vim Windows installer
+  ([vim/vim-win32-installer#319](https://github.com/vim/vim-win32-installer/issues/319)):
+  "It says successful, but **nothing** happens. No prompts, no windows,
+  nothing." That project's fix was to sign the installer, not to route around
+  SmartScreen. A visible blue screen the user can click through beats a silent
+  no-op with a green checkmark, especially for this audience.
+- `winget-pkgs` submission would likely not pass anyway: its validation
+  pipeline runs SmartScreen reputation checks on the submitted URLs and
+  installs the package in a sandbox under Defender. An unsigned, zero-reputation
+  240MB installer is the exact shape that fails there.
+
+**Verdict: not smart, do not build it.** winget becomes worth revisiting only
+*after* signing exists, at which point it is a small follow-up (an Inno Setup
+installer already supports the silent-install flags winget requires) — not a
+substitute for signing. Recorded in `docs/BACKLOG.md` under "Noticed" so this
+doesn't get re-proposed as a free win.
 
 ## 7. Update story
 

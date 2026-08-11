@@ -14,34 +14,54 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
   - Later syncs/lists: reuse saved session state
   - Automatic fallback to interactive login when session expires
 
-## Prerequisites
+## Download & Install (Windows)
 
-1. Go 1.23+
-2. Chromium/Chrome (installed via Playwright)
+**[⬇ Download the latest `opal-downloader-setup.exe`](https://github.com/alu-developer/Opal_downloader/releases/latest)**
 
-## Download & Install (Windows installer)
+Run it and follow the wizard. That's the whole install — no Go toolchain, no
+`git`, no terminal, and no separate browser download (Chromium ships inside the
+installer). It installs per-user into `%LOCALAPPDATA%\Programs\opal-downloader`,
+so Windows does not ask for administrator rights. Re-running a newer installer
+over an existing install upgrades it in place.
 
-A Windows `setup.exe` installer (built from [`installer/opal-downloader.iss`](installer/opal-downloader.iss)
-with [Inno Setup](https://jrsoftware.org/isinfo.php)) is the intended
-easiest way to get started — no Go toolchain, no `git`, no terminal. There
-is no public download yet (no GitHub Release / CI release workflow has been
-set up for it), so for now use the manual build steps below. Once releases
-exist, grab `opal-downloader-setup.exe` from the
-[Releases page](https://github.com/alu-developer/Opal_downloader/releases),
-run it, and follow the wizard.
+The installer is built from [`installer/opal-downloader.iss`](installer/opal-downloader.iss)
+with [Inno Setup](https://jrsoftware.org/isinfo.php) by
+[`.github/workflows/release.yml`](.github/workflows/release.yml) on every `vX.Y.Z`
+tag — nobody uploads a hand-built binary.
 
-**About the Windows security warning:** because the installer isn't
-digitally signed (that costs money and isn't worth it for a small
-open-source tool — see [`docs/installer-plan.md`](docs/installer-plan.md)
-Section 6 for the reasoning), Windows will likely show a blue
-"Windows protected your PC" SmartScreen screen the first time you run
-`opal-downloader-setup.exe`. **This is expected, not a sign of malware** —
-it just means Microsoft hasn't seen this particular file enough times yet
-to vouch for it. To continue: click **"More info"** on that screen, then
-click the **"Run anyway"** button that appears. The installer will proceed
-normally after that.
+### Verify the download (optional)
 
-## Installation
+Every release ships an `opal-downloader-setup.exe.sha256` sidecar next to the
+installer. To check the file you downloaded is the file that was published:
+
+```powershell
+Get-FileHash .\opal-downloader-setup.exe -Algorithm SHA256
+```
+
+Compare the printed hash against the sidecar's contents (case-insensitive).
+A mismatch means a corrupted or truncated download — delete it and download
+again. Note the limit of what this proves: it guards against transport damage
+and naive tampering, **not** against a malicious release published by whoever
+controls this repo. That is a code-signing problem with a different trust root
+— see [`docs/update-mechanism-plan.md`](docs/update-mechanism-plan.md) Section 4.
+
+### About the Windows security warning
+
+The installer isn't digitally signed (see
+[`docs/installer-plan.md`](docs/installer-plan.md) Section 6 for the
+cost/benefit), so Windows shows a blue **"Windows protected your PC"**
+SmartScreen screen the first time you run it. **This is expected, not a sign of
+malware** — it only means Microsoft's reputation system hasn't seen this
+particular file often enough to vouch for it. To continue: click
+**"More info"**, then the **"Run anyway"** button that appears. The installer
+proceeds normally after that.
+
+## Build from source (contributors)
+
+Only needed if you want to modify the code or run the tests — end users should
+use the installer above.
+
+Prerequisites: Go 1.23+ (Chromium is fetched by the Playwright step below).
 
 ```bash
 git clone https://github.com/alu-developer/Opal_downloader.git
@@ -63,7 +83,7 @@ not reliably execute. Use the `.exe` form above on Windows.
 
 ## Quick Start (Web UI)
 
-Once built (see Installation above), just run the binary with no arguments:
+Once built (see "Build from source" above), just run the binary with no arguments:
 
 ```bash
 ./opal-downloader
@@ -96,7 +116,7 @@ the browser, then run `sync` from a script or cron job.
 
 ### Fast path: `setup`
 
-Instead of running the Playwright install manually (see Installation above),
+Instead of running the Playwright install manually (see "Build from source" above),
 you can run:
 
 ```bash

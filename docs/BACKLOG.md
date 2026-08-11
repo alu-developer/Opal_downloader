@@ -178,6 +178,30 @@ Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
 
+- **winget distribution: investigated 2026-08-11, decided against, do not
+  re-propose as a free SmartScreen workaround.** It looks like one — publish a
+  manifest to `microsoft/winget-pkgs`, users run `winget install`, no
+  shell-launched `.exe` carrying a Mark-of-the-Web. It isn't. SmartScreen still
+  blocks an unsigned installer under winget, and winget reports the install as
+  *successful* while nothing happens
+  ([vim/vim-win32-installer#319](https://github.com/vim/vim-win32-installer/issues/319)),
+  which is strictly worse than a blue screen the user can click through. The
+  `winget-pkgs` validation pipeline also runs SmartScreen reputation checks on
+  submitted URLs and sandbox-installs under Defender, which a zero-reputation
+  240MB unsigned installer would not survive. Full writeup in
+  `docs/installer-plan.md` Section 6. **Revisit only after signing exists** —
+  it is then a small follow-up, never a substitute.
+
+- **Code signing has one plausible route and it is currently closed to us.**
+  Also 2026-08-11: EV certificates no longer grant instant SmartScreen
+  reputation (Microsoft's own docs now say so outright), so no certificate at
+  any price removes the warning on a fresh file. Azure Artifact Signing
+  (~$10/month, no hardware token, signs from GitHub Actions) is the sane option
+  and would at least let reputation carry across releases — but individual
+  sign-up is USA/Canada only, and the organization path needs a business
+  entity. Worth re-checking once a year, or if the project ever gets an entity
+  behind it. `docs/installer-plan.md` Section 6 has the comparison.
+
 - **Two sessions independently built the same backlog item, five hours
   apart, and neither noticed the other's PR (2026-08-11 investigation).**
   Question 36 Step B2 was handed off as open work in commit `9ceb88b` ("Five-

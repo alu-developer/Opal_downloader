@@ -216,8 +216,59 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
+
+          # Prepended above --generate-notes' auto changelog. Without this the
+          # release page is a bare list of merged PRs: no word on the
+          # SmartScreen warning the download is guaranteed to trigger, and no
+          # word on what the .sha256 sidecar sitting next to it is for. Both
+          # have to be at the download, not one link away in the README - the
+          # user reads this page at the moment they are about to double-click.
+          # Kept in sync with docs/release-notes-template.md.
+          $notes = @'
+          ### Download
+
+          Download **`opal-downloader-setup.exe`** below and run it. Chromium is
+          bundled, so there is nothing else to install. It installs per-user, so
+          Windows will not ask for administrator rights.
+
+          ### Windows SmartScreen warning - this is expected
+
+          This installer isn't digitally signed ([why not](https://github.com/alu-developer/Opal_downloader/blob/master/docs/installer-plan.md#6-code-signing--smartscreen)),
+          so Windows shows a blue **"Windows protected your PC"** screen the
+          first time you run it.
+
+          **This does not mean the file is malware** - it means Microsoft's
+          SmartScreen reputation system hasn't seen this file often enough to
+          vouch for it. To continue: click **"More info"**, then **"Run anyway"**.
+
+          ### Verifying the download (optional)
+
+          `opal-downloader-setup.exe.sha256` below holds the SHA-256 of the
+          installer as this workflow built it. To compare:
+
+          ```powershell
+          Get-FileHash .\opal-downloader-setup.exe -Algorithm SHA256
+          ```
+
+          A mismatch means a corrupted or truncated download. This guards
+          against transport damage and naive tampering, not against a malicious
+          release published by whoever controls this repo - that is a
+          code-signing problem, see
+          [docs/update-mechanism-plan.md](https://github.com/alu-developer/Opal_downloader/blob/master/docs/update-mechanism-plan.md)
+          Section 4.
+
+          ---
+
+          '@
+          # YAML's block scalar strips this file's 10-space indent before
+          # PowerShell ever sees the script, so the here-string body arrives at
+          # column 0 and the Markdown is not read as an indented code block.
+          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          $notes | Out-File -Encoding utf8 -NoNewline $notesFile
+
           gh release create $tag `
             "${{ steps.build.outputs.exe_path }}" `
             "${{ steps.build.outputs.sidecar_path }}" `
             --title $tag `
+            --notes-file $notesFile `
             --generate-notes

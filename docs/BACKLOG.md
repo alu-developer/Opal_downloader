@@ -23,46 +23,22 @@ here is the failure mode to watch for.
 
 ## Now
 
-**PR #134 open for review: HTTP-first discovery (Question 36 Step B2)**,
-branch `http-first-discovery-b2`. `scrapeCoursesHTTPFirst`
-(`internal/scraper/httpfirst.go`) replaces the browser tree-walk with a
-per-course root fetch → `ParseCourseTreeNodes` seed → HTTP BFS (the crawl's
-own `appendSectionFolderTargets`/`appendSectionFiles`, following
-`extractShowAllURLFromHTML` for both files and folder-target expansion), gated
-behind `OPAL_HTTP_DISCOVERY=2`. Live-verified 2026-08-10: two consecutive runs
-each found the identical **349 files, byte-for-byte, zero diff** against a
-fresh browser-crawl baseline, in 71.99s/78.90s (prediction was 90-110s,
-failure line 130s). Unit tests added
-(`internal/scraper/httpfirst_test.go`). Full result in
-`docs/sync-speed-model.md` Question 36 Step B2.
-
-**This is one of the three paths that have silently lost files before, so per
-`CLAUDE.md` it went as a PR rather than straight to master — this entry is
-the maintainer's flag that it is waiting for that look, not an open
-question.** Noted in passing, not chased: the browser baseline's *first*
-attempt that morning found only 121 files (two normally-populated courses at
-0), a pre-existing browser-crawl flakiness class; a second baseline run came
-back clean at 349 and is what the diff used.
+_Nothing currently blocked on the maintainer. See "Next" and
+`docs/sync-speed-model.md`'s ranked open-questions list for what runs next._
 
 ---
 
 ## Next
 
-**Raise `course_concurrency` past 2** — `docs/sync-speed-model.md`
-Question 35. Maintainer asked for it in the same decision round. `3` has not
-been measured since any of the 2026-08 work and `4` lost 9 files the last
-time it was tried (2026-07-21), so this is a byte-for-byte parity sweep at 3
-first, against a fresh same-session conc=2 baseline, with the same discipline
-Questions 31–33 used. Do not skip to 4, and do not open a hunt if 3 comes
-back short — stop at 2.
-
-**Recommendation, 2026-08-10 — worth a moment before this is run:** it tunes
-the browser crawl that Question 36 Step B2 would largely replace. If B2 lands,
-these live runs were spent on soon-to-be-dead code. Options: (a) do B2 first
-and re-ask whether concurrency 3 still matters afterwards — recommended, it
-costs nothing but ordering; (b) run the sweep anyway as insurance in case B2
-fails its byte-diff; (c) drop 35. Not blocking: this is a sequencing call and
-(a) is the default unless the maintainer says otherwise.
+**Question 35, raise `course_concurrency` past 2, is downgraded — the path it
+would tune is no longer the default one.** `docs/sync-speed-model.md`
+Question 36 Step B2's `scrapeCoursesHTTPFirst` runs courses serially and does
+not read `course_concurrency` at all; now that it ships as the default (see
+Done recently), the setting only still matters for the `OPAL_HTTP_DISCOVERY=0`
+browser-crawl rollback path. Not worth a live sweep until something exercises
+that path again. If `course_concurrency` ever needs to apply to the
+HTTP-first path's per-course loop instead, that is new work, not a rerun of
+Question 35.
 
 ---
 
@@ -71,6 +47,38 @@ fails its byte-diff; (c) drop 35. Not blocking: this is a sequencing call and
 Things seen while working on something else and passed over. Not commitments —
 rough edges that would otherwise only exist in one session's context window.
 Delete an entry when it is done, or when it turns out not to matter.
+
+- **Two sessions independently built the same backlog item, five hours
+  apart, and neither noticed the other's PR (2026-08-11 investigation).**
+  Question 36 Step B2 was handed off as open work in commit `9ceb88b` ("Five-
+  cycle report, backlog handoff to Step B2"). Both PR #133
+  (`restructure-hybrid-http-first-discovery`, first commit 13:13) and PR #134
+  (`http-first-discovery-b2`, first commit 18:08) branched from the exact
+  same master commit (`865820c`) and built the same algorithm from scratch.
+  This was not the git-collision hazard already tracked above (no
+  simultaneous `chrome.exe`/session-lock contention — the two sessions never
+  ran at the same time) — it was a **visibility gap**: PR #133 finished at
+  16:22 and its last commit rewrote `docs/BACKLOG.md`'s Now section to point
+  at itself, but that edit lived only on its own branch. Master's own
+  `docs/BACKLOG.md` still read "Step B2 open work" the whole time, because
+  nobody had merged or even referenced the PR back into master yet. A fresh
+  session at 18:08 read master's backlog (accurately, as far as it could
+  tell), saw open work, and redid it — a `gh pr list` before starting would
+  have caught it, but nothing in this project's workflow prompts a fresh
+  session to check for in-flight PRs on the item it's about to start, only
+  for in-flight *branches/processes* (the existing collision-hazard entry
+  above). Then a later session, editing master directly at 20:22, picked
+  #134 as the Now item's PR without ever checking whether an older #133
+  covering the same ground existed. Consequence: ~5 hours of duplicate work,
+  caught only because both PRs happened to sit open at once when this
+  decision round ran. **Resolved 2026-08-11:** #133 merged (it had already
+  found and fixed a real bug — see `docs/sync-speed-model.md` Question 36
+  Step B2 — that #134 still carried, unfixed, un-triggered), #134 closed as
+  superseded. Not fixed at the process level: a PR-open-work check before
+  starting a backlog item that's already "Now" would close this gap, but
+  that is itself the "another gate" failure mode `CLAUDE.md`'s global
+  instructions warn against building reflexively — recorded here as a known
+  gap instead, to weigh against if it recurs.
 
 - **Question 23's raw-CDP preview blocker lost 33 files, all in one
   known-flaky section (2026-08-05).** Full mechanism write-up:
@@ -405,6 +413,16 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **`OPAL_HTTP_DISCOVERY=2` (HTTP-first discovery, Question 36 Step B2)
+  shipped as the default** (2026-08-11, decision round): merged PR #133,
+  closed duplicate PR #134 as superseded (it carried the same unfixed
+  20-minute-hang bug #133 already found and fixed, just never triggered it —
+  see Noticed section for how the duplicate happened). Maintainer chose to
+  ship now rather than wait for a different-day confirmation run, matching
+  the `course_concurrency=2` precedent. `OPAL_HTTP_DISCOVERY=0` forces the
+  old plain browser crawl as a rollback path. Downgraded Question 35 (raise
+  `course_concurrency` past 2) — the path it would tune is no longer the
+  default one.
 - **TU-Fast's missing fast reload traced to a real gap and fixed: a login page
   with no fields could never be called stalled** (2026-08-10, autopilot,
   option (a) as recommended): `loginSignals.stalled()` required

@@ -265,31 +265,185 @@ is seed-from-tree, then let the existing HTTP phase's own discovery expand
 what the seed does not cover — which is what `appendSectionFolderTargets`
 already does for the browser.
 
-**Step B2 result (2026-08-10, live, autopilot): confirmed, zero diff, two
-independent runs.** `scrapeCoursesHTTPFirst` (`internal/scraper/httpfirst.go`,
-branch `http-first-discovery-b2`, PR #134) replaces the browser tree-walk
-entirely (course discovery still uses the browser - a different page than any
-course's content tree) behind `OPAL_HTTP_DISCOVERY=2`. Verified with the
-established `TestFileListSnapshot` harness (course/section/name/URL, not just
-a count): a fresh browser-crawl baseline found all **349 files** (a first
-attempt at the same baseline that morning found only 121, with two normally-
-populated courses reporting 0 - a pre-existing browser-crawl flakiness class
-this project already knows about, not something this change caused or
-investigated further this cycle), then two consecutive
-`OPAL_HTTP_DISCOVERY=2` runs each found the identical **349 files,
-byte-for-byte, zero diff** against that baseline and against each other.
-Timing: 71.99s and 78.90s wall clock (includes config load and course
-discovery, not just the crawl) against the prediction's 90-110s and the 130s
-failure line - inside on both runs. **Still gated behind the env flag and
-living on a PR branch, not master**, per `CLAUDE.md`'s rule for the three
-discovery paths that have silently lost files before - this result is what
-that PR asks the maintainer to look at, not a self-certified default flip.
+**Step B2 result (2026-08-10, autopilot, production code written, prediction
+registered before the live run).** `scrapeCoursesHTTPFirst`
+(`internal/scraper/orchestrator.go`) and `discoverSectionsHTTP`
+(`internal/scraper/httpdiscovery_seed.go`) implement exactly the rider's
+algorithm as the thing `ScrapeWithSavedSession` actually calls
+(`OPAL_HTTP_DISCOVERY=2`) instead of a comparison alongside a browser crawl —
+the browser is used only for `discoverCourseLinks` (the course list, three
+page loads), never for a single section. `discoverSectionsHTTP` applies
+`isNonFileSectionType` at the seed itself (not just during expansion) and
+follows `extractShowAllURLFromHTML` during expansion, the two corrections
+Step B1 named. 5 offline unit tests
+(`internal/scraper/httpdiscovery_seed_test.go`) cover the seed-skip, the
+pagination-recovery mechanism (reproducing Step B1 run 1's exact miss against
+a fake fetcher), and that one section's fetch failure is logged and skipped
+rather than losing the whole course. Build, vet, full suite pass.
 
-Not re-verified this cycle: the flaky-browser-baseline anomaly itself (121
-files, two courses at 0) is a new, undiagnosed data point worth a future
-question if it recurs - recorded here rather than chased, since a second
-browser run immediately after came back clean and this cycle's job was
-Step B2, not that.
+*Prediction for the live run, written before running it:* `OPAL_FILELIST=after
+OPAL_HTTP_DISCOVERY=2` against `OPAL_FILELIST=before` (plain browser crawl,
+same session) produces **an empty diff, 349 files both sides**, matching the
+Step B1 rider's 286/286 sections and this project's own current ground truth.
+Wall clock for the after run: **under 130s** (Step B2's own kill line),
+expected near the rider's 71.4s plus whatever `discoverCourseLinks` costs on
+top (not measured by the rider, which ran after an already-open browser
+session). Counts as failed at any non-empty diff, regardless of speed — the
+byte-diff is the gate, not the timing.
+
+**Live run 1 (2026-08-10): FAILED, but not on the byte-diff — the run never
+finished.** `OPAL_FILELIST=before` (plain browser) completed normally: 349
+files, matching the ground truth, though its own log shows real transient
+network trouble during the window (`net::ERR_CONNECTION_TIMED_OUT` on a
+handful of sections, one 3m1s no-progress warning that then recovered).
+`OPAL_FILELIST=after OPAL_HTTP_DISCOVERY=2`, run immediately after in a fresh
+process, made visible progress (dozens of sections fetched, correctly
+reporting 0 files for several genuinely-empty ones) and then stalled for
+**20+ minutes** with zero progress before Go's own `-timeout 20m` killed the
+test. The goroutine dump at kill time is unambiguous:
+`discoverSectionsHTTP` → `httpGetText` → Playwright
+`apiRequestContextImpl.Fetch`, blocked inside `fetch.Get`.
+
+*Diagnosed, not guessed, and sharp enough to predict the failure: neither
+`discoverSectionsHTTP` (new) nor the pre-existing `fetchSectionFilesHTTP`
+ever passed a `Timeout` to `fetch.Get`.* Playwright's own docs claim a
+30000ms per-request default when none is passed — not observed in practice
+here (the block ran past 20 minutes with no error surfacing at all). Whatever
+the exact reason the documented default didn't fire, the mechanism explaining
+the *failure* doesn't depend on it: **the entire HTTP discovery/fetch path,
+including the already-shipped `verify`/`1` modes, has had no explicit
+per-request timeout since it was written on 2026-07-31.** Contrast with the
+browser path, where every single `Page.Goto` carries an explicit 15–20s
+`Timeout` (`session.go`'s `SetDefaultTimeout`/`SetDefaultNavigationTimeout`)
+and `crawl.go` already retries a timed-out navigation and moves on. The two
+runs' network trouble was very likely the same ordinary transient flakiness
+(both hit it in the same few-minute window against the same account) — the
+finding is not "the network was unusually bad for this test," it's that nothing
+in the HTTP path was ever built to survive that trouble the way the browser
+path already was.
+
+*Fix (2026-08-10, same cycle): every `fetch.Get` call in both files now
+passes an explicit 20000ms `Timeout` (`httpGetOptions()`,
+`httpdiscovery_fetch.go`) — matching the browser's own
+`SetDefaultNavigationTimeout(20000)` budget. A timed-out section fetch is now
+just another per-section error: logged via `onSectionError`/`logging.Warn`
+and skipped, exactly like a 403 or a malformed response already was, rather
+than hanging the whole run. Offline tests unaffected (`fakeHTTPFetcher.Get`
+already accepted and ignored the variadic options). Rule 2: this
+explanation — no bounded timeout anywhere on this path — would have predicted
+today's specific failure shape (progress, then total silent stall, then a
+hard kill with no error) in advance, so run 1 counts as diagnosed, not just
+failed.
+
+**Live run 2, amended prediction, registered before re-running:** same
+comparison, same expectation — **0 missing, 0 extra beyond the seed's known
+21, 349 files, empty diff** — with the addition that any individual section
+allowed to fail (logged via `onSectionError`) now counts as a *miss* in the
+diff rather than a silent hang, so a transient stall this time shows up as a
+small, bounded, explainable gap instead of taking the whole run down. Timing
+prediction unchanged (under 130s), now genuinely testable since the run can
+actually finish.
+
+**Live run 2 result (2026-08-10): the byte-diff PASSED — 349 files, empty
+diff — but the timing prediction failed badly, and the cause was this
+method's own design, not the network.** `tmp/filelist-after.txt` vs
+`tmp/filelist-before.txt`: identical, 349 lines each. But the run logged `6
+courses, 302 section requests, 302 file requests, 4m45.5s` — **604 HTTP
+requests**, roughly double Step B1's 313-request rider, and the wall clock
+blew through the 130s kill line by more than 2x.
+
+*Diagnosed, sharp enough to have predicted it in advance if anyone had
+checked the request count against the rider's before running:*
+`scrapeCoursesHTTPFirst`'s first version called `discoverSectionsHTTP` to
+find each course's section URLs, then called the existing
+`fetchSectionFilesHTTP` **again, per section**, to get its files — two full
+fetches of every one of 302 sections, where the browser path (and the rider)
+only ever fetch a section once. The rider never measured this because it
+deliberately only tested discovery ("Deliberately not re-tested: file
+extraction..."); nothing before this live run exercised the full two-phase
+shape end to end at production scale.
+
+*Fix (2026-08-10, same cycle):* `discoverSectionsHTTP` now extracts files
+from each section's body at the exact point it is already being parsed for
+child-folder candidates — one fetch serves both jobs, via a new
+`extractSectionFiles` helper that runs the identical `appendSectionFiles`
+predicate `fetchSectionFilesHTTP` uses (so the merge key and dedupe behavior
+are unchanged). `fetchSectionFilesHTTP` itself is untouched, since the
+existing `verify`/`1` modes still call it directly and it is not the thing
+that needed fixing. `scrapeCoursesHTTPFirst` simplified to match — no more
+per-section second loop. All 5 `httpdiscovery_seed_test.go` tests rewritten
+around the function's new `[]FileRef` return and still pass, including a
+fixture where a file lives two levels below the tree seed (root → tree node
+→ sub-path → file), proof the one-fetch shape still reaches it.
+
+**Live run 3, amended prediction, registered before re-running:** same
+349-file empty-diff expectation, and now a request-count check too — **at
+most ~320 requests** (313 the rider measured, plus room for `discoverCourseLinks`'s
+overhead and normal account drift since 2026-08-10's earlier measurements),
+counted as failed above 400. Wall clock: **under 130s**, counted as failed
+above that line for a *speed* verdict, but note a byte-diff pass at any
+speed is still real evidence the algorithm is correct — only the "ship as
+the default" question depends on the timing number.
+
+**Live run 3 result (2026-08-10): PASSED both gates.** `302 HTTP requests`
+(inside the predicted ≤320), HTTP phase **65.6s** (`3.5s` course discovery +
+`65.6s` HTTP), matching Step B1's own 71.4s rider closely — and
+`diff tmp/filelist-before.txt tmp/filelist-after.txt` is **empty, byte for
+byte, 349 files both sides**. This run's saved session had expired, so it
+also incidentally re-confirmed unattended TU-Fast login still completes on
+its own mid-test (`CLAUDE.md`'s standing note) — the extra ~57s that shows
+in the test's total 122.42s belongs to that re-login, not to discovery; the
+number that answers Question 36 is the 65.6s HTTP-phase line the code logs
+separately.
+
+**Step B2 is closed: the browser is no longer needed anywhere in
+discovery.** `OPAL_HTTP_DISCOVERY=2` reproduces the full 349-file ground
+truth in ~69s total HTTP+discovery cost (excluding one-time login), against
+the plain browser crawl's ~207s floor named at the top of this file — a
+structural win, not a tuning one, because it changes what the 207s floor
+even measures. Shipped behind the flag on branch
+`restructure-hybrid-http-first-discovery`, not yet the default — per
+`docs/BACKLOG.md`'s own instruction this is one of the three paths that has
+silently lost files before, so flipping the default is a PR for the
+maintainer to land, not an autopilot decision. See that PR for the
+default-now vs. wait-a-day options.
+
+**New open questions this closure leaves, ranked:**
+1. Does `OPAL_HTTP_DISCOVERY=2` still pass the byte-diff on a *different*
+   day/account-state, the same confirmation step Questions 31–33 applied to
+   `course_concurrency`? Not yet run — today's three live runs (including
+   this one) are all 2026-08-10.
+2. Question 35 (raise `course_concurrency` past 2) was explicitly deferred
+   pending this closure (`docs/BACKLOG.md` "Next", recommendation (a)):
+   worth re-asking now, since it tunes a browser crawl this mode no longer
+   runs during discovery — though `course_concurrency` still governs how
+   many courses `discoverSectionsHTTP` could run in parallel if that were
+   ever added (it currently runs courses serially; not measured whether
+   that costs anything against the 65.6s already achieved).
+3. `scrapeCoursesHTTPFirst` currently discovers all courses' files, then
+   returns everything in one batch — no `PhaseSection` progress events
+   during the HTTP phase (removed when the two-fetch design was collapsed
+   into one), so a GUI sync using this mode shows less granular live
+   progress than the browser path. Not a correctness gap, but worth a
+   follow-up if this becomes the default and the GUI's progress bar looks
+   wrong to real use.
+
+**Resolved 2026-08-11 (decision round): two independent sessions had built
+this same step as separate PRs without knowing about each other — #133
+(above, `restructure-hybrid-http-first-discovery`) and #134
+(`http-first-discovery-b2`, a lighter-weight rebuild of the same algorithm in
+a single new file, 2 live runs, 349/349 zero-diff on both). #134's own
+`fetch.Get` call carried no timeout — the identical unbounded-hang bug run 1
+above found and fixed here — it simply never fired in #134's two runs.
+Maintainer decided: merge #133 (it already found and fixed that bug, plus the
+double-fetch inefficiency, with 3 live runs and 5 tests to #134's 2 runs),
+close #134 as superseded, and ship `OPAL_HTTP_DISCOVERY=2` as the default
+immediately rather than wait for a different-day confirmation run — same
+call as the `course_concurrency=2` precedent (2026-08-10), same residual
+caveat (all live evidence is one day/account-state). Open question 1 above
+(different-day confirmation) is therefore answered by policy, not by a
+fresh run: accepted risk, not proof. Root cause of the duplication and both
+PRs' provenance: see `docs/BACKLOG.md` Noticed section.
 
 ### 34. ~~Does the HTML the crawl already receives point at content it has to navigate for — and if so, how much of the tree can be read without the per-branch navigation?~~ Answered 2026-08-10 (autopilot, saved HTML + source reading, no live run): the concealed-structure half is a **hit**, and the prediction this file had pre-registered for it was wrong
 

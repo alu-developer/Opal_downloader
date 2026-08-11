@@ -29,6 +29,35 @@ type httpFetcher interface {
 	Get(url string, options ...playwright.APIRequestContextGetOptions) (playwright.APIResponse, error)
 }
 
+// httpFetchTimeoutMs bounds every plain HTTP GET this project issues over an
+// httpFetcher (fetchSectionFilesHTTP below and discoverSectionsHTTP's
+// httpGetText, httpdiscovery_seed.go). Matches the browser path's own
+// SetDefaultNavigationTimeout(20000) (session.go) - the same budget a Page
+// navigation gets, on the theory that a plain GET of the same server should
+// not be given more patience than a full page load already is.
+//
+// CONFIRMED LIVE NECESSARY, not defensive-by-habit (2026-08-10): the first
+// live run of scrapeCoursesHTTPFirst, before this existed, hit a stalled
+// connection and blocked inside Playwright's own fetch.Get for over 20
+// minutes with no error - Playwright's documented 30s per-request default
+// was not observed in practice. Passing Timeout explicitly is the fix, not
+// a defense against a hypothetical: without it, a single stalled request
+// wedges the whole discovery with no bounded failure, where the browser
+// path's every navigation already fails and moves on in well under a
+// minute. Same run's browser-crawl baseline saw real
+// net::ERR_CONNECTION_TIMED_OUT errors around the same time, so this was
+// ordinary network flakiness, not a synthetic condition - exactly the kind
+// of transient stall a shared HTTP path has to survive.
+const httpFetchTimeoutMs = 20000
+
+// httpGetOptions is the APIRequestContextGetOptions every fetch.Get call in
+// this project's HTTP discovery/fetch paths should pass, so a future new
+// call site can't accidentally omit the timeout the way the first version
+// of both of these files did.
+func httpGetOptions() playwright.APIRequestContextGetOptions {
+	return playwright.APIRequestContextGetOptions{Timeout: playwright.Float(httpFetchTimeoutMs)}
+}
+
 // responseBodyText is a tiny helper that mirrors the probe's resp.Text() use;
 // kept inline because playwright.APIResponse.Text already returns (string, error).
 func responseBodyText(resp playwright.APIResponse) (string, error) { return resp.Text() }
@@ -43,7 +72,7 @@ func responseBodyText(resp playwright.APIResponse) (string, error) { return resp
 // Returns the files and the number of HTTP requests issued (1 for a normal
 // section, 2 for a paginated one), so the caller can log server-load impact.
 func fetchSectionFilesHTTP(fetch httpFetcher, course CourseRef, section SectionRef, opalURL string) ([]FileRef, int, error) {
-	resp, err := fetch.Get(section.URL)
+	resp, err := fetch.Get(section.URL, httpGetOptions())
 	if err != nil {
 		return nil, 0, fmt.Errorf("HTTP GET section %s: %w", section.URL, err)
 	}
@@ -67,7 +96,7 @@ func fetchSectionFilesHTTP(fetch httpFetcher, course CourseRef, section SectionR
 	// predicate so the merge is just more candidates through the same filter.
 	if showAllRel := extractShowAllURLFromHTML(body); showAllRel != "" {
 		showAllURL := resolveURL(opalURL, showAllRel)
-		showResp, showErr := fetch.Get(showAllURL)
+		showResp, showErr := fetch.Get(showAllURL, httpGetOptions())
 		requests = 2
 		if showErr != nil {
 			logging.Warn("HTTP show-all fetch failed for %s: %v (continuing with first-page files only)", section.URL, showErr)

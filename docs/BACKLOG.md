@@ -30,15 +30,17 @@ _Nothing currently blocked on the maintainer. See "Next" and
 
 ## Next
 
-**`docs/sync-speed-model.md`'s ranked list is Question 39, then Question 40,
+**`docs/sync-speed-model.md`'s ranked list is Question 39, then Question 41,
 then Question 5.** Question 39 (does anything still cross-validate
 HTTP-first's correctness against an independent browser crawl now that it
 ships as the default, or did that check quietly disappear) is a process/
 product question, not a live-run one — whoever picks it up should bring
 options. Question 40 (does `scrapeCoursesHTTPFirst` benefit from its own
-course-level concurrency, since it has none today) needs a registered
-prediction and a byte-diff sweep before running, same discipline as
-Questions 31-33.
+course-level concurrency) is closed live 2026-08-11: empty diff, 349/349,
+41.6s vs 56.7s baseline — see Done recently. Not promoted to default, one
+run against this project's own two-run bar; Question 41 (a second,
+different-day confirming run, and whether default-promotion is in scope for
+that cycle) is the new speed-line head.
 
 ---
 
@@ -485,6 +487,14 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Question 40 live-verified: `scrapeCoursesHTTPFirst` course-level
+  concurrency (`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2`) is empty-diff clean
+  and cuts discovery 27%** (2026-08-11, autopilot, 2 live runs): 349/349
+  files both sides, 41.6s vs a fresh 56.7s serial baseline, squarely inside
+  the pre-registered 35-45s prediction. Not promoted to default — one run
+  against this project's own two-clean-runs bar (Step B2 precedent) — opened
+  Question 41 for a different-day confirming run and the promotion decision.
+  Full write-up in `docs/sync-speed-model.md` Question 40/41.
 - **HTTP-first discovery silently stopped feeding `internal/visitlog`'s
   cross-run log the moment it shipped as the default; fixed, and Question
   35's downgrade sharpened into two new ranked questions** (2026-08-11,

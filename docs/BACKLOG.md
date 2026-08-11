@@ -103,6 +103,15 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
   use, nobody closing the window. Not yet separable from an artifact of
   launching it from a background shell — first item of walk 2.
 
+- **[wrong] `status` reports `(OK)` for a `download_path` that cannot exist.**
+  With `download_path: "Q:/nope/downloads"` it prints the path and calls the
+  config fine; it validates YAML syntax, never substance. A typo'd drive letter
+  therefore passes the one command whose job is to say whether the setup is
+  sound, and surfaces minutes later in a sync instead. Found 2026-08-11 via the
+  green-tier scratch environment (`docs/friction-campaign.md`, "Breaking things
+  safely"). Open follow-up: what a *sync* does with an unwritable path — fail
+  clearly, or appear to succeed? Not yet measured.
+
 ---
 
 ## Noticed

@@ -82,11 +82,121 @@ per run, after it has emptied the backlog and before it does a sync-speed
 cycle. A live session can of course walk any time.
 
 Blast radius granted at open: **anything, including install and uninstall.**
-Real account, real config, real download folder. Reversible sabotage (expire
-the session, break the config, kill a run mid-sync) is explicitly in scope —
-that is where the ugly errors live and they cannot be found any other way.
+Breaking things on purpose is explicitly in scope — that is where the ugly
+errors live and they cannot be found any other way. See "Breaking things
+safely" below for how to do that without it costing anything, which is what
+makes it available to unattended runs too.
+
 The one standing constraint is unchanged and comes from elsewhere: one crawl
 at a time (`sync.lock`, see `docs/BACKLOG.md`).
+
+## Breaking things safely
+
+Asked by the maintainer 2026-08-11, after the first version of this file
+reserved all sabotage for live sessions: *"gibt es keinen weg gewisse sachen zu
+breaken, aber auf eine ungefährliche art und weise?"* There is, for nearly
+everything, and reserving it was too cautious.
+
+**The principle: the app is fully parameterised by `--config`** — nine
+commands take it — **and everything a user can break is either in the config
+or under a path the config names.**
+
+| what breaks | where it lives | config-scoped? |
+|---|---|---|
+| downloaded files | `download_path` | yes |
+| the sync manifest | `.opal-sync.manifest.json` **inside** `download_path` (`syncer.go:435`) | yes |
+| the session | `session_state_file` | yes |
+| the server it talks to | `opal_url` | yes |
+| every folder / pattern rule | the config itself | yes |
+
+So there is no need to break the real thing: **build a disposable copy of the
+environment and break that.** The real one is never involved, and a run that
+dies halfway leaves nothing to repair — which is the property that makes this
+safe unattended, not the size of the damage.
+
+### The scratch environment
+
+```
+tmp/friction/config.yaml    copy of the real config, with download_path and
+                            session_state_file redirected to the two below
+tmp/friction/downloads/     scratch download_path — the manifest lands here too
+tmp/friction/state.json     copy of the real session state, so a walk does not
+                            have to log in first
+```
+
+Then pass `--config tmp/friction/config.yaml` to everything.
+
+`tmp/` is gitignored (`.gitignore:39`), so the copied session token never
+reaches the public repo. **Re-check that before copying it**, every time — it
+is one line and the consequence of it having changed is a leaked credential.
+
+### Green — break freely, including unattended
+
+| break | how | what it tests |
+|---|---|---|
+| unreadable config | truncate the YAML mid-key, wrong types, unknown keys | does the error name the file, the line, and the fix? |
+| impossible `download_path` | nonexistent drive, a file instead of a folder, read-only dir, 300-char path, emoji, UNC | the whole path-error class in one sitting |
+| OPAL unreachable | point `opal_url` at a dead host | reproduces walk 1's Finding 3 error text **without touching networking** |
+| expired / corrupt session | truncate or hand-edit the scratch `state.json` | the auto-relogin path, and what the user stares at while it runs |
+| corrupt manifest | truncate it, half-write it, bump its schema version | does a bad manifest cost one file or the whole sync? |
+| files disappear behind the user | delete / rename / chmod files in scratch downloads between two syncs | re-download logic, and the error when a file cannot be written |
+| interrupted run | kill the process mid-sync | does the next run recover on its own, or does it need a human? |
+| two at once | two syncs against the scratch config | `sync.lock` — untouched by walk 1 |
+| a fresh install | the installer takes Inno Setup's `/DIR=`, so install to a scratch directory | the first-run path without disturbing the real install |
+
+### Amber — snapshot first, then break, still fine unattended
+
+The GUI's status files are **global, not config-scoped** — fixed paths under
+`~/.opal-downloader/` (`statuslog.DefaultPath`): `last-scheduled-run.json`,
+`scheduled-run-history.jsonl`, and the dismiss marker. Testing what the banner
+does therefore has to touch the real ones.
+
+Copy them to `tmp/friction-restore/` first, then break them, then restore.
+Stakes if a run is killed mid-way: a wrong or missing banner — which is
+precisely what walk 1 documented as already happening, so the worst case is
+the bug we are already reporting.
+
+### Red — live session only, and exactly why
+
+Three things, red because no copy of them exists to break instead:
+
+1. **`~/.opal-downloader/login-profile`.** Holds the TU-Fast extension and its
+   stored credentials. Rebuilding it is the one genuinely manual step left in
+   this project. Never delete it. (Expiring a *session* is green — that is
+   `session_state_file`, a different thing.)
+2. **The real Windows task `OpalDownloaderScheduledSync`.** The name is a
+   constant, so there is no scratch copy to register alongside it. A run killed
+   between deregister and restore leaves automatic sync silently gone — and by
+   walk 1's Finding 1, nothing in the app would ever report that. Reading it
+   (`Get-ScheduledTask`, the event log) is green.
+3. **The real install and the real `download_path`.** Note the installer itself
+   is green via `/DIR=`; it is *uninstalling the real one* that is red.
+
+**If a red rehearsal is what a question needs, that is not a dead end** — file
+it as a backlog item saying what it would test and what it would prove, and a
+live session runs it. Do not quietly substitute a green approximation and
+report it as the same evidence.
+
+### Validated 2026-08-11, not just written down
+
+The recipe above was built and run before being committed, because an
+unattended run at 03:00 following an untested instruction is worse than no
+instruction. `tmp/friction/` exists and works: `status --config
+tmp/friction/config.yaml` reports the scratch download path and the scratch
+session state, and nothing of the maintainer's is read or written.
+
+Two green-tier breaks were run immediately, and they are the first evidence
+that the tier is worth having — one pass, one finding, at zero risk:
+
+- **Unreadable config: passes, cleanly.** An unterminated quote gives
+  `Error: invalid yaml in <full path>: yaml: line 9: did not find expected
+  key` — names the file, the line and the problem. No finding; recorded so
+  nobody re-tests it.
+- **`download_path: "Q:/nope/downloads"` on a drive that does not exist:
+  `status` answers `(OK)`.** It prints `Download path: Q:/nope/downloads` and
+  reports the config as fine. The one command whose entire job is to say
+  whether the setup is sound validates the config's *syntax* and never its
+  *substance*. Filed.
 
 ## How the GUI is driven
 

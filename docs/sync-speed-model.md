@@ -2240,23 +2240,37 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-11 (autopilot, second update same day): Question 40's live
-run landed - empty diff, 349/349 files, concurrency=2 on
-`scrapeCoursesHTTPFirst` cut discovery from 56.7s to 41.6s, squarely inside
-the predicted 35-45s window. Not promoted to default (one run; the project's
-own bar for this kind of change is two, per Step B2's 2026-08-10 practice).
-The ranked list is Question 39, then Question 41, then Question 5.**
-**Question 39** (is HTTP-first's correctness still cross-validated by
-anything now that it's the default) still ranks first per the standing
-correctness-before-speed rule - it is a process/product question, not a
-live-run one, so whoever picks it up should bring options, not run an
-experiment. **Question 41** (does a second confirming run, on a different
-day, also produce an empty diff at concurrency=2 - and if so, is promoting
-`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2` to the shipped default, alongside
-the still-open `course_concurrency` unification, in scope for that cycle to
-decide) is the speed line's new head, replacing Question 40 now that its one
-open sub-question is the repeat-on-a-different-day gate rather than the
-mechanism itself. Question 5 remains lowest (declined pivot, 2026-08-03).
+**Updated 2026-08-11 (autopilot, third update same day): Question 41 closed
+- the second confirming run lost 6 files (one paginated section), overturning
+the first run's clean result and confirming the shared-`APIRequestContext`
+hazard the question existed to rule out. No production impact (the override
+was never wired to a default); nothing further planned on that thread. The
+ranked list is Question 39, then Question 5 - and Question 39 is Blocked on
+the maintainer's pick among three already-written-up options, so there is no
+unblocked live-run experiment left on this list right now.** Question 5
+(is "30s" even tied to discovery, i.e. background runs/partial results) has
+no registered concrete experiment - it was explicitly kept low-ranked by the
+maintainer's 2026-08-03 decision, and picking it up means designing the first
+experiment for it, not running an existing one.
+
+**Updated 2026-08-11 (autopilot, second update same day, superseded by the
+above): Question 40's live run landed - empty diff, 349/349 files,
+concurrency=2 on `scrapeCoursesHTTPFirst` cut discovery from 56.7s to 41.6s,
+squarely inside the predicted 35-45s window. Not promoted to default (one
+run; the project's own bar for this kind of change is two, per Step B2's
+2026-08-10 practice). The ranked list is Question 39, then Question 41, then
+Question 5.** **Question 39** (is HTTP-first's correctness still
+cross-validated by anything now that it's the default) still ranks first per
+the standing correctness-before-speed rule - it is a process/product
+question, not a live-run one, so whoever picks it up should bring options,
+not run an experiment. **Question 41** (does a second confirming run, on a
+different day, also produce an empty diff at concurrency=2 - and if so, is
+promoting `OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2` to the shipped default,
+alongside the still-open `course_concurrency` unification, in scope for that
+cycle to decide) is the speed line's new head, replacing Question 40 now
+that its one open sub-question is the repeat-on-a-different-day gate rather
+than the mechanism itself. Question 5 remains lowest (declined pivot,
+2026-08-03).
 
 ---
 

@@ -96,7 +96,7 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 		opts.Args = append(opts.Args, "--enable-extensions")
 		ctx, err := s.getPw().Chromium.LaunchPersistentContext(profileDir, opts)
 		if err != nil {
-			return fmt.Errorf("launching browser with profile %s: %w", profileDir, err)
+			return fmt.Errorf("could not start the browser opal-downloader uses to log in (technical detail: launching browser with profile %s: %w)", profileDir, err)
 		}
 		logging.Detail("Launching persistent browser profile: userDataDir=%s", profileDir)
 		s.setContext(ctx)
@@ -147,7 +147,7 @@ func (s *OpalScraper) launchBrowser(headless, useSavedState bool) error {
 	launchOpts := playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(headless)}
 	browser, err := s.getPw().Chromium.Launch(launchOpts)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not start the browser opal-downloader uses to sync (technical detail: %w)", err)
 	}
 	s.setBrowser(browser)
 

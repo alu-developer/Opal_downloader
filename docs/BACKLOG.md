@@ -85,16 +85,8 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
   the actual fix and is untouched. `installer/opal-downloader.iss` already
   defines an install location the schedule could point at instead.
 
-- **[friction] User-facing errors carry raw Playwright internals.** The banner
-  appends `Frame.Goto … playwright: net::ERR_INTERNET_DISCONNECTED … Call log:
-  …` to an otherwise good sentence, because the friendly message wraps the
-  underlying error instead of replacing it. Worse in the wild: the 01/08 and
-  02/08 history entries dump a full Chromium command line into the same banner.
-
-- **[friction] The failure banner never expires.** A transient 10/08 offline
-  failure was still the loudest element on every page ~30h later, with the
-  session valid and the network fine. Dismiss is manual-only; nothing ages a
-  resolved failure out.
+- **Fixed 2026-08-11 (autopilot):** raw Playwright internals in the banner,
+  and the banner never expiring — see Done recently for both.
 
 - **[bloat] `/settings` puts a glob-pattern rules engine in front of everyone.**
   Section-name rewrite rules and `<course pattern>/<subfolder pattern>`
@@ -486,6 +478,35 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Two more friction-campaign GUI-walk-1 findings fixed, and Finding 3's
+  original diagnosis corrected on the way** (2026-08-11, autopilot, verified
+  live in the GUI against the real `~/.opal-downloader/` status files,
+  Amber-tier snapshot/restore): Finding 3 ("raw Playwright internals in the
+  banner") turned out to already be fixed by 2026-08-10's `netcheck` work —
+  the exact banner text the walk quoted is the real, still-current
+  `last-scheduled-run.json`, timestamped 2026-08-10T08:38, which is **before**
+  `netcheck` landed that day (09:42). Confirmed by reproducing the walk's own
+  green-tier test (`opal_url` pointed at a dead host): current code answers
+  `No internet connection... (technical detail: ...)`, cleanly split by the
+  banner's existing marker logic — not the raw dump. What *was* still a real,
+  live gap: a genuine local Chromium **launch** failure (as opposed to a
+  network failure) was never wrapped at all — `internal/scraper/session.go`'s
+  two `Chromium.Launch`/`LaunchPersistentContext` call sites returned the raw
+  Playwright error verbatim, argv and all, matching the "full Chromium
+  command line" the walk saw in the 01/08 and 02/08 history (both from
+  before this fix, and before `netcheck` too). Both call sites now wrap with
+  a friendly sentence and the same `(technical detail: ...)` marker the
+  banner already folds away. Finding 4 (banner never expires): a
+  network-classified failure now softens from red to the existing `.success`
+  styling with a reassurance sentence once `navigator.onLine` says the
+  connection is back — client-side only, no new endpoint, matching
+  `netcheck.Describe`'s three stable sentence shapes. Deliberately does not
+  apply once the staleness warning fires (>= 2 days since any run): that is
+  a separate, still-true, more urgent problem (Finding 1) that a resolved
+  network cause does not fix. Verified both branches live: a fresh
+  network-classified failure turns green with the reassurance line, a stale
+  one stays red with the staleness sentence, browser-online in both cases.
+  Full test suite green.
 - **Question 41 closed: course-level HTTP concurrency's second confirming
   run lost 6 files, overturning the first run's clean result and closing
   the promotion question as a no-go** (2026-08-11, autopilot, 2 live runs):

@@ -113,6 +113,30 @@ const bannerChrome = `<div id="scheduled-sync-banner" style="display:none;"></di
 			// sentences, and appending to those produced "...try again..".
 			if (!/[.!?]$/.test(message)) { message += '.'; }
 
+			// The banner used to stay red forever once a run failed, even
+			// after the thing it complained about had plainly gone away -
+			// a transient offline failure was still the loudest thing on
+			// every page a day and a half later, network fine the whole
+			// time (friction campaign walk 1, Finding 4). internal/netcheck
+			// only ever produces three sentence shapes for a connectivity
+			// failure (see netcheck.Describe) and they are stable enough to
+			// match here, the same way this script already matches its own
+			// "(technical detail: " marker. navigator.onLine is the
+			// browser's own live signal, not a fresh probe of OPAL itself -
+			// weaker than re-running netcheck server-side, but it is exactly
+			// the "is my connection back" question this finding is about,
+			// and needs no new endpoint. Deliberately does NOT apply when
+			// the staleness warning above already fired: "nothing has run
+			// since" is the more urgent, still-true problem in that case
+			// (see the comment above), and resolving the network cause does
+			// not resolve that one.
+			var resolved = !staleness && typeof navigator !== 'undefined' && navigator.onLine === true &&
+				/^(No internet connection\.|Could not reach OPAL \(|Could not open OPAL \()/.test(message);
+			if (resolved) {
+				el.className = 'success';
+				message += ' This looks resolved now - your connection is working again.';
+			}
+
 			var text = document.createElement('span');
 			text.textContent = 'Last scheduled sync (' + dateStr + ') ' + label + ': ' + message + staleness + ' ';
 			el.appendChild(text);

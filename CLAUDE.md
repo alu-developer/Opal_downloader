@@ -25,3 +25,15 @@ real account are wanted, not rationed — server load is already bounded by the
 rate limiter and backoff in `docs/server-load.md`. Never park an item as
 "waits for a fresh day", "needs real-account load", or "no question answerable
 without a live run". Just run it. Write the prediction down first, then run.
+
+**"Opening a PR for a risky change gets it a second look before it lands."**
+False, 2026-08-11. Two sessions independently built the same backlog item as
+separate PRs, five hours apart, because an open PR's own backlog edit only
+lives on its branch — master still reads "open work" until something merges,
+so a later session can't see the PR exists. The "second look" never happened
+either way; it went through a `/decide` round like everything else waiting on
+the maintainer. **Never create branches or PRs in this repo.** Commit
+directly (to `master`, unless mid-conflict-resolution). Worktrees are fine —
+use them for isolation (checking out a different ref, verifying something
+without disturbing the shared checkout) — but don't turn a worktree into a
+standing branch or push it anywhere as a PR.

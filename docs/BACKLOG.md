@@ -93,19 +93,6 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
   session valid and the network fine. Dismiss is manual-only; nothing ages a
   resolved failure out.
 
-- **[friction] The primary button never states how long a sync takes.** "Sync
-  now" gives no duration; the *secondary* "Preview sync" option is the only
-  place the app admits "several minutes". Setting the expectation is free and
-  independent of whatever `docs/sync-speed-model.md` lands on.
-
-- **[friction] "Sync options & developer tools" points at the same page as the
-  main Sync button** (`/sync` vs `/sync?autostart=1`). The label names only the
-  page's third job, so a student avoids the page holding Preview and Force
-  re-download.
-
-- **[friction] The two-window sentence on the landing page** uses "it" and
-  "this window" for both windows in one sentence. Correct, nearly unreadable.
-
 - **[bloat] `/settings` puts a glob-pattern rules engine in front of everyone.**
   Section-name rewrite rules and `<course pattern>/<subfolder pattern>`
   destination overrides sit on the same flat page as "where do my files go",
@@ -115,14 +102,13 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
   use, nobody closing the window. Not yet separable from an artifact of
   launching it from a background shell — first item of walk 2.
 
-- **[wrong] `status` reports `(OK)` for a `download_path` that cannot exist.**
-  With `download_path: "Q:/nope/downloads"` it prints the path and calls the
-  config fine; it validates YAML syntax, never substance. A typo'd drive letter
-  therefore passes the one command whose job is to say whether the setup is
-  sound, and surfaces minutes later in a sync instead. Found 2026-08-11 via the
-  green-tier scratch environment (`docs/friction-campaign.md`, "Breaking things
-  safely"). Open follow-up: what a *sync* does with an unwritable path — fail
-  clearly, or appear to succeed? Not yet measured.
+- **Fixed 2026-08-11 (autopilot):** the primary button duration, the
+  "developer tools" nav label, the two-window sentence, and `status`'s
+  unchecked `download_path` — see Done recently. Open follow-up from the last
+  one: what a *sync* does with an unwritable path (fail clearly, or appear to
+  succeed?) — `status` now catches it before a sync starts, but a path that
+  goes bad *between* a `status` check and the sync itself is still
+  unmeasured.
 
 ---
 
@@ -497,6 +483,18 @@ Newest first, one line each. **Anything needing more than a line belongs in
 happened, not to hold the reasoning. Trim to roughly the last ten entries and
 move the rest across.
 
+- **Four friction-campaign GUI-walk-1 findings fixed** (2026-08-11,
+  autopilot): `status` now runs the same `os.MkdirAll` a sync calls first, so
+  a broken `download_path` (typo'd drive letter, path under a file) is
+  caught at `status` time instead of surfacing minutes into a sync
+  (`(BROKEN: ...)`, tested both ways). Landing page: the primary "Sync now"
+  button states duration ("Takes several minutes"); the nav link that named
+  only "developer tools" for a page that's also home to Preview and Force
+  re-download now names those too; the two-window disclaimer no longer
+  reuses "it"/"this window" for both windows. Full suite green. Remaining
+  friction-campaign items (on-logon trigger, gitignored task binary, raw
+  Playwright internals in errors, banner expiry, settings bloat) still open —
+  see the friction campaign section above.
 - **Question 40 live-verified: `scrapeCoursesHTTPFirst` course-level
   concurrency (`OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2`) is empty-diff clean
   and cuts discovery 27%** (2026-08-11, autopilot, 2 live runs): 349/349

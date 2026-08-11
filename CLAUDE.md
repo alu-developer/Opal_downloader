@@ -1,14 +1,33 @@
 # opal-downloader
 
-**This file collects mistakes.** Beliefs I acted on here that turned out to be
-false, each with the correction. Nothing else belongs in it.
-
-**Only the maintainer edits it.** Ask before changing anything here, including
-before adding a new entry.
+**Only the maintainer edits this file.** Ask before changing anything here,
+including before adding a new entry.
 
 ---
 
+## PRs, Branches and so on.
+
+**No PRs.** Never open one, never close one, never merge one. If an open PR
+turns up on GitHub, say so and leave it — that call is the maintainer's.
+
+**No standing branches.** Work lands as a direct commit on `master`, pushed.
+
+**Every agent that writes to the repo works in its own worktree** (Agent tool:
+`isolation: "worktree"`). Read-only agents don't need one. The main session owns
+the checkout and does the merging.
+
+**Finishing means merging.** When an agent is done, merge its worktree branch
+into `master` and delete branch and worktree — even if the work is partial or
+tests fail, and then say plainly what is broken. A worktree left behind is
+invisible work, which is the whole reason PRs are gone.
+
+---
+
+
 ## Mistakes
+**This file also collects mistakes.** Beliefs acted on here that turned out
+to be false, each with the correction.
+
 
 **"Unattended runs can't log in, because 2FA needs the maintainer."**
 False. TU-Fast is installed in the dedicated login profile and completes
@@ -25,15 +44,3 @@ real account are wanted, not rationed — server load is already bounded by the
 rate limiter and backoff in `docs/server-load.md`. Never park an item as
 "waits for a fresh day", "needs real-account load", or "no question answerable
 without a live run". Just run it. Write the prediction down first, then run.
-
-**"Opening a PR for a risky change gets it a second look before it lands."**
-False, 2026-08-11. Two sessions independently built the same backlog item as
-separate PRs, five hours apart, because an open PR's own backlog edit only
-lives on its branch — master still reads "open work" until something merges,
-so a later session can't see the PR exists. The "second look" never happened
-either way; it went through a `/decide` round like everything else waiting on
-the maintainer. **Never create branches or PRs in this repo.** Commit
-directly (to `master`, unless mid-conflict-resolution). Worktrees are fine —
-use them for isolation (checking out a different ref, verifying something
-without disturbing the shared checkout) — but don't turn a worktree into a
-standing branch or push it anywhere as a PR.

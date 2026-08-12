@@ -29,36 +29,8 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 
 ## Now
 
-- **Question 39 — decided 2026-08-12: (B), a monthly `verify` spot-check.**
-  The maintainer handed the call back ("wenn das krasse Vorteile bringt gerne.
-  Aber ich kenn mich damit nicht aus… ich weiß nicht, was es finden könnte"),
-  so it was decided here, and the honest framing is the part worth keeping:
-  **this is insurance, not an improvement.** It buys nothing on a good day. It
-  exists for one failure mode — BPS changes OPAL's markup, HTTP-first silently
-  discovers fewer files, and nothing in this project is positioned to notice,
-  so the user simply ends up with fewer files and no error. That silent-loss
-  class is the one this project has refused to accept everywhere else it found
-  it. Chosen because the premium is small: ~4 minutes of unattended crawl once
-  a month, against a failure that produces no error message at all. Build: a
-  new Part C on the weekly-review pass running `OPAL_HTTP_DISCOVERY=verify`,
-  guarded by its own `docs/last-verify-run.txt` at ~30 days, filing the diff's
-  `missing` count as a backlog item. Deliberately **not** wired into `sync` or
-  any daily path — `verify` runs a full extra browser crawl on top of the
-  HTTP-first one, which would roughly double the sync time Step B2 shipped to
-  cut. Note the scope change openly: that pass is review-only today, and this
-  makes it run a live crawl. (C), the free structural fingerprint, stays a
-  later independent addition, not a substitute. Detail:
-  `docs/sync-speed-model.md` Question 39.
-
-- **Question 5's background-run half — the only piece of Question 5 still
-  open.** The "last sync" line shipped and is live-verified (see the archive);
-  what it does *not* do is start any work early. Option **(C)** — a real
-  background `list` triggered by the GUI opening — is deliberately not built:
-  it needs its own opt-out and `sync.lock` interaction, and there is still no
-  evidence GUI opens are frequent enough to justify it. Reopen only if the
-  timestamp has been in use for a while and "feels like one click" still
-  visibly fails; otherwise close it. Detail: `docs/sync-speed-model.md`
-  Question 5.
+_(Empty as of 2026-08-12 — Question 39 is built and Question 5's last half is
+closed; see the archive.)_
 
 ---
 
@@ -72,11 +44,10 @@ which exposes a read-permission-only bulk "download as ZIP" action
 questioned the *download* phase before. Needs a live Step B (real browser,
 one section, confirm the button and time it) to become an actual lever;
 source-only so far. **Nothing on this list is blocked on the maintainer any
-more** — Question 39 and Question 5's last half were decided 2026-08-12 (see
-"Now"); both are build work now, not questions. Question 5's other two halves
-(CLI silence, GUI `list`-only silence) are fixed — see
-`docs/BACKLOG-archive.md`. Nothing further is planned on the course-level HTTP
-concurrency thread — Question 41 closed 2026-08-11 as a no-go.
+more** — Question 39 is decided and built, and Question 5 is fully closed
+(all three halves — see `docs/BACKLOG-archive.md`). Nothing further is
+planned on the course-level HTTP concurrency thread — Question 41 closed
+2026-08-11 as a no-go.
 
 ---
 

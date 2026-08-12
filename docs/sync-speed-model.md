@@ -1094,7 +1094,17 @@ empty diff at concurrency=2, and if so, is promoting the default in scope
 for a future cycle to decide alongside the `course_concurrency` unification
 follow-up?
 
-### 39. Now that HTTP-first discovery is the production default, does anything still cross-validate it against an independent browser crawl - or did shipping it as default quietly remove the only thing that was catching a regression like Question 38's visit-log finding? — DECIDED 2026-08-12: **(B), a monthly `verify` spot-check.** Build work now, not a question.
+### 39. Now that HTTP-first discovery is the production default, does anything still cross-validate it against an independent browser crawl - or did shipping it as default quietly remove the only thing that was catching a regression like Question 38's visit-log finding? — DECIDED and BUILT 2026-08-12: **(B), a monthly `verify` spot-check.**
+
+**Built 2026-08-12, same day as the decision.** New Part C on the local
+`opal-downloader-weekly-review` scheduled task
+(`C:\Users\alois\.claude\scheduled-tasks\opal-downloader-weekly-review\SKILL.md`
+— not part of this repo, so there is no source diff here) calls
+`OPAL_HTTP_DISCOVERY=verify` roughly monthly, guarded by its own
+`docs/last-verify-run.txt` at ~30 days, separate from that pass's normal
+2-day Parts A/B guard. No engine code changed - `verify` mode already existed
+and already did the comparison; only the periodic caller was missing. See
+`docs/BACKLOG-archive.md` "Done recently" for the closing note.
 
 **Decision, 2026-08-12 (`/decide` round).** The maintainer was given the three
 options below and handed the call back rather than picking: *"wenn das krasse

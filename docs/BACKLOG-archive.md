@@ -406,6 +406,32 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Question 39's monthly discovery-verify spot-check is built** (2026-08-12).
+  `OPAL_HTTP_DISCOVERY=verify` mode already existed and already ran the
+  independent browser-vs-HTTP comparison this question wanted
+  (`internal/scraper/orchestrator.go`'s `scrapeCoursesHybrid`); nothing called
+  it periodically. Added a new Part C to the local
+  `opal-downloader-weekly-review` scheduled task
+  (`C:\Users\alois\.claude\scheduled-tasks\opal-downloader-weekly-review\SKILL.md`
+  — not part of this repo) that runs it, guarded by its own
+  `docs/last-verify-run.txt` timestamp at ~30 days so it fires roughly
+  monthly, separately from that pass's normal 2-day Parts A/B guard.
+  Deliberately not wired into `sync` or any daily path, per the decision.
+  Files a `## Now` backlog item only when the diff's `missing` total is
+  greater than 0 for some course (a real regression) or the run itself fails;
+  a clean run (the expected case) writes nothing, matching Parts A/B's
+  existing "if there is nothing, write nothing" rule. No code changed in this
+  repo — the verify mode was already there; only the caller was missing.
+
+- **Question 5 is fully closed** (2026-08-12). All three halves: the CLI and
+  GUI `list`-only silence were already fixed; the "last sync" timestamp line
+  shipped and is live-verified; and the remaining background-run half —
+  option (C), a real background `list` triggered by the GUI opening — was
+  deliberately left unbuilt. It would need its own opt-out and `sync.lock`
+  interaction, and there was no evidence GUI opens are frequent enough to
+  justify it. Reopen only if the "last sync" timestamp has been in use for a
+  while and "feels like one click" still visibly fails.
+
 - **The GUI's explanatory-paragraph sweep is done** (2026-08-12, maintainer's
   ask: *"Es ist so nervig, immer einen Absatz zu haben, der einen Button
   erklärt."*). Deleted the Settings page's "Configured elsewhere" block

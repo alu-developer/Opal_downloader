@@ -52,7 +52,7 @@ for the full mechanism.
 
 ---
 
-## Friction campaign — GUI walk 1, CLI walk 2 (2026-08-11)
+## Friction campaign — GUI walk 1, CLI walk 2, first-run walk 3 (2026-08-12)
 
 Found by using the tool as a normal user, not reported by the maintainer.
 Walk detail, expectations and named causes: `docs/friction-campaign.md`.
@@ -104,6 +104,45 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
   succeed?) — `status` now catches it before a sync starts, but a path that
   goes bad *between* a `status` check and the sync itself is still
   unmeasured.
+
+- **Fixed 2026-08-12 (autopilot): a stray debug-output file, shipped in the
+  repo root since the very first commit, is deleted.** `sync_run.log`
+  (UTF-16, three lines, someone's local test-run transcript reading
+  `Download path: C:\TEMP\Opal_downloader_test`) sat next to `README.md`/
+  `go.mod` in every fresh clone since `18f875d` ("Added Playwright",
+  2026-07-02, the initial commit - `git log --follow` shows no other commit
+  ever touched it). No credentials, no path relevant to anyone but whoever ran
+  that test, but it was the first thing `ls`/a file browser showed a
+  brand-new user. `git rm`'d; nothing in the codebase or docs referenced it.
+  Full walk detail: `docs/friction-campaign.md` Walk 3.
+
+- **[friction] `list`'s (and by the same code path, `sync`'s) discovery phase
+  is completely silent on the CLI for ~3 minutes, with nothing distinguishing
+  "working" from "hung".** Live-measured: 2m44s between `Discovery: 4.2s (8
+  courses)` and the HTTP-first summary line, zero output in between -
+  source-confirmed, not a capture artifact (`scrapeCoursesHTTPFirst`'s
+  `publishProgress` call fires once, before the per-course fetch loop;
+  `cmd/opal-downloader/root.go` never subscribes to it - that mechanism is
+  GUI-SSE-only). `sync` shares the identical discovery path before its own
+  per-file `downloaded:`/`error:` lines start, so it pays the same silent
+  stretch first. Open question (see campaign file) whether the GUI's own
+  progress stream has the same gap during this specific phase or already
+  covers it. Full walk detail: `docs/friction-campaign.md` Walk 3.
+
+- **[friction, possibly wrong] The tool finds 8 course links but silently
+  reports only 6 courses, with no line anywhere explaining the other 2.**
+  `internal/syncer/syncer.go` and `internal/gui/sync.go` both build the final
+  course list by grouping *discovered files*, not *discovered courses* - a
+  course whose crawl returns zero files never gets a map entry, silently.
+  Circumstantial evidence (the real account's own `config.yaml` and
+  `list --visit-report`'s accumulated history both independently name the
+  identical 6 courses and no others) suggests the missing 2 are genuinely,
+  consistently content-free rather than a fresh instance of the silent-
+  partial-discovery-loss pattern Questions 17/19/22/25 chase elsewhere - but
+  that's not confirmed, and today's output gives a user no way to tell the two
+  apart without cross-referencing data the tool itself doesn't show. Open
+  question: check which 2 of the account's 8 enrollments are missing against
+  the real OPAL UI. Full walk detail: `docs/friction-campaign.md` Walk 3.
 
 ---
 

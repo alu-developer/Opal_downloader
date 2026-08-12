@@ -72,10 +72,15 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 2 (CLI everyday use).** Walk 1 was the GUI. Keep this line
-current at the end of every walk — it is what an unattended run reads to avoid
-walking the same surface twice, which is the cheapest way for this campaign to
-quietly stop finding anything.
+**Next surface: 1 (GUI everyday use), cycling back.** Walk 1 was the GUI, walk
+2 the CLI, walk 3 first-run-from-zero — all three surfaces now walked once.
+Keep this line current at the end of every walk — it is what an unattended run
+reads to avoid walking the same surface twice, which is the cheapest way for
+this campaign to quietly stop finding anything. **This line went stale once
+already** (still said "2 (CLI)" after walk 2 had already happened, caught only
+because walk 3 cross-checked the walk log below instead of trusting it
+blindly) - worth re-verifying against the walk log, not just reading this
+line, until that has a better track record.
 
 Who runs this: the **`opal-downloader-autopilot`** routine, phase 2, one walk
 per run, after it has emptied the backlog and before it does a sync-speed
@@ -527,3 +532,145 @@ design.
    `~/.opal-downloader/logs/opal-downloader.log` - only discovery-phase
    entries are logged there, so whatever failed on those 49 files left no
    trace to read after the fact).
+
+### Walk 3 — 2026-08-12, first run from zero
+
+Rotation said CLI next per the (stale, see above) "Next surface" line, but the
+walk log shows walks 1 and 2 already covered GUI and CLI - surface 3
+("installer or fresh clone, no config, no session") had never had a real
+campaign walk. `docs/BACKLOG.md`'s "Installer walk" section covers similar
+ground but explicitly disclaims itself: no registered expectations, insider
+knowledge used throughout, so it does not count against this campaign (Rule 4).
+This walk does the same ground properly, in persona.
+
+Fresh `git clone` of the real repo into a scratch temp directory outside this
+worktree entirely (not `tmp/friction/` - that recipe is for breaking an
+*existing* config, this is "no config exists yet" from true zero), then
+followed only what `README.md` says, as someone who has never seen this source
+would.
+
+**Expectation registered before cloning:** the README is the only thing I've
+read; I expect to get from a fresh checkout to "my files are downloading" by
+following it literally, and I expect to notice if it lies about what happens
+at any step.
+
+*Tooling break, logged immediately rather than smoothed over:* the first
+`setup`/`go build` pair actually ran against this **worktree's** directory,
+not the scratch clone - the shell tool's working directory silently did not
+persist between two Bash calls (a recurring quirk of this environment, not the
+product). Caught because `setup`'s own output named the worktree's config.yaml
+path instead of the scratch one. No product code was touched (`setup` only
+creates a config if one is missing, and the worktree's already existed;
+verified the real `download_path` was unchanged and deleted the stray
+gitignored binary before continuing) - recorded here because Rule 4 asks for
+every persona break to be logged, and this one is closer to a research-hygiene
+bug in me than in the tool, but it is the reason the walk below re-ran the
+build step with every command explicitly `cd`-chained.
+
+#### Finding — a stray debug-output file has shipped in the repo root since the very first commit
+
+`ls` in the fresh clone's root shows `sync_run.log` sitting next to
+`README.md`, `LICENSE`, `go.mod` - alongside a fresh clone, before building
+anything, this is the first thing a new user's file browser or `ls` shows
+them. Reading it: a UTF-16-encoded, three-line transcript reading `Download
+path: C:\TEMP\Opal_downloader_test`, `Course patterns: *` - someone's local
+test-run output. `git log --follow` shows exactly one commit touching it,
+ever: the very first commit in the repository's history (`18f875d`, "Added
+Playwright", 2026-07-02). Never referenced anywhere else in the codebase or
+docs, and `.gitignore` has no `*.log` rule that would have caught a repeat.
+
+**Cause, named sharply enough to predict where else it shows up:** a debug
+artifact from local testing got swept into the initial commit (plausibly a
+`git add .` before `.gitignore` existed or was complete) and nothing since has
+either deleted it or added a rule that would stop it recurring. Tag: **bloat** -
+it exists, cost someone nothing to create, and a new user never needed it. Low
+severity (three harmless lines, no credentials, no path relevant to anyone
+else), but free to fix.
+
+#### Finding — `list`'s discovery phase is completely silent for ~3 minutes on the CLI, with no indication anything is happening
+
+Ran `./opal-downloader.exe list` with `courses: ["*"]` against the real
+account (safe: `download_path` was the scratch clone's own `./downloads`,
+never touched since `list` doesn't download anyway). TU-Fast auto-login fired
+unattended as expected (one reload retry, then success - matches this
+project's own "unattended runs complete 2FA by themselves" finding, nothing
+new here). Total wall clock: **3m17s**. Between `Discovery: 4.2s (8 courses)`
+and `OPAL_HTTP_DISCOVERY=2 summary: 8 courses, 314 HTTP requests, 2m43.8s`,
+the terminal printed **nothing** for the full 2m44s - source-confirmed, not a
+capture artifact: `scrapeCoursesHTTPFirst` (`internal/scraper/orchestrator.go`)
+calls `s.publishProgress` exactly once, before the per-course HTTP fetch loop
+starts, and `internal/scraper/httpdiscovery.go` has no print statements at
+all. A first-time user watching this has every reason to conclude the program
+hung - nothing on screen distinguishes "working" from "frozen" for the single
+longest wait in the whole first-run experience.
+
+**Cause, named sharply enough to predict where else it shows up:** `publishProgress`
+exists and is called during discovery, but nothing in `cmd/opal-downloader/root.go`
+(confirmed by grep - zero matches for `publishProgress`/`DiscoveryProgress` in
+that file) ever subscribes to it; the mechanism is wired to the GUI's SSE
+stream only (`internal/gui/sync.go`), not the CLI. **Predicted and confirmed**
+without a live run: `sync` shares the identical discovery code path before its
+own download phase starts (`internal/syncer/syncer.go`'s per-file `downloaded:`/
+`error:` lines only begin *after* `Discovered %d remote files` prints, i.e.
+after the same silent stretch this walk measured) - so a `sync` run costs a
+CLI user the same ~3 minutes of "is this even running" before any per-file
+feedback appears at all. Tag: **friction** - it works, but every first-time CLI
+user pays this, and it costs exactly the kind of attention/trust Finding 5
+(walk 1, "the button doesn't say how long it takes") was already about, on the
+CLI's own hardest-to-miss stretch.
+
+#### Finding — the tool finds 8 course links but silently reports only 6 courses, with no way to tell "genuinely empty" from "discovery found nothing here"
+
+The same `list` run's early line said `Found 8 course links`; the final
+summary said `Found 6 courses:` with no line anywhere explaining the other 2.
+Source-confirmed (`internal/syncer/syncer.go:701-710`, and independently the
+identical pattern at `internal/gui/sync.go:120-127` for the GUI's own course
+list) - the final list is built by grouping the **discovered files**, not the
+**discovered courses**: any course whose crawl returned zero files simply
+never gets a map entry, silently. No "8 found, 2 had no files" line exists
+anywhere in either code path.
+
+**Plausible-not-confirmed, per Rule 2 - checked what's cheap, not what needs a
+live probe:** the real account's own hand-curated `config.yaml` (the one this
+worktree already has, from the maintainer's real setup) names exactly these
+same 6 courses by full name, and `list --visit-report`'s accumulated history
+(built from many real runs) shows the identical 6 course names and no others.
+That is circumstantial evidence the other 2 enrolled courses are genuinely,
+consistently empty for this account (plausibly why the maintainer's own config
+never listed them) rather than a fresh instance of the silent-partial-loss
+pattern this project's sync-speed campaign has spent the most effort chasing
+elsewhere (Questions 17/19/22/25) - but it is not the same as confirming it,
+and the tool itself gives a user no way to reach that conclusion without doing
+what this walk just did (cross-referencing two other data sources by hand).
+Tag: **friction** (possibly **wrong** if it ever turns out to be a genuine
+discovery loss rather than genuinely-empty courses - that distinction is
+exactly what a fix would need to preserve).
+
+#### Ruled out — things that looked like a finding and were not
+
+- *"`status` said 2 days of session validity left; `list` said the session had
+  expired and needed interactive login - a contradiction."* It is not one.
+  `status` (`internal/sessionstate.Inspect`) reads the storage-state cookie's
+  own **claimed** expiry offline; `list`'s live `ensureSession` call actually
+  asked OPAL, which rejected the session before its claimed expiry. This is
+  precisely the caveat `status` itself already prints ("OPAL can end it sooner;
+  if it does, the next sync logs in again by itself") - an unplanned but clean
+  live confirmation that the documented fallback path works, not a new gap.
+
+#### New questions this walk leaves (Rule 3)
+
+1. **Are the 2 courses missing from `list`'s summary genuinely content-free, or
+   an undetected instance of this project's known silent-partial-discovery-loss
+   pattern?** Not resolved this walk (see the finding above) - would need the
+   real account's actual OPAL enrollment list (outside this tool entirely) to
+   name which 2 of the 8 are missing and check each by hand.
+2. **Does the GUI's own `list`/`sync` progress stream (`internal/gui/sync.go`'s
+   `jobEvent{Kind: "log", ...}` publishes) actually cover this same ~3-minute
+   discovery gap, or does it have the identical blind spot under a different
+   surface?** `publishProgress`/`DiscoveryProgress` is wired to something in
+   `internal/gui`, but this walk did not check whether that something renders
+   per-course ticks during `scrapeCoursesHTTPFirst`'s HTTP-first loop
+   specifically, versus just the one before/after event this walk's grep of
+   `orchestrator.go` found. If the GUI has the same gap, Finding 2 above is a
+   `publishProgress` gap, not a CLI-only one - if it doesn't, the CLI fix is
+   "subscribe to the mechanism that already exists" rather than "build one."

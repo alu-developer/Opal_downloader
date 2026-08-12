@@ -79,13 +79,23 @@ Tags: **blocker** / **wrong** / **friction** / **bloat**.
   walk (walk 2 went to the CLI instead, per the campaign's surface
   rotation).
 
-- **[question] `list --visit-report`'s output is dominated by rows that are
-  "empty on all visits" every single time** (~80% of ~325 rows on the real
-  account). May simply be structurally file-less container nodes (normal),
-  but the report does not distinguish that from a section actually losing
-  files, so the rows that would flag real instability are buried. Next
-  step: check whether any row ever has `Empty < Visits` at all - not
-  confirmed either way this walk.
+- **Fixed 2026-08-12 (autopilot, verified live against the real account's
+  visit log, ~344 sections):** `list --visit-report`'s "does the report
+  distinguish real instability from container noise" question - answered
+  yes, there are real rows with `0 < Empty < Visits`, and no, the report
+  didn't flag them. 34 of 344 real sections are intermittently empty (e.g.
+  a section empty on 85 of 86 visits, or 62 of 89) - a mix of legitimate
+  "material posted partway through the semester" and, for the ones closest
+  to `Visits`, a plausible echo of the still-open Wicket "show all"
+  expansion bug (Questions 17/19/22/25 in `docs/sync-speed-model.md`).
+  Neither was visible before: only the always-empty case got a Notes
+  annotation, so a genuinely interesting row looked identical to a fully
+  reliable one (blank Notes either way) unless a human compared two number
+  columns by hand across ~278 always-empty rows sorted ahead of it.
+  `FormatReport` (`internal/visitlog/visitlog.go`) now also flags
+  `0 < EmptyVisits < Visits` as `"empty on N of M visit(s)"`. No sort-order
+  or schema change - purely a Notes-column addition. Two new unit tests;
+  full suite green.
 
 - **Fixed 2026-08-11 (autopilot):** the primary button duration, the
   "developer tools" nav label, the two-window sentence, and `status`'s

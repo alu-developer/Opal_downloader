@@ -133,6 +133,26 @@ func TestFormatReportIncludesAlwaysEmptyNote(t *testing.T) {
 	}
 }
 
+func TestFormatReportFlagsIntermittentlyEmptySection(t *testing.T) {
+	stats := []SectionStat{
+		{Course: "Analysis", SectionTitle: "Übungsblätter", SectionURL: "https://opal/x", Visits: 92, EmptyVisits: 3},
+	}
+	report := FormatReport(stats)
+	if !contains(report, "empty on 3 of 92 visit(s)") {
+		t.Fatalf("expected report to flag the intermittently-empty section distinctly from an always-empty one, got:\n%s", report)
+	}
+}
+
+func TestFormatReportLeavesReliableSectionNoteBlank(t *testing.T) {
+	stats := []SectionStat{
+		{Course: "Analysis", SectionTitle: "Part-4", SectionURL: "https://opal/y", Visits: 85, EmptyVisits: 0},
+	}
+	report := FormatReport(stats)
+	if contains(report, "empty on") {
+		t.Fatalf("expected no 'empty on' note for a section that was never empty, got:\n%s", report)
+	}
+}
+
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && (func() bool {
 		for i := 0; i+len(needle) <= len(haystack); i++ {

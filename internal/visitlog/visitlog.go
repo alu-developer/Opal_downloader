@@ -190,6 +190,12 @@ func FormatReport(stats []SectionStat) string {
 		notes := ""
 		if s.AlwaysEmpty() {
 			notes = fmt.Sprintf("empty on all %d visit(s)", s.Visits)
+		} else if s.EmptyVisits > 0 {
+			// The signal a maintainer actually needs: this section sometimes
+			// has files and sometimes doesn't, which an always-empty note
+			// would never flag and a bare number pair (92, 3) is easy to
+			// read past among ~80% always-empty rows.
+			notes = fmt.Sprintf("empty on %d of %d visit(s)", s.EmptyVisits, s.Visits)
 		}
 		fmt.Fprintf(&b, "%-30s %-35s %6d %6d  %s\n", truncate(s.Course, 30), truncate(s.SectionTitle, 35), s.Visits, s.EmptyVisits, notes)
 	}

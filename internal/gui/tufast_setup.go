@@ -462,12 +462,7 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 		and syncing will use it automatically from now on.
 	</div>
 	{{if .DetectedSourceDir}}
-	<h2>Optional: skip a manual login</h2>
-	<p class="hint">
-		You already have TU-Fast set up and logged in elsewhere on this
-		computer. If you would rather not log in by hand once more, that
-		existing login can be copied over instead.
-	</p>
+	<h2>Optional: copy your existing TU-Fast login instead</h2>
 	<form method="post" action="/tufast-setup/copy">
 		<div class="field">
 			<label for="source_user_data_dir">Where that existing login is (filled in for you)</label>
@@ -549,13 +544,8 @@ var tuFastSetupTemplate = template.Must(template.New("tufast-setup").Parse(`<!DO
 		<button type="submit">Open the TU-Fast install page</button>
 	</form>
 
-	<h2>Step B: Copy your existing login</h2>
-	<p class="hint">
-		You already have TU-Fast set up and logged in elsewhere on this
-		computer, so that login can be copied over instead of doing step A's
-		login a second time. Becomes available once step A is done - click
-		"Check again" after installing.
-	</p>
+	<h2>Step B: Copy your existing login instead</h2>
+	<p class="hint">Available once step A is done - click "Check again" after installing.</p>
 	<form method="post" action="/tufast-setup/copy">
 		<div class="field">
 			<label for="source_user_data_dir">Where that existing login is (filled in for you)</label>

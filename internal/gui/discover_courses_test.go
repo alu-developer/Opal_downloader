@@ -63,7 +63,7 @@ func TestSettingsPageExplainsThatUntickingRevealsTheCoursePicker(t *testing.T) {
 		rec, httptest.NewRequest(http.MethodGet, "/settings", nil))
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "Untick it to pick specific") {
+	if !strings.Contains(body, "untick to pick specific") {
 		t.Fatalf("nothing tells the user that unticking reveals the picker, body was:\n%s", body)
 	}
 	// The list itself must be served, not hidden behind the checkbox, and it

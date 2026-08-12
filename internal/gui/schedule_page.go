@@ -150,6 +150,9 @@ var schedulePageTemplate = template.Must(template.New("schedule").Parse(`<!DOCTY
 	.checkbox-row { display: flex; align-items: center; gap: 0.5rem; }
 	.checkbox-row label { margin: 0; font-weight: 600; }
 	.save-btn { padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid #1a73e8; background: #1a73e8; color: #fff; cursor: pointer; font: inherit; font-weight: 600; margin-top: 1rem; }
+	details.more { margin: 0.75rem 0 1.25rem; }
+	details.more > summary { cursor: pointer; font-weight: 600; }
+	details.more p { margin: 0.5rem 0; }
 </style>
 </head>
 <body>
@@ -175,34 +178,32 @@ var schedulePageTemplate = template.Must(template.New("schedule").Parse(`<!DOCTY
 	{{if .Saved}}<div class="success">Saved.</div>{{end}}
 	{{if .Notice}}<div class="warning"><strong>Daily sync repaired:</strong> {{.Notice}}</div>{{end}}
 
-	<p class="hint">Off by default. When it is on, opal-downloader asks Windows
-	to run a sync once a day at the time you choose, catching up automatically
-	if the machine was off, asleep, or you weren't logged in yet - including
-	trying again the moment you next log in. No password is stored for it, and
-	it never runs unless you are logged in to Windows.</p>
-
 	<form method="post" action="/schedule" id="schedule-form">
 
 	<div class="field checkbox-row">
 		<input type="checkbox" id="schedule_enabled" name="schedule_enabled" {{if .Enabled}}checked{{end}}>
-		<label for="schedule_enabled">Sync once a day, on its own</label>
+		<label for="schedule_enabled">Sync once a day, on its own (catches up if the machine was off)</label>
 	</div>
 
 	<div class="field">
 		<label for="schedule_time">Time of day</label>
 		<input type="text" id="schedule_time" name="schedule_time" value="{{.Time}}" placeholder="06:00" style="width: 6rem;">
-		<p class="hint">24-hour, e.g. <code>06:00</code>.</p>
 	</div>
 
-	<p class="hint">This needs TU-Fast already set up in the dedicated login
-	profile (see <a href="/tufast-setup">TU-Fast setup</a>). Without it, an
+	<details class="more">
+	<summary>How this works</summary>
+	<p>Catches up automatically if the machine was off, asleep, or you
+	weren't logged in yet, including trying again the moment you next log in.
+	No password is stored for it, and it never runs unless you are logged in
+	to Windows.</p>
+	<p>Needs TU-Fast already set up in the dedicated login profile (see
+	<a href="/tufast-setup">TU-Fast setup</a>) &ndash; without it, an
 	unattended run stops and waits for a 2FA click that nobody is there to
 	make, so it fails fast instead.</p>
-
-	<p class="hint">If an automatic run fails outright, Windows shows you a
-	notification. Nothing pops up for a run that succeeded, or for one that
-	downloaded some files and had trouble with others &ndash; only for a run
-	that got nowhere.</p>
+	<p>If a run fails outright, Windows shows you a notification. Nothing
+	pops up for a run that succeeded, or for one that downloaded some files
+	and had trouble with others &ndash; only for a run that got nowhere.</p>
+	</details>
 
 	<button type="submit" class="save-btn">Save</button>
 	</form>

@@ -406,6 +406,29 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **The GUI's explanatory-paragraph sweep is done** (2026-08-12, maintainer's
+  ask: *"Es ist so nervig, immer einen Absatz zu haben, der einen Button
+  erklärt."*). Deleted the Settings page's "Configured elsewhere" block
+  entirely (`internal/gui/settings_page.go`, plus the now-unused `.elsewhere`
+  CSS rule in `chrome.go`) and swept all ~26 `<p class="hint">` paragraphs
+  across `settings_page.go`, `tufast_setup.go`, `schedule_page.go`, `sync.go`,
+  and `logs.go`. Applied the maintainer's rule case by case: relabel a
+  checkbox/heading and delete the paragraph where the control can say it
+  itself (e.g. "Sync all courses" → "Sync all courses (untick to pick
+  specific ones below)"); delete outright where the paragraph only restated
+  a label or a visible placeholder (e.g. the "24-hour, e.g. 06:00" hint next
+  to an input whose placeholder already says `06:00`); shorten and keep where
+  a hint carries a real consequence a label can't (subfolder reorganization
+  moving existing downloads, the "Fill in folders for me" confidence
+  caveat); and collapse into a `<details class="more">` (following
+  `feedback.go`'s pattern) where the load-bearing content was long — the
+  Automatic Sync page's catch-up/TU-Fast/notification behavior, previously
+  three separate paragraphs, is now one "How this works" disclosure. Verified
+  with `go test ./...` (all green except a pre-existing, unrelated Windows
+  timing flake in `internal/scraper`) and a live GUI smoke test against a
+  scratch config. `gui.go`'s privacy paragraph and the landing page's
+  last-sync line were kept, per the item's own exceptions.
+
 - **The diagnostic log now rides along with a bug report by itself**
   (2026-08-12, maintainer's ask: can the log be attached automatically?).
   It cannot be *attached* — a prefilled GitHub issue carries its body in the

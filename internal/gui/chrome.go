@@ -446,10 +446,6 @@ const pageStyle = `
 	nav ul { list-style: none; padding: 0; }
 	nav li { padding: 0.5rem 0; border-bottom: 1px solid #eee; }
 	.soon { color: #888; font-size: 0.85rem; }
-	/* Pointers to other pages. Deliberately not an <h2> section: reading like
-	   a settings group while containing nothing settable is what made the old
-	   "Browser" and "Running it automatically" headings confusing. */
-	.elsewhere { color: #666; font-size: 0.85rem; border-top: 1px solid #eee; padding-top: 0.9rem; margin-top: 2rem; }
 	.intro { background: #f7f9fc; border: 1px solid #d7e2ef; border-radius: 6px; padding: 0.25rem 1.25rem 1rem; margin: 1.5rem 0; }
 	.intro h2 { margin-top: 1.25rem; font-size: 1rem; border-bottom: none; padding-bottom: 0; }
 	.intro ol { margin: 0.25rem 0 0; padding-left: 1.2rem; }

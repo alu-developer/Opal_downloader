@@ -219,11 +219,8 @@ var logsPageTemplate = template.Must(template.New("logs").Parse(`<!DOCTYPE html>
 	` + bannerChrome + `
 	<h1>Diagnostic log</h1>
 
-	<p class="hint">
-		This is what the tool recorded about its own runs. It is already
-		stripped of passwords, cookies and session tokens, so it is safe to
-		attach to a bug report.
-	</p>
+	<p class="hint">Already stripped of passwords, cookies and session tokens
+	&ndash; safe to attach to a bug report.</p>
 
 	<p>File: <code class="path">{{.Path}}</code></p>
 

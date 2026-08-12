@@ -113,7 +113,6 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			<input type="text" id="download_path" name="download_path" value="{{.DownloadPath}}">
 			<button type="button" class="browse-btn" id="browse-download-path">Browse...</button>
 		</div>
-		<p class="hint">Local destination folder for downloaded course files.</p>
 	</div>
 
 	<div class="field checkbox-row">
@@ -132,23 +131,14 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<div class="field checkbox-row">
 		<input type="checkbox" id="sync_all_courses" name="sync_all_courses" {{if .SyncAllCourses}}checked{{end}}>
-		<label for="sync_all_courses">Sync all courses</label>
+		<label for="sync_all_courses">Sync all courses (untick to pick specific ones below)</label>
 	</div>
-	<p class="hint">While this is ticked, every course you are enrolled in gets
-	synced. <strong>Untick it to pick specific courses</strong> from the list
-	below &ndash; "Refresh this list from OPAL" fetches the courses you are
-	actually enrolled in, so you tick the ones you want instead of typing names.
-	Syncing everything is the default on a first run.</p>
 
 	<p class="hint" id="courses-inactive-note" style="{{if not .SyncAllCourses}}display:none;{{end}}">Every course is being synced, so
 	the ticks below are ignored for now. Folders you set still apply.</p>
 
 	<div class="field" id="courses-field">
-		<label>Your courses</label>
-		<p class="hint" id="courses-intro">Tick the ones you want synced. The list is
-		read from your OPAL dashboard, so you should not have to type anything
-		&ndash; but you can add a course by hand if one is missing.
-		<span id="find-courses-status"></span></p>
+		<label>Your courses</label> <span id="find-courses-status"></span>
 
 		<table class="folders" id="courses-table">
 			<thead><tr><th style="width: 1.5rem;"></th><th>Course</th><th>Folder (optional)</th><th></th></tr></thead>
@@ -175,12 +165,9 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 			<button type="button" class="add-row-btn" id="suggest-folders-btn">Fill in folders for me</button>
 			<span id="suggest-folders-status" class="hint"></span>
 		</div>
-		<p class="hint">Leave a folder blank and the course name is used. "Fill in
-		folders for me" looks through your download path for folders that already
-		match these course names (including abbreviations like <code>AlgData</code>)
-		and fills in the blank ones &ndash; only where the match is obvious, so
-		anything still blank afterwards is a guess it was not confident enough to
-		make.</p>
+		<p class="hint">"Fill in folders for me" only fills in matches it's confident
+		about (including abbreviations like <code>AlgData</code>) &ndash; anything
+		still blank needs your input.</p>
 	</div>
 
 	<h2>Subfolder organization</h2>
@@ -189,12 +176,12 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 		<input type="checkbox" id="use_section_subfolders" name="use_section_subfolders" {{if .UseSectionSubfolders}}checked{{end}}>
 		<label for="use_section_subfolders">Organize downloads into a subfolder per OPAL section</label>
 	</div>
-	<p class="hint">Places files in <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code> instead of flat <code>&lt;course&gt;/&lt;file&gt;</code>. The two editors below only apply while this is checked. Changing this after you have already synced moves your existing downloads into the new layout on the next sync - nothing is deleted, and anything that can't be matched is listed in the sync log.</p>
+	<p class="hint">Turning this on after you have already synced moves your
+	existing downloads into the new <code>&lt;course&gt;/&lt;section&gt;/&lt;file&gt;</code>
+	layout on the next sync - nothing is deleted.</p>
 
 	<details class="advanced-rules"{{if or .SectionFolderNames .SubfolderDestinations}} open{{end}}>
 	<summary>Advanced: rename sections or redirect a specific subfolder</summary>
-	<p class="hint">Most people never need this - it only matters once the plain
-	course/section layout above isn't quite right for one specific case.</p>
 
 	<div class="field">
 		<label>Section folder names</label>
@@ -240,24 +227,6 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<button type="submit" class="save-btn">Save settings</button>
 	</form>
-
-	<!-- Not an <h2>: these are pointers elsewhere, not settings. Two sections
-	     that looked exactly like the real ones but held nothing you could set
-	     were the maintainer's "weird: verweis in foldersettings auf automatic
-	     sync genauso wie der zum browser" (2026-07-27).
-
-	     The sentence about the dedicated browser profile path was cut on
-	     2026-08-10, same maintainer, same complaint one level down: "es gibt
-	     da so verweise auf so random zeug wie browser und so. Das kann
-	     komplett raus." It named an internal implementation detail (which
-	     profile directory the login runs in) on a page where nothing can be
-	     done about it - a user reading it learns only that there is
-	     something here they do not understand. -->
-	<p class="elsewhere">Configured elsewhere:
-		<a href="/schedule">Automatic sync</a> (running once a day on its own)
-		&middot;
-		<a href="/tufast-setup">TU-Fast</a> (automatic 2FA, so login needs no
-		clicks).</p>
 
 	<p class="back"><a href="/">&larr; Back</a></p>
 

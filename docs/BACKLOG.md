@@ -71,14 +71,18 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 
 ## Next
 
-`docs/sync-speed-model.md` holds the ranked list: Question 39 and Question 5's
-last half, both blocked above with options written up, needing a pick rather
-than more research. Question 5's other two halves (CLI silence, GUI
-`list`-only silence) are fixed — see `docs/BACKLOG-archive.md`. Nothing
-further is planned on the course-level HTTP concurrency thread — Question 41
-closed 2026-08-11 as a no-go. **The ranked list has no unblocked live-run or
-source-reading experiment left right now** — the next cycle should say so
-plainly rather than manufacture a third sub-question to stay busy.
+`docs/sync-speed-model.md` holds the ranked list. **Question 43 (new,
+2026-08-12) is now the top item and is unblocked**: source-confirmed that
+OPAL's course folder sections run through OpenOLAT's `FolderController`,
+which exposes a read-permission-only bulk "download as ZIP" action
+(`doBulkDownload` → `FolderZipMediaResource`) — nothing on this list has ever
+questioned the *download* phase before. Needs a live Step B (real browser,
+one section, confirm the button and time it) to become an actual lever;
+source-only so far. Question 39 and Question 5's last half are still blocked
+above, options written up, needing a pick rather than more research. Question
+5's other two halves (CLI silence, GUI `list`-only silence) are fixed — see
+`docs/BACKLOG-archive.md`. Nothing further is planned on the course-level HTTP
+concurrency thread — Question 41 closed 2026-08-11 as a no-go.
 
 ---
 

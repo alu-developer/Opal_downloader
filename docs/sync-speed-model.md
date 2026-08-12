@@ -100,6 +100,104 @@ never empty, never larger than at the end).
 
 ## What we don't know (sorted by leverage)
 
+### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, opened 2026-08-12 by "when ideas run out"'s first move (read the other side), deeper than the manuals-plus-`gh search code` pass Question 42's report already flagged as the one remaining honest option
+
+**Why this is a live lever and not old ground.** Every question on this list so
+far attacks *discovery* (finding out what files exist) - HTTP-first
+(Questions 34/36) already cut that from ~207s to the 56-90s range. Nothing on
+this list has ever questioned the *download* phase, and this walk's own
+friction campaign (walk 5, same day) just live-measured it costing real,
+non-trivial time per file (`internal/scraper/download.go`'s browser-fallback
+click path, one Playwright interaction per file) on a 210-file course
+("Softwaretechnologie") in the friction walk's own live sync. If a section's
+files can be fetched as one ZIP instead of one download each, that changes the
+download phase's shape the same way `initial_data` changed discovery's.
+
+**Source trail, all from `gh search code --repo OpenOLAT/OpenOLAT`, all
+confirmed by reading the actual files, not by search snippets alone:**
+
+1. `BCCourseNode.java` (`org.olat.course.nodes`) is the course-node type for
+   the "Ordner" folder sections this project scrapes (`Vorlesung`, `Übungen`,
+   etc. - confirmed by `BCCourseNodeIndexer.java`'s
+   `SUPPORTED_TYPE_NAME = "org.olat.course.nodes.BCCourseNode"`).
+2. `BCCourseNodeRunController.java` (`org.olat.course.nodes.bc`) is what
+   actually renders that course-node at runtime, and its constructor
+   instantiates `new FolderController(ureq, getWindowControl(), olatNamed,
+   config)` - **the modern folder browser
+   (`org.olat.core.commons.services.folder.ui.FolderController`), not the
+   legacy `bc`/briefcase `Cmd*` classes** this project's own prior reads
+   (Question 1, 2026-07-31) had reason to expect. That old read found
+   `CmdZip`/`CmdUnzip` in the legacy module and didn't chase further because
+   the existing Wicket-click download approach was already measured working -
+   nobody had reason yet to ask whether a *different*, bulk mechanism existed.
+3. `FolderController.java` defines **two independent zip/download paths**,
+   and they have different permission gates - the distinction the whole
+   question rests on:
+   - `bulkZipButton` (line 817, icon `o_filetype_zip`) calls `doZip`, which
+     **creates a new zip file inside the folder** (a write). Its visibility
+     is gated: `bulkZipButton.setVisible(!trashView && canEditCurrentContainer)`
+     (line 529) - **requires edit rights**, which a student/participant does
+     not have. This path is a dead end and explains why nobody found it useful
+     before: it looks like "bulk zip" but is actually "create a zip file here",
+     an editor-only content-management action.
+   - `bulkDownloadButton` (line 813, icon `o_icon_download`) calls
+     `doBulkDownload`, which for 2+ selected items (files and/or whole
+     sub-folders) returns `new FolderZipMediaResource(items)` directly as the
+     HTTP response - a **read-only, on-the-fly zip of the selection, never
+     written to the folder**. Its visibility: `bulkDownloadButton.setVisible(
+     !trashView)` (line 526) - **no edit check at all**, gated only on not
+     being in the trash. `doBulkDownload`'s own item filter
+     (`!isItemNotAvailable(ureq, row, false)`) is an availability/not-deleted
+     check, not a permission check. Selecting a single sub-folder and clicking
+     "download" hits the same `FolderZipMediaResource` path via the per-row
+     `doDownload` (line 2635: `vfsItem instanceof VFSContainer` →
+     `FolderZipMediaResource`), so **even a whole section-as-one-folder,
+     zipped in one response, needs nothing more than read access.**
+
+**Prediction, written before any live check, per Rule 1.** If OPAL has not
+disabled or reskinned this button (plausible - it is a stock OpenOLAT feature,
+not something Bildungsportal Sachsen would need to touch), a real course
+folder page loaded in a real, authenticated session shows a "download" batch
+button in its HTML, and selecting a section's top-level contents (or its
+parent container) and triggering it returns one ZIP covering everything
+requested. *Counts as confirmed:* the button's markup (or the
+`FolderZipMediaResource` response) is observed live. *Counts as refuted:*
+OPAL's actual deployed page has no such control (a customization, a disabled
+module, or - given Question 1's own uncertainty about which folder module is
+truly live - evidence the constructor call above is not what actually runs in
+this specific OPAL instance), or the response format loses per-file
+modification timestamps the existing incremental-skip logic
+(`internal/syncer`) depends on, which would make "zip everything" strictly
+worse than today's skip-unchanged-files behavior.
+
+**What was and wasn't done this cycle.** Source-only, per the campaign's own
+preference ("reading source beats probing a live server") and because a first
+live attempt at a bulk-select-then-click flow risks fumbling an unfamiliar
+interaction against the real account under time pressure rather than a
+considered one. A plain `curl` with the session's own cookies (extracted from
+`~/.opal_storage_state.json`) was tried against a known section URL as a
+cheap live check and failed cleanly with a same-URL 302 and a fresh
+`JSESSIONID` on every request - Wicket's page-instance model does not
+bookmark this way, matching this project's own established reason for using a
+real browser (Playwright) instead of raw HTTP for anything but discovery's
+plain GETs. Not a finding, just confirms why Step B below needs the real
+browser, not a shortcut.
+
+**Next experiment (Step B, needs a live account, next cycle).** Launch the
+existing browser-mode CLI (`--dev-mode` / visible browser, as `walk 3`/`walk
+5` already do routinely) against one real section known to have many files
+(`Softwaretechnologie`, 210 files in this walk's own live sync), navigate to
+it, and: (1) confirm the "download" batch button is present and its selection
+model - is "select all" one click or N; (2) trigger a bulk download on a
+handful of files and inspect the response - content-type, whether it is a
+proper ZIP, whether entries carry usable timestamps; (3) time it against the
+same files downloaded the existing way, on the same section, same run.
+*Kill criterion:* if step 2 shows no usable per-file timestamps in the zip,
+or if step 1 shows the selection UI itself needs as many clicks as today's
+per-file downloads (e.g. no "select all" shortcut), this closes as "real but
+not a net win" rather than a live-account failure - a valid, useful result
+either way per this campaign's own rules.
+
 ### 36. Can the hybrid's phase 1 be seeded from `initial_data` instead of from a full browser tree walk? — OPEN, opened 2026-08-10 by Question 34's answer
 
 **This is Question 34's consequence, and it is the largest single structural
@@ -2421,7 +2519,27 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-12 (autopilot, fourth update same day): both ranked items
+**Updated 2026-08-12 (autopilot, fifth update same day): the "read the other
+side, deeper" move the fourth update named as the one remaining honest option
+found something - Question 43, above, a genuinely new lever nothing on this
+list has questioned before.** Every prior question attacks discovery; this one
+is the first to question the *download* phase, via a read-permission-only
+bulk-download-as-zip control (`FolderController.doBulkDownload` →
+`FolderZipMediaResource`) confirmed, by reading the actual OpenOLAT source
+three levels deep (course-node type → run controller → the controller it
+instantiates), to sit behind the exact course-folder course-node type this
+project scrapes. Full source trail, prediction, and the staged Step
+B live-check plan are in Question 43's own entry - not duplicated here.
+**This is source-only this cycle** (a `curl`-with-real-cookies attempt at a
+live check failed cleanly on Wicket's page-instance model, confirming why the
+next step needs the real browser rather than a shortcut, not a live
+result). Question 43 is now the ranked list's top item pending its own Step
+B; Questions 39 and 5 are unchanged, still stalled on the maintainer.
+
+---
+
+**Superseded by the above - Updated 2026-08-12 (autopilot, fourth update same
+day): both ranked items
 genuinely still need the maintainer, so this cycle takes the next "when ideas
 run out" move instead of re-stating that.** Question 39 and Question 5 are
 unchanged since the third update below - no pick has landed in

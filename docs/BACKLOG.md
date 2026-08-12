@@ -63,29 +63,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4 & 5, CLI walk 2, first-run walk 3)
 
-- **[question] Every GUI settings save silently resets `opal_url` and
-  `session_state_file` to hardcoded defaults**, discarding whatever was there
-  before — deliberate and tested (`internal/gui/settings.go:47-52,289-290`,
-  `settings_test.go:483-488`), not a bug to fix. The generalizable part: the
-  save mechanism drops *any* config field the settings form doesn't expose,
-  not just these two. Worth a comment at the config struct pointing future
-  field additions at `parseSettingsForm` so the next one doesn't lose the same
-  way silently; not worth a behavior change. Walk 4.
-- **[friction] Real per-file download errors show raw Playwright internals to
-  the user, on two surfaces Finding 3 never checked.** `internal/syncer.go:595`
-  and `:662` (`fmt.Printf("  error: %s (%v)\n", ...)`) print the full wrapped
-  error chain to the CLI's stdout; the GUI's live `/sync` log mirrors the same
-  string. Live-observed 2026-08-12 (walk 5) on a real failure: a good first
-  clause ("response is HTML, browser fallback click did not find downloadable
-  link…") followed by a full Playwright locator/timeout call log glued on.
-  `internal/scraper/download.go:244`'s verbosity is deliberate (its own
-  comment: three past investigations, PRs #35/#89/#95, needed the detail to
-  find the real cause) — the gap is that there's no split between "what the
-  user reads" and "what the next investigation needs," unlike the
-  already-fixed connectivity-error case (`No internet connection…
-  (technical detail: …)`, from `netcheck`). Fix direction: apply the same
-  short-clause + collapsible-detail split to both the CLI's `error:` line and
-  the GUI's mirrored log line. Not built this walk. Walk 5.
 - **[question] What a *sync* does with an unwritable `download_path`** — fail
   clearly, or appear to succeed? `status` now catches a broken path before a
   sync starts, but a path that goes bad *between* the check and the sync is

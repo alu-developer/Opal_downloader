@@ -100,7 +100,7 @@ never empty, never larger than at the end).
 
 ## What we don't know (sorted by leverage)
 
-### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, opened 2026-08-12 by "when ideas run out"'s first move (read the other side), deeper than the manuals-plus-`gh search code` pass Question 42's report already flagged as the one remaining honest option
+### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 
 **Why this is a live lever and not old ground.** Every question on this list so
 far attacks *discovery* (finding out what files exist) - HTTP-first
@@ -197,6 +197,72 @@ or if step 1 shows the selection UI itself needs as many clicks as today's
 per-file downloads (e.g. no "select all" shortcut), this closes as "real but
 not a net win" rather than a live-account failure - a valid, useful result
 either way per this campaign's own rules.
+
+**Step B result (2026-08-12, autopilot, live, `TestBulkZipProbe`,
+`internal/scraper/bulkzip_probe_test.go`): step 1's first half is CONFIRMED,
+the rest is genuinely unanswered, not refuted.** Target: Softwaretechnologie's
+"Part-3" leaf folder (48 files - the bare `.../CourseNode/1615865126729195011`
+id from the earlier source read turned out to be a collection page with no
+file table; `Part-3` is the actual leaf, found via `~/.opal-visit-log.json`'s
+own recorded visits rather than guessed).
+
+- **The button is real.** "Gewählte Dateien herunterladen." (this
+  deployment's UI language is German - "Download selected files") renders
+  reliably on every one of 10 live navigations this cycle, `<button
+  class="btn btn-sm">`, plus a second, previously-unknown control, "Tabelle
+  herunterladen" ("Download table", unexplored). This directly confirms
+  Question 43's Step A source read: OpenOLAT's `bulkDownloadButton` is live
+  and reachable on a plain participant account, not stripped or reskinned by
+  this deployment.
+- **The row-selection checkboxes are real markup but render unreliably, and
+  the pattern is stranger than a simple render delay.** One diagnostic read
+  found genuine `<input type="checkbox">` elements, sequential ids
+  (`id5b4`, `id5b6`, `id5b8`...), one per file row inside `td:first-child`,
+  each paired with a visually-hidden `<label>` reading "Diesen Eintrag
+  auswählen" ("Select this entry") - not a guess, directly inspected. But
+  every other read - across 10 separate navigations - found zero, including
+  after: this project's own production-proven wait
+  (`waitForInteractiveLinks` + `waitForStableSectionContent`, what
+  `visitSection` uses for this exact page type on every real crawl); a 10s
+  custom stability poll; clicking a page control literally labelled
+  "Einträge auswählen - Optionen" ("Select entries - Options") as a possible
+  mode toggle; switching from headless to a visible browser (`SetDeveloperMode
+  (true)`, matching the plan's own "--dev-mode / visible browser" instruction
+  exactly - ruling out headless-detection as the cause); and clicking the
+  header's "Alle sichtbaren Einträge auswählen" ("select all visible
+  entries") control directly. The last of these produced the most telling
+  data point: the click reported success against a `th [class*="table-
+  select"]` match, and a **query for that exact same selector moments later,
+  in the same page, found nothing** - not "not yet rendered", but present
+  then absent within the span of a few JS evaluate calls. Whatever governs
+  when this table's selection column exists in the DOM is not a load delay
+  this session's tools could characterize.
+- **Steps 2 and 3 (select files, trigger the button, inspect the zip's
+  timestamps, time it against per-file) could not run**, because no reliable
+  way to select a row was found. The kill criterion (per-file timestamps)
+  is **untested**, not refuted - this is not the "real but not a net win"
+  outcome the prediction registered, it is the plan's live-account-failure
+  case, but for a narrower reason than "the feature isn't there": the feature
+  is there, its trigger reliably works, but this session could not drive its
+  input.
+- **Why this session stops here rather than continuing to retry:** ten live
+  navigations across five genuinely different mechanisms is well past this
+  project's own three-attempts-without-closing pattern (the weekly-review
+  Part A hunts for exactly this shape of grind). Recorded plainly rather than
+  dressed up - per "unsolved is an acceptable outcome" - so a later session
+  does not have to rediscover any of the above.
+
+**Open question for whoever picks this up next:** why does a `th`/`td`
+selection-column element exist on one read and not the next, on a page that
+`waitForStableSectionContent` otherwise treats as settled? Two directions
+worth trying before another blind retry: (a) watch the Network tab (or
+`page.On("request", ...)`) during a real navigation for a periodic XHR/AJAX
+call that would explain a table being wholesale rebuilt on a timer separate
+from user interaction; (b) a genuinely interactive check - a human (or a
+much longer-observed session, not just more polls) watching the real browser
+window `SetDeveloperMode(true)` opens, to see with their own eyes whether the
+checkbox column visibly flickers or the click targets something that then
+silently no-ops. Both are cheap; neither was tried this cycle.
 
 ### 36. Can the hybrid's phase 1 be seeded from `initial_data` instead of from a full browser tree walk? — OPEN, opened 2026-08-10 by Question 34's answer
 
@@ -2595,7 +2661,25 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-12 (autopilot, fifth update same day): the "read the other
+**Updated 2026-08-12 (autopilot, sixth update same day): Question 43's Step B
+ran live and got a real but incomplete result.** The bulk-download button is
+confirmed to exist and render reliably (Question 43's Step A prediction
+holds). What blocked completing steps 2/3 is not the feature being absent but
+the row-selection checkboxes existing in the DOM on some reads and not
+others, across ten live navigations and five different mechanisms including
+this project's own production section-stability wait - not a load-delay
+question there is a standard fix for. Two untried directions are named in
+Question 43's own entry (watch the network tab for a periodic refresh; a
+longer human-observed visible-browser session) - either is the next step,
+not a repeat of this cycle's approach. Questions 39 and 5 are fully closed
+(see `docs/BACKLOG.md`/`docs/BACKLOG-archive.md`), so Question 43 remains the
+ranked list's top item, now needing a different kind of next attempt rather
+than a fresh one.
+
+---
+
+**Superseded by the above - Updated 2026-08-12 (autopilot, fifth update same
+day): the "read the other
 side, deeper" move the fourth update named as the one remaining honest option
 found something - Question 43, above, a genuinely new lever nothing on this
 list has questioned before.** Every prior question attacks discovery; this one

@@ -35,6 +35,32 @@ const logTailBytes = 256 << 10
 // logTailLines bounds what actually reaches the page after that.
 const logTailLines = 400
 
+// reportLogTailLines is the much smaller tail that goes into a bug report.
+// A prefilled GitHub issue carries its body in the URL, and an over-long URL
+// is rejected outright (see report.IssueURLBudget), so this cannot be the
+// 400 lines the log *page* shows. Sized to overshoot the budget rather than
+// undershoot it: report.FitIssueURL drops whatever does not fit, so asking
+// for more lines here costs nothing, while asking for too few would throw
+// away lines that would have fitted.
+const reportLogTailLines = 60
+
+// readReportLogTail returns the last reportLogTailLines lines of the log for
+// inclusion in a feedback report, or "" if there is no readable log. A
+// missing or unreadable log is not an error worth showing: the report is
+// still worth filing without it, and the feedback page has no good place to
+// put a complaint about a file the user never asked about.
+func readReportLogTail() string {
+	tail, _, err := readLogTail(logPathForPage())
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(tail, "\n"), "\n")
+	if len(lines) > reportLogTailLines {
+		lines = lines[len(lines)-reportLogTailLines:]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
 // Both seams exist for the same reason the scheduler ones do (see the GUI
 // tests): a test must not open a file-manager window on the maintainer's
 // desktop, and must not depend on whatever happens to be in their real log.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,15 +139,59 @@ func TestOpeningTheLogFolderReportsFailureInsteadOfSwallowingIt(t *testing.T) {
 	}
 }
 
-func TestFeedbackPageLinksToTheLog(t *testing.T) {
-	// The whole point of the page: the log was unreachable from the GUI, and
-	// a bug report is exactly when someone needs it.
+// This used to assert that the feedback page links to /logs, and its sibling
+// below that it links to /logs/download - both pinning the 2026-07-27 fix for
+// "the page tells you to attach the log and gives you no way to get it".
+// 2026-08-12 replaced the mechanism rather than the goal: the log now rides
+// along in the form by itself, so a link the user has to go and follow is no
+// longer the fix. The requirement being pinned is unchanged - a report reaches
+// the maintainer with the log in it - so these test the new route to it.
+func TestFeedbackPageCarriesTheLogInTheForm(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "opal-downloader.log")
+	if err := os.WriteFile(path, []byte("first line\nsomething went wrong\n"), 0o600); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	restore := logPathForPage
+	logPathForPage = func() string { return path }
+	defer func() { logPathForPage = restore }()
+
 	srv := &server{}
 	rec := httptest.NewRecorder()
 	srv.handleFeedbackPage(rec, httptest.NewRequest(http.MethodGet, "/feedback", nil))
 
-	if !strings.Contains(rec.Body.String(), `href="/logs"`) {
-		t.Errorf("feedback page does not link to the diagnostic log")
+	body := rec.Body.String()
+	if !strings.Contains(body, "something went wrong") {
+		t.Errorf("feedback page does not carry the log tail; got:\n%s", body)
+	}
+	// Named, so it is submitted with the form - an unnamed field would render
+	// identically and silently send nothing.
+	if !strings.Contains(body, `name="log"`) {
+		t.Errorf("the log field must be named so it is actually submitted")
+	}
+	// Editable, not readonly: that is the entire privacy design for putting
+	// course and file names into a public issue tracker automatically.
+	if strings.Contains(body, `name="log" class="diagnostics" rows="12" readonly`) {
+		t.Errorf("the log field must stay editable so the user can cut lines out")
+	}
+}
+
+// A fresh install has no log. The page must still work, and must not show an
+// empty "Recent log" block inviting the user to wonder what is missing.
+func TestFeedbackPageOmitsTheLogSectionWhenThereIsNoLog(t *testing.T) {
+	restore := logPathForPage
+	logPathForPage = func() string { return filepath.Join(t.TempDir(), "nope.log") }
+	defer func() { logPathForPage = restore }()
+
+	srv := &server{}
+	rec := httptest.NewRecorder()
+	srv.handleFeedbackPage(rec, httptest.NewRequest(http.MethodGet, "/feedback", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "Recent log") {
+		t.Errorf("no log exists, so the page must not show a log section")
 	}
 }
 
@@ -200,12 +245,32 @@ func TestLogDownloadSaysSoWhenThereIsNoLogYet(t *testing.T) {
 	}
 }
 
-func TestFeedbackPageLinksToTheLogDownload(t *testing.T) {
-	srv := &server{}
-	rec := httptest.NewRecorder()
-	srv.handleFeedbackPage(rec, httptest.NewRequest(http.MethodGet, "/feedback", nil))
+// The download link survives, but only where it is earned: on the result
+// page, when the report actually had to leave log lines out. Kept because
+// that is the one case where the report genuinely does not carry everything
+// and the user needs the file itself.
+func TestFeedbackResultOffersTheDownloadOnlyWhenLinesWereDropped(t *testing.T) {
+	restore := logPathForPage
+	logPathForPage = func() string { return filepath.Join(t.TempDir(), "nope.log") }
+	defer func() { logPathForPage = restore }()
 
-	if !strings.Contains(rec.Body.String(), `href="/logs/download"`) {
-		t.Fatal("the page that asks for the log must link to the download, not only to the viewer")
+	srv := &server{openBrowser: func(string) error { return nil }}
+
+	short := url.Values{"description": {"it broke"}, "log": {"one short line"}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/feedback/open", strings.NewReader(short.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.handleFeedbackOpen(rec, req)
+	if strings.Contains(rec.Body.String(), `href="/logs/download"`) {
+		t.Errorf("nothing was dropped, so the page must not push the download at the user")
+	}
+
+	long := url.Values{"description": {"it broke"}, "log": {strings.Repeat("a fairly typical looking log line with a timestamp\n", 400)}}
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/feedback/open", strings.NewReader(long.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	srv.handleFeedbackOpen(rec2, req2)
+	if !strings.Contains(rec2.Body.String(), `href="/logs/download"`) {
+		t.Errorf("lines were dropped, so the user must be told where the full log is; got:\n%s", rec2.Body.String())
 	}
 }

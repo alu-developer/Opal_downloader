@@ -406,6 +406,32 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **The diagnostic log now rides along with a bug report by itself**
+  (2026-08-12, maintainer's ask: can the log be attached automatically?).
+  It cannot be *attached* — a prefilled GitHub issue carries its body in the
+  URL, and GitHub has no way to upload a file from a link — so the log is
+  inlined instead: `handleFeedbackPage` prefills a collapsed, **editable**
+  field with the last 60 log lines, and `handleFeedbackOpen` builds the body
+  from whatever comes back in it.
+  The engineering content is the length problem. GitHub answers an over-long
+  prefill URL with `414 URI Too Long`: the user lands on an error page and
+  the report is simply lost, which would have made this feature actively
+  worse than the link it replaced. `report.FitIssueURL` measures the built,
+  *encoded* URL against `report.IssueURLBudget` (6500, under GitHub's ~8 KB)
+  and drops log lines oldest-first until it fits — never the newest lines,
+  never the user's own words. Measured on the maintainer's real log
+  2026-08-12: 60 lines / 9032 chars in, 41 lines kept, final URL 6493 chars,
+  and the result page said which 19 lines it left out and linked the full
+  download.
+  Editable rather than readonly is the privacy design, and deliberate: the
+  log is already stripped of credentials and session tokens, but it names
+  courses and files, and this now reaches a public issue tracker
+  automatically where before the user had to go and attach it. Rather than a
+  checkbox plus a paragraph explaining the trade-off, the text sits in a
+  field the user can clear. Detail: `internal/report/report.go`'s package
+  comment, which records this as its one deliberate widening of the
+  scrubbing rule.
+
 - **The GUI landing page now says when the last sync was — Question 5's
   "feels like one click" half** (2026-08-12, maintainer's call: *"du kannst ja
   irgendwo (mainbildschirm/sync-feld) hinschreiben, wann der letzte sync

@@ -33,6 +33,17 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
   2026-08-12.** *"Es ist so nervig, immer einen Absatz zu haben, der einen
   Button erklärt."* Two parts, the second is the general one:
 
+  **Hiding beats deleting where a fact is load-bearing** — maintainer,
+  2026-08-12: *"man könnte auch Sachen hinter 'more information' oder so
+  hiden."* A `<details><summary>` collapsed by default costs one line of
+  page and keeps the information for whoever wants it, so it is the default
+  move for anything too useful to delete outright. It is not a loophole for
+  keeping prose that should just go: if a better label removes the need for
+  the text, relabel and delete. Worked example already in the tree — the
+  Feedback page's log block (`internal/gui/feedback.go`), where a collapsed
+  `<details class="more">` replaced a paragraph telling the user to go fetch
+  the log themselves.
+
   1. **Delete the "Configured elsewhere" block** on the Settings page
      (`internal/gui/settings_page.go:244-260`) — the pointers to
      `/schedule` ("running once a day on its own") and `/tufast-setup`
@@ -43,9 +54,10 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
      (2026-07-27 removed two fake settings sections, 2026-08-10 removed the
      browser-profile sentence) — this time it goes entirely.
   2. **Sweep every GUI page for the same pattern and cut as much as
-     possible.** ~28 `<p class="hint">` paragraphs live across
+     possible.** ~26 `<p class="hint">` paragraphs still live across
      `settings_page.go` (11), `tufast_setup.go` (5), `schedule_page.go` (5),
-     `sync.go` (2), `logs.go` (2), `feedback.go` (2), `gui.go` (1). The rule
+     `sync.go` (2), `logs.go` (2), `gui.go` (1) — `feedback.go`'s two are
+     already done, cut to one when the log started attaching itself. The rule
      the maintainer gave: **make the control itself say what it does — a
      clearer label, a better button word, a sensible default — and then
      delete the paragraph**, rather than keeping prose to compensate for a

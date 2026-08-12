@@ -42,26 +42,27 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 <style>` + pageStyle + `
 	textarea, input[type=text] { width: 100%; font: inherit; box-sizing: border-box; padding: 0.5rem; border-radius: 6px; border: 1px solid #ccc; }
 	textarea.diagnostics { background: #f7f7f7; color: #444; }
+	textarea#log { font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem; white-space: pre; }
 	label { display: block; font-weight: 600; margin: 1rem 0 0.3rem; }
+	details.more { margin-top: 1rem; }
+	details.more > summary { cursor: pointer; font-weight: 600; }
 </style>
 </head>
 <body>
 	` + bannerChrome + `
 	<h1>Feedback / Problem melden</h1>
 
-	<p class="hint">
-		This opens a prefilled GitHub issue in your browser - nothing is sent
-		automatically. You can edit the text below (and on GitHub itself)
-		before submitting, and you'll need a GitHub account to submit it.
-	</p>
-
-	<p class="hint">
-		Reporting something that went wrong?
-		<a href="/logs/download">Download the diagnostic log</a> and attach it
-		to your report &ndash; it usually says what happened, and it is safe to
-		share (credentials and session tokens are stripped before anything is
-		written to it). You can also <a href="/logs">read it here</a> first.
-	</p>
+	{{/* Two long hint paragraphs stood here until 2026-08-12. The first
+	     explained the button ("this opens a prefilled GitHub issue, nothing
+	     is sent automatically, you can edit it, you need an account"); the
+	     second told the user to go download the log and attach it by hand.
+	     Both went on the maintainer's standing complaint about a paragraph
+	     explaining every button - and the second one is simply obsolete now
+	     that the log rides along in the form below by itself. What survives
+	     of the first is the one fact a button label cannot carry: that this
+	     does not send anything. */}}
+	<p class="hint">Nothing is sent automatically &ndash; this opens a
+		prefilled issue on GitHub for you to review and submit.</p>
 
 	{{if .CrashDetected}}
 	<div class="status warn">A crash was detected. Its details are included below.</div>
@@ -83,6 +84,26 @@ var feedbackPageTemplate = template.Must(template.New("feedback").Parse(`<!DOCTY
 		<label for="diagnostics">Diagnostics (included automatically)</label>
 		<textarea id="diagnostics" class="diagnostics" rows="4" readonly>{{.Diagnostics}}</textarea>
 
+		{{if .LogTail}}
+		{{/* Editable, not readonly like the blocks above it, and that is the
+		     whole privacy design. The log is already stripped of credentials
+		     and session tokens - but it names courses and files, and this
+		     ends up in a public issue tracker, which the narrow diagnostics
+		     block never did. Rather than spend a checkbox and a paragraph
+		     explaining the trade-off, the text is simply put in the user's
+		     hands: select, delete, submit. Collapsed by default so it is not
+		     a wall of log above the button.
+
+		     Nothing is trusted from here. handleFeedbackOpen takes whatever
+		     comes back in this field as the log section, which is correct -
+		     an edit must survive - but it fits the result to
+		     report.IssueURLBudget regardless of how much text arrives. */}}
+		<details class="more">
+			<summary>Recent log (included automatically) &ndash; edit or clear it here</summary>
+			<textarea id="log" name="log" class="diagnostics" rows="12">{{.LogTail}}</textarea>
+		</details>
+		{{end}}
+
 		<p style="margin-top: 1.5rem;"><button type="submit">Open GitHub issue</button></p>
 	</form>
 
@@ -97,6 +118,7 @@ type feedbackPageData struct {
 	CrashDetected bool
 	CrashBlock    string
 	Diagnostics   string
+	LogTail       string
 }
 
 func (s *server) handleFeedbackPage(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +127,11 @@ func (s *server) handleFeedbackPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := feedbackPageData{Title: "Feedback", Diagnostics: report.Diagnostics(s.buildVersion)}
+	data := feedbackPageData{
+		Title:       "Feedback",
+		Diagnostics: report.Diagnostics(s.buildVersion),
+		LogTail:     readReportLogTail(),
+	}
 	if r.URL.Query().Get("crash") == "1" {
 		if crash := s.feedback.crash(); crash != "" {
 			data.CrashDetected = true
@@ -146,6 +172,22 @@ var feedbackOpenedTemplate = template.Must(template.New("feedback-opened").Parse
 	</div>
 	{{end}}
 
+	{{/* Only shown when lines were actually cut. This is the one case where
+	     "go download the log and attach it" is worth saying - the report
+	     genuinely does not carry everything - so the sentence that used to
+	     greet every visitor unconditionally now appears exactly when it is
+	     true. A GitHub issue body travels in the URL, and an over-long one
+	     is refused outright; see report.IssueURLBudget. */}}
+	{{if .DroppedLogLines}}
+	<div class="status">
+		The report was too long for a prefilled link, so its oldest
+		{{.DroppedLogLines}} log line{{if ne .DroppedLogLines 1}}s were{{else}} was{{end}}
+		left out. If the rest matters,
+		<a href="/logs/download">download the full log</a> and drag it into
+		the issue on GitHub.
+	</div>
+	{{end}}
+
 	<label>Report text that was sent to GitHub as the issue body</label>
 	<textarea rows="14" readonly>{{.Body}}</textarea>
 
@@ -155,9 +197,10 @@ var feedbackOpenedTemplate = template.Must(template.New("feedback-opened").Parse
 `))
 
 type feedbackOpenedData struct {
-	IssueURL  string
-	Body      string
-	OpenError string
+	IssueURL        string
+	Body            string
+	OpenError       string
+	DroppedLogLines int
 }
 
 // handleFeedbackOpen builds the report body from the submitted description
@@ -192,9 +235,14 @@ func (s *server) handleFeedbackOpen(w http.ResponseWriter, r *http.Request) {
 		title = "Feedback"
 	}
 
-	issueURL := report.IssueURL(title, body)
+	// The log comes from the form, not from a fresh read of the file: the
+	// field is editable precisely so a user can cut lines out of it, and
+	// re-reading here would put them straight back. A form that carries no
+	// "log" field at all (there was no log to show, or an older cached page)
+	// simply produces a report without the section.
+	issueURL, body, droppedLogLines := report.FitIssueURL(title, body, r.FormValue("log"))
 
-	data := feedbackOpenedData{IssueURL: issueURL, Body: body}
+	data := feedbackOpenedData{IssueURL: issueURL, Body: body, DroppedLogLines: droppedLogLines}
 	openFn := s.openBrowser
 	if openFn == nil {
 		openFn = openInDefaultBrowser

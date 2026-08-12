@@ -1,5 +1,7 @@
-# Local download destination (absolute or relative path)
-download_path: "D:/Uni/OPAL"
+# Local download destination (absolute or relative path). "./downloads"
+# (relative to wherever you run opal-downloader from) works out of the box -
+# change it to wherever you actually want your files.
+download_path: "./downloads"
 
 # Optional default folder for courses without an explicit rule.
 # If omitted, the course name is used as before.
@@ -20,16 +22,19 @@ use_section_subfolders: false
 # names, instead of using OPAL's raw section wording. Only applies when
 # use_section_subfolders is true. Keys are section-name patterns (same matching
 # rules as course_folders); unmatched sections keep OPAL's own sanitized name.
-section_folder_names:
-  "Exercises": "Übungen"
+# Left commented out: an active entry here while use_section_subfolders is
+# false above just produces a "has no effect" warning on every run.
+# section_folder_names:
+#   "Exercises": "Übungen"
 
 # Optional: redirect one course's specific section to an arbitrary destination
 # path (can be outside download_path entirely), bypassing the normal course
 # folder for just that subfolder. Keys are "<course pattern>/<subfolder pattern>",
 # each matched with the same pattern rules as course_folders. Only applies when
-# use_section_subfolders is true.
-subfolder_destinations:
-  "*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides"
+# use_section_subfolders is true. Commented out for the same reason as
+# section_folder_names above.
+# subfolder_destinations:
+#   "*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides"
 
 # Exact course names to sync (case-insensitive). Partial/glob patterns are NOT
 # matched here - unlike course_folders above, this list requires the full course

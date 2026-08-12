@@ -131,23 +131,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4 & 5, CLI walk 2, first-run walk 3)
 
-- **[question] The GUI process's ~5-minute exit (walk 1) is now 2 deaths and 1
-  survival across three background-shell launches (walks 1, 4, 5), plus one
-  clean survival under a properly detached launch (walk 5).** Not a reliable
-  every-launch failure, so still not closed as a real bug - but `Start-Process`
-  (or equivalent full detachment) is the only launch method with a perfect
-  record so far. Actionable regardless of the root cause, and true either way:
-  future automated GUI walks should default to full detachment.
-  **Under live test since 2026-08-12:** the maintainer launched the GUI by real
-  double-click (PID 20576, 15:59:30) and a 25-minute watcher is observing it -
-  the one data point no agent can produce. Resolution rules, agreed in advance
-  so this cannot stall again: **survives the window** -> close it as a
-  launch-method artefact of background shells, keep the detachment rule, no
-  code change; **dies** -> it is a real bug reachable by normal users, and it
-  is promoted out of "Open findings" into "Now" with a root-cause hunt.
-  If the watcher's result is ever lost before it is written down, do not
-  re-open the question in the abstract: re-run exactly this test (double-click,
-  observe 25 minutes) or close it on the first branch.
 - **[question] Every GUI settings save silently resets `opal_url` and
   `session_state_file` to hardcoded defaults**, discarding whatever was there
   before — deliberate and tested (`internal/gui/settings.go:47-52,289-290`,

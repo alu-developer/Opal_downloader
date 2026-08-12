@@ -747,6 +747,25 @@ mean the death is not a reliable every-launch behavior. Downgrading from
 "question, next walk should check" to "question, needs either a third data
 point or the double-click test neither walk could perform."
 
+**CLOSED 2026-08-12 — the double-click test ran, and the GUI survived.** The
+maintainer launched it the way a user does (PID 20576, started 15:59:30)
+while a watcher polled the process; it was alive through the full 25-minute
+observation window and still running at **26 minutes**, roughly five times
+past the failure window walk 1 saw. Both outcomes were written down before
+the result came back (see `docs/BACKLOG.md`'s entry at the time), so this
+closed on a pre-registered rule, not on a reading taken after the fact.
+
+Verdict: an artefact of agent-started launches, not a defect users can reach.
+Every death on record came from a process an agent had started from a shell
+it also owned; no death has ever been observed under full detachment or a
+real double-click. Nothing in the app was wrong and no code changed. **The
+standing consequence, unchanged and still worth keeping:** automated GUI
+walks default to `Start-Process` or equivalent full detachment - it remains
+the only launch method with a perfect record, and it is the right default
+whatever the root cause was. If this ever recurs, it will be under an
+agent-started launch, and the thing to examine is the parent shell's
+lifetime, not the GUI.
+
 #### New questions this walk leaves (Rule 3)
 
 1. **Every GUI settings save silently discards `opal_url` and

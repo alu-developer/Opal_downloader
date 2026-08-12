@@ -22,6 +22,26 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **The GUI process's ~5-minute exit was an artefact of how agents launched
+  it, not a bug users can hit — closed 2026-08-12 by the one test no agent
+  could run.** Walk 1 saw the GUI process die ~5 minutes after launch; across
+  walks 1, 4 and 5 that became 2 deaths and 1 survival over three
+  background-shell launches, plus a clean survival under a properly detached
+  launch. Never reliable enough to name a cause, and every data point came
+  from a process an agent had started from a shell it also owned. The
+  maintainer settled it by double-clicking the GUI like a user (PID 20576,
+  15:59:30) while a watcher polled it: **it survived the full 25-minute
+  window and was still running at 26 minutes**, five times past the failure
+  window. Both outcomes had been written into the backlog entry *before* the
+  result came back, so this closed on a rule rather than on a judgement call
+  made after seeing the answer.
+  **What stays:** automated GUI walks default to `Start-Process` or
+  equivalent full detachment — still the only launch method with a perfect
+  record, and correct regardless of the root cause. No code change; nothing
+  in the app was ever wrong. **If it recurs:** it will be under an
+  agent-started launch, and the thing to examine is the parent shell's
+  lifetime, not the GUI.
+
 - **What a sync does with an unwritable `download_path`: fails clearly, both
   at the top and per file — investigated 2026-08-12, walk 1 follow-up now
   closed.** `SyncCoursesWithProgress` (`internal/syncer/syncer.go:431`) calls

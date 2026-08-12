@@ -4064,6 +4064,61 @@ decision is the maintainer's, not a counter's — no cap on the campaign, the ki
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
 
+### 2026-08-12 (autopilot): eight cycles since the last report, Questions 36-B2/37/38/40/41/5(×3)/39/42 — keep going, but the campaign has hit its first pure-maintainer-decision wall
+
+Cycles since the last report (2026-08-10, second run): Question 36 Step B2
+(the production HTTP-first restructure, written/tested/live-verified at zero
+diff, shipped as the default), Question 37 (closed, not worth chasing further),
+Question 38 (closed, confirmed the ~208ms HTTP-fetch timing that let B2 ship),
+Question 40 (one clean live run at `course_concurrency=2`, not promoted - the
+project's own bar needs two), Question 41 (closed as a **no-go**: the second
+confirming run lost 6 files, overturning Question 40's clean result and
+killing course-level HTTP concurrency as a direction), Question 5's three
+sub-cycles (CLI's silent 3-minute discovery gap fixed; the GUI `list` job's
+matching gap fixed; the remaining "background run before the click" half
+turned into three written-up options rather than decided unilaterally),
+Question 39 (opened, also turned into three written-up options), and Question
+42 (closed this cycle - see above - no third-party OPAL/OpenOLAT tool exists
+to borrow an idea from).
+
+**What is known now that was not eight cycles ago.** The campaign's biggest
+structural bet paid off and shipped: HTTP-first discovery is now the
+production default, cutting the discovery floor from the ~207s browser crawl
+to the 56-90s range depending on concurrency, at zero correctness cost on
+every byte-diff run this campaign has thrown at it. Course-level concurrency
+as a further lever on top of that is now **closed, not just paused** -
+Question 41's second run losing 6 files is the second time this exact class
+of bug (contention corrupting a shared browser context) has been caught by
+this project's own two-confirming-runs bar, which is doing its job. Both of
+Question 5's cheap halves (CLI and GUI silent-discovery gaps) are fixed and
+live-verified. Question 42 confirms there is no external prior art this
+campaign has been missing - the field is empty for the reason predicted
+(regional platform, small population).
+
+**What is still open.** Exactly two items, and both are now explicitly stalled
+on the maintainer rather than on more research: Question 39 (should anything
+periodically re-verify HTTP-first now that shipping it as default silently
+removed the free comparison every run used to get) and Question 5's last half
+(does "feels like one click" need a background run before the click). Both
+have three written-up options and a recommendation each in `docs/BACKLOG.md`'s
+Now section, unpicked as of this report. **No unblocked live-run or
+source-reading experiment remains on the ranked list** - this is the first
+time in the campaign's life that the blocker is a decision, not a question.
+
+**Recommendation: keep going as a standing capability, but the honest next
+move for *this specific campaign* needs roughly ten minutes of the
+maintainer's attention on Questions 39 and 5, not another autopilot cycle.**
+Manufacturing a third sub-question to stay busy was explicitly rejected
+several updates in a row in "Next experiment" above, for good reason - the
+two blocked items already have recommendations attached, and inventing a
+third path around them would spend effort avoiding a decision rather than
+reaching one. The next autopilot cycle that finds Questions 39/5 still
+unpicked should say so plainly (as several already have) rather than repeat
+the search; if a cycle wants genuinely new ground instead of waiting, "When
+ideas run out"'s first move (read the other side, deeper than the manuals-
+plus-`gh search code` pass already done) is the one honest option left,
+and it is a bigger undertaking than a single cycle, not a quick check.
+
 ### 2026-08-10 (autopilot, second run of the day): five cycles, Questions 34/36-A/36-A2/36-B1×2 — keep going; the browser has been shown unnecessary for discovery
 
 Cycles since the last report: Question 34 (answered from saved HTML — the

@@ -693,6 +693,25 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 
 func ListAvailableCourses(ctx context.Context, sc *scraper.OpalScraper) error {
 	fmt.Println("Fetching courses from OPAL...")
+
+	// Tracked so the summary can say what happened to every course OPAL
+	// enrolled the user in, not just the ones that ended up with files - a
+	// course whose crawl finds 0 files would otherwise vanish from the
+	// output with no explanation (friction-campaign Walk 3 finding,
+	// docs/friction-campaign.md).
+	totalCourses := 0
+	emptyCourses := 0
+	sc.SetDiscoveryProgress(func(p scraper.DiscoveryProgress) {
+		switch p.Phase {
+		case scraper.PhaseCoursesFound:
+			totalCourses = p.TotalCourses
+		case scraper.PhaseCourseDone:
+			if p.FileCount == 0 {
+				emptyCourses++
+			}
+		}
+	})
+
 	files, err := sc.ScrapeWithSavedSession(ctx, []string{"*"})
 	if err != nil {
 		return err
@@ -712,6 +731,9 @@ func ListAvailableCourses(ctx context.Context, sc *scraper.OpalScraper) error {
 	fmt.Printf("\nFound %d courses:\n\n", len(courseNames))
 	for _, course := range courseNames {
 		fmt.Printf("  [%s] (%d files)\n", course, courses[course])
+	}
+	if emptyCourses > 0 {
+		fmt.Printf("\n(%d of %d enrolled courses had no files and are not listed above)\n", emptyCourses, totalCourses)
 	}
 	return nil
 }

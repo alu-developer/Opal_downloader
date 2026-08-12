@@ -56,12 +56,14 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 ## Next
 
 `docs/sync-speed-model.md` holds the ranked list. Top is Question 39, blocked
-above on the maintainer's pick; then Question 5's two remaining halves (the
-CLI-silence half is fixed — see `docs/BACKLOG-archive.md` — leaving the GUI's
-own progress stream, unchecked, and whether/when a background run before the
-click is worth building, a product decision). Nothing further is planned on
-the course-level HTTP concurrency thread — Question 41 closed 2026-08-11 as a
-no-go.
+above on the maintainer's pick; then Question 5's one remaining half —
+whether/when a background run before the click is worth building, a product
+decision, not a code experiment. Its other two halves (CLI silence, GUI
+`list`-only silence) are both fixed — see `docs/BACKLOG-archive.md`. Nothing
+further is planned on the course-level HTTP concurrency thread — Question 41
+closed 2026-08-11 as a no-go. **Both items on the ranked list are effectively
+blocked on the maintainer right now** (a pick, and a product call) — the next
+cycle should say so rather than manufacture a third sub-question to stay busy.
 
 ---
 
@@ -74,15 +76,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walk 1, CLI walk 2, first-run walk 3)
 
-- **[friction] The tool finds 8 course links but silently reports only 6
-  courses**, with no line anywhere explaining the other 2. `internal/syncer/syncer.go`
-  and `internal/gui/sync.go` both build the final course list by grouping
-  *discovered files*, not *discovered courses*, so a course whose crawl
-  returns zero files never gets a map entry. Confirmed 2026-08-12 (not just
-  circumstantial): the two missing courses are `[WS25/26] Programmierung` and
-  `Helfende DMS`, both live-verified genuinely content-free, not a discovery
-  loss — the fix is a one-line "N found, M empty" addition at both call
-  sites, no further investigation needed first. Walk 3.
 - **[question] The GUI process exited on its own after ~5 minutes** while in
   use, nobody closing the window. Not yet separable from an artifact of
   launching it from a background shell — deferred to the next GUI-surface

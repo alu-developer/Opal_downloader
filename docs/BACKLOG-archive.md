@@ -361,6 +361,23 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Sync-speed Question 5's second half fixed: the GUI's `list`-only job
+  streams per-course progress too, and both discovery paths now say what
+  happened to enrolled courses that came back with 0 files** (2026-08-12,
+  autopilot, live-verified in a real headless browser against the real
+  account and via a live CLI run): the GUI's `sync` job already streamed live
+  via a pre-existing `DiscoveryProgress`/`SetDiscoveryProgress` hook
+  (`internal/scraper/progress.go`) that `internal/syncer.SyncCoursesWithProgress`
+  was already wired to - a correction to the first entry below, which had
+  implied the signal was wholly new rather than already used on one of two
+  GUI paths. The GUI's `list`-only job (`internal/gui/sync.go`) was not wired
+  to it at all and shared the CLI's old batching gap; now is, same event,
+  same fix shape. Same pass closed the walk 3 "8 links, 6 courses, no
+  explanation" friction finding's remaining half: both `ListAvailableCourses`
+  (`internal/syncer/syncer.go`) and the GUI's list job now count
+  `PhaseCourseDone` events with `FileCount == 0` and print/publish "(N of M
+  enrolled courses had no files)" when it's non-zero. Full mechanism:
+  `docs/sync-speed-model.md` Question 5 (two experiments, same day).
 - **Sync-speed Question 5's first (cheap) half fixed: the CLI's discovery
   phase now prints a line per course as it completes, instead of the
   ~3-minute silent stretch friction-campaign Walk 3 measured the same day**
@@ -377,20 +394,20 @@ record.
   courses walk 3 found "missing" from `list`'s course-count summary
   (`[WS25/26] Programmierung`, `Helfende DMS`) as genuinely 0-file courses,
   closing that walk's uncertainty too — see the next entry. Question 5's
-  other two halves (the GUI's own progress stream, unchecked; whether/when a
-  background run before the click is worth building) are open in
-  `docs/BACKLOG.md`, ranked in `docs/sync-speed-model.md` Question 5.
+  only remaining half (whether/when a background run before the click is
+  worth building) is open in `docs/BACKLOG.md`, ranked in
+  `docs/sync-speed-model.md` Question 5.
 - **Friction campaign walk 3 (first run from zero): 3 findings, and a stray
   debug file deleted from the repo root** (2026-08-12, autopilot):
   `sync_run.log` (UTF-16, three lines, someone's local test-run transcript)
   had sat next to `README.md`/`go.mod` in every fresh clone since the initial
   commit `18f875d` (2026-07-02) and was the first thing a new user's file
   browser showed. `git rm`'d, nothing referenced it. The walk's other two
-  findings: the silent ~3-minute CLI discovery phase is fixed (see the entry
-  above); 8 course links reported as 6 courses is still open in
-  `docs/BACKLOG.md`, though the same fix's verification run settled which 2
-  are missing and confirmed they're genuinely empty. Walk detail:
-  `docs/friction-campaign.md` Walk 3.
+  findings are both fixed too, in the two entries above: the silent
+  ~3-minute CLI discovery phase, and 8 course links reported as 6 courses
+  with no explanation (the missing 2 confirmed genuinely empty, and both
+  discovery paths now say so). Walk detail: `docs/friction-campaign.md` Walk
+  3.
 - **`list --visit-report` now flags intermittently-empty sections, not just
   always-empty ones** (2026-08-12, autopilot, verified live against the real
   account's visit log, ~344 sections): 34 of 344 sections are empty on some

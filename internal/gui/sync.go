@@ -112,19 +112,46 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 
 	if kind == jobKindList {
 		sp.job.publish(jobEvent{Kind: "log", Message: "Fetching courses from OPAL..."})
+		// Course-by-course as the crawl actually finds them, not batched until
+		// the whole thing returns - collectCourseFilesConcurrently already
+		// publishes PhaseCourseDone per course (both discovery paths), this
+		// job just wasn't listening. Mirrors the CLI's equivalent fix
+		// (timing.PrintCourseProgress) for the friction-campaign Walk 3
+		// finding: a `list` run with nothing to show for minutes reads as
+		// hung. No SetDiscoveryProgress(nil) needed on the way out - sc is
+		// single-use per job (fresh in handleStart, closed and discarded by
+		// the defer above), never reused for a later run.
+		courses := map[string]struct{}{}
+		// totalCourses/emptyCourses: same "what happened to the rest"
+		// accounting as the CLI's ListAvailableCourses (internal/syncer) -
+		// a course with 0 files otherwise vanishes from "Found N courses"
+		// with no explanation (friction-campaign Walk 3 finding).
+		totalCourses := 0
+		emptyCourses := 0
+		sc.SetDiscoveryProgress(func(p scraper.DiscoveryProgress) {
+			switch p.Phase {
+			case scraper.PhaseCoursesFound:
+				totalCourses = p.TotalCourses
+			case scraper.PhaseCourseDone:
+				if p.FileCount == 0 {
+					emptyCourses++
+				}
+				sp.job.publish(jobEvent{Kind: "log", Course: p.Course, Message: fmt.Sprintf("%d files", p.FileCount)})
+			}
+		})
 		files, err := sc.ScrapeWithSavedSession(ctx, []string{"*"})
 		if err != nil {
 			sp.publishCancelOrError(ctx, err)
 			return
 		}
-		courses := map[string]int{}
 		for _, f := range files {
-			courses[f.Course]++
+			courses[f.Course] = struct{}{}
 		}
-		for name, count := range courses {
-			sp.job.publish(jobEvent{Kind: "log", Course: name, Message: fmt.Sprintf("%d files", count)})
+		doneMsg := fmt.Sprintf("Found %d courses", len(courses))
+		if emptyCourses > 0 {
+			doneMsg = fmt.Sprintf("%s (%d of %d enrolled courses had no files)", doneMsg, emptyCourses, totalCourses)
 		}
-		sp.job.publish(jobEvent{Kind: "done", Message: fmt.Sprintf("Found %d courses", len(courses))})
+		sp.job.publish(jobEvent{Kind: "done", Message: doneMsg})
 		return
 	}
 

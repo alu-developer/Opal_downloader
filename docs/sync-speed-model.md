@@ -1275,6 +1275,65 @@ surface - is still unanswered and is the natural next cycle for this thread).
 Question 5 stays open, re-ranked: the CLI-silence half is done, the GUI half
 and the background-run half remain.
 
+**Second experiment, same day (autopilot): Walk 3's open question #2, and a
+correction to the first experiment's own framing.** Picked up immediately -
+still nothing else unblocked on the ranked list, same condition as above.
+
+*Prediction, registered before opening `internal/gui/sync.go`.* Two
+sub-questions in one pass, cheap because both are source reading: (1) does
+the GUI's `sync` job (the primary "Sync now" button) already stream per-course
+progress during discovery, or does it share the gap the CLI just had; (2)
+does the GUI's `list`-only job (`/sync?list_only=1`) share it. Predicted,
+from the shared-function argument the first experiment already made: neither
+should, because `SyncCoursesWithProgress`/`ListAvailableCourses`-equivalent
+GUI code presumably calls the same `collectCourseFilesConcurrently` this
+cycle just instrumented, so the printf fix should already cover them
+transitively via stdout... except the GUI doesn't read its own child's
+stdout, it drives everything through a `jobEvent`/SSE channel that has
+nothing to do with `timing.PrintCourseProgress`. So the real prediction:
+**both GUI paths are independent of the CLI fix and need checking separately
+from scratch**, with no confident guess yet on which (if either) already
+works.
+
+**Result: split - `sync` already worked, `list`-only did not, and the first
+experiment's own framing was imprecise about *why*.** `internal/syncer.SyncCoursesWithProgress`
+(`internal/syncer/syncer.go:446`) already calls `scraper.SetDiscoveryProgress`
+- a public, pre-existing hook on `*OpalScraper` (`internal/scraper/progress.go`)
+that both `newCourseFileCollector` (browser path) and `newHTTPCourseFileCollector`
+(HTTP-first path) already call at `PhaseCourseStarted`/`PhaseCourseDone`,
+symmetrically, for every course, in both discovery modes. The GUI's `sync` job
+(`internal/gui/sync.go`'s `progress` closure, kind `jobKindSync`) already
+subscribes to it via `EventDiscovery`, and already renders it live over SSE -
+this was never silent. **Correction to the first experiment's own claim:**
+"nothing was surfacing [the per-course completion point] to a user" was true
+for the CLI specifically, but imprecise about the *mechanism* - a whole,
+designed-for-this `DiscoveryProgress`/`SetDiscoveryProgress` event system
+already existed and was already wired into the GUI's `sync` path; the CLI
+just never called `SetDiscoveryProgress` at all (confirmed: zero references
+in `cmd/opal-downloader/root.go`). `timing.PrintCourseProgress` is a second,
+parallel signal for the same event, not a replacement for a total absence -
+both now coexist, which is mild redundancy worth naming rather than hiding.
+The GUI's `list`-only job (`runJob`'s `jobKindList` branch), by contrast,
+never called `SetDiscoveryProgress` either - it called
+`sc.ScrapeWithSavedSession` directly and only published courses after the
+full crawl returned, exactly the CLI's old shape. **Fixed the same cycle:**
+the list branch now registers `sc.SetDiscoveryProgress` before scraping,
+publishing one `jobEvent{Kind: "log", Course: ..., Message: "N files"}` per
+`PhaseCourseDone` - the same wording the old post-hoc loop used, just live
+instead of batched. Live-verified end to end in a real headless browser
+against the real account (`TestLiveListCoursesInBrowser`,
+`OPAL_GUI_LIVE_LIST=1`): course rows now appear in the SSE log as discovery
+proceeds rather than all at once at the end.
+
+**Both halves of Walk 3's open question #2 are now closed.** The GUI does
+not share the CLI's gap for its primary action (`sync`); it did share an
+equivalent gap for its secondary one (`list`-only), now fixed the same way.
+Question 5's remaining open half is exactly one thing now: **a background run
+started before the user clicks anything** - a product decision (when, and
+whether it would surprise a user or spend quota unasked), not a code
+experiment, and the natural place to pick this question back up once it
+reaches the top of the ranked list again.
+
 ### 6. ~~Why does 1 in 12 sections stay unstable across runs?~~ Closed 2026-08-09 (autopilot, pure re-analysis of data already on disk, no live run) — stale premise, superseded by the campaign's own later correction before this question was ever copied into this file
 **The "1 in 12" figure was already retracted three days before this file existed.**
 It comes from the 2026-07-27 change-detection-cache reopening (`docs/sync-speed-campaign.md`):
@@ -2313,20 +2372,40 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-12 (autopilot): Question 5's first experiment closed
-(the cheap half only) - see Question 5's own entry above for the full
-result.** Source reading found `collectCourseFilesConcurrently` already has a
-per-course completion point nothing was wired to; `timing.PrintCourseProgress`
-now fires from it, live-verified fixing the exact silent 2m44s stretch
-friction-campaign Walk 3 measured the same day. Question 5 stays open for its
-two harder halves (background run before the click; the GUI's own progress
-stream, unchecked - Walk 3's open question #2). **The ranked list is still
-Question 39 (blocked on the maintainer), then Question 5's remaining two
-halves** - the GUI-progress half is the cheaper of the two to pick up next
-(source reading again, `internal/gui/sync.go`, before any live run), the
-background-run half needs a product decision first (when does a background
-run trigger without surprising the user or spending quota unasked), closer in
-kind to Question 39 than to a code experiment.
+**Updated 2026-08-12 (autopilot, second update same day): Question 5's
+second experiment closed both halves of Walk 3's open question #2** - see
+Question 5's own entry above for the full result. The GUI's `sync` job
+already streamed per-course progress (a pre-existing `DiscoveryProgress`/
+`SetDiscoveryProgress` mechanism the first experiment's own framing had
+under-credited); its `list`-only job did not and now does, fixed and
+live-verified in a real browser against the real account. **Question 5's
+only remaining open half is the background-run-before-the-click question,
+and it is a product decision, not a code experiment** - the natural thing to
+pick up once it reaches the top of the ranked list again, but not something
+an autopilot cycle should just decide unilaterally. **The ranked list is
+Question 39 (blocked on the maintainer), then Question 5's background-run
+half (also effectively blocked, on a product decision rather than research)**
+- with both effectively stalled pending the maintainer, the next unattended
+cycle should say so plainly rather than manufacture a third sub-question to
+stay busy.
+
+---
+
+**Superseded by the above - Updated 2026-08-12 (autopilot): Question 5's
+first experiment closed (the cheap half only) - see Question 5's own entry
+above for the full result.** Source reading found `collectCourseFilesConcurrently`
+already has a per-course completion point nothing was wired to;
+`timing.PrintCourseProgress` now fires from it, live-verified fixing the
+exact silent 2m44s stretch friction-campaign Walk 3 measured the same day.
+Question 5 stays open for its two harder halves (background run before the
+click; the GUI's own progress stream, unchecked - Walk 3's open question
+#2). **The ranked list is still Question 39 (blocked on the maintainer),
+then Question 5's remaining two halves** - the GUI-progress half is the
+cheaper of the two to pick up next (source reading again,
+`internal/gui/sync.go`, before any live run), the background-run half needs
+a product decision first (when does a background run trigger without
+surprising the user or spending quota unasked), closer in kind to Question
+39 than to a code experiment.
 
 ---
 

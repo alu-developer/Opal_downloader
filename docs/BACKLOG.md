@@ -36,18 +36,21 @@ closed; see the archive.)_
 
 ## Next
 
-`docs/sync-speed-model.md` holds the ranked list. **Question 43 (new,
-2026-08-12) is now the top item and is unblocked**: source-confirmed that
-OPAL's course folder sections run through OpenOLAT's `FolderController`,
-which exposes a read-permission-only bulk "download as ZIP" action
-(`doBulkDownload` → `FolderZipMediaResource`) — nothing on this list has ever
-questioned the *download* phase before. Needs a live Step B (real browser,
-one section, confirm the button and time it) to become an actual lever;
-source-only so far. **Nothing on this list is blocked on the maintainer any
-more** — Question 39 is decided and built, and Question 5 is fully closed
-(all three halves — see `docs/BACKLOG-archive.md`). Nothing further is
-planned on the course-level HTTP concurrency thread — Question 41 closed
-2026-08-11 as a no-go.
+`docs/sync-speed-model.md` holds the ranked list. **Question 43 is still the
+top item, now partway through its own Step B (live, 2026-08-12).** The bulk
+"download as ZIP" button (`FolderController.doBulkDownload` →
+`FolderZipMediaResource`) is confirmed live and renders reliably. What is
+blocking the rest of Step B (select files, trigger it, inspect the zip's
+timestamps, time it) is a new finding of its own: the row-selection
+checkboxes exist as real markup but render inconsistently across navigations
+— present on one DOM read, absent on the next, surviving this project's own
+production section-stability wait and four other distinct attempts. Not
+diagnosed this cycle; two concrete next moves are named in Question 43's own
+entry (watch for a periodic AJAX refresh; a longer human-observed session).
+**Nothing on this list is blocked on the maintainer** — Question 39 is
+decided and built, and Question 5 is fully closed (all three halves — see
+`docs/BACKLOG-archive.md`). Nothing further is planned on the course-level
+HTTP concurrency thread — Question 41 closed 2026-08-11 as a no-go.
 
 ---
 

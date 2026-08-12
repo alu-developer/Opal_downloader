@@ -1094,7 +1094,35 @@ empty diff at concurrency=2, and if so, is promoting the default in scope
 for a future cycle to decide alongside the `course_concurrency` unification
 follow-up?
 
-### 39. Now that HTTP-first discovery is the production default, does anything still cross-validate it against an independent browser crawl - or did shipping it as default quietly remove the only thing that was catching a regression like Question 38's visit-log finding? — OPEN, opened 2026-08-11 by Question 38's result
+### 39. Now that HTTP-first discovery is the production default, does anything still cross-validate it against an independent browser crawl - or did shipping it as default quietly remove the only thing that was catching a regression like Question 38's visit-log finding? — DECIDED 2026-08-12: **(B), a monthly `verify` spot-check.** Build work now, not a question.
+
+**Decision, 2026-08-12 (`/decide` round).** The maintainer was given the three
+options below and handed the call back rather than picking: *"wenn das krasse
+Vorteile bringt gerne. Aber ich kenn mich damit nicht aus. also, dass musst du
+sagen. Also ich weiß nicht, was es finden könnte, ich weiß auch nicht, was es
+für probleme geben könnte."* Answered honestly and then decided here:
+
+**It brings no "krasse Vorteile". It is insurance, and it should be recorded as
+insurance so nobody later mistakes it for a speed or quality win.** On every
+normal day it costs ~4 minutes of unattended crawl and returns nothing. It
+exists for exactly one event: BPS changes OPAL's server-side markup, HTTP-first
+starts discovering fewer files, and - because the only independent implementation
+(`OPAL_HTTP_DISCOVERY=0`) is opt-in and nobody runs it - the user simply ends up
+with fewer files and **no error message at all**. Silent under-delivery is the
+worst failure class a download tool has, and it is the class this project has
+refused to accept every other time it found it (the Wicket chain, the
+`fileChanged` nil-guard trap). A ~4-minute monthly premium against a failure
+that announces itself in no other way is worth paying. Chosen on that basis,
+not on expected benefit.
+
+Risks accepted with it, stated plainly: the extra crawl adds server load (inside
+the existing rate limiter's bounds, `docs/server-load.md`), it can raise a false
+alarm that costs a session to chase down, and it changes the weekly-review pass
+from review-only into something that runs a live crawl - a scope change flagged
+rather than slid in. **(C)** remains a cheap independent addition for later, never
+a substitute for (B): a shape fingerprint would not move at all if a file table's
+markup changed while section structure stayed identical, which is precisely the
+regression (B) is for.
 
 **Why this ranks above Question 40 (correctness before speed, standing rule).**
 Before PR #133, every live run of `TestHTTPFirstSectionDiscovery` compared
@@ -1308,7 +1336,26 @@ regardless of the pattern.
 
 ### 4. _(merged into Question 7 — see below)_
 
-### 5. Is "30s" even tied to discovery?
+### 5. Is "30s" even tied to discovery? — last half DECIDED 2026-08-12: **show when the last sync was.** Build work now, not a question.
+
+**Decision, 2026-08-12 (`/decide` round).** Maintainer, asked to choose between
+(A) nothing, (B) staleness-aware button copy, (C) a real background `list` on
+GUI open: *"naja, du kannst ja irgendwo (mainbildschirm/sync-feld) hinschreiben,
+wann der letzte sync war."*
+
+That is (B), narrowed by him to its cheapest honest form, and the narrowing is
+the instruction: **display the last sync time on the main screen / sync area** -
+do not rebuild the primary button's label around a staleness condition, which is
+what (B) as written proposed. Zero new network activity, reuses
+`internal/statuslog`. The point is that the work has usually already happened
+(`OpalDownloaderScheduledSync`, daily plus an on-logon catch-up) and the GUI
+currently says nothing about it; a timestamp closes that gap without pretending
+to be a progress mechanism.
+
+**(C) is explicitly not being built** - a genuine background `list` triggered by
+the GUI opening needs its own opt-out and `sync.lock` interaction, and there is
+still no evidence GUI opens are frequent enough to justify it. Reopen only if the
+timestamp ships and the "feels like one click" goal still visibly fails.
 The goal is *"feels like one click"*. Never tested: a background run before the
 click, partial results during the run, changed courses first. This class does not
 need faster discovery, it needs discovery that does not stand in front of the

@@ -29,34 +29,7 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 
 ## Now
 
-- **Blocked on the maintainer: Question 39 — pick A, B or C.** Should anything
-  periodically re-verify HTTP-first discovery against an independent browser
-  crawl, now that shipping it as the default silently removed the comparison
-  every run used to get for free? `OPAL_HTTP_DISCOVERY=verify` already does
-  the comparison; nothing calls it outside a test. **(A)** do nothing, accept
-  the risk; **(B)** a monthly verify spot-check from the weekly-review pass
-  (~one extra full crawl a month); **(C)** a free structural-fingerprint
-  tripwire, weaker signal, no extra crawl. Recommendation: (B), with (C) as a
-  later independent addition. Options written up in `docs/sync-speed-model.md`
-  Question 39. Needs a pick, not further research.
-
-- **Blocked on the maintainer: Question 5's last half — pick A, B or C.**
-  "Feels like one click" doesn't actually need faster discovery if the work
-  already happened in the background — and it mostly already has:
-  `OpalDownloaderScheduledSync` runs daily plus an on-logon catch-up. **(A)**
-  do nothing further; **(B)** when the landing page's staleness signal says
-  the scheduled sync already succeeded recently, change the primary button's
-  copy to something like "Up to date as of \<time\> — Sync now to check
-  again" instead of implying work is about to start — zero new network
-  activity, reuses `internal/statuslog`; **(C)** a genuine background `list`
-  triggered by the GUI opening, independent of the schedule — bigger change,
-  needs its own opt-out and `sync.lock` interaction, no evidence yet that GUI
-  opens are frequent enough to justify it. Recommendation: (B), with (C)
-  worth reopening only if (B) ships and still doesn't move the needle.
-  Options written up in `docs/sync-speed-model.md` Question 5. Needs a pick,
-  not further research.
-
-- **Blocked on the maintainer: cut `v0.1.1`.** The only published release
+- **Cut `v0.1.1` — decided 2026-08-12, go.** The only published release
   (`v0.1.0`, 2026-07-14) is broken and predates its own fix by three weeks —
   its installer stages Chromium where the binary in that same release no
   longer looks, and `NeedsPlaywrightSetup` probed the same wrong path, so it
@@ -64,8 +37,45 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
   recovered. The GUI opens; `login`/`sync` cannot start a browser. Fixed on
   master by `9e9ac47` (2026-08-03), and an installer built from current master
   was walked end to end on 2026-08-11 and is sound — but no tag was ever
-  pushed, so the fix has never reached a user. Publishing is the maintainer's
-  call. Detail: `docs/installer-plan.md`.
+  pushed, so the fix has never reached a user. **Maintainer picked "push the
+  tag" over a second local install/uninstall rehearsal, on the strength of the
+  2026-08-11 end-to-end walk.** Push `v0.1.1`; `release.yml` builds the exe and
+  runs `iscc`. Watch that CI run: it is also the compile the unverified
+  post-uninstall `MsgBox` needs (see "Installer" under Open findings) — `iscc`
+  is not installed on the maintainer's machine, so CI is the only compiler this
+  project has. Detail: `docs/installer-plan.md`.
+
+- **Question 39 — decided 2026-08-12: (B), a monthly `verify` spot-check.**
+  The maintainer handed the call back ("wenn das krasse Vorteile bringt gerne.
+  Aber ich kenn mich damit nicht aus… ich weiß nicht, was es finden könnte"),
+  so it was decided here, and the honest framing is the part worth keeping:
+  **this is insurance, not an improvement.** It buys nothing on a good day. It
+  exists for one failure mode — BPS changes OPAL's markup, HTTP-first silently
+  discovers fewer files, and nothing in this project is positioned to notice,
+  so the user simply ends up with fewer files and no error. That silent-loss
+  class is the one this project has refused to accept everywhere else it found
+  it. Chosen because the premium is small: ~4 minutes of unattended crawl once
+  a month, against a failure that produces no error message at all. Build: a
+  new Part C on the weekly-review pass running `OPAL_HTTP_DISCOVERY=verify`,
+  guarded by its own `docs/last-verify-run.txt` at ~30 days, filing the diff's
+  `missing` count as a backlog item. Deliberately **not** wired into `sync` or
+  any daily path — `verify` runs a full extra browser crawl on top of the
+  HTTP-first one, which would roughly double the sync time Step B2 shipped to
+  cut. Note the scope change openly: that pass is review-only today, and this
+  makes it run a live crawl. (C), the free structural fingerprint, stays a
+  later independent addition, not a substitute. Detail:
+  `docs/sync-speed-model.md` Question 39.
+
+- **Question 5's last half — decided 2026-08-12: show the last sync time.**
+  Maintainer: *"naja, du kannst ja irgendwo (mainbildschirm/sync-feld)
+  hinschreiben, wann der letzte sync war."* That is option (B) narrowed to its
+  cheapest honest form — surface the timestamp on the main screen / sync area
+  rather than rewriting the primary button's label around a staleness
+  condition. Zero new network activity, reuses `internal/statuslog`. **(C)**, a
+  real background `list` on GUI open, is **not** being built: bigger change,
+  needs its own opt-out and `sync.lock` interaction, and no evidence GUI opens
+  are frequent enough to justify it. Detail: `docs/sync-speed-model.md`
+  Question 5.
 
 ---
 
@@ -78,9 +88,10 @@ which exposes a read-permission-only bulk "download as ZIP" action
 (`doBulkDownload` → `FolderZipMediaResource`) — nothing on this list has ever
 questioned the *download* phase before. Needs a live Step B (real browser,
 one section, confirm the button and time it) to become an actual lever;
-source-only so far. Question 39 and Question 5's last half are still blocked
-above, options written up, needing a pick rather than more research. Question
-5's other two halves (CLI silence, GUI `list`-only silence) are fixed — see
+source-only so far. **Nothing on this list is blocked on the maintainer any
+more** — Question 39 and Question 5's last half were decided 2026-08-12 (see
+"Now"); both are build work now, not questions. Question 5's other two halves
+(CLI silence, GUI `list`-only silence) are fixed — see
 `docs/BACKLOG-archive.md`. Nothing further is planned on the course-level HTTP
 concurrency thread — Question 41 closed 2026-08-11 as a no-go.
 
@@ -100,9 +111,18 @@ maintainer. Walk detail, expectations and named causes:
   clean survival under a properly detached launch (walk 5).** Not a reliable
   every-launch failure, so still not closed as a real bug - but `Start-Process`
   (or equivalent full detachment) is the only launch method with a perfect
-  record so far. Recommendation, actionable regardless of the root cause:
-  future automated GUI walks should default to it. Needs a fourth data point,
-  or someone who can double-click it for real, to close outright.
+  record so far. Actionable regardless of the root cause, and true either way:
+  future automated GUI walks should default to full detachment.
+  **Under live test since 2026-08-12:** the maintainer launched the GUI by real
+  double-click (PID 20576, 15:59:30) and a 25-minute watcher is observing it -
+  the one data point no agent can produce. Resolution rules, agreed in advance
+  so this cannot stall again: **survives the window** -> close it as a
+  launch-method artefact of background shells, keep the detachment rule, no
+  code change; **dies** -> it is a real bug reachable by normal users, and it
+  is promoted out of "Open findings" into "Now" with a root-cause hunt.
+  If the watcher's result is ever lost before it is written down, do not
+  re-open the question in the abstract: re-run exactly this test (double-click,
+  observe 25 minutes) or close it on the first branch.
 - **[question] Every GUI settings save silently resets `opal_url` and
   `session_state_file` to hardcoded defaults**, discarding whatever was there
   before — deliberate and tested (`internal/gui/settings.go:47-52,289-290`,
@@ -153,8 +173,21 @@ maintainer. Walk detail, expectations and named causes:
   settings, status files — never installed by Inno Setup, so never known to
   its uninstaller). Written 2026-08-12 from source only: `iscc` is not
   available in this environment, so the dialog text and the `ExpandConstant`
-  usage are unchecked against a real Inno Setup run. Whoever next builds the
-  installer should compile it and run one real uninstall before trusting it.
+  usage are unchecked against a real Inno Setup run.
+  **Confirmed 2026-08-12: Inno Setup is not installed on the maintainer's
+  machine either** (neither on `PATH` nor in either `Program Files` location),
+  so "just compile it locally" is not the free step it reads as. Ways to
+  proceed, cheapest first: **(1, taken)** let the `v0.1.1` tag do it - CI's
+  `release.yml` runs `iscc`, so that build compiles this `.iss` and a compile
+  error or a broken `ExpandConstant` shows up as a failed release run; watch
+  that job. This proves it *compiles*, not that the dialog *reads* correctly.
+  **(2)** the maintainer runs one real uninstall of the installed v0.1.1 and
+  says whether the message appeared and named both folders - ~1 minute, and
+  the only thing that verifies the actual text. **(3)** install Inno Setup
+  locally so agents can compile without a release. Only worth it if installer
+  work becomes frequent; it is a real software install, so it needs asking
+  first. Do not leave this item reading as a bare "someone should check" -
+  after (1) lands, what remains open is exactly (2).
 
 ---
 

@@ -2421,7 +2421,49 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-12 (autopilot, third update same day): the ranked list has
+**Updated 2026-08-12 (autopilot, fourth update same day): both ranked items
+genuinely still need the maintainer, so this cycle takes the next "when ideas
+run out" move instead of re-stating that.** Question 39 and Question 5 are
+unchanged since the third update below - no pick has landed in
+`docs/BACKLOG.md`'s Now section. Of the six fixed moves at the top of this
+file, five have already been used this campaign (read the other side: OpenOLAT
+source via `gh search code`, Questions 30/34; compute the ceiling: the ~93s
+HTTP ceiling; change the question: Question 5 itself; ask which constraint is
+negotiable: Questions 5 and 39's option-writeups; measure instead of arguing:
+the whole campaign). The one never tried: **"look at how others solved the
+same thing" — other OPAL/OpenOLAT/LMS downloader tools.**
+
+**Question 42 (new). Does any existing third-party OPAL/OpenOLAT downloader or
+scraper reveal a discovery mechanism faster or simpler than this project's
+`initial_data`-tree-seed HTTP-first approach?**
+
+*Prediction, written before searching, per Rule 1.* OPAL/Bildungsportal Sachsen
+is a regional Saxon platform (a handful of universities), not a mass-market
+LMS like Moodle or Canvas, so I expect **few or no OPAL-specific tools to
+exist at all** — and any that do are more likely course-content browsers or
+WebDAV clients than sync tools, since this project's own history already
+found OPAL's WebDAV mount is role-gated away from students
+(`docs/BACKLOG-archive.md`'s WebDAV entry), so a generic tool leaning on
+WebDAV would not even clear the bar this project already cleared. For generic
+OpenOLAT tools (the platform OPAL is built on, and open source, unlike OPAL's
+own customizations), I expect at most a handful of small unmaintained scripts,
+none discovered by this campaign's own multi-week search across
+`Questions 1/2/9/30/34` — if OpenOLAT exposed a bulk/tree API meaningfully
+better than `initial_data`, it is more likely this campaign would already have
+tripped over it while reading `MenuTreeRenderer`/OpenOLAT source for those
+questions than that a third party found it first. *Counts as a real new
+lead:* a maintained tool with >10 stars, or any documented API endpoint this
+project's own OpenOLAT source reading hasn't already covered. *Counts as
+closed with nothing found:* zero relevant projects, or projects that exist but
+don't reveal a new mechanism (e.g. browser-automation clones of what this
+project already does, or WebDAV-only tools that don't apply to students).
+Either outcome is a valid, useful result — "the field is empty" closes the
+"when ideas run out" list's second move cleanly either way.
+
+---
+
+**Superseded by the above - Updated 2026-08-12 (autopilot, third update same
+day): the ranked list has
 no unblocked experiment left - both items now have written-up options and
 need the maintainer's pick, not more research.** Question 5's remaining half
 (background run before the click) turned out not to be a code question at

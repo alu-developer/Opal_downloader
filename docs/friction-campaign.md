@@ -72,8 +72,11 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 1 (GUI everyday use), cycling back.** Walk 1 was the GUI, walk
-2 the CLI, walk 3 first-run-from-zero — all three surfaces now walked once.
+**Next surface: 2 (CLI everyday use), cycling back.** Walk 1 was the GUI, walk
+2 the CLI, walk 3 first-run-from-zero, walks 4 and 5 the GUI again (two
+concurrent sessions picked it independently before either had a result) —
+every surface has now been walked at least once, GUI three times, CLI needs
+the next look.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -360,7 +363,7 @@ with no notion of whether that failure is still true or still actionable.
 Related to Finding 1 and not the same: Finding 1 is that a *missing* run says
 nothing, this is that a *resolved* failure keeps shouting.
 
-#### Finding 5 — the main button never says how long it takes
+#### Finding 5 — the main button never says how long it takes (fixed 2026-08-11, same walk - see Walk 4's ruled-out note)
 
 "Sync now — Downloads new and updated files for your 6 selected courses." No
 duration, anywhere on the landing page. The `/sync` page then volunteers, for
@@ -683,6 +686,9 @@ the **possibly wrong** half is closed.
    `orchestrator.go` found. If the GUI has the same gap, Finding 2 above is a
    `publishProgress` gap, not a CLI-only one - if it doesn't, the CLI fix is
    "subscribe to the mechanism that already exists" rather than "build one."
+   **Answered 2026-08-12, same day, by Question 5's second sync-speed
+   experiment** (see `docs/sync-speed-model.md`): the GUI does not share the
+   gap for `sync`. Walk 4 below independently reproduced this live.
 
 ### Walk 4 — 2026-08-12, GUI everyday use (second GUI walk)
 
@@ -768,3 +774,143 @@ point or the double-click test neither walk could perform."
    `download_path`, round-tripped through Save correctly, verified in the
    saved YAML) but did not check the other two or whether they interact with
    `default_course_folder`'s known doubled-path bug.
+
+### Walk 5 — 2026-08-12, GUI everyday use (third GUI walk, concurrent with walk 4)
+
+Started from the same rotation line walk 4 read ("1 (GUI everyday use),
+cycling back") in a parallel session, before walk 4's result was visible -
+both walks independently picked GUI next and overlapped rather than
+sequenced. Built
+current master (`go build -o main.exe .` from the repo root - `./cmd/...` alone
+produces a non-executable archive, since `main.go` and `func main` live at the
+repo root and `cmd/opal-downloader` is an imported library package, not its
+own `main` - a five-minute detour, not a finding), set up `tmp/friction/`
+(config, scratch `downloads/`, a copy of the real session state), and drove the
+GUI over plain HTTP exactly as `docs/friction-campaign.md`'s "How the GUI is
+driven" section describes.
+
+**Expectations registered before opening it:** (1) the landing page's "Sync
+now" duration note from walk 1's Finding 5 should either still be missing or
+already fixed - worth a quick check since campaign entries don't currently say
+which; (2) walk 1's open question 1 (does the GUI process vanish on its own
+after ~5 minutes?) should be checkable this time by leaving it running instead
+of closing anything; (3) clicking "Sync now" and watching the live log should
+show me, as a normal user, whether a real error looks any friendlier than
+Finding 3's banner text did.
+
+#### Ruled out — Finding 5 (no duration shown) is already fixed, just never marked as such
+
+The landing page already reads "Downloads new and updated files for your 6
+selected courses. **Takes several minutes.**" `git blame` traces the sentence
+to `a965ab7` - walk 1's own fix commit. The finding was real when written and
+is resolved; `friction-campaign.md`'s Finding 5 section just never said so.
+Not a new finding, but worth recording so nobody re-opens it: this file's
+"Finding 5" heading below now needs a `(fixed 2026-08-11)` marker, which this
+commit adds.
+
+#### Question 1 (walk 1) again: a third data point, and a launch-method lead — still not closed, but `Start-Process` is now the safer default regardless
+
+Run concurrently with, and without visibility into, walk 4's own attempt at
+this same question (see above - both walks picked "GUI, cycling back" from
+the same stale-looking rotation line before either had published a result).
+Where walk 4's single background-shell (`&`) launch survived 6m28s, this
+walk's **first instance**, launched the same way walk 1 did (`nohup ./main.exe
+gui ... & disown` inside a single shell-tool call), went unreachable
+(`ERR_CONNECTION_REFUSED`) roughly 5-8 minutes in, while `tasklist` still
+showed it resident with steady, non-growing memory - not a crash, a process
+that stopped serving while still "running." A few minutes later it disappeared
+from `tasklist` entirely. No error text reached its captured stdout/stderr,
+and Windows' Application-Error event log has no entry for it, ruling out a Go
+panic or access violation.
+
+**Second instance**, launched via PowerShell's `Start-Process` (a properly
+detached child process, structurally closer to what happens when Explorer
+starts an app than any shell background job is) against a second scratch
+port: still fully responsive and actively streaming a live sync's progress
+**12+ minutes** after launch, with no sign of degrading.
+
+**Combined state of this question after three attempts, two walks:** walk 1
+died (background shell), walk 4 survived 6m28s (plain `&`, stopped by hand),
+this walk died again (`nohup ... & disown`) then survived cleanly under
+`Start-Process`. Two deaths and one survival under background-shell launches
+is not a reliable every-launch failure, so this does **not** close walk 1's
+question outright, in line with walk 4's own conclusion - but the one launch
+mechanism that has been clean in every attempt so far is full detachment.
+**Recommendation, actionable regardless of the root cause:** future automated
+GUI walks in this environment should default to `Start-Process` (or
+equivalent), both because it is the only launch method with a perfect record
+and because it removes this variable from any future attempt at the question.
+Whether the background-shell deaths are this environment's own process
+lifecycle management (a Windows Job Object tied to the shell-tool call would
+fit the "alive-but-unreachable, no crash trace" shape) or something rarer
+remains open - still needs either a fourth data point or the double-click test
+no automated walk can perform.
+
+*Break from persona, for diagnosis only:* `tasklist`, Windows' Application
+Error event log, and a second launch via a different mechanism, all done after
+the first instance had already gone unreachable.
+
+#### Finding — a real per-file download error shows the same raw internals Finding 3 already named, on a surface Finding 3 never checked
+
+Clicking "Sync now" and watching the live log (both the rendered `/sync` page
+and its `/sync/stream` SSE feed) against the real account, with the scratch
+`download_path`: discovery streamed a "Scanning course N of 6" / "Finished -
+found X file(s)" line per course exactly as Question 5's fix promises, then
+downloads streamed `downloaded: <course> / <path>` lines - normal, matches
+Finding 5's own promised timing (the whole 6-course sync finished discovery in
+~87s). Two of "Algorithmen und Datenstrukturen"'s files then failed for real,
+and the line shown to me, live, in the GUI's own log was:
+
+> ERROR: Algorithmen und Datenstrukturen / …/Vorlesung_7.pdf - response is
+> HTML, browser fallback click did not find downloadable link after 2
+> attempts: on https://…: downloadable link not found on page: href-match
+> a[href*='…']: **playwright: timeout: Timeout 5000ms exceeded. Call log: -
+> waiting for locator('a[href*=\'…\']').first() text-match "Vorlesung_7.pdf":
+> playwright: timeout: Timeout 5000ms exceeded. Call log: - waiting for
+> getByText('Vorlesung_7.pdf').first()** (page has no click-expandable
+> pagination to retry)
+
+The first clause is again a genuinely good error message; everything in bold
+is the same kind of glue-on Finding 3 already diagnosed for the
+scheduled-sync banner - except this is a **different surface** Finding 3 never
+checked (a live per-file error during an in-progress sync, not the
+banner) and a **different root cause site**: `internal/scraper/download.go:244`
+builds this message on purpose, verbosely, because its own comment
+(lines 259-264) explains that a past generic one-line version cost three
+separate investigations (PRs #35, #89, #95) their ability to re-derive the
+real cause. That is a legitimate reason to keep the detail *somewhere* - it is
+not a legitimate reason to put it, unfiltered, in the one channel a normal
+user is watching live. **Confirmed on both surfaces that read it**: the GUI's
+job log mirrors it verbatim, and `internal/syncer/syncer.go:595` and `:662`
+(`fmt.Printf("  error: %s (%v)\n", targetKey, err)`) print the identical full
+chain to the CLI's own stdout - so a CLI `sync` user watching a real error hits
+the exact same wall, unchecked by any of the three CLI-surface walks so far
+because none of them happened to hit a real per-file failure.
+
+**Cause, restated at the level that predicts the fix:** the message is correct
+to keep in full *somewhere* (developer diagnosis has already needed it three
+times), but there is no split today between "what the user reads" and "what
+the next investigation needs" - unlike the connectivity-error case, which
+already has exactly that split (`No internet connection… (technical detail:
+…)`, from the `netcheck` work that closed the original Finding 3 instance).
+The fix this predicts is the same pattern, applied here: a short first clause
+for the user, the full chain behind a "(technical detail: …)" tail or
+equivalent, on both the CLI's `error:` line and the GUI's mirrored log line.
+Not built this walk - filed to the backlog instead, tagged **friction** (the
+sync still worked; two files needed a human to notice and retry).
+
+#### Ruled out — things that looked like findings and were not
+
+- *Does reconnecting to `/sync` mid-run show current progress, or a stale/blank
+  page?* Navigated away and back while the second instance's sync was running:
+  the page picked the job straight back up, live counts and all. No gap here.
+
+#### New questions this walk leaves (Rule 3)
+
+1. **Is the Job-Object-cleanup theory for the first instance's death provable,
+   rather than just the best fit for the evidence?** This walk did not attach
+   a debugger or inspect the actual job object; it inferred from "no crash
+   trace + only the launch mechanism differed between a dead and a healthy
+   instance." Worth confirming if a future walk needs to trust backgrounded
+   launches for something time-sensitive, but low priority - `Start-Process`
+   already sidesteps the question for every walk after this one.

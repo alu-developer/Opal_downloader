@@ -89,14 +89,16 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1 & 4, CLI walk 2, first-run walk 3)
+### Friction campaign (GUI walks 1, 4 & 5, CLI walk 2, first-run walk 3)
 
-- **[question] The GUI process's ~5-minute exit (walk 1) did not reproduce on
-  walk 4** — same background-shell launch method, alive and responding at
-  6m28s, stopped by hand rather than dying on its own. Weakens the "real bug"
-  hypothesis without closing it: one non-reproduction isn't enough after one
-  reproduction, and neither walk could test an actual double-click launch.
-  Needs a third data point, or someone who can double-click it for real.
+- **[question] The GUI process's ~5-minute exit (walk 1) is now 2 deaths and 1
+  survival across three background-shell launches (walks 1, 4, 5), plus one
+  clean survival under a properly detached launch (walk 5).** Not a reliable
+  every-launch failure, so still not closed as a real bug - but `Start-Process`
+  (or equivalent full detachment) is the only launch method with a perfect
+  record so far. Recommendation, actionable regardless of the root cause:
+  future automated GUI walks should default to it. Needs a fourth data point,
+  or someone who can double-click it for real, to close outright.
 - **[question] Every GUI settings save silently resets `opal_url` and
   `session_state_file` to hardcoded defaults**, discarding whatever was there
   before — deliberate and tested (`internal/gui/settings.go:47-52,289-290`,
@@ -105,6 +107,25 @@ maintainer. Walk detail, expectations and named causes:
   not just these two. Worth a comment at the config struct pointing future
   field additions at `parseSettingsForm` so the next one doesn't lose the same
   way silently; not worth a behavior change. Walk 4.
+- **[friction] Real per-file download errors show raw Playwright internals to
+  the user, on two surfaces Finding 3 never checked.** `internal/syncer.go:595`
+  and `:662` (`fmt.Printf("  error: %s (%v)\n", ...)`) print the full wrapped
+  error chain to the CLI's stdout; the GUI's live `/sync` log mirrors the same
+  string. Live-observed 2026-08-12 (walk 5) on a real failure: a good first
+  clause ("response is HTML, browser fallback click did not find downloadable
+  link…") followed by a full Playwright locator/timeout call log glued on.
+  `internal/scraper/download.go:244`'s verbosity is deliberate (its own
+  comment: three past investigations, PRs #35/#89/#95, needed the detail to
+  find the real cause) — the gap is that there's no split between "what the
+  user reads" and "what the next investigation needs," unlike the
+  already-fixed connectivity-error case (`No internet connection…
+  (technical detail: …)`, from `netcheck`). Fix direction: apply the same
+  short-clause + collapsible-detail split to both the CLI's `error:` line and
+  the GUI's mirrored log line. Not built this walk. Walk 5.
+- **[question] What a *sync* does with an unwritable `download_path`** — fail
+  clearly, or appear to succeed? `status` now catches a broken path before a
+  sync starts, but a path that goes bad *between* the check and the sync is
+  still unmeasured. Follow-up from walk 1.
 - **Optional, not a commitment:** an outcome-independent "when did a sync last
   actually *succeed*" staleness signal — walk 1's Finding 1, repair (a).
   Repair (b) shipped and closes the failure mode that was actually observed;

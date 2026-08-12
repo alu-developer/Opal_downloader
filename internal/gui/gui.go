@@ -22,6 +22,7 @@ import (
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/report"
 	"github.com/alu-developer/opal-downloader/internal/sessionstate"
+	"github.com/alu-developer/opal-downloader/internal/statuslog"
 	"github.com/alu-developer/opal-downloader/internal/updater"
 )
 
@@ -396,6 +397,9 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			<span class="cta disabled" aria-disabled="true">Sync now</span>
 			<p class="cta-note">{{.SyncBlockedReason}}</p>
 		{{end}}
+		{{if .LastSyncKnown}}
+			<p class="cta-note last-sync">Last sync: {{.LastSyncWhen}}{{if .LastSyncDetail}} &ndash; {{.LastSyncDetail}}{{end}}</p>
+		{{end}}
 	</div>
 
 	<nav>
@@ -461,6 +465,27 @@ type landingData struct {
 	// button offers to follow along instead of starting a competing run.
 	SyncRunning bool
 
+	// LastSync* answer "when did this last actually run?" on the page the
+	// user already has open - the maintainer's ask, 2026-08-12: *"du kannst
+	// ja irgendwo (mainbildschirm/sync-feld) hinschreiben, wann der letzte
+	// sync war."*
+	//
+	// The point is that the work has usually already happened. A scheduled
+	// sync runs daily plus an on-logon catch-up, so by the time the GUI is
+	// open the files are typically current - but the page said nothing about
+	// it and the button implied all the work was still ahead. This is that
+	// missing sentence, not a progress indicator.
+	//
+	// LastSyncKnown false means say nothing at all: no record yet (nothing
+	// has ever synced on this machine), or the file was unreadable. An
+	// unknown last-sync time is not "never" and must not render as a claim
+	// either way. LastSyncDetail is empty for a clean success - "Last sync:
+	// 2 hours ago" needs no elaboration; a failed or partial run is where
+	// the extra clause earns its space.
+	LastSyncKnown  bool
+	LastSyncWhen   string
+	LastSyncDetail string
+
 	UpdateChecked   bool
 	UpdateAvailable bool
 	UpdateDevBuild  bool
@@ -486,8 +511,73 @@ func (s *server) handleLanding(w http.ResponseWriter, r *http.Request) {
 	data := s.sessionStatus()
 	s.applyUpdateStatus(&data)
 	s.applySyncReadiness(&data)
+	s.applyLastSync(&data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = landingTemplate.Execute(w, data)
+}
+
+// readLastSyncFunc is the package-level indirection over
+// statuslog.ReadLastSyncDefault, matching readScheduledStatusFunc in
+// scheduled_status.go - a landing-page test must not depend on whether the
+// machine running it happens to have synced.
+var readLastSyncFunc = statuslog.ReadLastSyncDefault
+
+// applyLastSync fills in the landing page's "Last sync" line from the
+// last-sync record written by every real sync (CLI, scheduled, and the GUI's
+// own button - see statuslog's lastSyncFileName).
+//
+// Reads a small local file and formats it; no network, no config load, so it
+// is safe on the hot path of every landing-page render. Anything missing or
+// corrupt leaves LastSyncKnown false and the line simply does not appear -
+// the same degrade-silently contract the scheduled banner already follows.
+func (s *server) applyLastSync(data *landingData) {
+	status, ok := readLastSyncFunc()
+	if !ok || status.Timestamp.IsZero() {
+		return
+	}
+
+	data.LastSyncKnown = true
+	data.LastSyncWhen = humanizeSince(time.Now(), status.Timestamp)
+
+	switch status.Outcome {
+	case statuslog.OutcomeFailure:
+		data.LastSyncDetail = "it failed"
+	case statuslog.OutcomePartial:
+		data.LastSyncDetail = fmt.Sprintf("%d file(s) failed", status.FilesErrored)
+	case statuslog.OutcomeSkipped:
+		// Skipped means another process held the lock, so this run never
+		// synced anything. Saying so is better than letting it read as a
+		// successful sync at that time.
+		data.LastSyncDetail = "skipped, another run had it"
+	}
+}
+
+// humanizeSince renders how long ago ts was, in the coarse terms this line
+// is actually read in ("is my stuff current?"), falling back to an absolute
+// date once "N days ago" stops being the useful framing.
+//
+// A timestamp in the future is treated as "just now" rather than rendered as
+// a negative age: clock changes and DST make that reachable, and "in -1
+// hours" on the landing page would look like a bug to the one person who
+// would ever see it.
+func humanizeSince(now, ts time.Time) string {
+	d := now.Sub(ts)
+	switch {
+	case d < 2*time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d minutes ago", int(d.Minutes()))
+	case d < 2*time.Hour:
+		return "1 hour ago"
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d hours ago", int(d.Hours()))
+	case d < 48*time.Hour:
+		return "yesterday"
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+	default:
+		return ts.Format("2 Jan 2006")
+	}
 }
 
 // applySyncReadiness fills in the landing page's "Sync now" state: how many

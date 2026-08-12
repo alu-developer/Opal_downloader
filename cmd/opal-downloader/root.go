@@ -842,6 +842,26 @@ func runSync(args []string) (err error) {
 		return errAlreadySucceededToday
 	}
 
+	// The last-sync record covers every sync, scheduled or not - unlike the
+	// scheduled-only block below. It is what the GUI landing page reads to
+	// say when the last sync was, and a manual `sync` that didn't update it
+	// would leave that line showing a stale scheduled run (see
+	// statuslog's lastSyncFileName doc comment). Registered before the
+	// scheduled block so it still runs when that one returns early.
+	//
+	// Write failures are warned about, never returned: this note is not the
+	// user's files.
+	defer func() {
+		usedInteractiveLogin := false
+		if sc != nil {
+			usedInteractiveLogin = sc.UsedInteractiveLogin()
+		}
+		status := buildScheduledRunStatus(runStart, err, stats, attemptedLogin, usedInteractiveLogin)
+		if writeErr := statuslog.WriteLastSyncDefault(status); writeErr != nil {
+			fmt.Fprintln(os.Stderr, "Warning: failed to write last-sync status file:", writeErr)
+		}
+	}()
+
 	if scheduled {
 		defer func() {
 			usedInteractiveLogin := false

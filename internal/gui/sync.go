@@ -11,6 +11,7 @@ import (
 
 	"github.com/alu-developer/opal-downloader/internal/config"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
+	"github.com/alu-developer/opal-downloader/internal/statuslog"
 	"github.com/alu-developer/opal-downloader/internal/syncer"
 )
 
@@ -191,10 +192,74 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 		}
 	}
 
-	_, err := syncer.SyncCoursesWithProgress(ctx, sc, loaded.App, force, progress)
+	stats, err := syncer.SyncCoursesWithProgress(ctx, sc, loaded.App, force, progress)
+
+	// Record this run as the most recent sync of any kind, so the landing
+	// page's "last sync" line reflects the GUI's own button and not just
+	// `sync --scheduled`. This is the second of the two places a real sync
+	// can be started - the CLI's runSync is the other - because the GUI
+	// syncs in-process through syncer rather than shelling out to the CLI.
+	// Miss this one and the line would be stale in the most common case
+	// there is: the user clicked "Sync now" and the page still reports
+	// yesterday's scheduled run.
+	//
+	// Deliberately after the listOnly branch above returns, so a preview
+	// `list` never counts as a sync - it downloads nothing.
+	writeLastSyncFunc(buildGUISyncStatus(time.Now(), ctx, err, stats))
+
 	if err != nil {
 		sp.publishCancelOrError(ctx, err)
 	}
+}
+
+// writeLastSyncFunc is the package-level indirection over
+// statuslog.WriteLastSyncDefault, matching this package's existing
+// test-override convention (see readScheduledStatusFunc in
+// scheduled_status.go) - `go test` must never write into the real
+// ~/.opal-downloader of the machine running it.
+//
+// The error is dropped rather than surfaced: a sync that downloaded the
+// user's files succeeded whether or not the note about it reached disk, and
+// the sync stream has already reported the real outcome.
+var writeLastSyncFunc = func(status statuslog.Status) {
+	_ = statuslog.WriteLastSyncDefault(status)
+}
+
+// buildGUISyncStatus composes the last-sync record for a GUI-initiated run.
+// Pure (no I/O, no job publishing) so it can be unit tested directly, the
+// same shape as the CLI's buildScheduledRunStatus.
+//
+// A user-cancelled run is recorded as a failure rather than a success: it
+// stopped early, so the files on disk are not what a completed sync would
+// have left, and "last sync: just now" would overstate what happened.
+// LoginPath stays Unknown - the GUI does not track which session branch
+// ensureSession took, and inventing a value here would put a guess into a
+// field the scheduled path fills in from fact.
+func buildGUISyncStatus(now time.Time, ctx context.Context, runErr error, stats syncer.Stats) statuslog.Status {
+	status := statuslog.Status{
+		Timestamp:       now,
+		FilesDownloaded: stats.Downloaded,
+		FilesSkipped:    stats.Skipped,
+		FilesErrored:    stats.Errors,
+		LoginPath:       statuslog.LoginPathUnknown,
+	}
+
+	switch {
+	case runErr != nil && ctx.Err() != nil:
+		status.Outcome = statuslog.OutcomeFailure
+		status.Message = "Cancelled by the user before it finished."
+	case runErr != nil:
+		status.Outcome = statuslog.OutcomeFailure
+		status.Message = statuslog.SanitizeMessage(runErr.Error())
+	case stats.Errors > 0:
+		status.Outcome = statuslog.OutcomePartial
+		status.Message = fmt.Sprintf("Synced with %d file error(s) (%d downloaded, %d skipped).", stats.Errors, stats.Downloaded, stats.Skipped)
+	default:
+		status.Outcome = statuslog.OutcomeSuccess
+		status.Message = fmt.Sprintf("Synced successfully: %d downloaded, %d skipped.", stats.Downloaded, stats.Skipped)
+	}
+
+	return status
 }
 
 // publishCancelOrError distinguishes an operator-triggered cancellation

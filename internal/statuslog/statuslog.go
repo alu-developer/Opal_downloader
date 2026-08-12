@@ -138,6 +138,73 @@ func DefaultHistoryPath() (string, error) {
 	return filepath.Join(home, ".opal-downloader", historyFileName), nil
 }
 
+// lastSyncFileName records the most recent sync of ANY kind - scheduled,
+// CLI `sync`, or the GUI's "Sync now" button - under ~/.opal-downloader/.
+//
+// Deliberately a second file rather than a field on last-scheduled-run.json,
+// which is scheduled-only by design and load-bearing for the GUI's failure
+// banner. Widening that file to cover manual runs would make the banner
+// announce failures the user just watched happen live in the GUI, which is
+// noise, and it would do it by changing behavior a large body of tests
+// already pins. A separate record leaves all of that untouched.
+//
+// Why it exists (2026-08-12): the GUI now shows when the last sync was, and
+// the only existing timestamp came from `sync --scheduled`. Reading the
+// landing page's "last sync" out of that file alone would have been actively
+// misleading - it would keep showing a days-old scheduled run immediately
+// after the user finished a manual sync, i.e. it would be most wrong exactly
+// when the user had just done the thing it reports on.
+const lastSyncFileName = "last-sync.json"
+
+// DefaultLastSyncPath returns the real last-sync record path used in
+// production: ~/.opal-downloader/last-sync.json.
+func DefaultLastSyncPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolving home directory for the last-sync file: %w", err)
+	}
+	return filepath.Join(home, ".opal-downloader", lastSyncFileName), nil
+}
+
+// WriteLastSync persists status as the most recent sync of any kind. Shares
+// Write's sanitization and atomicity properties because it is Write - the
+// only difference is which path it lands in.
+func WriteLastSync(path string, status Status) error {
+	return Write(path, status)
+}
+
+// WriteLastSyncDefault is WriteLastSync against DefaultLastSyncPath().
+//
+// Callers treat a failure here as non-fatal and must not fail a sync over
+// it: this record exists to inform a later page load, and a sync that
+// actually downloaded the user's files has succeeded whether or not a note
+// about it reached disk.
+func WriteLastSyncDefault(status Status) error {
+	path, err := DefaultLastSyncPath()
+	if err != nil {
+		return err
+	}
+	return WriteLastSync(path, status)
+}
+
+// ReadLastSync reads the last-sync record at path, with the same "degrade
+// silently" contract as Read: missing, unreadable and corrupt all report
+// (Status{}, false), because the caller's correct response to every one of
+// them is identical - say nothing about when the last sync was, rather than
+// guess or show an error.
+func ReadLastSync(path string) (Status, bool) {
+	return Read(path)
+}
+
+// ReadLastSyncDefault is ReadLastSync against DefaultLastSyncPath().
+func ReadLastSyncDefault() (Status, bool) {
+	path, err := DefaultLastSyncPath()
+	if err != nil {
+		return Status{}, false
+	}
+	return ReadLastSync(path)
+}
+
 // dismissFileName holds the timestamp of the failure the user has already
 // dismissed in the GUI banner, under ~/.opal-downloader/.
 //

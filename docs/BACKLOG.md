@@ -89,12 +89,22 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walk 1, CLI walk 2, first-run walk 3)
+### Friction campaign (GUI walks 1 & 4, CLI walk 2, first-run walk 3)
 
-- **[question] The GUI process exited on its own after ~5 minutes** while in
-  use, nobody closing the window. Not yet separable from an artifact of
-  launching it from a background shell — deferred to the next GUI-surface
-  walk. Walk 1.
+- **[question] The GUI process's ~5-minute exit (walk 1) did not reproduce on
+  walk 4** — same background-shell launch method, alive and responding at
+  6m28s, stopped by hand rather than dying on its own. Weakens the "real bug"
+  hypothesis without closing it: one non-reproduction isn't enough after one
+  reproduction, and neither walk could test an actual double-click launch.
+  Needs a third data point, or someone who can double-click it for real.
+- **[question] Every GUI settings save silently resets `opal_url` and
+  `session_state_file` to hardcoded defaults**, discarding whatever was there
+  before — deliberate and tested (`internal/gui/settings.go:47-52,289-290`,
+  `settings_test.go:483-488`), not a bug to fix. The generalizable part: the
+  save mechanism drops *any* config field the settings form doesn't expose,
+  not just these two. Worth a comment at the config struct pointing future
+  field additions at `parseSettingsForm` so the next one doesn't lose the same
+  way silently; not worth a behavior change. Walk 4.
 - **Optional, not a commitment:** an outcome-independent "when did a sync last
   actually *succeed*" staleness signal — walk 1's Finding 1, repair (a).
   Repair (b) shipped and closes the failure mode that was actually observed;
@@ -102,6 +112,12 @@ maintainer. Walk detail, expectations and named causes:
 - **The installer surface is still unwalked by the campaign proper.** The
   2026-08-11 installer work was engineering verification with full knowledge
   of the code, so none of it counts as a persona walk.
+- **Walk 1's questions 3 (is the 08:00 default schedule time hostile to the
+  logged-off failure) and 4 (do the three `download_path` slash conventions
+  behave identically) are still open.** Walk 4 spot-checked one convention
+  (backslash absolute) and it round-tripped correctly through Settings; the
+  other two, and any interaction with the known `default_course_folder`
+  doubled-path bug, are unchecked.
 
 ### Installer
 

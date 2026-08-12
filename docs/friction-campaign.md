@@ -683,3 +683,88 @@ the **possibly wrong** half is closed.
    `orchestrator.go` found. If the GUI has the same gap, Finding 2 above is a
    `publishProgress` gap, not a CLI-only one - if it doesn't, the CLI fix is
    "subscribe to the mechanism that already exists" rather than "build one."
+
+### Walk 4 — 2026-08-12, GUI everyday use (second GUI walk)
+
+Rotation: walk 1 (GUI) and walk 2 (CLI) are both 2026-08-11, walk 3 (first-run)
+is 2026-08-12 - GUI has gone longest without a fresh look, and walk 1 itself
+named the thing this walk should check ("launch it the way a user does and
+leave it alone" - open question 1). Scratch env per the recipe: real course
+list and folder layout copied into `tmp/friction/config.yaml` with
+`download_path`/`session_state_file` redirected under `tmp/friction/`, and the
+real session state copied in so no login was needed. Built current master,
+launched `gui --port 8877 --config tmp/friction/config.yaml`, drove it from
+the Browser pane exactly as walk 1 did (front page, settings, schedule, sync,
+TU-Fast, update, feedback), and left it running between checks rather than
+closing it.
+
+**Expectation registered before opening it:** walk 1's five findings and four
+questions are either fixed or still open; I expect to be able to tell which
+just by using the app, without re-reading walk 1's own text first.
+
+Mostly true, and mostly good news - four of walk 1's items are visibly already
+addressed:
+
+- **Finding 6 fixed.** The nav item is now "Preview sync, force re-download &
+  developer tools", not the old "developer tools" label that hid the two
+  options students would actually want.
+- **Finding 1/2 partially addressed.** The `/schedule` page now proactively
+  names the exact staleness risk walk 1 found invisible: "Your daily sync is
+  registered but points at a program that will not keep working
+  (`C:\...\main.exe`), so it is not running reliably. Install opal-downloader
+  somewhere permanent..." - read-only (this is the maintainer's real scheduled
+  task, so nothing was clicked or saved on this page, per the campaign's own
+  red-tier rule).
+- **Walk 3's question 2 already answered same-day** (see the update on that
+  finding above) - not new here, just confirmed still holding.
+- **Walk 1's question 2 (does every from-source build show "dev" forever)
+  ruled out, not a bug.** `README.md` scopes `go build` explicitly to
+  "Build from source (contributors) ... end users should use the installer" -
+  the shipped installer is built by `.github/workflows/release.yml`, and
+  `cmd/opal-downloader/root.go:120` documents the `-ldflags -X ...buildVersion`
+  the release build uses. A contributor's own from-source build correctly
+  shows "dev"; that was never the end-user path this question worried about.
+
+#### Question 1 (walk 1): the ~5-minute exit did not reproduce this walk
+
+Same launch method as walk 1 (background shell, `&`, not a double-click - this
+walk cannot fully separate "launch method" from "double-click" either, logged
+per Rule 4 rather than claimed as a clean test). Left running and polled with
+`curl` plus periodic page navigations instead of one continuous stare:
+confirmed alive at 200s, 270s, 310s, 340s, 360s, and a live process check via
+`Get-CimInstance Win32_Process` at **388s (6m28s)** still showed the PID with
+its full command line. Stopped by hand afterward (`Stop-Process`), not by
+another silent exit. **This weakens the "real bug" hypothesis without closing
+it** - one non-reproduction under the same launch method that produced one
+reproduction is not enough to call it a pure environment artifact, but it does
+mean the death is not a reliable every-launch behavior. Downgrading from
+"question, next walk should check" to "question, needs either a third data
+point or the double-click test neither walk could perform."
+
+#### New questions this walk leaves (Rule 3)
+
+1. **Every GUI settings save silently discards `opal_url` and
+   `session_state_file`, resetting both to hardcoded defaults, regardless of
+   what was in the config before the save** - confirmed live (saved a
+   backslash `download_path` change and watched `session_state_file` in
+   `tmp/friction/config.yaml` flip from the scratch path back to
+   `~/.opal_storage_state.json`). **Ruled out as a fresh finding, not filed**:
+   `internal/gui/settings.go:47-52,289-290` documents this as deliberate
+   ("OPAL only has one real-world instance in practice... Advanced users who
+   need something different can still hand-edit config.yaml directly"), and
+   `internal/gui/settings_test.go:483-488` asserts exactly this behavior on
+   purpose. Left as a question rather than dropped entirely because the
+   *mechanism* - the settings save silently overwrites any config field the
+   form does not expose, not just these two - is real and generalizes; today
+   it only touches two fields that happen to equal the defaults for every
+   real user of this single-instance platform, but the next field added to
+   `config.yaml` without a matching form field would silently lose any
+   hand-edited value the same way, with nothing telling the user. Worth a
+   comment at the config struct's definition site pointing future editors at
+   `parseSettingsForm`, not worth a behavior change today.
+2. Walk 1's questions 3 (is 08:00 actively hostile to the logged-off failure)
+   and 4 (do the three path conventions behave identically) are still open -
+   this walk spot-checked one path convention (backslash absolute in
+   `download_path`, round-tripped through Save correctly, verified in the
+   saved YAML) but did not check the other two or whether they interact with
+   `default_course_folder`'s known doubled-path bug.

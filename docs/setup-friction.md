@@ -229,8 +229,26 @@ experience was like then, not as a description of the tool now.
 | 7 | Add a `setup` meta-command | **Done.** `case "setup"` → `runSetup`, which installs browsers and creates the config in one step. |
 | 8 | Document `dump-links` in the README Commands table | **Done.** `README.md:149`. |
 
-**What is still genuinely rough is not in this table**, because it needs
+**Update 2026-08-12 (autopilot, source reading, no live run): the closing
+paragraph below is now itself out of date, three defaults later.** With a valid
+`opal_url` and no saved session, `list`/`sync` no longer open a browser and wait
+for interactive login by default: `ensureSession` (`internal/scraper/session.go`)
+runs an offline reachability pre-check (`netcheck.Describe`) before anything
+else, so an unreachable/misconfigured `opal_url` fails in well under a second
+with a written-for-humans sentence, not a raw Playwright dump - and discovery
+itself is HTTP-first by default (`OPAL_HTTP_DISCOVERY=2`), so a *reachable* OPAL
+with no saved session is the only remaining path that opens a browser at all
+(confirmed unaffected by setting `OPAL_HTTP_DISCOVERY=0`, since that only
+changes discovery after a session already exists). `status` still answers the
+"am I logged in" question offline, but it's no longer the only thing standing
+between a new user and a raw Playwright error - that gap is closed. The
+original paragraph is kept below, struck through in spirit but not in text, for
+the same "record of what it was like then" reason findings 3/4's prose is kept
+above.
+
+~~**What is still genuinely rough is not in this table**, because it needs
 credentials to see: with a valid `opal_url` and no saved session, `list`/`sync`
 still open a real browser and wait for an interactive login rather than failing
 fast — `status` answers the question offline now, but only if the user thinks to
-ask it. `docs/manual-setup-checklist.md` covers that tier.
+ask it.~~ `docs/manual-setup-checklist.md` covers the credentialed tier this
+document couldn't automate.

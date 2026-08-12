@@ -155,14 +155,16 @@ installer surface is still unwalked by the campaign proper.
   survives too — both defensible, neither mentioned anywhere. Someone who
   uninstalls to reclaim space reclaims 23 MB of the 700 they expected.
 
-- **[wrong] `docs/setup-friction.md` describes a `list` that no longer
-  exists.** Findings 3 and 4 and the closing "still genuinely rough" note all
-  assume `list` opens a browser and can leak raw Playwright text. Neither is
-  reachable now: a reachability pre-check fails first (0.0s, a Go network
-  error, wrapped in a written-for-humans sentence), and discovery is HTTP-first
-  by default, so no browser is launched at all — confirmed with
-  `OPAL_HTTP_DISCOVERY=0` too. The doc's own summary table is accurate; the
-  prose above it is three defaults out of date.
+- **Fixed 2026-08-12 (autopilot, source reading, no live run):
+  `docs/setup-friction.md`'s closing "still genuinely rough" paragraph
+  described a `list` that no longer exists.** Findings 3/4's prose is
+  deliberately preserved historical dry-run text (the doc says so itself), but
+  the *closing* paragraph was written in present tense and had gone stale:
+  `ensureSession` now runs an offline reachability pre-check
+  (`netcheck.Describe`) before anything browser-related, and discovery is
+  HTTP-first by default, so a reachable OPAL with no saved session is the only
+  remaining path that opens a browser. Updated in place with a dated note,
+  same pattern the doc already uses for its "all eight shipped" table.
 
 - **[question] The GUI asserts "Running the latest version" for a version it
   cannot compare.** `IsNewerVersion` returns an error for any non-numeric

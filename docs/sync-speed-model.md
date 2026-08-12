@@ -1334,6 +1334,55 @@ whether it would surprise a user or spend quota unasked), not a code
 experiment, and the natural place to pick this question back up once it
 reaches the top of the ranked list again.
 
+**Third pass, same day (autopilot): a blocked question with no alternatives
+is itself unblocked work, so turned into concrete options rather than left as
+an open question with nothing to run.** The model's own "when ideas run out"
+move applies directly here: *"ask which constraint is negotiable - as options
+to the maintainer, not as an open question."*
+
+The background-run half isn't actually unaddressed today - it's just not
+framed as one. `OpalDownloaderScheduledSync` already runs a full sync
+automatically (daily + on-logon catch-up, shipped by friction-campaign walk
+1's Finding 1 repair), which *is* a background run before any click. The real
+question is narrower than "should a background run exist" - it's **"should
+the GUI's landing page lean on that existing background run harder, so a
+click that's usually a no-op *feels* instant because the work already
+happened"**, versus building a second, independent background-run mechanism
+specifically for GUI-open time.
+
+- **(A) Do nothing further.** The scheduled sync already runs in the
+  background; the landing page already shows when it last succeeded. Leaves
+  the "feels like one click" goal exactly where friction-campaign walk 1's
+  Finding 1/5 left it - accurate, but not leaned on for perceived speed.
+- **(B) Lean on the existing scheduled run harder in the UI, no new trigger.**
+  When the landing page's last-run staleness signal says the scheduled sync
+  already succeeded recently (say, within the last hour), change the primary
+  button's copy/state to something like "Up to date as of \<time\> - Sync now
+  to check again" instead of a flat "Sync now" that implies work is about to
+  start. Zero new network activity, zero new surprise - purely a framing
+  change riding data the app already has (`internal/statuslog`). Cheapest
+  option that directly targets "feels like one click" for the common case
+  (scheduled sync already ran today).
+- **(C) A genuine background run triggered by the GUI opening**, independent
+  of the daily schedule - e.g. a low-priority `list` kicked off on `gui`
+  startup so results are ready before the user reaches for the button. Closer
+  to what "background run" evokes literally, but a real behavior change:
+  spends network/quota on every GUI open whether or not the user was going to
+  sync, needs its own opt-out, and interacts with `sync.lock` (a manual click
+  during the background run would need the existing "already running, follow
+  along" handling walk 1 already found missing for the primary button once
+  before). Most work, most user-visible change, no measurement taken yet on
+  whether GUI opens are frequent enough for this to matter.
+
+**Recommendation: (B).** It is the smallest change that actually addresses
+what Question 5 asked (perceived speed, not discovery speed), spends nothing
+new, and reuses infrastructure this project already built and already trusts
+(the scheduled-sync staleness signal). (C) is not rejected, just bigger than
+this question has evidence to justify yet - worth reopening if (B) ships and
+still doesn't move the "feels like one click" needle, at which point actual
+GUI-open frequency would be worth measuring first. Needs the maintainer's
+pick, not further research - written up in `docs/BACKLOG.md`.
+
 ### 6. ~~Why does 1 in 12 sections stay unstable across runs?~~ Closed 2026-08-09 (autopilot, pure re-analysis of data already on disk, no live run) — stale premise, superseded by the campaign's own later correction before this question was ever copied into this file
 **The "1 in 12" figure was already retracted three days before this file existed.**
 It comes from the 2026-07-27 change-detection-cache reopening (`docs/sync-speed-campaign.md`):
@@ -2372,22 +2421,38 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-12 (autopilot, second update same day): Question 5's
-second experiment closed both halves of Walk 3's open question #2** - see
-Question 5's own entry above for the full result. The GUI's `sync` job
-already streamed per-course progress (a pre-existing `DiscoveryProgress`/
-`SetDiscoveryProgress` mechanism the first experiment's own framing had
-under-credited); its `list`-only job did not and now does, fixed and
-live-verified in a real browser against the real account. **Question 5's
-only remaining open half is the background-run-before-the-click question,
-and it is a product decision, not a code experiment** - the natural thing to
-pick up once it reaches the top of the ranked list again, but not something
-an autopilot cycle should just decide unilaterally. **The ranked list is
-Question 39 (blocked on the maintainer), then Question 5's background-run
-half (also effectively blocked, on a product decision rather than research)**
-- with both effectively stalled pending the maintainer, the next unattended
-cycle should say so plainly rather than manufacture a third sub-question to
-stay busy.
+**Updated 2026-08-12 (autopilot, third update same day): the ranked list has
+no unblocked experiment left - both items now have written-up options and
+need the maintainer's pick, not more research.** Question 5's remaining half
+(background run before the click) turned out not to be a code question at
+all: the "when ideas run out" move ("ask which constraint is negotiable, as
+options to the maintainer") applied directly, and closed it the same way
+Question 39 was already closed - three options (do nothing / lean harder on
+the UI messaging around the scheduled sync that already exists / build a
+genuine GUI-open-triggered background run) with a recommendation, written up
+in Question 5's own entry and `docs/BACKLOG.md`. **A future cycle should
+check `docs/BACKLOG.md`'s Now section for a pick on either Question 39 or
+Question 5 before assuming there's nothing to do** - if neither has moved,
+say so plainly rather than opening a new question to stay busy.
+
+---
+
+**Superseded by the above - Updated 2026-08-12 (autopilot, second update same
+day): Question 5's second experiment closed both halves of Walk 3's open
+question #2** - see Question 5's own entry above for the full result. The
+GUI's `sync` job already streamed per-course progress (a pre-existing
+`DiscoveryProgress`/`SetDiscoveryProgress` mechanism the first experiment's
+own framing had under-credited); its `list`-only job did not and now does,
+fixed and live-verified in a real browser against the real account.
+**Question 5's only remaining open half is the background-run-before-the-click
+question, and it is a product decision, not a code experiment** - the natural
+thing to pick up once it reaches the top of the ranked list again, but not
+something an autopilot cycle should just decide unilaterally. **The ranked
+list is Question 39 (blocked on the maintainer), then Question 5's
+background-run half (also effectively blocked, on a product decision rather
+than research)** - with both effectively stalled pending the maintainer, the
+next unattended cycle should say so plainly rather than manufacture a third
+sub-question to stay busy.
 
 ---
 

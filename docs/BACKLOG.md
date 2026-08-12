@@ -40,6 +40,22 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
   later independent addition. Options written up in `docs/sync-speed-model.md`
   Question 39. Needs a pick, not further research.
 
+- **Blocked on the maintainer: Question 5's last half — pick A, B or C.**
+  "Feels like one click" doesn't actually need faster discovery if the work
+  already happened in the background — and it mostly already has:
+  `OpalDownloaderScheduledSync` runs daily plus an on-logon catch-up. **(A)**
+  do nothing further; **(B)** when the landing page's staleness signal says
+  the scheduled sync already succeeded recently, change the primary button's
+  copy to something like "Up to date as of \<time\> — Sync now to check
+  again" instead of implying work is about to start — zero new network
+  activity, reuses `internal/statuslog`; **(C)** a genuine background `list`
+  triggered by the GUI opening, independent of the schedule — bigger change,
+  needs its own opt-out and `sync.lock` interaction, no evidence yet that GUI
+  opens are frequent enough to justify it. Recommendation: (B), with (C)
+  worth reopening only if (B) ships and still doesn't move the needle.
+  Options written up in `docs/sync-speed-model.md` Question 5. Needs a pick,
+  not further research.
+
 - **Blocked on the maintainer: cut `v0.1.1`.** The only published release
   (`v0.1.0`, 2026-07-14) is broken and predates its own fix by three weeks —
   its installer stages Chromium where the binary in that same release no
@@ -55,15 +71,14 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 
 ## Next
 
-`docs/sync-speed-model.md` holds the ranked list. Top is Question 39, blocked
-above on the maintainer's pick; then Question 5's one remaining half —
-whether/when a background run before the click is worth building, a product
-decision, not a code experiment. Its other two halves (CLI silence, GUI
-`list`-only silence) are both fixed — see `docs/BACKLOG-archive.md`. Nothing
+`docs/sync-speed-model.md` holds the ranked list: Question 39 and Question 5's
+last half, both blocked above with options written up, needing a pick rather
+than more research. Question 5's other two halves (CLI silence, GUI
+`list`-only silence) are fixed — see `docs/BACKLOG-archive.md`. Nothing
 further is planned on the course-level HTTP concurrency thread — Question 41
-closed 2026-08-11 as a no-go. **Both items on the ranked list are effectively
-blocked on the maintainer right now** (a pick, and a product call) — the next
-cycle should say so rather than manufacture a third sub-question to stay busy.
+closed 2026-08-11 as a no-go. **The ranked list has no unblocked live-run or
+source-reading experiment left right now** — the next cycle should say so
+plainly rather than manufacture a third sub-question to stay busy.
 
 ---
 

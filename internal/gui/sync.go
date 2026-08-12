@@ -413,6 +413,9 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	.row.done { color: #1a7a1a; font-weight: 600; }
 	.row.cancelled { color: #a06a00; font-weight: 600; }
 	.row.failed { color: #a00; font-weight: 600; }
+	.row-detail { margin: 0.15rem 0 0 1rem; }
+	.row-detail summary { cursor: pointer; color: #888; font-size: 0.8rem; }
+	.row-detail-text { display: block; color: #888; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
 </style>
 </head>
 <body>
@@ -469,10 +472,45 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			setChromeRunning(running);
 		}
 
-		function addRow(kind, text) {
+		// splitTechnicalDetail separates a short user-facing clause from the
+		// "(technical detail: ...)" suffix internal/netcheck's convention
+		// appends (internal/scraper's browser-fallback download error does
+		// the same, see download.go) - a real per-file failure used to glue
+		// a full Playwright locator/timeout call log onto an otherwise
+		// readable first clause. Returns [text] with no detail when the
+		// marker is absent, so this is safe to call on any string.
+		function splitTechnicalDetail(msg) {
+			var marker = ' (technical detail: ';
+			var idx = (msg || '').indexOf(marker);
+			if (idx < 0) { return [msg || '', '']; }
+			var detail = msg.slice(idx + marker.length);
+			if (detail.slice(-1) === ')') { detail = detail.slice(0, -1); }
+			return [msg.slice(0, idx), detail];
+		}
+
+		// addRow's optional detail renders as a collapsed <details> fold,
+		// closed by default - the same pattern the connectivity banner
+		// (chrome.go) already uses for this exact marker. textContent only,
+		// never innerHTML: course/file names and error text both come from
+		// the account being synced, not from this page's own author.
+		function addRow(kind, text, detail) {
 			var div = document.createElement('div');
 			div.className = 'row ' + kind;
-			div.textContent = text;
+			var span = document.createElement('span');
+			span.textContent = text;
+			div.appendChild(span);
+			if (detail) {
+				var det = document.createElement('details');
+				det.className = 'row-detail';
+				var sum = document.createElement('summary');
+				sum.textContent = 'Technical detail';
+				det.appendChild(sum);
+				var pre = document.createElement('span');
+				pre.className = 'row-detail-text';
+				pre.textContent = detail;
+				det.appendChild(pre);
+				div.appendChild(det);
+			}
 			logEl.appendChild(div);
 			logEl.scrollTop = logEl.scrollHeight;
 		}
@@ -485,12 +523,23 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			switch (e.kind) {
 				case 'course_started': return '[course] ' + courseProgress(e) + e.course;
 				case 'file_downloaded': return '  downloaded: ' + e.course + ' / ' + e.file;
-				case 'error': return '  ERROR: ' + e.course + ' / ' + e.file + ' - ' + e.error;
+				case 'error': return '  ERROR: ' + e.course + ' / ' + e.file + ' - ' + splitTechnicalDetail(e.error)[0];
 				case 'log': return e.course ? ('[' + e.course + '] ' + e.message) : e.message;
 				case 'done': return e.message || 'Done.';
 				case 'cancelled': return e.message || 'Cancelled.';
-				case 'failed': return 'FAILED: ' + (e.error || e.message || 'unknown error');
+				case 'failed': return 'FAILED: ' + (splitTechnicalDetail(e.error || e.message || 'unknown error')[0]);
 				default: return JSON.stringify(e);
+			}
+		}
+
+		// describeDetail mirrors describe()'s kind switch for the part that
+		// goes in the collapsed fold instead of the main line - only 'error'
+		// and 'failed' rows can carry one.
+		function describeDetail(e) {
+			switch (e.kind) {
+				case 'error': return splitTechnicalDetail(e.error)[1];
+				case 'failed': return splitTechnicalDetail(e.error || e.message || '')[1];
+				default: return '';
 			}
 		}
 
@@ -622,7 +671,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			// every file is one - so a row each buries the handful of lines
 			// that say what the run actually did.
 			if (e.kind !== 'file_skipped') {
-				addRow(e.kind, describe(e));
+				addRow(e.kind, describe(e), describeDetail(e));
 			}
 			if (e.kind === 'done' || e.kind === 'cancelled' || e.kind === 'failed') {
 				statusEl.textContent = e.kind === 'done' ? 'Done.' : (e.kind === 'cancelled' ? 'Cancelled.' : 'Failed.');

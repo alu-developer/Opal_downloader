@@ -874,3 +874,43 @@ func TestSyncCoursesWithProgressStopsDownloadingAfterCancel(t *testing.T) {
 		t.Fatalf("expected the download loop to stop well before all %d files, got %d downloaded", fileCount, stats.Downloaded)
 	}
 }
+
+// TestSplitTechnicalDetailSeparatesShortClauseFromDetail locks in the split
+// internal/scraper/download.go's browser-fallback error and
+// internal/netcheck both format their errors for: a short, user-facing
+// clause followed by "(technical detail: ...)". This is what keeps a real
+// per-file failure's Playwright locator/timeout internals out of the CLI's
+// stdout and the GUI's main log line - see printSyncError and
+// docs/BACKLOG-archive.md's friction-campaign finding this fixed.
+func TestSplitTechnicalDetailSeparatesShortClauseFromDetail(t *testing.T) {
+	err := fmt.Errorf("response is HTML, browser fallback click did not find a downloadable link after 2 attempts (technical detail: %w)",
+		errors.New("on https://example.test/section: locator.click: Timeout 5000ms exceeded"))
+
+	short, detail := splitTechnicalDetail(err)
+
+	wantShort := "response is HTML, browser fallback click did not find a downloadable link after 2 attempts"
+	if short != wantShort {
+		t.Fatalf("short clause = %q, want %q", short, wantShort)
+	}
+	wantDetail := "on https://example.test/section: locator.click: Timeout 5000ms exceeded"
+	if detail != wantDetail {
+		t.Fatalf("detail = %q, want %q", detail, wantDetail)
+	}
+}
+
+// TestSplitTechnicalDetailPassesThroughAnOrdinaryError guards the common
+// case - most errors (a plain os.MkdirAll failure, for instance) carry no
+// marker at all, and must come back unchanged rather than truncated or
+// mangled by a marker search that assumes one is always present.
+func TestSplitTechnicalDetailPassesThroughAnOrdinaryError(t *testing.T) {
+	err := errors.New("mkdir /no/such/place: permission denied")
+
+	short, detail := splitTechnicalDetail(err)
+
+	if short != err.Error() {
+		t.Fatalf("short clause = %q, want the whole message %q", short, err.Error())
+	}
+	if detail != "" {
+		t.Fatalf("expected no detail for a marker-free error, got %q", detail)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/config"
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/alu-developer/opal-downloader/internal/scraper"
 	"github.com/alu-developer/opal-downloader/internal/synclock"
 	"github.com/alu-developer/opal-downloader/internal/timing"
@@ -541,6 +542,43 @@ func distinctCourseCount(remoteFiles []scraper.RemoteFile) int {
 	return len(seen)
 }
 
+// technicalDetailMarker matches internal/netcheck's own error-formatting
+// convention (see its AppendSentence doc comment) and what
+// internal/scraper/download.go's browser-fallback error uses: a short,
+// user-facing clause followed by "(technical detail: ...)" for whatever a
+// future investigation needs. Reused here rather than reimplemented so both
+// call sites split on the exact same marker.
+const technicalDetailMarker = " (technical detail: "
+
+// splitTechnicalDetail separates err's short clause from its technical
+// detail, if it carries one. Safe to call on any error - a message with no
+// marker returns the whole message as the short clause and an empty detail.
+func splitTechnicalDetail(err error) (short, detail string) {
+	msg := err.Error()
+	idx := strings.Index(msg, technicalDetailMarker)
+	if idx < 0 {
+		return msg, ""
+	}
+	detail = strings.TrimSuffix(msg[idx+len(technicalDetailMarker):], ")")
+	return msg[:idx], detail
+}
+
+// printSyncError is every per-file download failure's one path to the
+// user's terminal. Printing err.Error() directly used to mean a real
+// failure - the CLI's own log, not just a rare edge case - could glue a
+// full Playwright locator/timeout call log onto an otherwise readable first
+// clause (friction campaign walk 5, docs/BACKLOG-archive.md). The detail is
+// not thrown away, since three past investigations (PRs #35/#89/#95) needed
+// exactly this kind of detail to find a real cause - it goes to the
+// diagnostic log instead, which is what a bug report attaches.
+func printSyncError(targetKey string, err error) {
+	short, detail := splitTechnicalDetail(err)
+	fmt.Printf("  error: %s (%s)\n", targetKey, short)
+	if detail != "" {
+		logging.Detail("download error detail for %s: %s (technical detail: %s)", targetKey, short, detail)
+	}
+}
+
 func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
 	// Guarded here as well as in syncRemoteFiles: this is called directly by
 	// tests, and an unguarded nil callback panics deep inside the result loop
@@ -595,7 +633,7 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 
 		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
 			stats.Errors++
-			fmt.Printf("  error: %s (%v)\n", targetKey, err)
+			printSyncError(targetKey, err)
 			progress(Event{Type: EventError, Course: remoteFile.Course, File: targetKey, Err: err})
 			continue
 		}
@@ -662,7 +700,7 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 			targetKey := result.job.targetKey
 			if result.err != nil {
 				stats.Errors++
-				fmt.Printf("  error: %s (%v)\n", targetKey, result.err)
+				printSyncError(targetKey, result.err)
 				progress(Event{Type: EventError, Course: result.job.remoteFile.Course, File: targetKey, Err: result.err})
 				continue
 			}

@@ -501,6 +501,14 @@ type Loaded struct {
 // safely: `notify_on_scheduled_failure` was removed in favour of always
 // notifying (see internal/notify), and an existing config.yaml that still
 // carries it loads fine and simply drops the key the next time it is saved.
+//
+// Adding a field here needs a matching change at
+// internal/gui/settings.go's parseSettingsForm, or every GUI settings save
+// silently drops it back to its default: the settings form only writes back
+// the fields it exposes, not the fields it read. OPALURL and
+// SessionStateFile already work this way deliberately, tested at
+// settings_test.go:483-488 - this note is for the next field, which may not
+// mean to.
 type rawConfig struct {
 	DownloadPath           string            `yaml:"download_path"`
 	Courses                []string          `yaml:"courses"`

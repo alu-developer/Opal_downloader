@@ -241,7 +241,12 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string, plainURL
 		s.auditLog("browser-fallback-attempt-failed", page, fileURL, fmt.Sprintf("attempt %d/%d for %s failed: %v", attempt, browserFallbackMaxAttempts, localPath, lastErr))
 	}
 
-	return fmt.Errorf("response is HTML, browser fallback click did not find downloadable link after %d attempts: %w", browserFallbackMaxAttempts, lastErr)
+	// The "(technical detail: " marker matches internal/netcheck's own
+	// convention (see its doc comment) so any consumer of this error can
+	// split the one sentence a user needs - a file could not be downloaded -
+	// from the Playwright locator/timeout internals three past
+	// investigations (PRs #35/#89/#95) needed but a normal user does not.
+	return fmt.Errorf("response is HTML, browser fallback click did not find a downloadable link after %d attempts (technical detail: %w)", browserFallbackMaxAttempts, lastErr)
 }
 
 // tryCandidatePagesInOrder implements the retry ordering for locating a download

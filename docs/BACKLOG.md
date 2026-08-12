@@ -104,34 +104,6 @@ maintainer. Walk detail, expectations and named causes:
   other two, and any interaction with the known `default_course_folder`
   doubled-path bug, are unchecked.
 
-### Installer
-
-- **Unverified fix: the post-uninstall message has never been compiled or
-  run.** `CurUninstallStepChanged` (`installer/opal-downloader.iss`) now shows
-  a `MsgBox` at `usPostUninstall` naming both the deliberately-kept ~680 MB
-  Chromium cache and the `%USERPROFILE%\.opal-downloader` folder (session,
-  settings, status files — never installed by Inno Setup, so never known to
-  its uninstaller). Written 2026-08-12 from source only: `iscc` is not
-  available in this environment, so the dialog text and the `ExpandConstant`
-  usage are unchecked against a real Inno Setup run.
-  **Confirmed 2026-08-12: Inno Setup is not installed on the maintainer's
-  machine either** (neither on `PATH` nor in either `Program Files` location),
-  so "just compile it locally" is not the free step it reads as. CI's
-  `release.yml` is this project's only `iscc`.
-  **Half closed 2026-08-12:** the `v0.1.1` release build (run `31604913539`)
-  compiled this `.iss` successfully, so the script is syntactically sound and
-  the `ExpandConstant` usage does not break the compile. What that does *not*
-  prove is that the dialog *reads* correctly, or that it appears at all — a
-  green compile says nothing about `usPostUninstall` firing.
-  **What is left, and the only two ways to get it:** **(1, recommended)** the
-  maintainer installs `v0.1.1`, uninstalls it once, and says whether a message
-  appeared naming both the ~680 MB Chromium cache and
-  `%USERPROFILE%\.opal-downloader` — ~1 minute, and the only thing that
-  verifies the actual text. **(2)** close it on the compile alone and accept
-  that a wrong-but-valid dialog string would ship unnoticed; defensible, since
-  the worst case is a confusing sentence during an uninstall, not data loss.
-  Do not leave this reading as a bare "someone should check".
-
 ---
 
 ## Noticed

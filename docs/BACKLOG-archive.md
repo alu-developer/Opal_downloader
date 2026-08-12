@@ -406,6 +406,41 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Real per-file download errors no longer leak raw Playwright internals to
+  the CLI's stdout or the GUI's live `/sync` log** (2026-08-12, friction
+  campaign walk 5's finding). `internal/scraper/download.go`'s browser-
+  fallback error now embeds a `"(technical detail: ...)"` marker, matching
+  `internal/netcheck`'s own established convention (`AppendSentence`), so a
+  short user-facing clause and the Playwright locator/timeout call log three
+  past investigations (PRs #35/#89/#95) needed are no longer glued into one
+  string with no split point. `internal/syncer`'s new `printSyncError` /
+  `splitTechnicalDetail` print only the short clause to the CLI's stdout and
+  route the full detail to the diagnostic log instead (`logging.Detail`) -
+  nothing is thrown away, it just no longer reaches a surface built for the
+  user. The GUI's `/sync` page mirrors the same split client-side
+  (`splitTechnicalDetail`/`describeDetail` in `internal/gui/sync.go`),
+  folding the detail into a collapsed `<details>` row exactly like the
+  connectivity banner already does for this same marker - `textContent`
+  only, never `innerHTML`, since the text comes from the account being
+  synced. Also added the comment `docs/BACKLOG.md`'s other open finding
+  asked for: `internal/config/config.go`'s `rawConfig` now points future
+  field additions at `parseSettingsForm`, so the next one does not silently
+  get dropped on every GUI settings save the way `opal_url`/
+  `session_state_file` deliberately already do.
+
+- **The installer's unverified post-uninstall message is closed on the
+  compile alone** (2026-08-12, engineering decision - option (2) of the two
+  the item itself had already written up). The `v0.1.1` release build
+  compiled `CurUninstallStepChanged`'s `MsgBox` successfully, proving the
+  script and its `ExpandConstant` usage are sound; what remains unverified is
+  only whether the dialog *reads* correctly and fires at all, which needs a
+  real Windows uninstall neither this environment nor the maintainer's own
+  machine can currently run (no `iscc`/Inno Setup on either). Accepted rather
+  than left open indefinitely: the worst case is a confusing sentence during
+  an uninstall, not data loss, so the cost of being wrong is low and the only
+  way to close it further is the maintainer's own ~1-minute install/uninstall
+  of `v0.1.1` - available any time, not blocking anything else.
+
 - **Question 39's monthly discovery-verify spot-check is built** (2026-08-12).
   `OPAL_HTTP_DISCOVERY=verify` mode already existed and already ran the
   independent browser-vs-HTTP comparison this question wanted

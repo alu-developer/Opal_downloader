@@ -64,8 +64,15 @@ func TestBrowserSyncFlavourWalk(t *testing.T) {
 	// 40ms instead of the shipped 9s, so the rotation assertion below costs a
 	// second rather than a minute and a half. Same escape hatch the page
 	// already provides for the stall detector's threshold.
+	//
+	// document.hasFocus is stubbed because the finished-run mark in the tab
+	// title is deliberately conditional on *not* looking at the page: a
+	// headless page reports itself focused, which would take the restore path
+	// immediately and leave nothing to assert. Stubbing it is the only way to
+	// exercise the branch a real backgrounded tab takes.
 	if err := page.AddInitScript(playwright.Script{
-		Content: playwright.String(`window.OPAL_QUIP_EVERY_MS = 40;`),
+		Content: playwright.String(`window.OPAL_QUIP_EVERY_MS = 40;
+			document.hasFocus = function () { return false; };`),
 	}); err != nil {
 		t.Fatalf("add init script: %v", err)
 	}
@@ -86,9 +93,23 @@ func TestBrowserSyncFlavourWalk(t *testing.T) {
 		t.Fatalf("the flavour line is showing while idle: %q", quip)
 	}
 
+	// Same for the tab: an idle page must look like an idle page from the tab
+	// strip too, which is also the state the page has to return to later.
+	const baseTitle = "Opal Downloader - Sync"
+	if title, _ := page.Title(); title != baseTitle {
+		t.Fatalf("idle tab title = %q, want %q", title, baseTitle)
+	}
+	if href := faviconHref(t, page); href != "/logo.svg" {
+		t.Fatalf("idle favicon = %q, want the shipped logo", href)
+	}
+
 	// --- a run starts: flavour appears, status stays the status --------------
+	// Discovery first, because that is the order a real run goes in and the
+	// half where a user actually walks away: it reads every section of every
+	// course before a single file is fetched.
 	srv.syncJob.start(jobKindSync, func() {})
-	srv.syncJob.publish(jobEvent{Kind: "course_started", Course: "Analysis I", CourseIndex: 1, TotalCourses: 1})
+	srv.syncJob.publish(jobEvent{Kind: "discovery", Course: "Analysis I",
+		Message: "Scanning course 3 of 6: Analysis I", CourseIndex: 3, TotalCourses: 6})
 
 	if _, err := page.WaitForFunction(
 		`document.getElementById('quip').textContent.trim().length > 0`, nil,
@@ -105,6 +126,37 @@ func TestBrowserSyncFlavourWalk(t *testing.T) {
 	}
 	if !strings.Contains(status, "Analysis I") {
 		t.Fatalf("the flavour line displaced the real status: %q", status)
+	}
+
+	// --- the tab carries the run for someone who walked away -----------------
+	// The point of the title and the favicon is that they are the only parts
+	// of this page visible from another tab, so they have to say the same
+	// thing #status does, and go back to normal afterwards.
+	if _, err := page.WaitForFunction(
+		`document.title.indexOf('(3/6)') === 0`, nil,
+	); err != nil {
+		title, _ := page.Title()
+		t.Fatalf("the tab title never picked up discovery progress (%q): %v", title, err)
+	}
+	// "Working", not "Syncing": this page connected while nothing was running
+	// and the job was started behind it, so it has never been told the kind.
+	// Claiming a sync here could be claiming a download that never happens.
+	title, _ := page.Title()
+	if !strings.Contains(title, "Working") || !strings.Contains(title, baseTitle) {
+		t.Errorf("tab title = %q, want the progress prefixed onto %q", title, baseTitle)
+	}
+	if href := faviconHref(t, page); !strings.HasPrefix(href, "data:image/png") {
+		t.Errorf("the favicon did not become a progress ring during the run: %.40q", href)
+	}
+
+	// The download phase counts its own 1..N over the same courses. The title
+	// follows it, exactly as #status does.
+	srv.syncJob.publish(jobEvent{Kind: "course_started", Course: "Analysis I", CourseIndex: 1, TotalCourses: 6})
+	if _, err := page.WaitForFunction(
+		`document.title.indexOf('(1/6)') === 0`, nil,
+	); err != nil {
+		title, _ := page.Title()
+		t.Fatalf("the tab title never followed the download phase (%q): %v", title, err)
 	}
 
 	// Rotation must actually rotate, and it must not repeat a line while
@@ -144,6 +196,33 @@ func TestBrowserSyncFlavourWalk(t *testing.T) {
 		seen[text] = true
 	}
 
+	// --- the Konami code swaps the pool --------------------------------------
+	// Real keypresses, not dispatchEvent: synthetic events skip the browser's
+	// input path entirely, which is exactly how the landing page's egg was
+	// once declared working while being broken (see konami_browser_test.go).
+	for _, key := range []string{"ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown",
+		"ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"} {
+		if err := page.Keyboard().Press(key); err != nil {
+			t.Fatalf("press %s: %v", key, err)
+		}
+	}
+	if _, err := page.WaitForFunction(
+		`document.getElementById('quip').dataset.konami === '1'`, nil,
+	); err != nil {
+		t.Fatalf("the Konami code did not reach the sync page: %v", err)
+	}
+
+	// The flag alone would pass even if the pool never actually changed, so
+	// this waits for a line only the unlocked pool contains. Duplicated from
+	// KONAMI_QUIPS in sync.go on purpose: it is the one string that proves
+	// which pool is on screen, so it is worth having to change in two places.
+	if _, err := page.WaitForFunction(
+		`window.__opalQuipSeen.indexOf('Downloading harder.') !== -1`, nil,
+	); err != nil {
+		samples, _ := page.Evaluate(`window.__opalQuipSeen`)
+		t.Errorf("the unlocked pool never showed up (samples: %v): %v", samples, err)
+	}
+
 	// --- the run ends: flavour stops, and the summary carries the reward -----
 	srv.syncJob.publish(jobEvent{Kind: "done", Downloaded: 12, Skipped: 333, Errors: 0,
 		Message: "Done. 12 downloaded, 333 already up to date, 0 failed."})
@@ -175,7 +254,50 @@ func TestBrowserSyncFlavourWalk(t *testing.T) {
 		t.Errorf("the flavour tail displaced the actual result: %q", summary)
 	}
 
+	// --- and the tab goes back to being a tab --------------------------------
+	// A finished run must not leave "(1/1) Syncing" sitting in the tab strip:
+	// that is the failure mode this is worth testing for, because it looks
+	// exactly like a run that never ended.
+	if _, err := page.WaitForFunction(
+		`document.title.indexOf('Done') !== -1`, nil,
+	); err != nil {
+		title, _ := page.Title()
+		t.Fatalf("the tab title did not report the outcome (%q): %v", title, err)
+	}
+	if title, _ := page.Title(); strings.Contains(title, "(1/1)") {
+		t.Errorf("the finished tab title still carries live progress: %q", title)
+	}
+	if href := faviconHref(t, page); href != "/logo.svg" {
+		t.Errorf("the progress ring outlived the run: %.40q", href)
+	}
+
+	// Coming back to the page is what the mark was waiting for, so looking at
+	// it clears it.
+	if _, err := page.Evaluate(`window.dispatchEvent(new Event('focus'))`); err != nil {
+		t.Fatalf("dispatch focus: %v", err)
+	}
+	if _, err := page.WaitForFunction(
+		`document.title === 'Opal Downloader - Sync'`, nil,
+	); err != nil {
+		title, _ := page.Title()
+		t.Errorf("the tab title never went back to normal (%q): %v", title, err)
+	}
+
 	if len(pageErrors) > 0 {
 		t.Fatalf("the sync page threw JavaScript errors: %v", pageErrors)
 	}
+}
+
+// faviconHref reads the <link rel=icon> the page is currently pointing at.
+// Deliberately the attribute rather than the .href property: the property is
+// resolved to an absolute URL, which would make "/logo.svg" depend on the
+// httptest server's random port.
+func faviconHref(t *testing.T, page playwright.Page) string {
+	t.Helper()
+	v, err := page.Evaluate(`document.querySelector('link[rel="icon"]').getAttribute('href')`)
+	if err != nil {
+		t.Fatalf("read favicon href: %v", err)
+	}
+	s, _ := v.(string)
+	return s
 }

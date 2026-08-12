@@ -111,6 +111,22 @@ func TestBrowserKonamiWalk(t *testing.T) {
 		t.Errorf("logo transform = %v, want rotate(1080deg)", transform)
 	}
 
+	// --- the hover shimmer shares this element with the spin -----------------
+	// Both decorate the same <img>, and the spin sets an inline transition
+	// that replaces the stylesheet's - so a shimmer that quietly stopped
+	// happening would look exactly like a shimmer that was never there.
+	// Waited for rather than read once: it transitions in, so the first frame
+	// after the pointer arrives is still the un-hovered value.
+	if err := logo.Hover(); err != nil {
+		t.Fatalf("hover the logo: %v", err)
+	}
+	if _, err := page.WaitForFunction(
+		`getComputedStyle(document.getElementById('logo-mark')).filter !== 'none'`, nil,
+	); err != nil {
+		filter, _ := page.Evaluate(`getComputedStyle(document.getElementById('logo-mark')).filter`)
+		t.Errorf("hovering the logo did not light it up (filter=%v): %v", filter, err)
+	}
+
 	// --- typing in a field must never be eaten -------------------------------
 	// The landing page has no inputs, so this is checked where inputs live.
 	if _, err := page.Goto(ts.URL+"/settings", playwright.PageGotoOptions{

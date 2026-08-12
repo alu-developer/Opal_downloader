@@ -319,7 +319,14 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 <meta charset="utf-8">
 ` + faviconLink + `
 <title>Opal Downloader</title>
-<style>` + pageStyle + `</style>
+<style>` + pageStyle + `
+	/* The mark is a stone with an iridescent gradient in it, so it gets to
+	   catch the light when the pointer passes over. Filter only, no transform:
+	   konamiEasterEgg owns this element's transform, and an inline one from
+	   there would silently win over anything declared here. */
+	#logo-mark { transition: filter .45s ease; }
+	#logo-mark:hover { filter: saturate(1.5) hue-rotate(-20deg) drop-shadow(0 0 5px rgba(123, 92, 255, 0.55)); }
+</style>
 </head>
 <body>
 	` + bannerChrome + `
@@ -412,7 +419,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			<li><a href="/feedback">Feedback / Problem melden</a></li>
 		</ul>
 	</nav>
-	` + konamiEasterEgg + `
+	` + konamiWatcher + konamiEasterEgg + `
 </body>
 </html>
 `))

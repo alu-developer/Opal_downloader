@@ -124,12 +124,14 @@ const (
 // Event is a single incremental progress notification fired during
 // SyncCoursesWithProgress. Course/File are populated for the events they're
 // relevant to; Err is set for EventError; Stats is set for EventComplete.
-// CourseIndex/TotalCourses are set for EventCourseStarted only: remote
-// discovery (sc.ScrapeWithSavedSession) already returns the full remote file
-// list before the per-course loop begins, so the distinct course count is
-// known upfront at effectively no extra cost - CourseIndex is this course's
-// 1-based position among distinct courses in discovery order, TotalCourses
-// is the total distinct course count.
+// CourseIndex/TotalCourses are set for EventCourseStarted and, when the
+// crawler knows them, EventDiscovery: remote discovery
+// (sc.ScrapeWithSavedSession) already returns the full remote file list before
+// the per-course loop begins, so the distinct course count is known upfront at
+// effectively no extra cost - CourseIndex is this course's 1-based position
+// among distinct courses in discovery order, TotalCourses is the total
+// distinct course count. The two phases each count 1..N over the same courses,
+// so a consumer showing both must not treat them as one continuous series.
 type Event struct {
 	Type         EventType
 	Course       string
@@ -445,7 +447,8 @@ func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App,
 	if reporter, ok := sc.(discoveryProgressReporter); ok {
 		reporter.SetDiscoveryProgress(func(p scraper.DiscoveryProgress) {
 			if line := formatDiscoveryProgress(p); line != "" {
-				progress(Event{Type: EventDiscovery, Course: p.Course, Message: line})
+				progress(Event{Type: EventDiscovery, Course: p.Course, Message: line,
+					CourseIndex: p.CourseIndex, TotalCourses: p.TotalCourses})
 			}
 		})
 		// Discovery is over by the time this returns; leaving the callback

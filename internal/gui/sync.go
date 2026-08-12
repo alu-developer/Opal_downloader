@@ -174,7 +174,8 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 			// can collapse the discovery chatter into a single updating status
 			// line - a course with 100+ sections would otherwise bury the run's
 			// real output under one log row per section.
-			sp.job.publish(jobEvent{Kind: "discovery", Course: e.Course, Message: e.Message})
+			sp.job.publish(jobEvent{Kind: "discovery", Course: e.Course, Message: e.Message,
+				CourseIndex: e.CourseIndex, TotalCourses: e.TotalCourses})
 		case syncer.EventError:
 			msg := ""
 			if e.Err != nil {
@@ -449,6 +450,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 
 	<p class="back"><a href="/">&larr; Back</a></p>
 
+	` + konamiWatcher + `
 	<script>
 	(function () {
 		var logEl = document.getElementById('log');
@@ -464,9 +466,10 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			btnList.disabled = running || syncBlocked;
 			btnCancel.disabled = !running;
 			// Defined further down; both the function declaration and the
-			// state it touches are hoisted, and nothing calls setRunning
+			// state they touch are hoisted, and nothing calls setRunning
 			// before connect() at the end of this script.
 			setQuipsRunning(running);
+			setChromeRunning(running);
 		}
 
 		function addRow(kind, text) {
@@ -585,8 +588,27 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				// after this page connected - the "state" frame is sent once,
 				// on connect, and never again. setQuipsRunning is idempotent,
 				// so calling it per event just keeps an already-running
-				// rotation running.
+				// rotation running. Same for the tab's title and favicon.
 				setQuipsRunning(true);
+				setChromeRunning(true);
+			}
+
+			// The tab's progress, from the only denominator a run has. A run
+			// walks its courses twice - discovery reads every section, then
+			// the download phase visits them - and each phase counts 1..N of
+			// its own, so they map onto one half of the ring each. That keeps
+			// it moving forwards the whole way: filling up and resetting at
+			// the phase change would read as the run starting over. The split
+			// is by phase, not by time, and discovery is usually the longer
+			// half - so the second half fills faster than the first.
+			//
+			// Course 1 of 6 having started means none are finished yet, hence
+			// the courses *behind* it rather than the one in flight.
+			if ((e.kind === 'discovery' || e.kind === 'course_started') && e.totalCourses && e.courseIndex) {
+				var within = Math.max(0, (e.courseIndex - 1) / e.totalCourses) / 2;
+				progress = e.kind === 'discovery' ? within : 0.5 + within;
+				progressLabel = '(' + e.courseIndex + '/' + e.totalCourses + ')';
+				paintChrome();
 			}
 
 			if (e.kind === 'discovery') {
@@ -609,6 +631,9 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				statusEl.textContent = e.kind === 'done' ? 'Done.' : (e.kind === 'cancelled' ? 'Cancelled.' : 'Failed.');
 				setRunning(false);
 				running = false;
+				// After setRunning, which has already put the title and the
+				// favicon back the way it found them.
+				showOutcomeInTitle(e.kind);
 			} else {
 				var st = statusText(e);
 				if (st) { statusEl.textContent = st; }
@@ -640,23 +665,53 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			'Checking files that have not changed since 2019.',
 			'Clicking "show all", because 25 per page is a choice someone made.',
 			'Being patient at OPAL, so you can be impatient here.',
-			'Somewhere in here is the slide deck you actually need.'
+			'Somewhere in here is the slide deck you actually need.',
+			'Skipping the files you already have. That is most of them.',
+			'Comparing timestamps with a copy from last October.',
+			'Uploading nothing. Deleting nothing. That is the whole deal.',
+			'Turning a course name into a folder name. Umlauts and all.',
+			'Following a link OPAL renders three levels deep.',
+			'Reading your enrolment list, so you do not have to remember it.',
+			'Holding one browser window open on your behalf.',
+			'Refusing to hammer a university server, on principle.',
+			'Every file it finds, it checks. Even the ones you forgot about.',
+			'This part is slow because OPAL is slow. Sorry.'
 		];
+		// The reward for typing the Konami code on this page. Same two rules
+		// (never writes #status, never claims an activity the program does not
+		// perform) with the honesty rule read generously: nobody arrives here
+		// by accident, and a line that is plainly a joke cannot be mistaken for
+		// a status report the way "Downloading..." could. Nothing in here
+		// asserts a number or a mechanism, which is what keeps that true.
+		var KONAMI_QUIPS = [
+			'Downloading harder.',
+			'Turbo mode engaged. (It was already at turbo.)',
+			'Bribing Wicket with a biscuit.',
+			'Speedrunning a semester. Any% files.',
+			'Politely, one request at a time. But with attitude.',
+			'PDF number one million. Probably.',
+			'The semester is a lie. The files are real.',
+			'Somewhere in Saxony, a server sighs.',
+			'Achievement unlocked: you still know the arrow keys.',
+			'This line is not load-bearing.'
+		];
+
 		// Read off window for the same reason STALE_AFTER_MS is (see below):
 		// so the browser walk can rotate ten lines in a second instead of
 		// sitting through 90 real ones. Nothing sensitive, nothing else
 		// reads it.
 		var QUIP_EVERY_MS = window.OPAL_QUIP_EVERY_MS || 9000;
 		var quipEl = document.getElementById('quip');
+		var quipPool = QUIPS;
 		var quipOrder = [];
 		var quipTimer = null;
 
-		// Shuffled rather than random-each-tick, so a long run shows all ten
-		// before repeating any - drawing independently would show the same
-		// line twice in a row often enough to look broken.
+		// Shuffled rather than random-each-tick, so a long run shows every line
+		// in the pool before repeating any - drawing independently would show
+		// the same line twice in a row often enough to look broken.
 		function nextQuip() {
 			if (!quipOrder.length) {
-				quipOrder = QUIPS.slice();
+				quipOrder = quipPool.slice();
 				for (var i = quipOrder.length - 1; i > 0; i--) {
 					var j = Math.floor(Math.random() * (i + 1));
 					var tmp = quipOrder[i]; quipOrder[i] = quipOrder[j]; quipOrder[j] = tmp;
@@ -673,6 +728,147 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 			} else {
 				if (quipTimer) { clearInterval(quipTimer); quipTimer = null; }
 				quipEl.textContent = '';
+			}
+		}
+
+		// One-way: once unlocked it stays unlocked for this page load, and
+		// re-entering the code does nothing further. The dataset flag is how
+		// the browser walk sees it happened; nothing in the program reads it.
+		window.opalKonami(function () {
+			if (quipPool === KONAMI_QUIPS) { return; }
+			quipPool = KONAMI_QUIPS;
+			quipOrder = [];
+			quipEl.dataset.konami = '1';
+			if (quipTimer) { nextQuip(); }
+		});
+
+		// --- what the tab shows while you are elsewhere ----------------------
+		// A sync takes minutes, and the whole point of it is that you go and
+		// do something else meanwhile - at which point this page is a tab you
+		// cannot read. The two things still visible from another tab are the
+		// title and the favicon, so both carry the run.
+		//
+		// Everything here is derived from events #status has already shown, so
+		// it can never be the only place something is said, and it restores
+		// itself completely when the run ends. Canvas work is wrapped: a
+		// browser that refuses to hand back a data URL just keeps the logo.
+		var BASE_TITLE = document.title;
+		var faviconEl = document.querySelector('link[rel="icon"]');
+		// "Working" until this page has a reason to be more specific: it learns
+		// the job's kind either by starting it (the button handlers) or from
+		// the state frame of a run already in flight when it connected. A run
+		// that starts elsewhere afterwards sends events but no state frame, and
+		// guessing "Syncing" there would put a claim in the tab strip that
+		// nothing on the page can back up - a preview downloads nothing.
+		var jobLabel = 'Working';
+		var ringCanvas = null;
+		var progress = -1;   // 0..1 once the course count is known, else -1
+		var progressLabel = '';
+		var spin = -Math.PI / 2;
+		var chromeTimer = null;
+
+		function drawRing() {
+			try {
+				if (!ringCanvas) {
+					ringCanvas = document.createElement('canvas');
+					ringCanvas.width = 32;
+					ringCanvas.height = 32;
+				}
+				var ctx = ringCanvas.getContext('2d');
+				if (!ctx) { return null; }
+				ctx.clearRect(0, 0, 32, 32);
+				ctx.lineWidth = 6;
+				ctx.lineCap = 'round';
+				ctx.strokeStyle = 'rgba(125, 125, 135, 0.25)';
+				ctx.beginPath();
+				ctx.arc(16, 16, 12, 0, Math.PI * 2);
+				ctx.stroke();
+
+				// Same four stops as the app mark in chrome.go's logoSVG, so
+				// the tab keeps looking like this program while it works.
+				var grad = ctx.createLinearGradient(0, 0, 32, 32);
+				grad.addColorStop(0, '#3d8bfd');
+				grad.addColorStop(0.45, '#7b5cff');
+				grad.addColorStop(0.75, '#e15fd0');
+				grad.addColorStop(1, '#2fd6c3');
+				ctx.strokeStyle = grad;
+
+				// A filled sweep once the course count is known, a rotating
+				// quarter while it is not - discovery has no denominator, and
+				// a bar that sits at zero for a minute reads as a hang.
+				var from = progress >= 0 ? -Math.PI / 2 : spin;
+				var sweep = progress >= 0 ? Math.max(progress, 0.04) * Math.PI * 2 : Math.PI / 2;
+				ctx.beginPath();
+				ctx.arc(16, 16, 12, from, from + sweep);
+				ctx.stroke();
+				return ringCanvas.toDataURL('image/png');
+			} catch (err) {
+				return null;
+			}
+		}
+
+		function paintChrome() {
+			var url = drawRing();
+			if (url && faviconEl) {
+				// The declared type has to move with the href: the shipped
+				// link says image/svg+xml, and a browser that believes it
+				// would refuse the PNG the canvas just produced.
+				faviconEl.type = 'image/png';
+				faviconEl.href = url;
+			}
+			document.title = (progressLabel ? progressLabel + ' ' : '') + jobLabel + ' - ' + BASE_TITLE;
+		}
+
+		function chromeTick() {
+			// Nothing animates once there is a real fraction, and rewriting
+			// the favicon four times a second for an unchanged picture is
+			// work the tab does not need. Course changes repaint directly.
+			if (progress >= 0) { return; }
+			spin += 0.4;
+			paintChrome();
+		}
+
+		function setChromeRunning(on) {
+			if (on) {
+				if (chromeTimer) { return; }
+				paintChrome();
+				chromeTimer = setInterval(chromeTick, 400);
+			} else {
+				if (chromeTimer) { clearInterval(chromeTimer); chromeTimer = null; }
+				progress = -1;
+				progressLabel = '';
+				if (faviconEl) {
+					faviconEl.type = 'image/svg+xml';
+					faviconEl.href = '/logo.svg';
+				}
+				document.title = BASE_TITLE;
+			}
+		}
+
+		// The outcome stays in the title until you come back and look, which is
+		// the one moment it still has a job to do. One pair of listeners for
+		// the life of the page rather than a pair per run: a run that finishes
+		// while the last outcome is still on screen would otherwise stack them.
+		var outcomePending = false;
+
+		function clearOutcomeTitle() {
+			if (!outcomePending || running) { return; }
+			outcomePending = false;
+			document.title = BASE_TITLE;
+		}
+		window.addEventListener('focus', clearOutcomeTitle);
+		document.addEventListener('visibilitychange', function () {
+			if (!document.hidden) { clearOutcomeTitle(); }
+		});
+
+		function showOutcomeInTitle(kind) {
+			var mark = kind === 'done' ? '✓ Done' : (kind === 'cancelled' ? '✕ Cancelled' : '✕ Failed');
+			outcomePending = true;
+			document.title = mark + ' - ' + BASE_TITLE;
+			// Already looking at it: the summary right below says everything
+			// the title would, so it goes straight back to normal.
+			if (document.hasFocus && document.hasFocus() && !document.hidden) {
+				clearOutcomeTitle();
 			}
 		}
 
@@ -725,6 +921,14 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 				// word the user reads changes, because listing courses is not
 				// what the button does.
 				var kindLabel = data.kind === 'list' ? 'preview' : data.kind;
+				// Same distinction for the tab title: a preview downloads
+				// nothing, so calling it "Syncing" there would be a lie told
+				// in the one place you can read without coming back. Only
+				// meaningful while something is running - the idle frame
+				// carries no kind.
+				if (data.running) {
+					jobLabel = data.kind === 'list' ? 'Previewing' : 'Syncing';
+				}
 				statusEl.textContent = data.running ? ('Running: ' + kindLabel) : 'Idle.';
 			});
 			['course_started','file_downloaded','file_skipped','error','log','discovery','done','cancelled','failed'].forEach(function (kind) {
@@ -755,12 +959,14 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 		}
 
 		btnSync.addEventListener('click', function () {
+			jobLabel = 'Syncing';
 			var params = [];
 			if (document.getElementById('opt-force').checked) params.push('force=on');
 			if (document.getElementById('opt-dev').checked) params.push('dev=on');
 			start('/sync/start', params.join('&'));
 		});
 		btnList.addEventListener('click', function () {
+			jobLabel = 'Previewing';
 			var params = ['list_only=1'];
 			if (document.getElementById('opt-dev').checked) params.push('dev=on');
 			start('/sync/start?list_only=1', params.join('&'));

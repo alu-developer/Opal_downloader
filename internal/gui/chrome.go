@@ -378,22 +378,23 @@ const faviconLink = `<link rel="icon" href="/logo.svg" type="image/svg+xml">`
 // up.
 const logoMark = `<img id="logo-mark" src="/logo.svg" alt="" width="30" height="30" style="vertical-align: -5px; margin-right: 0.5rem;">`
 
-// konamiEasterEgg spins the landing page's logo when someone types the
-// Konami code. Landing page only, and nothing else in the program knows it
-// exists.
+// konamiWatcher defines window.opalKonami(onUnlock), the shared key-sequence
+// detector. Split out from konamiEasterEgg below when the sync page wanted the
+// same sequence for a different reward: two copies of the same keydown handler
+// would have been two places to get the "never eat a keystroke" rule wrong.
 //
-// It touches only a CSS transform on one decorative <img>, so the worst case
-// if it misbehaves is a crooked logo. Deliberately no sound, no persisted
-// state, no network call, and no interference with typing: the sequence is
-// arrow keys and two letters, and the handler bails out the moment focus is
-// in a field, so it cannot eat a keystroke meant for a folder path.
-const konamiEasterEgg = `<script>
-(function () {
+// Deliberately no sound, no persisted state, no network call, and no
+// interference with typing: the sequence is arrow keys and two letters, and the
+// handler bails out the moment focus is in a field, so it cannot eat a
+// keystroke meant for a folder path.
+//
+// Every caller is optional decoration, so an onUnlock that throws must not take
+// the page with it - hence the try/catch. Callers stack: each one adds its own
+// listener and they all fire on the same sequence.
+const konamiWatcher = `<script>
+window.opalKonami = function (onUnlock) {
 	var CODE = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
 	var at = 0;
-	var logo = document.getElementById('logo-mark');
-	if (!logo) { return; }
-	logo.style.transition = 'transform 1.2s cubic-bezier(.2,.8,.2,1)';
 	document.addEventListener('keydown', function (ev) {
 		var tag = (ev.target && ev.target.tagName) || '';
 		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return; }
@@ -402,6 +403,28 @@ const konamiEasterEgg = `<script>
 		at = (got === want) ? at + 1 : (got === CODE[0] ? 1 : 0);
 		if (at < CODE.length) { return; }
 		at = 0;
+		try { onUnlock(); } catch (e) {}
+	});
+};
+</script>`
+
+// konamiEasterEgg spins the landing page's logo when someone types the Konami
+// code. Landing page only, and nothing else in the program knows it exists.
+//
+// It touches only a CSS transform on one decorative <img>, so the worst case
+// if it misbehaves is a crooked logo. Requires konamiWatcher earlier in the
+// page.
+//
+// The transition names filter as well as transform because the hover shimmer
+// in landingTemplate's style block lives on the same element, and an inline
+// transition replaces the stylesheet's outright - without it the shimmer would
+// snap on instead of fading.
+const konamiEasterEgg = `<script>
+(function () {
+	var logo = document.getElementById('logo-mark');
+	if (!logo) { return; }
+	logo.style.transition = 'transform 1.2s cubic-bezier(.2,.8,.2,1), filter .45s ease';
+	window.opalKonami(function () {
 		var turns = (parseInt(logo.dataset.turns || '0', 10) + 3);
 		logo.dataset.turns = turns;
 		logo.style.transform = 'rotate(' + (turns * 360) + 'deg)';

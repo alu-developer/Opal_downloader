@@ -432,6 +432,33 @@ record.
   comment, which records this as its one deliberate widening of the
   scrubbing rule.
 
+- **Second round of GUI flavour: the tab carries the run** (2026-08-12,
+  maintainer's request: *"mehr gimmickkkkkks... die sind super witzig"*).
+  Five additions on top of the 2026-08-03 pair. The one that is more than
+  decoration: while a run is in flight the **tab title and the favicon** carry
+  it — `(3/6) Syncing`, an opal-gradient progress ring drawn on a canvas, and
+  `✓ Done` / `✕ Failed` afterwards until you look at the page. A sync takes
+  minutes and the whole point is that you go elsewhere meanwhile, so the tab
+  strip was the one surface that said nothing. Rules kept from round one:
+  nothing touches `#status`, everything is derived from events the page has
+  already shown, and it restores itself completely. `Working` rather than
+  `Syncing` when the page cannot know the kind (a run started elsewhere after
+  it connected sends events but no state frame) — a preview downloads nothing.
+  Making the ring honest during **discovery**, the long half of a run, needed
+  the only non-GUI change in the batch: `syncer.EventDiscovery` now carries
+  `CourseIndex`/`TotalCourses`, which `scraper.DiscoveryProgress` already had
+  and the relay was dropping. The two phases each count 1..N over the same
+  courses, so they map onto one half of the ring each and it never resets
+  mid-run. The rest: the quip pool went 10 → 20; the **Konami code works on
+  the sync page** too and swaps in a sillier pool (`konamiEasterEgg`'s
+  detector split out as `konamiWatcher`, so there is still one place that
+  implements "never eat a keystroke"); and the landing page's logo shimmers on
+  hover. Browser-walk tested throughout — real keypresses, real hover, a real
+  `<link rel=icon>` — and live-verified on the real account: the tab read
+  `(6/6) Syncing` with a PNG data-URL favicon through a 6-course run, and the
+  `✕ Failed` path came for free when `sync.lock` correctly refused a second
+  concurrent run.
+
 - **The GUI landing page now says when the last sync was — Question 5's
   "feels like one click" half** (2026-08-12, maintainer's call: *"du kannst ja
   irgendwo (mainbildschirm/sync-feld) hinschreiben, wann der letzte sync

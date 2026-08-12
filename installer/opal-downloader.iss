@@ -175,3 +175,31 @@ end;
   opal-downloader's own dedicated profile via the GUI's /tufast-setup page
   or `opal-downloader login`, which this installer's post-install [Run] step
   already launches into. }
+
+{ Friction-campaign finding (installer walk, 2026-08-11): uninstalling left
+  ~680MB behind (the uninsneveruninstall Chromium cache above, deliberately -
+  see the [Files] comment - plus the user's own config.yaml/login-profile/
+  status files under %USERPROFILE%\.opal-downloader, which this installer
+  never touches because it never installed them) without saying so anywhere,
+  so someone uninstalling to reclaim space recovered a small fraction of what
+  they expected. Not verified against a live compile/uninstall (iscc is not
+  available in this environment) - the Pascal Scripting API used here
+  (CurUninstallStepChanged/usPostUninstall/MsgBox) is standard Inno Setup 6,
+  matching the pattern in Inno's own documentation, but flagging this as
+  source-written-not-live-verified per this project's own rule against
+  silently promoting an unverified fix to "done". }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    MsgBox(
+      'Opal Downloader has been uninstalled, but two things were left behind on purpose:' + #13#10 + #13#10 +
+      '- The bundled Chromium browser cache (~680 MB) at' + #13#10 +
+      '  ' + ExpandConstant('{%USERPROFILE}') + '\.opal-downloader\ms-playwright' + #13#10 +
+      '  so a future reinstall does not need to re-download it.' + #13#10 + #13#10 +
+      '- Your login session and app settings under' + #13#10 +
+      '  ' + ExpandConstant('{%USERPROFILE}') + '\.opal-downloader' + #13#10 + #13#10 +
+      'Delete that folder yourself if you want to reclaim the space.',
+      mbInformation, MB_OK);
+  end;
+end;

@@ -149,11 +149,17 @@ installer surface is still unwalked by the campaign proper.
   installed alongside the binary and is what `init` hands anyone who never
   opens the GUI.
 
-- **[friction] Uninstalling leaves ~680 MB behind without saying so.** The
-  bundled Chromium is deliberately `uninsneveruninstall` (uninstalling the
-  app should not break a second install), and the user's own `config.yaml`
-  survives too — both defensible, neither mentioned anywhere. Someone who
-  uninstalls to reclaim space reclaims 23 MB of the 700 they expected.
+- **Written, NOT live-verified 2026-08-12 (autopilot, source only - `iscc` is
+  not available in this environment to compile/run it): a post-uninstall
+  message now explains what's left and why.** `CurUninstallStepChanged`
+  (`installer/opal-downloader.iss`) shows a `MsgBox` at `usPostUninstall`
+  naming both the deliberately-kept ~680MB Chromium cache and the
+  `%USERPROFILE%\.opal-downloader` folder (login session, settings, status
+  files - never installed by Inno Setup, so never known to its uninstaller
+  either). Standard Inno Setup 6 Pascal Scripting, but whoever next builds
+  the installer should compile and run an actual uninstall once before
+  trusting this - dialog text and `ExpandConstant` usage are unverified
+  against a real Inno Setup run.
 
 - **Fixed 2026-08-12 (autopilot, source reading, no live run):
   `docs/setup-friction.md`'s closing "still genuinely rough" paragraph

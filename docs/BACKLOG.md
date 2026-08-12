@@ -52,6 +52,14 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
      vague label. Prefer relabel-then-delete over delete-only where the
      control genuinely isn't self-evident.
 
+  **One exception, added 2026-08-12 by the session that shipped it:** the
+  landing page's `<p class="cta-note last-sync">Last sync: …</p>`
+  (`internal/gui/gui.go`) is not explanatory prose and must survive this
+  sweep. It states a fact the user cannot get from the control — when the
+  work last actually happened — and it exists because the maintainer asked
+  for it in the same conversation that produced this item. Delete the
+  paragraphs that restate a button; keep the one that reports a state.
+
   Judgement call, not a mechanical pass: a few hints carry information a
   label cannot (e.g. the subfolder-layout hint at
   `settings_page.go:192` warns that ticking it *moves existing downloads on
@@ -62,22 +70,6 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
   (`browser_walk_test.go`, `first_run_journey_test.go`, `settings_test.go`,
   `schedule_test.go`, `tufast_setup_test.go`) to assert on some of this copy;
   update them with the change.
-
-- **Cut `v0.1.1` — decided 2026-08-12, go.** The only published release
-  (`v0.1.0`, 2026-07-14) is broken and predates its own fix by three weeks —
-  its installer stages Chromium where the binary in that same release no
-  longer looks, and `NeedsPlaywrightSetup` probed the same wrong path, so it
-  reported "present" and skipped the `setup` fallback that would have
-  recovered. The GUI opens; `login`/`sync` cannot start a browser. Fixed on
-  master by `9e9ac47` (2026-08-03), and an installer built from current master
-  was walked end to end on 2026-08-11 and is sound — but no tag was ever
-  pushed, so the fix has never reached a user. **Maintainer picked "push the
-  tag" over a second local install/uninstall rehearsal, on the strength of the
-  2026-08-11 end-to-end walk.** Push `v0.1.1`; `release.yml` builds the exe and
-  runs `iscc`. Watch that CI run: it is also the compile the unverified
-  post-uninstall `MsgBox` needs (see "Installer" under Open findings) — `iscc`
-  is not installed on the maintainer's machine, so CI is the only compiler this
-  project has. Detail: `docs/installer-plan.md`.
 
 - **Question 39 — decided 2026-08-12: (B), a monthly `verify` spot-check.**
   The maintainer handed the call back ("wenn das krasse Vorteile bringt gerne.
@@ -100,15 +92,14 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
   later independent addition, not a substitute. Detail:
   `docs/sync-speed-model.md` Question 39.
 
-- **Question 5's last half — decided 2026-08-12: show the last sync time.**
-  Maintainer: *"naja, du kannst ja irgendwo (mainbildschirm/sync-feld)
-  hinschreiben, wann der letzte sync war."* That is option (B) narrowed to its
-  cheapest honest form — surface the timestamp on the main screen / sync area
-  rather than rewriting the primary button's label around a staleness
-  condition. Zero new network activity, reuses `internal/statuslog`. **(C)**, a
-  real background `list` on GUI open, is **not** being built: bigger change,
-  needs its own opt-out and `sync.lock` interaction, and no evidence GUI opens
-  are frequent enough to justify it. Detail: `docs/sync-speed-model.md`
+- **Question 5's background-run half — the only piece of Question 5 still
+  open.** The "last sync" line shipped and is live-verified (see the archive);
+  what it does *not* do is start any work early. Option **(C)** — a real
+  background `list` triggered by the GUI opening — is deliberately not built:
+  it needs its own opt-out and `sync.lock` interaction, and there is still no
+  evidence GUI opens are frequent enough to justify it. Reopen only if the
+  timestamp has been in use for a while and "feels like one click" still
+  visibly fails; otherwise close it. Detail: `docs/sync-speed-model.md`
   Question 5.
 
 ---
@@ -210,18 +201,21 @@ maintainer. Walk detail, expectations and named causes:
   usage are unchecked against a real Inno Setup run.
   **Confirmed 2026-08-12: Inno Setup is not installed on the maintainer's
   machine either** (neither on `PATH` nor in either `Program Files` location),
-  so "just compile it locally" is not the free step it reads as. Ways to
-  proceed, cheapest first: **(1, taken)** let the `v0.1.1` tag do it - CI's
-  `release.yml` runs `iscc`, so that build compiles this `.iss` and a compile
-  error or a broken `ExpandConstant` shows up as a failed release run; watch
-  that job. This proves it *compiles*, not that the dialog *reads* correctly.
-  **(2)** the maintainer runs one real uninstall of the installed v0.1.1 and
-  says whether the message appeared and named both folders - ~1 minute, and
-  the only thing that verifies the actual text. **(3)** install Inno Setup
-  locally so agents can compile without a release. Only worth it if installer
-  work becomes frequent; it is a real software install, so it needs asking
-  first. Do not leave this item reading as a bare "someone should check" -
-  after (1) lands, what remains open is exactly (2).
+  so "just compile it locally" is not the free step it reads as. CI's
+  `release.yml` is this project's only `iscc`.
+  **Half closed 2026-08-12:** the `v0.1.1` release build (run `31604913539`)
+  compiled this `.iss` successfully, so the script is syntactically sound and
+  the `ExpandConstant` usage does not break the compile. What that does *not*
+  prove is that the dialog *reads* correctly, or that it appears at all — a
+  green compile says nothing about `usPostUninstall` firing.
+  **What is left, and the only two ways to get it:** **(1, recommended)** the
+  maintainer installs `v0.1.1`, uninstalls it once, and says whether a message
+  appeared naming both the ~680 MB Chromium cache and
+  `%USERPROFILE%\.opal-downloader` — ~1 minute, and the only thing that
+  verifies the actual text. **(2)** close it on the compile alone and accept
+  that a wrong-but-valid dialog string would ship unnoticed; defensible, since
+  the worst case is a confusing sentence during an uninstall, not data loss.
+  Do not leave this reading as a bare "someone should check".
 
 ---
 

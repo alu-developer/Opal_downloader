@@ -1356,6 +1356,25 @@ to be a progress mechanism.
 the GUI opening needs its own opt-out and `sync.lock` interaction, and there is
 still no evidence GUI opens are frequent enough to justify it. Reopen only if the
 timestamp ships and the "feels like one click" goal still visibly fails.
+
+**Shipped the same day, live-verified.** The line is on the landing page under
+the primary button. The implementation cost sat somewhere this question never
+looked: **the timestamp did not exist for manual syncs at all.** Only
+`sync --scheduled` wrote an outcome (`last-scheduled-run.json`), so reading
+"last sync" from the one existing record would have been wrong in the most
+common case - a user who had just clicked "Sync now" would still be told about
+yesterday's scheduled run. Fixed by a second record (`last-sync.json`) written
+by both places a sync can start: the CLI's `runSync` and the GUI's in-process
+job, which are genuinely two call sites because the GUI syncs through `syncer`
+rather than shelling out. Kept separate from the scheduled record on purpose -
+widening that one would make the GUI's failure banner announce failures the
+user had just watched happen live.
+
+Verification, 2026-08-12: real `sync` against the real account into a scratch
+download path, 39 files, 39.2s total; `~/.opal-downloader/last-sync.json`
+written with `outcome: success`; GUI started from the worktree rendered
+`Last sync: just now`. Nothing about this measured or changed discovery speed -
+it is the concealment class, exactly as this question framed it.
 The goal is *"feels like one click"*. Never tested: a background run before the
 click, partial results during the run, changed courses first. This class does not
 need faster discovery, it needs discovery that does not stand in front of the

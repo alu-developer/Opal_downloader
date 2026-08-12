@@ -386,6 +386,44 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **The GUI landing page now says when the last sync was — Question 5's
+  "feels like one click" half** (2026-08-12, maintainer's call: *"du kannst ja
+  irgendwo (mainbildschirm/sync-feld) hinschreiben, wann der letzte sync
+  war."*). The larger half of the change was that the timestamp did not
+  exist: only `sync --scheduled` recorded an outcome, so a line read from
+  `last-scheduled-run.json` alone would have shown a days-old scheduled run
+  right after a manual sync — most wrong exactly when the user had just done
+  the thing it reports on. `statuslog` gained a separate `last-sync.json`
+  (kept separate so the GUI's scheduled-failure banner does not start
+  announcing failures the user watched happen live), written by both places a
+  sync can start — the CLI's `runSync` and the GUI's in-process job. A `list`
+  never counts; a user-cancelled run records as a failure, not a success; a
+  missing or corrupt record renders no line at all. Live-verified end to end
+  2026-08-12: a real 39-file sync into a scratch folder wrote the record, and
+  the landing page rendered "Last sync: just now". Question 5's remaining
+  background-run half stays open in `docs/BACKLOG.md`.
+
+- **`v0.1.1` published — the first release whose `login`/`sync` can actually
+  start a browser** (2026-08-12, maintainer's call in a `/decide` round).
+  `v0.1.0` (2026-07-14) shipped an installer that staged Chromium into
+  `%LOCALAPPDATA%\ms-playwright` while the binary in that same release had
+  already moved to `%USERPROFILE%\.opal-downloader\ms-playwright`, and
+  `NeedsPlaywrightSetup` probed the same wrong path, so it reported "present"
+  and skipped the `setup` fallback that would have recovered. Fixed on master
+  by `9e9ac47` on 2026-08-03 and then simply never tagged for three weeks —
+  the gap this entry exists to remember. Release run
+  `31604913539` green; assets `opal-downloader-setup.exe` and its `.sha256`
+  are published. Two things landed with it: `iscc` finally compiled the
+  post-uninstall `MsgBox` that had only ever been written from source (so the
+  compile half of that finding is closed — a real uninstall is still
+  unwitnessed), and `379645d` fixed a version mismatch found while preparing
+  the tag. The `.iss` hard-coded `MyAppVersion "0.1.0"` and nothing overrode
+  it, so `v0.1.1` would have installed itself as "0.1.0" in Apps & Features
+  while `--version` said `v0.1.1` — aimed squarely at the one question this
+  release exists to answer. The tag now drives both; confirmed in the CI log
+  (`Building opal-downloader.exe version v0.1.1 (installer AppVersion
+  0.1.1)`).
+
 - **Sync-speed Question 5's second half fixed: the GUI's `list`-only job
   streams per-course progress too, and both discovery paths now say what
   happened to enrolled courses that came back with 0 files** (2026-08-12,

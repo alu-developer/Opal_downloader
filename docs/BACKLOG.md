@@ -29,6 +29,40 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 
 ## Now
 
+- **Strip the explanatory prose out of the GUI — maintainer request,
+  2026-08-12.** *"Es ist so nervig, immer einen Absatz zu haben, der einen
+  Button erklärt."* Two parts, the second is the general one:
+
+  1. **Delete the "Configured elsewhere" block** on the Settings page
+     (`internal/gui/settings_page.go:244-260`) — the pointers to
+     `/schedule` ("running once a day on its own") and `/tufast-setup`
+     ("automatic 2FA, so login needs no clicks"), plus any surviving mention
+     of the dedicated login profile at `~/.opal-downloader/login-profile`.
+     Both destinations are already reachable from the nav; the parenthetical
+     explanations are the annoyance. This is the third cut to the same block
+     (2026-07-27 removed two fake settings sections, 2026-08-10 removed the
+     browser-profile sentence) — this time it goes entirely.
+  2. **Sweep every GUI page for the same pattern and cut as much as
+     possible.** ~28 `<p class="hint">` paragraphs live across
+     `settings_page.go` (11), `tufast_setup.go` (5), `schedule_page.go` (5),
+     `sync.go` (2), `logs.go` (2), `feedback.go` (2), `gui.go` (1). The rule
+     the maintainer gave: **make the control itself say what it does — a
+     clearer label, a better button word, a sensible default — and then
+     delete the paragraph**, rather than keeping prose to compensate for a
+     vague label. Prefer relabel-then-delete over delete-only where the
+     control genuinely isn't self-evident.
+
+  Judgement call, not a mechanical pass: a few hints carry information a
+  label cannot (e.g. the subfolder-layout hint at
+  `settings_page.go:192` warns that ticking it *moves existing downloads on
+  the next sync* — a consequence, not a description). Keep those, rewritten
+  short; delete everything that only restates the control. Where a hint is
+  genuinely load-bearing but long, a collapsible detail is acceptable —
+  but the default state is "not shown". Expect the GUI walk tests
+  (`browser_walk_test.go`, `first_run_journey_test.go`, `settings_test.go`,
+  `schedule_test.go`, `tufast_setup_test.go`) to assert on some of this copy;
+  update them with the change.
+
 - **Cut `v0.1.1` — decided 2026-08-12, go.** The only published release
   (`v0.1.0`, 2026-07-14) is broken and predates its own fix by three weeks —
   its installer stages Chromium where the binary in that same release no

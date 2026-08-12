@@ -61,7 +61,19 @@
 ;   iscc /DChromiumSrcDir=C:\path\to\chromium-cache installer\opal-downloader.iss
 
 #define MyAppName "Opal Downloader"
-#define MyAppVersion "0.1.0"
+; Overridable at compile time with /DMyAppVersion=X.Y.Z, which is what
+; scripts/build-installer.ps1 does on a real release build (deriving it from
+; the pushed tag). The literal below is only the hand-compile fallback.
+;
+; It has to be overridable: before 2026-08-12 it was not, so the tag drove
+; only the Go binary's -ldflags buildVersion while AppVersion stayed frozen at
+; whatever was committed here. A v0.1.1 installer would have reported "0.1.0"
+; in Apps & Features while `opal-downloader.exe --version` said v0.1.1 - and
+; v0.1.1 exists precisely so a user can tell the broken release from the fixed
+; one. Keep the fallback in step with the newest tag when cutting a release.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.1"
+#endif
 #define MyAppPublisher "Opal Downloader Project"
 #define MyAppURL "https://github.com/alu-developer/Opal_downloader"
 #define MyAppExeName "opal-downloader.exe"

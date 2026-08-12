@@ -97,7 +97,15 @@ if (-not $Version) {
         $Version = "dev"
     }
 }
-Write-Host "Building opal-downloader.exe version $Version ..."
+
+# Inno Setup's AppVersion (the string Apps & Features shows) wants the bare
+# number, while $Version is a tag like "v0.1.1". Passed to iscc below as
+# /DMyAppVersion so ONE input - the pushed tag - drives both the Go binary's
+# buildVersion and the installer's AppVersion. Until 2026-08-12 only the
+# former was wired up and the latter sat frozen at the .iss's committed
+# literal, so a v0.1.1 build would have installed itself as "0.1.0".
+$appVersion = $Version -replace '^v', ''
+Write-Host "Building opal-downloader.exe version $Version (installer AppVersion $appVersion) ..."
 
 Push-Location $repoRoot
 try {
@@ -146,7 +154,7 @@ try {
 
     # --- Step 3: invoke iscc ---
     Write-Host "Compiling installer with iscc ..."
-    $issArgs = @()
+    $issArgs = @("/DMyAppVersion=$appVersion")
     if ($ChromiumSrcDir -ne (Join-Path $installerDir "chromium-cache")) {
         $issArgs += "/DChromiumSrcDir=$ChromiumSrcDir"
     }

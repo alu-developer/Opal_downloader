@@ -95,10 +95,6 @@ maintainer. Walk detail, expectations and named causes:
   use, nobody closing the window. Not yet separable from an artifact of
   launching it from a background shell — deferred to the next GUI-surface
   walk. Walk 1.
-- **[question] What a *sync* does with an unwritable `download_path`** — fail
-  clearly, or appear to succeed? `status` now catches a broken path before a
-  sync starts, but a path that goes bad *between* the check and the sync is
-  still unmeasured. Follow-up from walk 1.
 - **Optional, not a commitment:** an outcome-independent "when did a sync last
   actually *succeed*" staleness signal — walk 1's Finding 1, repair (a).
   Repair (b) shipped and closes the failure mode that was actually observed;

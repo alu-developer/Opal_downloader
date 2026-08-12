@@ -22,6 +22,31 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **What a sync does with an unwritable `download_path`: fails clearly, both
+  at the top and per file — investigated 2026-08-12, walk 1 follow-up now
+  closed.** `SyncCoursesWithProgress` (`internal/syncer/syncer.go:431`) calls
+  a fresh `os.MkdirAll(cfg.DownloadPath, 0o755)` right after acquiring the
+  sync lock, on every run — it never trusts an earlier `status` check, so the
+  "goes bad between the check and the sync" race collapses to "the same check,
+  run again, immediately before the same work." Live-verified: pointed a
+  scratch config's `download_path` at a location blocked by a file instead of
+  a directory and ran `sync` — clean single `Error: mkdir ...` to stderr, exit
+  1, before any login or network activity (`tmp/friction/` scratch env, no
+  files of the maintainer's touched). For a path that goes bad *mid-run*
+  instead (root deleted after the top-level check passed), each file's own
+  `os.MkdirAll(filepath.Dir(localPath), 0o755)` (`syncer.go:593`) fails on its
+  own turn, increments `stats.Errors`, emits `EventError`, and is never
+  queued as a job — confirmed by source reading, all three write call sites
+  (`internal/scraper/download.go:76,162,222`) propagate `os.WriteFile`/
+  `SaveAs` errors rather than swallowing them, and the result loop
+  (`syncer.go:660-665`) only logs `downloaded:` and marks the manifest on
+  `err == nil`. Surfaced at the top as `Done. ... errors=N` and
+  `statuslog.OutcomePartial`, visible in both the CLI and the GUI's status
+  read. The one real gap is cosmetic, not silent: a vanished root reports as
+  N individual file errors rather than one "download_path disappeared"
+  message — not worth chasing, since the underlying failure is never hidden
+  or mislabeled a success.
+
 - **winget distribution: investigated 2026-08-11, decided against, do not
   re-propose as a free SmartScreen workaround.** It looks like one — publish a
   manifest to `microsoft/winget-pkgs`, users run `winget install`, no

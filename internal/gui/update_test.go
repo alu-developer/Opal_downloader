@@ -190,6 +190,38 @@ func TestHandleUpdatePage_DevBuildShowsNeitherErrorNorFalseUpToDateClaim(t *test
 	}
 }
 
+// TestHandleLanding_UncomparableVersionShowsCannotCheckNotLatest reproduces
+// the friction-campaign finding: isDevBuildVersion only catches the plain
+// "dev"/"" default, not a git-describe-style build tag like
+// "v0.1.1-dev-99c2fca" (what a locally built, non-release binary actually
+// carries). IsNewerVersion then errors on the unparseable current version,
+// but the landing page ignored that error and fell through to "Running the
+// latest version" - a check that never actually ran being reported as a
+// check that passed.
+func TestHandleLanding_UncomparableVersionShowsCannotCheckNotLatest(t *testing.T) {
+	srv := fakeGitHub(t, "v9.9.9", "fake installer bytes")
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	s := &server{
+		configPath:    configPath,
+		buildVersion:  "v0.1.1-dev-99c2fca",
+		updaterClient: &updater.Client{BaseURL: srv.URL},
+	}
+	s.checkForUpdateOnce(context.Background())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	s.handleLanding(rr, req)
+
+	body := rr.Body.String()
+	if strings.Contains(body, "Running the latest version") {
+		t.Errorf("must not claim up to date when the comparison itself failed, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Could not check for updates") {
+		t.Errorf("expected a 'could not check' status, got:\n%s", body)
+	}
+}
+
 func TestHandleLanding_ShowsUpdateBanner(t *testing.T) {
 	srv := fakeGitHub(t, "v9.9.9", "fake installer bytes")
 

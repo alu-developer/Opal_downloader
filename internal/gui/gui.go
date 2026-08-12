@@ -365,7 +365,7 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 	{{end}}
 
 	{{if .UpdateChecked}}
-	<div class="status {{if .UpdateAvailable}}warn{{else if .UpdateDevBuild}}neutral{{else}}ok{{end}}">
+	<div class="status {{if .UpdateAvailable}}warn{{else if .UpdateDevBuild}}neutral{{else if .UpdateCheckFailed}}neutral{{else}}ok{{end}}">
 		{{if .UpdateAvailable}}
 			An update is available: <code>{{.CurrentVersion}}</code> &rarr; <code>{{.LatestVersion}}</code>.
 			<form method="post" action="/update/start" style="margin-top: 0.5rem;">
@@ -374,6 +374,8 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 			{{if .ChangelogURL}}<p style="margin: 0.5rem 0 0;"><a href="{{.ChangelogURL}}" target="_blank" rel="noopener">Release notes</a></p>{{end}}
 		{{else if .UpdateDevBuild}}
 			Update checks are unavailable for development builds (<code>{{.CurrentVersion}}</code>).
+		{{else if .UpdateCheckFailed}}
+			Could not check for updates against <code>{{.CurrentVersion}}</code> - see the <a href="/update">Update</a> page for details.
 		{{else}}
 			Running the latest version (<code>{{.CurrentVersion}}</code>).
 		{{end}}
@@ -462,9 +464,18 @@ type landingData struct {
 	UpdateChecked   bool
 	UpdateAvailable bool
 	UpdateDevBuild  bool
-	CurrentVersion  string
-	LatestVersion   string
-	ChangelogURL    string
+	// UpdateCheckFailed is true when the check ran but couldn't tell one way
+	// or the other - e.g. a non-numeric build version like a git-describe
+	// dev tag (isDevBuildVersion only catches the plain "dev"/"" default,
+	// not "v0.1.1-dev-99c2fca"), or a GitHub API failure. Distinct from
+	// UpdateDevBuild (skipped on purpose) and from the "checked, genuinely
+	// not newer" case - without this the landing page fell through to
+	// claiming "Running the latest version" for a comparison it never
+	// actually made.
+	UpdateCheckFailed bool
+	CurrentVersion    string
+	LatestVersion     string
+	ChangelogURL      string
 }
 
 func (s *server) handleLanding(w http.ResponseWriter, r *http.Request) {
@@ -650,6 +661,7 @@ func (s *server) applyUpdateStatus(data *landingData) {
 	data.UpdateChecked = s.updateChecked
 	data.UpdateAvailable = s.updateChecked && s.updateErr == nil && s.updateResult.IsNewer
 	data.UpdateDevBuild = s.updateDevBuild
+	data.UpdateCheckFailed = s.updateChecked && !s.updateDevBuild && s.updateErr != nil
 	data.CurrentVersion = s.buildVersion
 	data.LatestVersion = s.updateResult.Version
 	data.ChangelogURL = s.updateResult.HTMLURL

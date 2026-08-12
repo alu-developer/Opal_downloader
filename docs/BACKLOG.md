@@ -166,11 +166,20 @@ installer surface is still unwalked by the campaign proper.
   remaining path that opens a browser. Updated in place with a dated note,
   same pattern the doc already uses for its "all eight shipped" table.
 
-- **[question] The GUI asserts "Running the latest version" for a version it
-  cannot compare.** `IsNewerVersion` returns an error for any non-numeric
-  current version (`v0.1.1-dev-99c2fca`, or the plain `dev` default), and the
-  GUI renders that case as "latest" rather than "cannot tell". Harmless for a
-  tagged release; misleading for every build that is not one.
+- **Fixed 2026-08-12 (autopilot, verified with a new unit test rendering the
+  real template):** the GUI asserted "Running the latest version" for a
+  version it never actually compared. `isDevBuildVersion` only short-circuits
+  the plain `"dev"`/`""` default; a git-describe-style local build tag like
+  `v0.1.1-dev-99c2fca` reaches `IsNewerVersion`, which errors on the
+  unparseable current version - and the landing page's template only branched
+  on `UpdateAvailable`/`UpdateDevBuild`, so a real comparison failure fell
+  through to the same "latest" branch as a genuine "checked, not newer"
+  result. New `UpdateCheckFailed` field (`s.updateChecked && !s.updateDevBuild
+  && s.updateErr != nil`) gets its own template branch: "Could not check for
+  updates ... - see the Update page for details," reusing the existing
+  `.status.neutral` styling. The `/update` page itself already handled this
+  correctly (it surfaces `snap.err.Error()`); only the landing banner was
+  wrong.
 
 - **Fixed with the commit that filed this walk:** the first-run Settings save
   wrote `skip_enrollment_sections: false`, flipping a live-confirmed default

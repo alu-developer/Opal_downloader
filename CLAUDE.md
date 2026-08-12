@@ -1,9 +1,7 @@
 # opal-downloader
 
-**Only the maintainer edits this file.** Ask before changing anything here,
-including before adding a new entry.
+**Editing this file needs my permission.**
 
----
 
 ## PRs, Branches and so on.
 
@@ -39,8 +37,6 @@ someone landed first: `git fetch origin`, `git rebase origin/master`, push
 again — and on a conflict in `docs/BACKLOG.md` keep **both** sides, never drop
 anyone else's entries.
 
----
-
 
 ## Mistakes
 **This file also collects mistakes.** Beliefs acted on here that turned out
@@ -62,3 +58,4 @@ real account are wanted, not rationed — server load is already bounded by the
 rate limiter and backoff in `docs/server-load.md`. Never park an item as
 "waits for a fresh day", "needs real-account load", or "no question answerable
 without a live run". Just run it. Write the prediction down first, then run.
+

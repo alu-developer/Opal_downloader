@@ -12,12 +12,7 @@ Keep personal specifics out of this file — the repo is public. Absolute
 paths, account details, and measured numbers that only make sense for one
 machine belong in local memory, not here.
 
-**Keep entries short.** An item says what is left and where the detail lives.
-It is not the place to record what was already done — that goes in the commit
-message, the relevant `docs/` file, or `docs/BACKLOG-archive.md`. This rule
-exists because ignoring it grew the file to 1057 lines by 2026-07-31, most of
-it closed work, until nobody could read it in one pass. Reintroducing history
-here is the failure mode to watch for.
+Everything, that is not in working/blocked, should be put into backlog-archive.md. This is not for some history-stuff or mistakes. If you want, you can also make different backlog-whatsoever.mds, just don't write random stuff in here. 
 
 ---
 

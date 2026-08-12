@@ -211,7 +211,7 @@ for the first to finish.
 context:** because they do not have their own *OPAL* session. Every context
 is seeded from the same `session_state_file` cookie jar, so concurrent
 crawls present one authenticated identity to a Wicket backend that is
-stateful server-side per session. `docs/BACKLOG.md` records the two
+stateful server-side per session. `docs/BACKLOG-archive.md` records the two
 incidents this produced: 2026-08-02 (a scheduled sync died with a raw 180s
 Playwright launch timeout, a manual probe hung 22 minutes, two orphaned
 `chrome.exe` left behind) and 2026-08-06 (three consecutive runs reported

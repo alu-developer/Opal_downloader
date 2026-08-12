@@ -357,7 +357,7 @@ meant to avoid**:
 **Verdict: not smart, do not build it.** winget becomes worth revisiting only
 *after* signing exists, at which point it is a small follow-up (an Inno Setup
 installer already supports the silent-install flags winget requires) — not a
-substitute for signing. Recorded in `docs/BACKLOG.md` under "Noticed" so this
+substitute for signing. Recorded in `docs/BACKLOG-archive.md` under "Settled" so this
 doesn't get re-proposed as a free win.
 
 ## 7. Update story

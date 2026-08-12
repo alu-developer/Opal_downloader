@@ -549,7 +549,7 @@ func runLogin(args []string) error {
 	// LaunchPersistentContext against a profile Chromium is already using,
 	// whose failure mode is a raw 180s Playwright launch timeout rather than
 	// ErrProfileLocked. That is precisely the 2026-08-02 incident in
-	// docs/BACKLOG.md.
+	// docs/BACKLOG-archive.md.
 	releaseOverlap, err := acquireCrawlOverlapLock()
 	if err != nil {
 		return err
@@ -676,7 +676,7 @@ func runList(args []string) error {
 	//
 	// `list` used to take no lock at all, which made it the one full-crawl
 	// entry point a scheduled `sync` could silently interleave with. Both
-	// real collision incidents docs/BACKLOG.md records (2026-08-02,
+	// real collision incidents docs/BACKLOG-archive.md records (2026-08-02,
 	// 2026-08-06) involved an unlocked crawl running against the same
 	// account at the same time as another one, and neither produced
 	// ErrProfileLocked - because scraper's own session lock
@@ -687,7 +687,7 @@ func runList(args []string) error {
 	// seeded from the same storage-state cookie file, so two crawls present
 	// one authenticated OPAL session identity to a Wicket backend that is
 	// stateful per session. See that file's doc comment and candidate (D) in
-	// docs/BACKLOG.md.
+	// docs/BACKLOG-archive.md.
 	//
 	// So this is deliberately the coarse lock, not a new mechanism: a second
 	// crawl now gets synclock.ErrHeld naming the holder's PID and start time

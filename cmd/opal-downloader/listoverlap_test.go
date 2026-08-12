@@ -24,7 +24,7 @@ func writeMinimalConfig(t *testing.T) string {
 // `list` runs the same full crawl `sync` does, and until 2026-08-10 it took no
 // overlap lock at all - so a scheduled sync and a manual list could crawl the
 // same account at the same time. That is how both collision incidents in
-// docs/BACKLOG.md happened, and neither produced a clear error: one died with a
+// docs/BACKLOG-archive.md happened, and neither produced a clear error: one died with a
 // raw 180s Playwright launch timeout, the other silently reported 0 files for
 // every course across three consecutive runs.
 //

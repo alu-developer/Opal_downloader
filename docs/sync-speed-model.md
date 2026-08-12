@@ -32,6 +32,28 @@ with no step in between where anyone understands why.
 3. **Every experiment must leave at least one new open question.** If it does
    not, that is exactly what gets reported.
 
+## Corollaries, learned the hard way
+
+Moved here from `docs/BACKLOG.md` on 2026-08-12, where they were sitting under
+"Standing work" — they are rules for this campaign, and belong with the rules.
+
+**A byte-for-byte diff is not proof of losslessness (learned 2026-08-03).** It
+only catches losses that *vary* between runs. A section truncated identically on
+every run is identical to itself and to the ground truth, and passes every gate
+this project has — which is exactly what Question 18 turned out to be, through
+all 8 runs of Questions 14 and 15. Do not read "all runs agreed" as "no files
+lost"; `warnShowAllTruncated` in the run log is currently the only signal that
+sees this class, and nothing consumes it.
+
+**Do not convert a measured effect into a rule without a mechanism (2026-08-03).**
+Question 16 measured file loss at `course_concurrency>1` and went straight to
+proposing the setting be clamped away. The maintainer refused the exclusion and
+asked why the loss was consistently *six* files — which turned out to be
+answerable from an archived log in minutes, and re-classified the whole thing
+from "concurrency loses files" to "a known expansion bug fires more often under
+load". Rule 2 applies to the campaign's own conclusions, not only to its
+experiments.
+
 ## When ideas run out
 
 No reason to stop — a solvable state. Fixed moves, in order:

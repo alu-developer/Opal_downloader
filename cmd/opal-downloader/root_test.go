@@ -287,7 +287,7 @@ func TestBuildScheduledRunStatus_SyncLockHeldIsLoginPathUnknown(t *testing.T) {
 }
 
 // TestBuildScheduledRunStatus_SyncLockHeldIsSkippedNotFailure covers the
-// live-reported bug (2026-07-19, docs/BACKLOG.md's "sync already running"
+// live-reported bug (2026-07-19, docs/BACKLOG-archive.md's "sync already running"
 // entry): another opal-downloader process (typically the GUI's own
 // in-process "Sync now" job) holding the lock when the scheduled run tries
 // to start is routine overlap, not an incident - it must not be classified

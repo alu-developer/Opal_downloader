@@ -361,14 +361,35 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Sync-speed Question 5's first (cheap) half fixed: the CLI's discovery
+  phase now prints a line per course as it completes, instead of the
+  ~3-minute silent stretch friction-campaign Walk 3 measured the same day**
+  (2026-08-12, autopilot, live-verified against the real account, 8 courses):
+  the discovery line had run dry (Question 39 blocked, Question 41 closed),
+  which the maintainer's 2026-08-03 decision makes Question 5 fair game for.
+  Source reading found `collectCourseFilesConcurrently`
+  (`internal/scraper/orchestrator.go`) already learns each course's result
+  the instant that course's crawl finishes — the same point `PrintProfileLine`
+  and the `onResult` download-candidate merge already fire from — nothing was
+  surfacing it to a user without `--profile`. New always-on
+  `timing.PrintCourseProgress` covers both `list` and `sync`, both discovery
+  paths (one shared function). Bonus: the verification run named both
+  courses walk 3 found "missing" from `list`'s course-count summary
+  (`[WS25/26] Programmierung`, `Helfende DMS`) as genuinely 0-file courses,
+  closing that walk's uncertainty too — see the next entry. Question 5's
+  other two halves (the GUI's own progress stream, unchecked; whether/when a
+  background run before the click is worth building) are open in
+  `docs/BACKLOG.md`, ranked in `docs/sync-speed-model.md` Question 5.
 - **Friction campaign walk 3 (first run from zero): 3 findings, and a stray
   debug file deleted from the repo root** (2026-08-12, autopilot):
   `sync_run.log` (UTF-16, three lines, someone's local test-run transcript)
   had sat next to `README.md`/`go.mod` in every fresh clone since the initial
   commit `18f875d` (2026-07-02) and was the first thing a new user's file
   browser showed. `git rm`'d, nothing referenced it. The walk's other two
-  findings — the silent ~3-minute CLI discovery phase, and 8 course links
-  reported as 6 courses — are open in `docs/BACKLOG.md`. Walk detail:
+  findings: the silent ~3-minute CLI discovery phase is fixed (see the entry
+  above); 8 course links reported as 6 courses is still open in
+  `docs/BACKLOG.md`, though the same fix's verification run settled which 2
+  are missing and confirmed they're genuinely empty. Walk detail:
   `docs/friction-campaign.md` Walk 3.
 - **`list --visit-report` now flags intermittently-empty sections, not just
   always-empty ones** (2026-08-12, autopilot, verified live against the real

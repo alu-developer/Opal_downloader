@@ -192,3 +192,21 @@ func PrintProfileLine(format string, args ...interface{}) {
 	}
 	fmt.Printf("  [profile] "+format+"\n", args...)
 }
+
+// PrintCourseProgress prints one line per course as its crawl finishes, e.g.:
+//
+//	Analysis: 30 files (4.2s)
+//
+// Unlike PrintProfileLine, this is always on: it's the only feedback a CLI
+// user gets during discovery otherwise. Friction-campaign Walk 3
+// (2026-08-11, docs/friction-campaign.md) live-measured a real account's
+// `list` run sitting completely silent for 2m44s between the initial
+// "Discovery: ..." line and the final summary - source-confirmed as a real
+// gap, not a fluke: collectCourseFilesConcurrently (internal/scraper) already
+// learns each course's result as soon as that course's crawl finishes (it's
+// the same point PrintProfileLine and the onResult download-candidate merge
+// already fire from), nothing was surfacing it to a user who isn't passing
+// --profile.
+func PrintCourseProgress(courseTitle string, fileCount int, elapsed time.Duration) {
+	fmt.Printf("  %s: %d files (%s)\n", courseTitle, fileCount, formatDuration(elapsed))
+}

@@ -1224,6 +1224,57 @@ permissible work rather than an evasive move: they may be picked up when the
 discovery line is waiting on a measurement or a question there is exhausted. This
 question therefore stays open and does not move up.
 
+**First experiment, 2026-08-12 (autopilot): the discovery line is waiting
+(Question 39 blocked on the maintainer, Question 41 closed with nothing else
+runnable), so this question's first pass is in scope per the paragraph above.**
+
+*Prediction, registered from what this cycle already knew before opening
+`orchestrator.go`, not from a blank guess - friction-campaign Walk 3 (same
+day, `docs/friction-campaign.md`) had just live-measured a real `list` run
+sitting silent for 2m44s during discovery and traced the proximate cause
+(`publishProgress` fires once, CLI never subscribes). The open question this
+cycle picked up from there: is that silence forced by the crawl's own
+architecture (batches every course's result until the whole crawl ends), or
+is there already an internal per-course completion point nothing happens to
+be wired to? Predicted: the latter - `collectCourseFilesConcurrently`'s
+worker-pool shape (a `resultCh` drained one item at a time) has to know each
+course's result as soon as that course's own goroutine finishes, because
+`onResult` already does per-course work (merging download candidates) at
+that exact point. Counts as wrong if the function turns out to buffer
+all results and only invoke `onResult`/return once every course is done.
+
+**Result: confirmed by source reading, no live run needed for the diagnosis
+itself.** `orchestrator.go:644-654`'s result-draining loop calls
+`timing.PrintProfileLine` (profile-gated) and `onResult` once per course, the
+instant that course's worker sends to `resultCh` - the completion point
+already exists and already fires per-course. Nothing about "partial results
+during the run" needs new architecture; it needs an existing, correct signal
+wired to something the user without `--profile` actually sees. Fixed the same
+cycle: `timing.PrintCourseProgress` (new, always-on, no `Profile` gate) is now
+called from that same loop, printing `  <course>: <n> files (<elapsed>)` as
+each course finishes - covers both `list` and `sync`, both the browser and
+HTTP-first discovery paths, since both go through this one shared function.
+Live-verified against the real account: `list --config config.yaml` now
+prints a line per course as discovery proceeds instead of the previous
+2m44s silent stretch. New `TestPrintCourseProgress_AlwaysOn`
+(`internal/timing/timing_test.go`) pins the always-on behavior so a future
+`--profile`-gating "cleanup" can't quietly regress it. Full suite green.
+
+**What this does and does not close.** This is the cheap half of Question 5
+- streaming already-available per-course results as they land, which existed
+as an architectural fact this cycle just had to surface. It does not touch
+the two harder halves the question names: **a background run started before
+the user clicks anything** (needs a decision about *when* to trigger one
+without surprising the user or burning quota unasked - a product question,
+not a code one), and **partial/incremental results shown while a run is still
+in flight for the GUI specifically** (this fix is CLI-only; the GUI has its
+own separate `jobEvent`-based progress mechanism, and Walk 3's own open
+question #2 - does the GUI already stream per-course during
+`scrapeCoursesHTTPFirst` or does it share this exact gap under a different
+surface - is still unanswered and is the natural next cycle for this thread).
+Question 5 stays open, re-ranked: the CLI-silence half is done, the GUI half
+and the background-run half remain.
+
 ### 6. ~~Why does 1 in 12 sections stay unstable across runs?~~ Closed 2026-08-09 (autopilot, pure re-analysis of data already on disk, no live run) — stale premise, superseded by the campaign's own later correction before this question was ever copied into this file
 **The "1 in 12" figure was already retracted three days before this file existed.**
 It comes from the 2026-07-27 change-detection-cache reopening (`docs/sync-speed-campaign.md`):
@@ -2262,18 +2313,36 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-11 (autopilot, third update same day): Question 41 closed
-- the second confirming run lost 6 files (one paginated section), overturning
-the first run's clean result and confirming the shared-`APIRequestContext`
-hazard the question existed to rule out. No production impact (the override
-was never wired to a default); nothing further planned on that thread. The
-ranked list is Question 39, then Question 5 - and Question 39 is Blocked on
-the maintainer's pick among three already-written-up options, so there is no
-unblocked live-run experiment left on this list right now.** Question 5
-(is "30s" even tied to discovery, i.e. background runs/partial results) has
-no registered concrete experiment - it was explicitly kept low-ranked by the
-maintainer's 2026-08-03 decision, and picking it up means designing the first
-experiment for it, not running an existing one.
+**Updated 2026-08-12 (autopilot): Question 5's first experiment closed
+(the cheap half only) - see Question 5's own entry above for the full
+result.** Source reading found `collectCourseFilesConcurrently` already has a
+per-course completion point nothing was wired to; `timing.PrintCourseProgress`
+now fires from it, live-verified fixing the exact silent 2m44s stretch
+friction-campaign Walk 3 measured the same day. Question 5 stays open for its
+two harder halves (background run before the click; the GUI's own progress
+stream, unchecked - Walk 3's open question #2). **The ranked list is still
+Question 39 (blocked on the maintainer), then Question 5's remaining two
+halves** - the GUI-progress half is the cheaper of the two to pick up next
+(source reading again, `internal/gui/sync.go`, before any live run), the
+background-run half needs a product decision first (when does a background
+run trigger without surprising the user or spending quota unasked), closer in
+kind to Question 39 than to a code experiment.
+
+---
+
+**Superseded by the above - Updated 2026-08-11 (autopilot, third update same
+day): Question 41 closed - the second confirming run lost 6 files (one
+paginated section), overturning the first run's clean result and confirming
+the shared-`APIRequestContext` hazard the question existed to rule out. No
+production impact (the override was never wired to a default); nothing
+further planned on that thread. The ranked list is Question 39, then Question
+5 - and Question 39 is Blocked on the maintainer's pick among three
+already-written-up options, so there is no unblocked live-run experiment left
+on this list right now.** Question 5 (is "30s" even tied to discovery, i.e.
+background runs/partial results) has no registered concrete experiment - it
+was explicitly kept low-ranked by the maintainer's 2026-08-03 decision, and
+picking it up means designing the first experiment for it, not running an
+existing one.
 
 **Updated 2026-08-11 (autopilot, second update same day, superseded by the
 above): Question 40's live run landed - empty diff, 349/349 files,

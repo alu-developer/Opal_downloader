@@ -646,6 +646,16 @@ Tag: **friction** (possibly **wrong** if it ever turns out to be a genuine
 discovery loss rather than genuinely-empty courses - that distinction is
 exactly what a fix would need to preserve).
 
+**Update 2026-08-12 (same day, autopilot): confirmed, not just plausible.**
+Question 5's sync-speed cycle (`docs/sync-speed-model.md`) fixed this walk's
+other finding (the silent discovery phase) by printing a line per course as
+it finishes - the live verification run for that fix named both previously-
+unidentified courses directly: `[WS25/26] Programmierung: 0 files` and
+`Helfende DMS: 0 files`. Both are crawled successfully and are genuinely
+empty; this is not a silent partial-discovery loss. The **friction** half of
+this finding still stands (no "8 found, 2 empty" line exists anywhere), but
+the **possibly wrong** half is closed.
+
 #### Ruled out — things that looked like a finding and were not
 
 - *"`status` said 2 days of session validity left; `list` said the session had
@@ -659,11 +669,10 @@ exactly what a fix would need to preserve).
 
 #### New questions this walk leaves (Rule 3)
 
-1. **Are the 2 courses missing from `list`'s summary genuinely content-free, or
+1. ~~Are the 2 courses missing from `list`'s summary genuinely content-free, or
    an undetected instance of this project's known silent-partial-discovery-loss
-   pattern?** Not resolved this walk (see the finding above) - would need the
-   real account's actual OPAL enrollment list (outside this tool entirely) to
-   name which 2 of the 8 are missing and check each by hand.
+   pattern?~~ **Answered 2026-08-12, same day** - see the finding's own update
+   above: genuinely content-free, confirmed live.
 2. **Does the GUI's own `list`/`sync` progress stream (`internal/gui/sync.go`'s
    `jobEvent{Kind: "log", ...}` publishes) actually cover this same ~3-minute
    discovery gap, or does it have the identical blind spot under a different

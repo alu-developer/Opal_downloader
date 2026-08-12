@@ -647,6 +647,7 @@ func collectCourseFilesConcurrently(ctx context.Context, courses []CourseRef, co
 			logging.Warn("Course crawl error: %v", wr.err)
 			continue
 		}
+		timing.PrintCourseProgress(wr.course.Title, len(wr.result.files), wr.elapsed.Elapsed())
 		if onResult != nil {
 			onResult(wr.result.downloadCandidates)
 		}

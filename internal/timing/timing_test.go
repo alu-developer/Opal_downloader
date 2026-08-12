@@ -1,10 +1,35 @@
 package timing
 
 import (
+	"io"
 	"math"
+	"os"
 	"testing"
 	"time"
 )
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("closing pipe writer: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("reading pipe: %v", err)
+	}
+	return string(out)
+}
 
 func almostEqual(a, b float64) bool {
 	return math.Abs(a-b) < 1e-9
@@ -137,6 +162,26 @@ func TestTimerElapsed(t *testing.T) {
 	elapsed := timer.Elapsed()
 	if elapsed <= 0 {
 		t.Fatalf("expected positive elapsed duration, got %v", elapsed)
+	}
+}
+
+// TestPrintCourseProgress_AlwaysOn is a regression test for the
+// friction-campaign Walk 3 finding (docs/friction-campaign.md, 2026-08-11):
+// a real `list` run sat silent for 2m44s during discovery because per-course
+// completion only ever reached PrintProfileLine, which is a no-op without
+// --profile. PrintCourseProgress must print regardless of Profile.
+func TestPrintCourseProgress_AlwaysOn(t *testing.T) {
+	orig := Profile
+	Profile = false
+	defer func() { Profile = orig }()
+
+	out := captureStdout(t, func() {
+		PrintCourseProgress("Analysis", 30, 4200*time.Millisecond)
+	})
+
+	want := "  Analysis: 30 files (4.2s)\n"
+	if out != want {
+		t.Fatalf("PrintCourseProgress output = %q, want %q", out, want)
 	}
 }
 

@@ -2460,6 +2460,37 @@ project already does, or WebDAV-only tools that don't apply to students).
 Either outcome is a valid, useful result — "the field is empty" closes the
 "when ideas run out" list's second move cleanly either way.
 
+**Result (2026-08-12, same day): confirmed, field is empty — no new lead.**
+`gh search repos` for `"OPAL bildungsportal"`, `"opal downloader"`,
+`"opal scraper"`, `"opal sync"`, and `"openolat"` (30-result cap, sorted by
+relevance), plus a web search, turned up exactly one project that is
+genuinely OPAL/Sachsen-scoped and does file retrieval:
+[`spyfly/videocampus-sachsen-downloader`](https://github.com/spyfly/videocampus-sachsen-downloader) —
+a single-URL manual video downloader (paste one `.ts` stream URL you already
+found by hand via the browser's Network tab) with no course/section discovery
+of any kind, so nothing to compare against. Every `"openolat"` repo result is
+either the LMS server codebase itself (mirrors, forks, Docker packaging) or
+unrelated - zero third-party OpenOLAT course-sync/downloader tools exist.
+`"opal sync"`'s one hit (`mariaannagoeschl/opal-sync`) is a same-name
+collision with an unrelated Obsidian notes plugin, exactly the kind of false
+positive the platform's regional niche-ness predicted. `gh search code
+"initial_data" "opal"` hit a transient GitHub search-index 503 (same outage
+class Question 30 hit and worked around) and was not retried, since the repo
+search already answered the actual question - no tool exists to search the
+code *of*.
+
+**Diagnosis, since the result matched the prediction exactly:** the mechanism
+predicted this correctly - OPAL's own regional scope keeps the tool-building
+population too small for a competing implementation to exist, and this
+campaign's own multi-week OpenOLAT source reading (Questions 1/2/9/30/34) was
+always going to out-pace a hypothetical third party for the same reason a
+third party doesn't exist to begin with. **Closes the "when ideas run out"
+list's second move with nothing found.** No new question opened by this one
+specifically - the honest next move, per the list's own remaining item order,
+is back to the maintainer for Question 39/Question 5, or the *first* move
+("read the other side") going deeper than the manuals-plus-`gh search code`
+pass already done, if a future cycle wants to push further rather than wait.
+
 ---
 
 **Superseded by the above - Updated 2026-08-12 (autopilot, third update same

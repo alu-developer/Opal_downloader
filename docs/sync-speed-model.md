@@ -367,7 +367,7 @@ window `SetDeveloperMode(true)` opens, to see with their own eyes whether the
 checkbox column visibly flickers or the click targets something that then
 silently no-ops. Both are cheap; neither was tried this cycle.
 
-### 36. Can the hybrid's phase 1 be seeded from `initial_data` instead of from a full browser tree walk? — OPEN, opened 2026-08-10 by Question 34's answer
+### 36. ~~Can the hybrid's phase 1 be seeded from `initial_data` instead of from a full browser tree walk?~~ Closed 2026-08-11 (decision round): yes — shipped as `OPAL_HTTP_DISCOVERY=2`, now the production default
 
 **This is Question 34's consequence, and it is the largest single structural
 change this campaign has ever had a reason to try.** `scrapeCoursesHybrid`
@@ -919,7 +919,7 @@ ships.** See Question 35's own entry below - `course_concurrency` was never
 wired into `scrapeCoursesHTTPFirst` at all, only into the browser path it
 replaced as the default.
 
-### 37. Does a page the crawl already fetches carry file data the crawl then navigates again to fetch? — OPEN, the unanswered half of Question 34
+### 37. ~~Does a page the crawl already fetches carry file data the crawl then navigates again to fetch?~~ Closed 2026-08-10 (autopilot, no live run): not worth building — see below
 
 Question 34's reuse half, deliberately left for its own cycle after the
 concealed-structure half turned out to be a hit and consumed the budget. The

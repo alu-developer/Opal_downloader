@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -449,6 +451,142 @@ func TestSyncCoursesAbsoluteDefaultCourseFolderLandsOnDisk(t *testing.T) {
 	})
 	if foundUnderDownloadRoot {
 		t.Fatalf("file was written under download_path (%s) instead of the absolute default_course_folder - doubled-path bug regressed", downloadRoot)
+	}
+}
+
+// TestSyncCoursesForwardSlashAbsoluteDefaultCourseFolderLandsOnDisk is the
+// specific interaction walk 1's open question 4 named but left unchecked:
+// does the doubled-path bug TestSyncCoursesAbsoluteDefaultCourseFolderLandsOnDisk
+// guards against (default_course_folder joined onto download_path instead of
+// used directly) resurface for a forward-slash-form absolute
+// default_course_folder specifically, the one convention that test above does
+// not cover. Windows-only for the same reason
+// TestSyncCoursesForwardSlashAbsoluteDownloadPathBehavesLikeBackslash is.
+func TestSyncCoursesForwardSlashAbsoluteDefaultCourseFolderLandsOnDisk(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("forward-slash-vs-backslash is a Windows-only path ambiguity")
+	}
+
+	downloadRoot := t.TempDir()
+	absoluteDefaultFolderBackslash := filepath.Join(t.TempDir(), "Default_downloads")
+	absoluteDefaultFolderForwardSlash := strings.ReplaceAll(absoluteDefaultFolderBackslash, `\`, "/")
+
+	cfg := config.App{
+		DownloadPath:        downloadRoot,
+		DefaultCourseFolder: absoluteDefaultFolderForwardSlash,
+		CourseFolders:       map[string]string{},
+		DownloadConcurrency: 1,
+	}
+	fd := &fakeDownloader{
+		files: []scraper.RemoteFile{{Name: "sheet.pdf", Course: "Analysis I", Path: "sheet.pdf"}},
+	}
+
+	stats, err := SyncCourses(context.Background(), fd, cfg, false)
+	if err != nil {
+		t.Fatalf("SyncCourses returned error: %v", err)
+	}
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected 1 file downloaded, got %d (errors=%d)", stats.Downloaded, stats.Errors)
+	}
+
+	wantPath := filepath.Join(absoluteDefaultFolderBackslash, "Analysis I", "sheet.pdf")
+	if _, statErr := os.Stat(wantPath); statErr != nil {
+		t.Fatalf("expected file at %s, stat failed: %v", wantPath, statErr)
+	}
+
+	var foundUnderDownloadRoot bool
+	_ = filepath.Walk(downloadRoot, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && info.Name() == "sheet.pdf" {
+			foundUnderDownloadRoot = true
+		}
+		return nil
+	})
+	if foundUnderDownloadRoot {
+		t.Fatalf("file was written under download_path (%s) instead of the forward-slash absolute default_course_folder - doubled-path bug regressed for this path convention", downloadRoot)
+	}
+}
+
+// TestSyncCoursesForwardSlashAbsoluteDownloadPathBehavesLikeBackslash answers
+// half of docs/friction-campaign.md walk 1's open question 4: three path
+// conventions (forward-slash absolute, backslash absolute, relative) coexist
+// unremarked-on in the Settings form, and only backslash absolute had been
+// live spot-checked (walk 4). handleSettings (internal/gui/settings.go) does
+// no path normalization at all - whatever string is typed is written to
+// config.yaml verbatim - so the real question is whether the sync machinery
+// downstream (os.MkdirAll, filepath.Join/Clean) treats "C:/a/b" the same as
+// "C:\a\b" on Windows. It does: filepath.Join always cleans through
+// filepath.Separator regardless of the slash direction in its inputs, and
+// Windows' own file APIs accept forward slashes directly, so this is a
+// Windows-specific path-separator question with no Linux equivalent (a
+// forward-slash string is already the native, and only, absolute form
+// there) - hence windows-only rather than skipped-on-CI.
+func TestSyncCoursesForwardSlashAbsoluteDownloadPathBehavesLikeBackslash(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("forward-slash-vs-backslash is a Windows-only path ambiguity")
+	}
+
+	backslashRoot := t.TempDir() // t.TempDir() returns the OS-native (backslash) form on Windows
+	forwardSlashRoot := strings.ReplaceAll(backslashRoot, `\`, "/")
+
+	file := scraper.RemoteFile{Name: "slides.pdf", Course: "Analysis I", Path: "Analysis I/slides.pdf"}
+
+	cfg := config.App{DownloadPath: forwardSlashRoot, DownloadConcurrency: 1}
+	fd := &fakeDownloader{files: []scraper.RemoteFile{file}}
+
+	stats, err := SyncCoursesWithProgress(context.Background(), fd, cfg, false, nil)
+	if err != nil {
+		t.Fatalf("SyncCoursesWithProgress returned error: %v", err)
+	}
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected 1 file downloaded, got %d (errors=%d)", stats.Downloaded, stats.Errors)
+	}
+
+	wantPath := filepath.Join(backslashRoot, "Analysis I", "slides.pdf")
+	if _, statErr := os.Stat(wantPath); statErr != nil {
+		t.Fatalf("expected file at the same location a backslash-form download_path would have used (%s), stat failed: %v", wantPath, statErr)
+	}
+}
+
+// TestSyncCoursesRelativeDownloadPathResolvesAgainstCWD answers the other
+// half of walk 1's open question 4: a relative download_path (the third of
+// the three coexisting conventions, and per internal/syncer/migrate.go's own
+// displayPath comment "usually" what a real config.yaml uses) is resolved by
+// filepath.Abs/os.MkdirAll against the process's current working directory
+// at invocation time - not against the config file's own directory. That
+// matters because CWD differs across this project's three real launch paths
+// (manual CLI from wherever the user `cd`'d, the GUI's shortcut "Start in"
+// setting, and the scheduled task's own working-directory field) in a way
+// none of the other two conventions are sensitive to.
+func TestSyncCoursesRelativeDownloadPathResolvesAgainstCWD(t *testing.T) {
+	cwd := t.TempDir()
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(prevWD); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	}()
+
+	file := scraper.RemoteFile{Name: "slides.pdf", Course: "Analysis I", Path: "Analysis I/slides.pdf"}
+	cfg := config.App{DownloadPath: "scratch-downloads", DownloadConcurrency: 1}
+	fd := &fakeDownloader{files: []scraper.RemoteFile{file}}
+
+	stats, err := SyncCoursesWithProgress(context.Background(), fd, cfg, false, nil)
+	if err != nil {
+		t.Fatalf("SyncCoursesWithProgress returned error: %v", err)
+	}
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected 1 file downloaded, got %d (errors=%d)", stats.Downloaded, stats.Errors)
+	}
+
+	wantPath := filepath.Join(cwd, "scratch-downloads", "Analysis I", "slides.pdf")
+	if _, statErr := os.Stat(wantPath); statErr != nil {
+		t.Fatalf("expected a relative download_path to resolve against the process CWD (%s), stat failed: %v", wantPath, statErr)
 	}
 }
 

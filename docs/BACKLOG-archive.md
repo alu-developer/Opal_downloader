@@ -22,6 +22,34 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **Walk 1's questions 3 and 4 both closed 2026-08-13, neither needing a code
+  change.** Question 4 (do the three `download_path` slash conventions -
+  forward-slash absolute, backslash absolute, relative - behave identically,
+  and does that interact with the known `default_course_folder` doubled-path
+  bug?): walk 4 had already spot-checked backslash absolute; four new
+  real-filesystem tests close the remaining cases
+  (`TestSyncCoursesForwardSlashAbsoluteDownloadPathBehavesLikeBackslash`,
+  `TestSyncCoursesRelativeDownloadPathResolvesAgainstCWD`,
+  `TestSyncCoursesForwardSlashAbsoluteDefaultCourseFolderLandsOnDisk`, all in
+  `internal/syncer/syncer_test.go`) - all pass, no doubling, no divergent
+  behavior. `handleSettings` (`internal/gui/settings.go`) does no path
+  normalization on save at all (whatever string is typed is written to
+  config.yaml verbatim), so this was really a question about
+  `filepath.Join`/`os.MkdirAll` downstream: they already treat forward and
+  backslash identically on Windows, and a relative `download_path` resolves
+  against the process's current working directory at invocation time (worth
+  knowing, not itself a bug - CLI, GUI, and the scheduled task can each have a
+  different CWD). Question 3 (is the 08:00 default schedule time actively
+  hostile to Finding 1's logged-off failure?): moot rather than answered -
+  the code's actual default is `06:00` (`internal/scheduler/scheduler.go`,
+  `DefaultTime`; the maintainer's real config's `08:00` was a hand-set value,
+  not what a fresh install gets), and more importantly Finding 1's own
+  recommended repair (an on-logon catch-up trigger) already shipped
+  2026-08-11 (see this file's own entry below) - it catches the
+  not-yet-logged-on case regardless of what hour the daily trigger fires at,
+  which is a strictly better fix than moving the default later (that would
+  only trade one exposure window for the visible-browser-flash problem
+  `DefaultTime`'s own doc comment picked early morning to avoid).
 - **What a `sync` does with a `download_path` that goes bad *mid-run* (walk
   1's follow-up) — closed 2026-08-13, neither "fails clearly" nor "appears to
   succeed".** `status` already catches a path broken before a sync starts;

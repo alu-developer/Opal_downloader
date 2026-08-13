@@ -70,12 +70,6 @@ maintainer. Walk detail, expectations and named causes:
 - **The installer surface is still unwalked by the campaign proper.** The
   2026-08-11 installer work was engineering verification with full knowledge
   of the code, so none of it counts as a persona walk.
-- **Walk 1's questions 3 (is the 08:00 default schedule time hostile to the
-  logged-off failure) and 4 (do the three `download_path` slash conventions
-  behave identically) are still open.** Walk 4 spot-checked one convention
-  (backslash absolute) and it round-tripped correctly through Settings; the
-  other two, and any interaction with the known `default_course_folder`
-  doubled-path bug, are unchecked.
 
 ---
 

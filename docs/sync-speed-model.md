@@ -203,6 +203,72 @@ before touching any code. The policy half needs no live run at all and can be
 decided from the answer: a negative manifest entry with a retry-backoff would
 cap the cost of *any* future failure class at a bounded price, not just this one.
 
+**Step B result (2026-08-13, autopilot, live): the pagination prediction is
+REFUTED, and the real trigger is narrower and stranger than "which folder" -
+it needs the full multi-course concurrent run to appear at all.**
+
+Three live experiments, in order (`internal/scraper/htmlfailure_probe_test.go`,
+gated `OPAL_HTMLFAILURE_PROBE=1`):
+
+1. `TestHTMLFailureProbe` - discovered Softwaretechnologie alone, then called
+   `DownloadFile` **sequentially** on all 48 Part-3 files. **0/48 failed.**
+   Every one succeeded via the fast counter-refresh path
+   (`fast-path-refresh-hit`), none needed the browser-click fallback at all,
+   and none of the 48 recorded candidates had a non-empty `ShowAllURL`/
+   `ExpandedPageURL` - i.e. this run never even needed "show all" to see them.
+   That alone refutes the registered prediction: there is no page/expansion
+   visibility problem here to fix.
+2. `TestHTMLFailureProbeConcurrent` - same 48 files, same course, but through
+   a 3-worker pool (matching `config.yaml`'s real `download_concurrency: 3`),
+   testing whether concurrent access to *the same section page* was the
+   trigger (this campaign's own established "OPAL serialises the session
+   server-side" finding, seen elsewhere in the HTTP-parallel-fetch numbers
+   above). **Still 0/48 failed.** Same-page concurrency alone does not
+   reproduce it either.
+3. A real `main.exe sync` against all 6 courses, `--debug-clicks`, scratch
+   `download_path`, unmodified `download_concurrency: 3` - the actual
+   production code path, run to completion. **Reproduced the finding exactly:
+   `downloaded=300 skipped=0 errors=49`, and the 49 broke down 33 Part-3 / 6
+   Part-1 / 4 Part-2 / 6 Algorithmen-Vorlesung - the identical distribution
+   this file already had on record from 2026-08-11 and 2026-08-12.** Not
+   close, not similar: pixel-identical counts, from a run that (being a first
+   run against an empty scratch path) touched none of the same manifest state
+   as the earlier two measurements. Reading the audit trail around the first
+   failure (`Algorithmen und Datenstrukturen/Vorlesung`, ~27s into the
+   download phase - not a late-run degradation, it starts almost immediately)
+   shows the section's URL being **re-fetched multiple times in quick
+   succession under different Wicket container ids** (`...Vorlesung?1065`
+   then `...Vorlesung?1109` within about 20 seconds) before the
+   click-behavior invoke for the earlier container fails to find its link and
+   falls through to the timeout-bound browser fallback.
+
+**What this narrows the question to.** Not "which folder" (Part-3 is not
+special - my isolated 48/48 replay of exactly that folder never failed) and
+not "concurrency" in the raw sense already tested (3 workers on one page is
+fine). The one condition every failing run shares and every clean replay
+lacks is *the full job queue's mixed concurrent traffic against one shared
+server-side session over the run's full multi-minute length* - which
+predicts the mechanism is concurrent requests landing on **different**
+section pages under the same session, not the same page repeated. A
+session that only tracks one live Wicket container at a time server-side
+would explain exactly this shape: whichever worker's container gets
+superseded by another worker's fresh GET (of a *different* page) before it
+finishes its own click-invoke loses its link, retries into the same
+collision, and eventually times out.
+
+**Next, decisive, cheap step already running as of this update:** rerun the
+same scratch sync with `download_concurrency: 1`. Because the first run's
+300 successes are already in that scratch manifest, this retry only
+re-attempts the 49 that failed - a few dozen files instead of 349, not
+another 18-minute run. *Prediction:* if the cross-page-concurrency hypothesis
+is right, most or all 49 succeed serially, the same way all 48 Part-3 files
+already succeeded in isolation above. *Refuted if:* the same files still fail
+one at a time with nothing else running concurrently - which would mean the
+cause is not concurrency at all, and something else about the full 6-course
+run (a specific navigation sequence, accumulated session/cookie state, or
+literally the file count/order) is the real trigger. Result to be appended
+below once it finishes.
+
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 
 **Why this is a live lever and not old ground.** Every question on this list so

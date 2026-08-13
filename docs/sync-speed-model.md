@@ -305,6 +305,46 @@ real trigger is something else entirely (a property of these specific
 folders/files themselves, unrelated to timing or concurrency). Result to be
 appended below once it finishes.
 
+**Result (2026-08-13, autopilot, live): REFUTED again, cleanly.**
+`course_concurrency: 1` *and* `download_concurrency: 1` together (fully
+serial discovery, fully serial downloads, nothing concurrent anywhere in the
+whole run) still reproduced the identical 49 failures, the identical
+33/6/4/6 breakdown. **Both concurrency axes this project controls are now
+ruled out for this failure**, closing off the entire family of explanations
+this question chased across three live experiments (same-page concurrent
+download, cross-page concurrent download, cross-course concurrent
+discovery). Whatever distinguishes a clean run from a failing one, it is not
+speed or ordering-under-contention.
+
+**What is left standing, stated precisely.** Across five live experiments
+now, exactly one variable has ever correlated with the outcome: whether the
+session, in total, discovers *only* the course containing the target
+folder, or discovers the *full configured course list*. Every single-course
+discovery (both isolated Part-3 probes) came back 0/48. Every run that
+discovered all 6 configured courses (the original full sync, the
+concurrency=1 retry, the course_concurrency=1 retry) came back with the
+identical 49. Concurrency was the first, obvious candidate for "what changes
+between narrow and broad discovery" and is now excluded on both axes -
+which leaves *breadth itself* (how many distinct sections/pages one session
+visits before reaching these files) as the standing hypothesis, via
+whatever server-side per-session Wicket bookkeeping that implies (a
+page-instance cap, an eviction policy, or something ID-space-related) -
+still unconfirmed, but no longer competing with a concurrency explanation.
+
+**New decisive step, running live as of this update:** rerun with only the
+two affected courses (`Algorithmen und Datenstrukturen`,
+`Softwaretechnologie (SoSe 26)`) in `courses:` - cutting session breadth
+from 6 courses/~349 files down to 2/~248 without touching either
+concurrency setting (left at 1/1, already proven inert). *Prediction:* if
+breadth itself (not "all 6 specifically") is what matters, the same 49
+still fail, since discovering *two* courses is still meaningfully broader
+than the single-course probes that came back clean - this is the sharper,
+cheaper way to test breadth-as-such before trying to find where the
+threshold sits. *Refuted if:* the 49 now succeed with only 2 courses
+discovered, which would say the trigger is not raw breadth but something
+tied to the presence of the *other* 4 courses specifically (a stranger,
+more specific hypothesis with no candidate mechanism yet). Result to follow.
+
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 
 **Why this is a live lever and not old ground.** Every question on this list so

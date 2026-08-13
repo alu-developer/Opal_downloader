@@ -152,6 +152,95 @@ func (f *fakeDownloader) DownloadFile(fileURL, localPath string) error {
 	return os.WriteFile(localPath, []byte("fake-content"), 0o644)
 }
 
+// pathGoesUnwritableAfterFirstDownloader wraps a fakeDownloader to answer
+// the open backlog question ("what does a sync do with an unwritable
+// download_path?") for the half that question left unmeasured: not a path
+// that is already broken before the sync starts (SyncCoursesWithProgress's
+// own os.MkdirAll(cfg.DownloadPath, ...) already fails loudly for that, and
+// `status` catches it earlier still - see TestRunStatus_FlagsUnwritableDownloadPath),
+// but one that goes bad *mid-sync* - a removable drive unmounted, a OneDrive
+// folder renamed, mid-run. After the first successful download it places a
+// regular file where every subsequent job's course subfolder needs to be a
+// directory, so each later os.MkdirAll (syncer.go's per-file one) fails with
+// a real OS error rather than an injected one.
+type pathGoesUnwritableAfterFirstDownloader struct {
+	*fakeDownloader
+	succeeded int32
+}
+
+func (d *pathGoesUnwritableAfterFirstDownloader) DownloadFile(fileURL, localPath string) error {
+	if atomic.LoadInt32(&d.succeeded) >= 1 {
+		// syncer.go's own per-job os.MkdirAll (syncRemoteFiles's job-building
+		// loop) already ran for every job, including this one, before any
+		// download started - so the directory this file needs already
+		// exists. To simulate the path going bad *mid-sync* rather than
+		// before the sync even began, replace that already-created
+		// directory with a blocking file right before the write, the same
+		// way TestRunStatus_FlagsUnwritableDownloadPath blocks a directory
+		// that never existed - a directory genuinely cannot be created (or,
+		// here, written into) where a regular file sits.
+		blockerDir := filepath.Dir(localPath)
+		_ = os.RemoveAll(blockerDir)
+		_ = os.WriteFile(blockerDir, []byte("blocked"), 0o644)
+	}
+	err := d.fakeDownloader.DownloadFile(fileURL, localPath)
+	if err == nil {
+		atomic.AddInt32(&d.succeeded, 1)
+	}
+	return err
+}
+
+// TestSyncCoursesWithProgress_DownloadPathGoesUnwritableMidSync answers
+// docs/BACKLOG.md's open finding ("What a *sync* does with an unwritable
+// download_path" - does it fail clearly or appear to succeed, for a path
+// that goes bad *between* the pre-sync check and the sync finishing).
+//
+// Result: neither, cleanly. SyncCoursesWithProgress's top-level return is
+// nil - it does not abort the run - but it is not silent either: every
+// blocked file is individually counted into stats.Errors and reported via
+// printSyncError/EventError, so the caller sees exactly how many and which.
+// The remaining, once-broken course folders are retried file-by-file rather
+// than the run recognising "the whole path just died" and stopping early -
+// each retry fails the same way and costs one more MkdirAll/EventError, not
+// a hang or a crash. This is the same shape cmd/opal-downloader/root.go
+// already gives every per-file failure (a flaky single download included),
+// which callers turn into distinct outcomes: `sync --scheduled` classifies
+// stats.Errors>0 as statuslog.OutcomePartial (never a failure toast - see
+// runSync's "notification fatigue" comment), and the last-sync status file
+// is written unconditionally for *every* run, scheduled or not, so a plain
+// interactive `sync`'s GUI/status-file record shows "Synced with N file
+// error(s)" too. What does NOT reflect it: the plain interactive `sync`
+// command's own process exit code, which stays 0 - unlike `--full-sync`,
+// which does return an error (and thus a non-zero exit) when stats.Errors>0.
+func TestSyncCoursesWithProgress_DownloadPathGoesUnwritableMidSync(t *testing.T) {
+	downloadRoot := t.TempDir()
+	cfg := config.App{
+		DownloadPath:        downloadRoot,
+		DownloadConcurrency: 1, // deterministic processing order
+	}
+
+	fd := &pathGoesUnwritableAfterFirstDownloader{
+		fakeDownloader: &fakeDownloader{
+			files: []scraper.RemoteFile{
+				{Name: "a.pdf", Course: "Course A", Path: "Course A/a.pdf"},
+				{Name: "b.pdf", Course: "Course B", Path: "Course B/b.pdf"},
+				{Name: "c.pdf", Course: "Course C", Path: "Course C/c.pdf"},
+			},
+		},
+	}
+
+	stats, err := SyncCoursesWithProgress(context.Background(), fd, cfg, false, nil)
+	if err != nil {
+		t.Fatalf("expected SyncCoursesWithProgress to return nil despite mid-sync per-file failures (it does not treat this as fatal), got: %v", err)
+	}
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected exactly the first file to succeed before the path broke, got Downloaded=%d", stats.Downloaded)
+	}
+	if stats.Errors != 2 {
+		t.Fatalf("expected the two files behind the now-blocked path to be individually counted as errors, got Errors=%d", stats.Errors)
+	}
+}
+
 func TestResolveRemoteTargetPath(t *testing.T) {
 	file := scraper.RemoteFile{Name: "sheet.pdf", Course: "Analysis I"}
 

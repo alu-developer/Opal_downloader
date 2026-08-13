@@ -22,6 +22,37 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **What a `sync` does with a `download_path` that goes bad *mid-run* (walk
+  1's follow-up) — closed 2026-08-13, neither "fails clearly" nor "appears to
+  succeed".** `status` already catches a path broken before a sync starts;
+  this answered the other half - a path (or one course's subfolder) that goes
+  bad *after* the sync has already begun, e.g. a removable drive unmounted or
+  a OneDrive folder renamed mid-run. Confirmed with a real-filesystem test
+  (`TestSyncCoursesWithProgress_DownloadPathGoesUnwritableMidSync`,
+  `internal/syncer/syncer_test.go`) rather than injected fake errors: after
+  the path breaks, every remaining file is retried individually and fails the
+  same way - no hang, no crash, no early abort - and each is counted into
+  `stats.Errors` and reported via `printSyncError`/`EventError`.
+  `SyncCoursesWithProgress`'s own return is `nil` regardless - it never
+  treated per-file failures as fatal, mid-sync-path-death included. That nil
+  is not silence, though: the last-sync status file is written
+  unconditionally for *every* run (scheduled or not - see `runSync`'s own
+  comment), so a plain interactive `sync` gets a "Synced with N file
+  error(s)" record in `status`/the GUI the same as a scheduled one does,
+  classified `OutcomePartial`. The one real gap: the plain interactive `sync`
+  command's own **process exit code** stays 0 even when every remaining file
+  failed - `--full-sync` already returns an error (and a non-zero exit) when
+  `stats.Errors > 0`, `sync` does not. Deliberately not changed to match: the
+  same `err` also drives `sync --scheduled`'s status classification, and its
+  own comment explains partial file errors are treated as routine by design
+  (no failure toast, to avoid notification fatigue on a flaky download) - a
+  change that made `err` non-nil on `stats.Errors > 0` would flip the
+  scheduled classification from `OutcomePartial` to `OutcomeFailure` and
+  start toasting on routine hiccups, which is what the maintainer explicitly
+  didn't want. If this needs revisiting, it is a request to *decide*
+  (accept a script that checks `sync`'s exit code seeing 0 on 100% file
+  failure, or add a second signal decoupled from the scheduled classification)
+  rather than a bug to silently fix.
 - **The GUI process's ~5-minute exit was an artefact of how agents launched
   it, not a bug users can hit — closed 2026-08-12 by the one test no agent
   could run.** Walk 1 saw the GUI process die ~5 minutes after launch; across

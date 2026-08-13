@@ -269,6 +269,42 @@ run (a specific navigation sequence, accumulated session/cookie state, or
 literally the file count/order) is the real trigger. Result to be appended
 below once it finishes.
 
+**Result (2026-08-13, autopilot, live): REFUTED. `download_concurrency: 1`
+against the same scratch manifest (retrying only the 49 failures) reproduced
+all 49, in the exact same 33/6/4/6 breakdown, with zero concurrent download
+traffic.** Download-side concurrency has no effect at all on this failure -
+raw at 3, still failing one at a time at 1. That rules out the whole
+"concurrent access, same or different page" family of explanations this
+question chased first. The remaining, sharper difference between every
+clean isolated replay (0/48, always a single-course discovery filter) and
+every failing run (49/49 stable, always the real `courses:` list - all 6)
+is **discovery breadth**: every failing run's session first visits every
+section of all 6 courses before any download is attempted; every clean
+probe's session only ever saw one course. `config.yaml`'s
+`course_concurrency: 2` governs exactly that discovery phase, and this
+project already has a confirmed precedent for it corrupting shared
+per-session server state at OPAL - Question 41 closed 2026-08-11 as a no-go
+after `OPAL_HTTP_COURSE_CONCURRENCY_OVERRIDE=2` silently dropped 6 files in
+`Algorithmen und Datenstrukturen/Vorlesung` on its second confirming run.
+Question 41's failure mode was *files going missing from discovery*; this
+one is *files being discovered correctly but failing to download later* -
+different symptoms, but "concurrent course discovery corrupts shared
+per-session Wicket/HTTP state" would explain both, and the fact that
+`Algorithmen und Datenstrukturen/Vorlesung` is a repeat name between the two
+findings is a real coincidence worth taking seriously, not a coding one.
+
+**New decisive step, running live as of this update:** rerun with
+`course_concurrency: 1` (serial discovery), `download_concurrency: 1`
+unchanged. *Prediction:* if discovery-time course concurrency is the actual
+cause, the same 49 files now succeed (or a materially different set/count
+fails, showing the specific files were never the real invariant - only "some
+files near a concurrent-discovery race" were). *Refuted if:* the identical
+33/6/4/6 set fails again with discovery fully serial too - which would mean
+neither axis of concurrency this campaign controls is the cause, and the
+real trigger is something else entirely (a property of these specific
+folders/files themselves, unrelated to timing or concurrency). Result to be
+appended below once it finishes.
+
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 
 **Why this is a live lever and not old ground.** Every question on this list so

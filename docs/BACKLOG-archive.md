@@ -465,6 +465,23 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **`discoverSectionsHTTP` (HTTP-first discovery, the default sync path since
+  2026-08-11) now logs the structural section-type skips it was silently
+  discarding** (2026-08-13, autopilot, weekly-review Part B finding). The
+  browser path (`crawl.go`) has always logged every enrollment/Einschreibung
+  node it skips via `logging.Detail`, with a comment stating the reason
+  plainly: "Auditable, not silent." `discoverSectionsHTTP`
+  (`internal/scraper/httpdiscovery_seed.go`) skipped the identical node class
+  in two places - the tree-seed loop, and the `appendSectionFolderTargets`
+  call whose `[]skippedSection` return value was discarded with `_` - and
+  logged neither. No files were ever lost (these nodes never hold files), but
+  the audit trail this project built specifically for this class of skip was
+  silently absent on the path everyone now runs by default. Both sites now
+  call the same `logging.Detail` line the browser path uses, verbatim. Build,
+  vet, and the full test suite (including the existing
+  `TestDiscoverSectionsHTTPSkipsNonFileSectionAtSeed`, which already covers
+  the functional skip and is unaffected) all green; no live run needed since
+  this only adds a log line to an already-tested code path.
 - **Real per-file download errors no longer leak raw Playwright internals to
   the CLI's stdout or the GUI's live `/sync` log** (2026-08-12, friction
   campaign walk 5's finding). `internal/scraper/download.go`'s browser-

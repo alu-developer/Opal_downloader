@@ -50,26 +50,14 @@ certainly hit this same lock and had nothing to show for it. Not fixed here
 pass's call) — the maintainer should look at PID 14804 / that worktree
 directly. `internal/synclock` is working as designed (a genuinely-alive PID is
 correctly not reclaimed); the actual problem is whatever is inside that run
-that isn't finishing or reporting progress.
-
-**`internal/scraper/httpdiscovery_seed.go`'s `discoverSectionsHTTP` skips
-non-file sections silently — the browser path logs the same skip.** Found by
-this pass's Part B code review (window `bbc782d..07a7d0d`, 90 commits). The
-browser crawl path (`crawl.go` line ~207-219, `appendSectionFolderTargets`)
-explicitly logs every section it skips as structurally file-less (OPAL
-enrollment/Einschreibung nodes) via `logging.Detail(...)`, with a comment
-saying plainly "Auditable, not silent." `discoverSectionsHTTP` — the function
-HTTP-first discovery uses, HTTP-first having been the default sync path since
-2026-08-11 — skips the same class of node in two places (the tree-seed loop
-at line 128-135, and the `appendSectionFolderTargets` call at line 195) and
-logs neither: the tree-seed skip has no logging call at all, and line 195
-discards the call's `[]skippedSection` return value with `_`. No files are
-lost (enrollment nodes never hold files), but the audit trail this project
-built specifically because "skips must be auditable, not silent" is silently
-absent on the path everyone now runs by default. Cheap fix: thread the
-discarded `skipped` slice at line 195 through to a caller-supplied logger the
-same way `onSectionError`/`onSectionVisited` already are, and log the
-tree-seed loop's own skip the same way.
+that isn't finishing or reporting progress. **Update, later the same run:**
+the lock has since moved on its own — `sync.lock` now shows a fresh short-lived
+PID (last checked: 45516, started 12:05:20Z, itself already succeeded PID
+54224 at 11:59:15Z), so PID 14804 did eventually finish and release the lock
+rather than staying wedged forever. Worth a look at what it actually did
+(`.claude/worktrees/suspicious-pare-359a30`'s own history/RESUME.md, if still
+present) rather than urgent intervention — but still unconfirmed *why* it ran
+5.5+ hours for what should have been a much shorter step.
 
 ---
 

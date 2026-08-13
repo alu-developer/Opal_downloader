@@ -1,6 +1,10 @@
 package scraper
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/alu-developer/opal-downloader/internal/logging"
+)
 
 // This file is the production form of docs/sync-speed-model.md Question 36
 // Step B2: seeding a course's section set from its root page's initial_data
@@ -131,6 +135,9 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 			// re-offer it - mirrors appendSectionFolderTargets's own
 			// bookkeeping for the same case.
 			queued[k] = struct{}{}
+			// Auditable, not silent - same reasoning and same log line as
+			// the browser path's identical skip in crawl.go.
+			logging.Detail("Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)", n.Title, n.URL)
 			continue
 		}
 		queued[k] = struct{}{}
@@ -192,7 +199,13 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 		if showAllCandidates != nil {
 			expandCandidates = append(append([]map[string]string(nil), candidates...), showAllCandidates...)
 		}
-		queue, _ = appendSectionFolderTargets(queue, queued, visited, expandCandidates, opalURL, course.RepoID, current, course.URL, course.Title, sectionTitles, skipNonFileSections)
+		var skipped []skippedSection
+		queue, skipped = appendSectionFolderTargets(queue, queued, visited, expandCandidates, opalURL, course.RepoID, current, course.URL, course.Title, sectionTitles, skipNonFileSections)
+		for _, sk := range skipped {
+			// Auditable, not silent - see appendSectionFolderTargets's doc
+			// comment and crawl.go's identical logging for the browser path.
+			logging.Detail("Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)", sk.Title, sk.URL)
+		}
 	}
 
 	return files, requests, downloadCandidates, nil

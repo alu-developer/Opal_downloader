@@ -22,6 +22,21 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **`sync.lock` held 5.5+ hours by PID 14804 (worktree
+  `suspicious-pare-359a30`) on 2026-08-13 — closed, self-resolved, root cause
+  of the *duration* unconfirmed and not further pursued.** `internal/synclock`
+  worked as designed throughout: the PID was genuinely alive the whole time
+  (never a stale holder to reclaim), and the lock released on its own once
+  that run finished — confirmed cleared by 2026-08-14 (`sync.lock` absent).
+  What was never confirmed: why that particular run took 5.5+ hours for what
+  this file's own Next section frames as a short live step. No trail survived
+  to answer it — `suspicious-pare-359a30`'s `docs/RESUME.md` is still the
+  placeholder, its last commit (`4980552`, 2026-08-12, already merged to
+  master) predates the incident, and no diagnostic log from that run was
+  found in the worktree. Treated as a dead end rather than reopened: nothing
+  left to read. If a run wedges the lock for hours again, check
+  `Get-Process` on the holder PID immediately (don't wait — this is what
+  would have caught it live) rather than reasoning about it after the fact.
 - **Walk 1's questions 3 and 4 both closed 2026-08-13, neither needing a code
   change.** Question 4 (do the three `download_path` slash conventions -
   forward-slash absolute, backslash absolute, relative - behave identically,

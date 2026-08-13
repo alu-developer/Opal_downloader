@@ -29,35 +29,9 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 
 ## Now
 
-**`sync.lock` has been held for 5.5+ hours by a stuck live run, blocking every
-sync/list/login on the account.** Found 2026-08-13 by the weekly-review pass's
-Part C attempt: `main.exe list --config config.yaml` with
-`OPAL_HTTP_DISCOVERY=verify` failed immediately with `Error: a sync is already
-running (PID 14804, started at 2026-08-13T06:25:32Z)`. `~/.opal-downloader/sync.lock`
-confirms the same PID/timestamp; `Get-Process -Id 14804` confirms it is
-genuinely still alive (not a stale/crashed holder `internal/synclock` would
-have reclaimed) — `main.exe` in worktree
-`.claude/worktrees/suspicious-pare-359a30`, running since 08:25:32 local with
-no sign of stopping. That worktree's own `docs/RESUME.md` still reads the
-placeholder ("_Nothing in flight._"), so whatever it launched (most likely
-Question 44's "open one Part-3 file in the visible browser" live step, named
-in this file's own Next section as "in progress 2026-08-13, blocked mid-attempt
-... retry once it clears") left no checkpoint. Corroborating evidence: the
-`opal-downloader-autopilot` routine's own schedule shows a run at 11:49:53
-today with no new commit since 08:35:38 — its most recent cycle almost
-certainly hit this same lock and had nothing to show for it. Not fixed here
-(out of scope for this pass, and killing another session's process isn't this
-pass's call) — the maintainer should look at PID 14804 / that worktree
-directly. `internal/synclock` is working as designed (a genuinely-alive PID is
-correctly not reclaimed); the actual problem is whatever is inside that run
-that isn't finishing or reporting progress. **Update, later the same run:**
-the lock has since moved on its own — `sync.lock` now shows a fresh short-lived
-PID (last checked: 45516, started 12:05:20Z, itself already succeeded PID
-54224 at 11:59:15Z), so PID 14804 did eventually finish and release the lock
-rather than staying wedged forever. Worth a look at what it actually did
-(`.claude/worktrees/suspicious-pare-359a30`'s own history/RESUME.md, if still
-present) rather than urgent intervention — but still unconfirmed *why* it ran
-5.5+ hours for what should have been a much shorter step.
+_Nothing currently blocking a sync/list/login on the account — checked
+2026-08-14: `~/.opal-downloader/sync.lock` does not exist. The 2026-08-13
+5.5-hour hold is closed, see `docs/BACKLOG-archive.md`._
 
 ---
 

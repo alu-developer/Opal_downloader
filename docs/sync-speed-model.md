@@ -165,7 +165,7 @@ Re-ranked 2026-08-12 with the target redefined. Leverage now means *seconds off
 discovery-internal question below it — none of those can win more than the ~50s
 discovery costs in total.
 
-### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); narrowed 2026-08-13 by five live experiments to "two-or-more-course session, not concurrency" — cause of the multi-course trigger still unconfirmed, policy half still undecided
+### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); narrowed 2026-08-13 by six live experiments to "two-or-more-course session, not concurrency", and confirmed folder-independent-of-pairing for the two largest failing folders (Part-3, Part-1) via a second, different course pairing — cause of the multi-course trigger and Part-2's inconsistency both still unconfirmed, policy half still undecided
 
 **The finding.** A no-op sync spends 1097.1s downloading zero files. All of it
 is 49 files failing the same way: the direct GET returns HTML, the browser
@@ -391,6 +391,38 @@ specifically failing folders on both sides of a pairing that reinforce each
 other). Either result is decisive and cheap (2-course discovery, retry-only
 against the existing scratch manifest, as this cycle's runs already show
 take well under the original 349-file/19-minute scale).
+
+**Result (2026-08-13, later autonomous cycle, live): mostly "any second
+course", with one genuine wrinkle.** Paired `Analysis` with
+Softwaretechnologie instead of Algorithmen (fresh scratch manifest, first
+run - 201 downloaded, 0 skipped): **Part-3 (33) and Part-1 (6) failed
+identically to every prior pairing - 39 of the same files, by name.** That
+confirms "any second course triggers it" for the two largest, most
+consistently fragile folders, ruling out "Algorithmen specifically matters"
+for the bulk of the finding. The wrinkle: **Part-2's 4 failures, present in
+every Algorithmen-paired run so far, did not reproduce this time - Part-2
+downloaded cleanly.** So it is not a uniform "crossing any course boundary
+breaks all of Softwaretechnologie's fragile folders" rule either - Part-1
+and Part-3 are robustly fragile across at least two different pairings,
+Part-2 is not. The live variable that differs between this run and the Algorithmen-paired
+runs, beyond which course it is: how large/complex that other course's own
+discovery is. Algorithmen has 38 files across several sections, including
+its own paginated `Vorlesung` (itself one of the 49 original failures);
+Analysis's own file count was not specifically logged this run. That leaves
+open whether it is "which course" or "how much that course's own discovery
+adds to the session" that decides Part-2's fate - not chased further this
+cycle, since the headline result (Part-3/Part-1 reproduce with a completely
+different pairing) is the one this experiment was actually testing, and it
+answered cleanly. Part-2's inconsistency is a new, smaller open thread, not
+grounds to keep pulling on the same run's back.
+
+**Next open thread, not yet run:** in every run so far, `courses:` has
+listed the *other* course before Softwaretechnologie (Algorithmen first,
+then Analysis first, Softwaretechnologie always last) - so discovery order
+has never actually been varied independently of which course is paired.
+Reversing the order (Softwaretechnologie discovered first, the other course
+second) on an already-tested pairing would cleanly separate "which second
+course" from "which course is discovered first."
 
 **Policy half, unblocked by any of the above (Question 44's own original
 framing) and still not decided:** today's answer to "what should a sync do

@@ -72,11 +72,13 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 3 (first run from zero), cycling back.** Walk 1 was the GUI,
-walk 2 the CLI, walk 3 first-run-from-zero, walks 4 and 5 the GUI again (two
-concurrent sessions picked it independently before either had a result), walk
-6 the CLI again — GUI has had three looks, CLI two, first-run-from-zero one;
-first-run needs the next look.
+**Next surface: 2 (CLI), cycling back.** Walk 1 was the GUI, walk 2 the CLI,
+walk 3 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent
+sessions picked it independently before either had a result), walk 6 the CLI
+again, walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
+covered: walk 3 only exercised the CLI build+`list` path from a fresh clone,
+never `gui`'s own zero-config first load) — GUI has had four looks, CLI two,
+first-run-from-zero two; CLI is due.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -1025,3 +1027,134 @@ real task's trigger list was already the finding.
    anyway (accepting the `git clean`/branch-switch risk), or is refusing
    outright the correct hard line? Not answered this walk - a product
    question, not a code one.
+
+### Walk 7 — 2026-08-13, first run from zero (autopilot, phase 2), GUI angle
+
+Rotation said first-run-from-zero next (walk 6's own updated line), which the
+walk log confirmed was accurate this time - GUI three looks, CLI two,
+first-run one. But walk 3 already did a thorough first-run pass for the CLI
+build+`list` path; repeating that would violate Rule 3 ("finding nothing
+usually means I walked where I already knew the answer"). Walk 3 never
+touched `gui`'s own zero-config first load - the README's "Quick Start (Web
+UI)" section calls the web UI "the primary, recommended way to use
+opal-downloader" and specifically promises the Settings page bootstraps a
+missing `config.yaml` with sensible defaults. That claim had never been
+walked. `sync.lock` was free for this walk's whole duration (checked before
+and after; a concurrent live session held it briefly for an unrelated
+sync-speed experiment but released it before this walk needed anything live),
+though nothing here needed it anyway - see below.
+
+**Scratch setup, green per "Breaking things safely."** Built current master
+(`go build -o main.exe .`), created an empty `tmp/friction-gui-zero/` (no
+`config.yaml`, no session state - true zero, not `tmp/friction/`'s "existing
+config, redirected" recipe), and ran `main.exe gui --port 8791` with that
+empty directory as the working directory, so config/session resolution has
+nothing of the real setup to find.
+
+**Expectation registered before opening it:** per the README, a first load
+with no `config.yaml` should show a setup/bootstrap experience - pre-filled
+defaults on Settings, no error, and since this environment has never synced
+or logged in anything, no page should claim otherwise.
+
+**Tooling note, not a product finding:** `computer{action:"screenshot"}` and
+coordinate-based clicks failed in this session ("Browser pane is not
+displayed") - worked around with `read_page`/`get_page_text` for verification
+and `javascript_tool`'s `.click()` for the one button (`Save settings`) that
+wasn't reachable through `read_page`'s interactive filter (a `type="submit"`
+button apparently outside what that filter surfaces). Logged per Rule 4 even
+though it's an environment quirk, not the product, matching walk 3's own
+precedent for tooling breaks.
+
+#### Finding — a fresh setup silently reuses whatever OPAL login already exists on the machine, skipping the promised "log in once" step
+
+The landing page's own copy states the plan up front: *"What you'll do once:
+... Log in to OPAL once. Your login stays on this computer."* Bootstrapped a
+`config.yaml` through Settings exactly as README describes (left every field
+at its pre-filled default, including `download_path: ./downloads`, clicked
+**Save settings**, got `Saved.`) - no login of any kind was performed in this
+scratch setup. The very next landing-page load read: `Logged in, valid until
+Sun 16 Aug, 13:59 (2 days left).`
+
+**Cause, named sharply enough to predict where else it shows up.**
+`internal/config.DefaultStateFile = "~/.opal_storage_state.json"` - one fixed
+path under the user's home directory, applied whenever `session_state_file`
+is left unset. Not just a fallback: Settings' save path writes this exact
+literal string into every newly-bootstrapped `config.yaml` (confirmed - the
+scratch config.yaml on disk has `session_state_file:
+~/.opal_storage_state.json` written out, not left absent), so it is the
+*standing* default for every fresh setup, not an edge case. Because that path
+already held a valid, real login (this machine's own real usage), the new
+setup inherited it wholesale - no browser window opened, no login step ran,
+nothing on the page distinguishes "you just logged in" from "this reused
+whatever was already sitting at a fixed shared path." Predicts the identical
+outcome for: reinstalling on a machine that was used before, testing a second
+OPAL account on one Windows profile, or (this project's own routine
+situation) a second worktree pointed at its own fresh `config.yaml` while an
+earlier worktree already completed a login - all share nothing except that
+one unscoped path. This is a different mechanism from the already-filed
+global-status-file findings (walk 1's Finding 1, walk 6): those are read-only
+reporting artifacts going stale; this is the actual authentication identity a
+"first-time" setup silently starts using. Tag: **wrong** - the page states
+"log in once" as the plan and then never does it, without saying so.
+
+*Not tested further, on purpose:* clicking "Sync now" from this state would
+have exercised a real, live sync using the maintainer's real session - safe
+in principle (`download_path` was scratch-scoped) but unnecessary, since the
+finding was already fully demonstrated by the offline session-validity read
+alone (the same offline claimed-expiry check walk 3 already established
+`status`/the landing page use, not a live OPAL round-trip - confirmed by
+source, no network call observed). Left undone rather than run for
+completeness.
+
+#### Finding — the same first-run landing page shows a stale, unrelated "Last sync" line directly under its own "First time here?" message
+
+Before any config existed (the very first load, before Settings was ever
+saved), the landing page read, in order: `First time here? This sets your
+download folder and picks the courses to sync.` immediately followed by
+`Last sync: 33 minutes ago – 49 file(s) failed.` Reproduced on a second load
+a minute later (`34 minutes ago`, same `49 file(s) failed`) - stable, not a
+one-off render glitch.
+
+**Cause, source-confirmed (`internal/gui/gui.go`).** The two lines come from
+independent, differently-scoped sources on the same render:
+`SetupNeeded`/`SyncBlockedReason` (the "First time here?" line) come from
+`config.Load(s.configPath)` failing - correctly scoped to *this* setup's
+config path. `LastSyncKnown`/`LastSyncWhen`/`LastSyncDetail` (the "Last sync"
+line) come from `readLastSyncFunc` = `statuslog.ReadLastSyncDefault` - a
+fixed global path, unrelated to `s.configPath`, already named by this
+campaign as the root cause of walk 1's Finding 1 (the schedule banner) and
+the "Optional, not a commitment" backlog entry. This walk confirms the same
+mechanism reaches a second surface: not just a banner about the *scheduled
+task*, but the landing page's own headline claim about *this setup's* last
+sync, shown while the page is simultaneously telling the same user they have
+no setup yet. Tag: **wrong** - lower severity than the login-reuse finding
+above (nothing is silently acted on here, it's confusing text, not a silent
+identity switch) but the same underlying "state read from a global path
+rendered as if it belonged to the current config" cause family.
+
+#### Confirmed working, no finding
+
+- Settings' pre-filled-defaults bootstrap claim from README held exactly as
+  described: `download_path` defaulted to `./downloads` (relative to the
+  working directory, sensible), saving with every other field untouched
+  produced `Saved.` and a valid `config.yaml` on disk with expected keys/
+  defaults (`courses: ['*']`, `download_concurrency: 3`,
+  `skip_enrollment_sections: true`, etc.) - "saving here is all you need to
+  bootstrap a fresh setup" is accurate.
+
+#### New questions this walk leaves (Rule 3)
+
+1. **Should `session_state_file`'s default be scoped per-install (e.g. next
+   to `config.yaml`, or derived from its path) instead of one fixed
+   home-directory location - or is machine-wide session sharing actually the
+   intended, convenient behavior for the common case of one person, one
+   machine, one account, and the real gap is only that the GUI never says
+   "reusing an existing session" out loud?** Not answered this walk - a
+   product question about intended scope, not a code-correctness one. Worth
+   deciding before touching `DefaultStateFile`, since "fix" could mean either
+   isolating it or just labeling it honestly.
+2. Do the GUI's other config-scoped-looking numbers share the same
+   global-path leak the "Last sync" line has now been shown twice to have -
+   specifically, does `/preview`'s force-re-download or developer-tools page
+   read anything through a similarly fixed, unscoped path? Not checked this
+   walk; cheap to check next time that page comes up for another reason.

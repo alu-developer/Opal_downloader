@@ -1153,7 +1153,7 @@ course-level HTTP concurrency badly enough to fund the isolated-context
 rewrite. Question 39 (blocked on the maintainer's pick among three options)
 and Question 5 are what is left on the ranked list.
 
-### 40. Does `scrapeCoursesHTTPFirst` benefit from course-level concurrency, given it has none today and the hazard class that made the browser path's version hard (Questions 16/17/22/25) does not obviously apply to stateless HTTP GETs? — OPEN, opened 2026-08-11 by Question 35's reframe
+### 40. ~~Does `scrapeCoursesHTTPFirst` benefit from course-level concurrency, given it has none today and the hazard class that made the browser path's version hard (Questions 16/17/22/25) does not obviously apply to stateless HTTP GETs?~~ Closed 2026-08-11 via Question 41: yes it's faster on one run, but the confirming run lost files — no-go for promotion
 
 What is already known: `scrapeCoursesHTTPFirst` processes its 6 courses fully
 serially (`orchestrator.go` lines 296-321, no goroutines), and Question 38's

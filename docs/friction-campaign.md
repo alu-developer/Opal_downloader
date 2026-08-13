@@ -72,11 +72,11 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 2 (CLI everyday use), cycling back.** Walk 1 was the GUI, walk
-2 the CLI, walk 3 first-run-from-zero, walks 4 and 5 the GUI again (two
-concurrent sessions picked it independently before either had a result) —
-every surface has now been walked at least once, GUI three times, CLI needs
-the next look.
+**Next surface: 3 (first run from zero), cycling back.** Walk 1 was the GUI,
+walk 2 the CLI, walk 3 first-run-from-zero, walks 4 and 5 the GUI again (two
+concurrent sessions picked it independently before either had a result), walk
+6 the CLI again — GUI has had three looks, CLI two, first-run-from-zero one;
+first-run needs the next look.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -933,3 +933,95 @@ sync still worked; two files needed a human to notice and retry).
    instance." Worth confirming if a future walk needs to trust backgrounded
    launches for something time-sensitive, but low priority - `Start-Process`
    already sidesteps the question for every walk after this one.
+
+### Walk 6 — 2026-08-13, CLI everyday use (autopilot, phase 2)
+
+Rotation said CLI next (stale line said GUI, but the walk log below it showed
+GUI had already had three looks against CLI's one - the same cross-check
+walk 3 used). `sync.lock` was held by a concurrent live session for this
+run's entire phase 1 and phase 2 (`pid 14804`, later `54224`), so this walk
+stayed to commands that don't take the overlap lock (`status`, `--help`,
+`schedule status`, config-parse error paths) rather than `sync`/`list`/
+`login`, which walk 2 already covered anyway.
+
+**Expectation registered before running anything:** `--help`'s command list
+and `status`'s output are the two things a CLI user reads before anything
+else; I expect both to be internally consistent with what the app actually
+does right now, including things fixed by earlier walks.
+
+`--help` and `status` both held up - the download-path substance check walk 1
+found and fixed (`status` now runs the same `os.MkdirAll` a sync does) still
+answers `(BROKEN: mkdir Q:/nope: ...)` for a nonexistent-drive path,
+live-reconfirmed this walk. No finding there.
+
+#### Finding — the on-logon catch-up trigger `docs/BACKLOG-archive.md` recorded as "shipped" (2026-08-11) has never actually reached the real scheduled task, and cannot until the app is installed somewhere permanent
+
+`schedule status` read `Scheduled daily sync: enabled, daily at 08:00` -
+accurate as far as it goes, which is exactly what made this worth checking
+further: `/schedule`'s own page promises more than that; the two commands
+were compared instead of trusted separately, per Rule 1's registered
+expectation. The page (`internal/gui/schedule_page.go:195-198`) states as
+plain fact: *"Catches up automatically if the machine was off, asleep, or you
+weren't logged in yet, including trying again the moment you next log
+in."* `Get-ScheduledTask -TaskName OpalDownloaderScheduledSync` on the real
+task shows exactly one trigger, `MSFT_TaskDailyTrigger` - no
+`MSFT_TaskLogonTrigger`. The "moment you next log in" clause is false, live,
+for the maintainer's real automatic sync, right now.
+
+**Cause, named sharply enough to predict where else it shows up.** The
+LogonTrigger fix (`docs/BACKLOG-archive.md`'s "Finding 1's recommended repair
+(b) shipped" entry) is real code, live-verified - but only against a scratch
+task name, per that entry's own words ("the real
+`OpalDownloaderScheduledSync` task was never touched"). Getting it onto the
+*real* task requires either `schedule enable` (CLI) or the GUI's
+`repairDoomedSchedule` self-heal to actually call `scheduler.Enable()` again,
+and both gate on `scheduler.CheckExecutableStable(exePath)` first
+(`cmd/opal-downloader/root.go:1379`, `internal/gui/schedule.go:100`) -
+checked, by source, not assumed. That function (`internal/scheduler/exepath.go`)
+treats *any* path inside a git working tree as doomed
+(`findGitWorkingTreeRoot`, walks up looking for a `.git` entry, no depth
+limit reason to exclude a checkout's own root). The real task's registered
+action is `C:\07_Arbeitszeug\Open_github\Opal_downloader\main.exe` - the
+repo root, which contains `.git` at zero levels up, so it is doomed by this
+project's own definition, confirmed by `ls "C:/Program Files/opal-downloader"`
+etc. all failing (nothing is installed anywhere permanent yet). Both repair
+paths refuse to run against a doomed *target*; the GUI path additionally
+requires the *running* GUI's own exe to be stable before it will repoint
+anything - and every way this project is currently run (main checkout,
+worktrees) is itself inside a git working tree. **The prediction this
+supports: no scheduler change of any kind - this one, or any future one that
+goes through `scheduler.Enable` - can ever reach the real task until the app
+is installed via `installer/opal-downloader.iss` to a location outside any
+git checkout, or someone runs `schedule enable` once from such a location by
+hand.** Nothing in the app currently says that to the user in those terms;
+the closest is `/schedule`'s existing doomed-path error ("install
+opal-downloader somewhere permanent"), which is accurate but doesn't mention
+that *this specific promise* (the sentence two paragraphs above it, on the
+same page) is the thing silently not true in the meantime.
+
+Tag: **wrong** - the page states behavior as an unconditional fact, and the
+real system does not do it. Not filed as **blocker**: the daily 08:00 trigger
+still runs and still self-heals its *own* staleness (Finding 2's original
+repair), so sync is not broken, only the specific missed-run-at-logon
+promise.
+
+*Break from persona, for diagnosis only:* `Get-ScheduledTask`,
+`internal/scheduler/exepath.go`, `internal/gui/schedule.go`,
+`cmd/opal-downloader/root.go`, and `ls` against the three most likely install
+locations, all read after the mismatch between the page's promise and the
+real task's trigger list was already the finding.
+
+#### New questions this walk leaves (Rule 3)
+
+1. **Has `schedule enable` ever actually succeeded from a real installed
+   location, on this or any machine?** The installer itself is unwalked by
+   the campaign proper (per the "Open findings" note already on this file);
+   this walk's finding means that gap now also blocks a specific, real,
+   already-promised feature, not just "the installer surface is generally
+   unwalked" in the abstract - worth folding into whoever eventually does that
+   walk.
+2. Should `CheckExecutableStable`/the repair path have an escape hatch for
+   someone who knowingly wants to run a scheduled task from a git checkout
+   anyway (accepting the `git clean`/branch-switch risk), or is refusing
+   outright the correct hard line? Not answered this walk - a product
+   question, not a code one.

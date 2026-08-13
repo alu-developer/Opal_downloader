@@ -103,13 +103,32 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4 & 5, CLI walk 2, first-run walk 3)
+### Friction campaign (GUI walks 1, 4 & 5, CLI walks 2 & 6, first-run walk 3)
 
+- **wrong — `/schedule`'s on-logon catch-up promise is false for the real
+  task, and cannot become true until the app is installed somewhere
+  permanent.** Walk 6, 2026-08-13: the page states as fact that a missed run
+  is retried "the moment you next log in"; the real `OpalDownloaderScheduledSync`
+  task has only its daily trigger, no logon trigger, confirmed via
+  `Get-ScheduledTask`. Walk 1's Finding 1 repair (b) (the LogonTrigger) is
+  real, shipped code, but both places that could push it onto the real task -
+  `schedule enable` and the GUI's `repairDoomedSchedule` self-heal - refuse
+  whenever the executable (registered *or* currently running) sits inside a
+  git working tree, which every way this project runs today does. Nothing is
+  installed at any of the obvious permanent locations (checked, not assumed).
+  Fix needs a maintainer call, not more code: run the real installer once and
+  re-enable the schedule from there, or add an override that trusts a git
+  checkout anyway. Full diagnosis: `docs/friction-campaign.md` Walk 6. This
+  also **downgrades the previous line here** ("repair (b) shipped and closes
+  the failure mode") - shipped as code, not yet live on the machine it was
+  meant to fix.
 - **Optional, not a commitment:** an outcome-independent "when did a sync last
-  actually *succeed*" staleness signal — walk 1's Finding 1, repair (a).
-  Repair (b) shipped and closes the failure mode that was actually observed;
-  (a) would be a broader defence-in-depth layer on top.
-- **The installer surface is still unwalked by the campaign proper.** The
+  actually *succeed*" staleness signal — walk 1's Finding 1, repair (a). Still
+  just a broader defence-in-depth layer on top of (b) - see the entry above
+  for why (b) itself isn't fully landed yet either.
+- **The installer surface is still unwalked by the campaign proper**, and
+  walk 6 sharpens why that now matters beyond general thoroughness: the
+  on-logon-trigger finding above is blocked on exactly that surface. The
   2026-08-11 installer work was engineering verification with full knowledge
   of the code, so none of it counts as a persona walk.
 

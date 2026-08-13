@@ -4,6 +4,31 @@
 here on** — measurements and graveyard, to look things up in, not to derive the
 next step from.
 
+## What the target measures (redefined 2026-08-12 by the maintainer)
+
+**The number is `sync`, end to end, not discovery.** One wall-clock figure: from
+`sync` starting to `Done.`, on the maintainer's real account against his real
+download folder, with nothing to fetch — the CLI's own `Total:` line. Everything
+else on this page (per-section waits, HTTP-vs-browser, fetch constants) is a
+*component* of that figure and only matters in proportion to it.
+
+This is a correction, not a clarification. The table below said "30s for a no-op
+sync" from the start, but every ranked question underneath it measured discovery
+alone, and the campaign quietly began treating discovery time *as* sync time.
+The first end-to-end measurement (2026-08-12, below) shows what that cost:
+discovery is **4%** of a no-op sync. The campaign spent its whole life on the
+short half.
+
+Consequences for how this list is read:
+
+- A result that speeds up discovery is worth what it is worth **against 1147s**,
+  not against 207s. HTTP-first saving ~150s is still the campaign's biggest win;
+  it is a 13% win end to end, not a 73% one.
+- A phase may not be declared "already minimal" from inside its own frame. The
+  download phase was never measured at all until it turned out to be 96%.
+- Anything that reaches `Done.` faster counts — including doing less work, doing
+  it earlier, or not retrying what cannot succeed. Discovery is not privileged.
+
 Since 2026-08-03 there is no separate `opal-downloader-sync-speed` task:
 `opal-downloader-autopilot` works the backlog first and lands here when nothing
 unblocked is left there. Older entries below still name the old task — that is
@@ -75,19 +100,54 @@ No reason to stop — a solvable state. Fixed moves, in order:
 
 ## What we know (numbers only, all from real runs)
 
+### The whole sync (the number the target is about)
+
+Measured 2026-08-12, 17:34-17:53, real account, real download folder, nothing to
+fetch — the first end-to-end no-op measurement this campaign has ever taken:
+
 | | |
 |---|---|
-| Target | **30s** for a no-op sync |
-| Today's lossless floor | **~207s** (pure browser crawl, 282 sections) |
+| Target | **30s** for a no-op sync, `sync` start to `Done.` |
+| Today's real no-op sync | **1147.2s — 19m07s** (`downloaded=0 skipped=300 errors=49`) |
+| ├ startup, session, course list | ~5s |
+| ├ discovery (HTTP-first, 6 courses, 303 requests, 349 files) | 45.1s — **4%** |
+| └ download phase, **0 files downloaded** | **1097.1s — 96%** |
+| Rate limiter | 707 navigations, 600 delayed, **2m44.8s held** |
+
+**The download phase costs 18 minutes to download nothing.** All of it is 49
+files that fail identically — `response is HTML`, then a browser-fallback click
+that misses, two attempts at a 5s timeout each, ~22.4s per file. They never
+reach the manifest, so they are retried in full on *every* sync and the run
+never gets cheaper: 43 in Softwaretechnologie (Part-3: 33, Part-1: 6, Part-2: 4)
+and 6 in Algorithmen und Datenstrukturen/Vorlesung. Same 49 in the scheduled run
+of 2026-08-11 21:57 (`1 downloaded, 299 skipped, 49 errors`) — stable, not flake.
+The other 300 files skip correctly; change detection and the manifest are fine.
+`list` on its own the same afternoon: **54.4s** (8 courses, 314 requests, 349
+files, 49.6s of it HTTP).
+
+Two budgets follow, and their order is not a preference: **30s end to end is
+arithmetically out of reach while the download phase costs 1097s, and still out
+of reach afterwards while discovery costs ~50s.** Fixing the 49 errors buys
+~18 minutes; only then does the discovery work below become the binding
+constraint again — against a 30s target it is the whole budget.
+
+### Inside discovery (a component, ~4% of the above)
+
+| | |
+|---|---|
+| Lossless floor, pure browser crawl | **~207s** (282 sections) |
+| Lossless floor, HTTP-first (today's default) | **45-58s** |
 | Settle wait | 338ms/section, **64%** of the time in sections |
 | Stability poll | 172ms/section, **32%** |
 | Real work (extraction, navigation) | 14ms/section, **2%** |
-| Rate limiter | held 0s — slows nothing down |
+| Rate limiter, browser crawl | held 0s — slows nothing down |
 
-**96% of the time the tool is waiting on its own timers, and every wait carries
-its weight.** Dropping the settle wait: 51% *slower*. Additionally asserting the
-verdict: still 40% slower. The page really does need that time; the
-MutationObserver is just the cheapest way to sit it out.
+**96% of in-section time is the tool waiting on its own timers, and every wait
+carries its weight.** Dropping the settle wait: 51% *slower*. Additionally
+asserting the verdict: still 40% slower. The page really does need that time; the
+MutationObserver is just the cheapest way to sit it out. (Note the two 96%s on
+this page are unrelated: one is the download phase's share of a sync, the other
+is the timers' share of in-section time.)
 
 Further hard findings: no positive render-complete signal found in the DOM. No
 AJAX during the initial section build (network trace, 2 courses, 0 unexplained).
@@ -98,7 +158,50 @@ HTTP can only start after the browser has delivered the URLs. Section hash cache
 3.9% hit rate, 13% slower. Content only grows while rendering (278 sections:
 never empty, never larger than at the end).
 
-## What we don't know (sorted by leverage)
+## What we don't know (sorted by leverage against the end-to-end number)
+
+Re-ranked 2026-08-12 with the target redefined. Leverage now means *seconds off
+1147s*, which moved the download phase to the top and pushed every
+discovery-internal question below it — none of those can win more than the ~50s
+discovery costs in total.
+
+### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement; this is 96% of a no-op sync
+
+**The finding.** A no-op sync spends 1097.1s downloading zero files. All of it
+is 49 files failing the same way: the direct GET returns HTML, the browser
+fallback clicks for a link it does not find, two attempts at a 5s timeout, and
+the file is counted as an error. An error writes no manifest entry, so the next
+sync repeats the identical 18 minutes. Distribution is concentrated, not
+scattered: 43 of 49 are in Softwaretechnologie (33 of them in Part-3 alone), 6
+in Algorithmen und Datenstrukturen/Vorlesung. Reproduced across runs a day
+apart with the same count.
+
+**Two questions, and they are separable.** (1) *Cause:* what makes these
+specific files answer with HTML — are they gone/withdrawn server-side, is the
+fallback selector wrong for paginated folders (Part-3 is the biggest folder and
+carries 33 of the failures, which is suspicious), or is it a file-type or
+permission class? (2) *Policy:* independent of the cause, what should a sync do
+with a file that failed this way N times? Today's answer is "retry it forever,
+at full cost, silently". That is a design decision nobody made — it is the
+default that falls out of errors not being recorded.
+
+**Prediction, written before the experiment (Rule 1).** The 33 Part-3 failures
+share a folder that also holds the pagination control this project already
+fights elsewhere, so the leading hypothesis is that the fallback's
+`getByText`/`href` locators run against a page that has not expanded the page
+the file sits on — the same class as the `show all` truncation of Question 18,
+one layer later. *Counts as confirmed:* the file is reachable in the live UI and
+a download succeeds once the right page/expansion is visible. *Counts as
+refuted:* the file is genuinely absent or forbidden for this account in the live
+UI, which makes it a policy problem only. *Kill line:* if a cause fix does not
+bring the no-op sync under ~120s, it did not solve what this question is about,
+because the 49 retries are the entire gap.
+
+**Cheapest honest first step.** Open one Part-3 file in the visible browser
+(`--dev-mode`, as walks 3 and 5 do) and watch what the server actually answers,
+before touching any code. The policy half needs no live run at all and can be
+decided from the answer: a negative manifest entry with a retry-backoff would
+cap the cost of *any* future failure class at a bounded price, not just this one.
 
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 
@@ -1412,7 +1515,19 @@ regardless of the pattern.
 
 ### 4. _(merged into Question 7 — see below)_
 
-### 5. Is "30s" even tied to discovery? — last half DECIDED 2026-08-12: **show when the last sync was.** Build work now, not a question.
+### 5. Is "30s" even tied to discovery? — ANSWERED 2026-08-12, and the answer is **no**: measured end to end, discovery is 4% of a no-op sync. Last half separately DECIDED the same day: **show when the last sync was.**
+
+**The answer, from the first end-to-end no-op measurement (numbers at the top of
+this file).** This question was asked twice as a framing worry — is the target
+about discovery, or about how the wait *feels* — and both times it was treated
+as a UX question, because nobody had the end-to-end number. The number settles
+it in a third direction neither branch anticipated: a no-op sync is 1147.2s, of
+which discovery is 45.1s. The question was right to be suspicious of discovery
+and wrong about where the rest of the time went — not into perception, into 49
+files retrying forever (Question 44). The maintainer's redefinition of the
+target on 2026-08-12 follows directly from this measurement.
+
+The concealment half of the question stands unaffected and is decided below.
 
 **Decision, 2026-08-12 (`/decide` round).** Maintainer, asked to choose between
 (A) nothing, (B) staleness-aware button copy, (C) a real background `list` on
@@ -2661,7 +2776,19 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-12 (autopilot, sixth update same day): Question 43's Step B
+**Updated 2026-08-12 (maintainer redefined the target): Question 44, the 49
+files that make a no-op sync take 19 minutes.** The first end-to-end
+measurement moved the ranked list: the download phase is 96% of a sync and the
+whole of it is retries that cannot succeed. Question 43 (bulk ZIP) stays alive
+and is *adjacent* to this — both are download-phase questions — but it optimises
+downloads that work, while Question 44 is about 1097s spent on downloads that
+never work. Cheapest first step is one file in the visible browser, before any
+code. Every discovery-internal question below is now capped at ~50s of possible
+win and should be read that way.
+
+---
+
+**Superseded by the above - Updated 2026-08-12 (autopilot, sixth update same day): Question 43's Step B
 ran live and got a real but incomplete result.** The bulk-download button is
 confirmed to exist and render reliably (Question 43's Step A prediction
 holds). What blocked completing steps 2/3 is not the feature being absent but
@@ -4341,6 +4468,41 @@ Every 5 cycles, each ending with a recommendation: keep going or stop, and why. 
 decision is the maintainer's, not a counter's — no cap on the campaign, the kill criterion
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
+
+### 2026-08-12 (session, maintainer question "wie schnell ist derzeit ein sync?"): the target is now the whole sync, and the campaign had been measuring the short half
+
+Not a cycle — a question that turned into the measurement this campaign never
+took. Asked how fast a sync currently is, the honest answer needed an
+end-to-end run, and the numbers are at the top of this file: **1147.2s (19m07s)
+for a no-op sync**, discovery 45.1s (4%), download phase 1097.1s (96%) for zero
+files downloaded, all of it 49 files retrying a failure that cannot succeed.
+`list` on its own: 54.4s.
+
+**What went wrong methodologically, since that is what this campaign is for.**
+The target line has said "30s for a *no-op sync*" since the first version. Every
+ranked question under it measured discovery, every report compared against 207s,
+and no one ever ran the thing the target names. Rule 2 ("an approach may only be
+closed when the explanation would have predicted the failure") was applied
+rigorously *inside* discovery while the frame itself went unchecked — including
+in this campaign's own phrasing "everything else: already minimal", which was
+true of in-section work and quietly read as true of the sync. Question 5 asked
+"is 30s even tied to discovery?" twice, was treated as a UX question both times,
+and is now answered by arithmetic: no.
+
+**What the maintainer changed.** The target is redefined as one wall-clock
+figure from `sync` to `Done.` on the real account and real download folder. Not
+a new goal — the same goal, measured where it was always claimed to be measured.
+Leverage is re-ranked accordingly and Question 44 (the 49 errors) opened at the
+top; every discovery-internal question is now capped at the ~50s discovery costs
+in total, which is worth stating out loud before another cycle spends itself
+shaving a percentage off it.
+
+**Recommendation: keep going, and spend the next cycles on the download phase.**
+The 18 minutes are not a hard research problem — one file in a visible browser
+will very likely say what is wrong, and the policy half (an error that is never
+recorded is retried forever, at full price) can be decided without any live run.
+Discovery becomes the binding constraint again only after that, and against a
+30s target it will be the entire budget.
 
 ### 2026-08-12 (autopilot): eight cycles since the last report, Questions 36-B2/37/38/40/41/5(×3)/39/42 — keep going, but the campaign has hit its first pure-maintainer-decision wall
 

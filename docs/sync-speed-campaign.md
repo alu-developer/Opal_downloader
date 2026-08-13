@@ -9,6 +9,14 @@
 > later, and the rule below ("quote the measurement") is why. In particular,
 > "there is no positive render signal" was inferred from the live DOM — the
 > OpenOLAT source, which is public, has never been read.
+>
+> **Frame warning, added 2026-08-12.** Every "30s" statement in this file —
+> including "30s is unreachable loss-free" and the "Standing conclusion on the
+> 30s target" section — is about **discovery time**, and the target has since
+> been redefined to the whole `sync`, end to end. Those conclusions are not
+> wrong within their frame, they are answering a smaller question than the one
+> now being asked: a measured no-op sync is 1147s, of which discovery is 45s.
+> Read anything below about reaching or missing 30s as being about the 4%.
 
 ## 2026-07-31 (late): the lever the morning's entry said was "real" was measured and is NOT. 30s is unreachable loss-free.
 

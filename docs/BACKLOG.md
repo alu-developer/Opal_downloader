@@ -65,19 +65,22 @@ present) rather than urgent intervention — but still unconfirmed *why* it ran
 
 `docs/sync-speed-model.md` holds the ranked list, re-ranked 2026-08-12 when
 the maintainer redefined the speed target from "discovery" to "the whole
-sync, start to `Done.`" **Question 44 is now the top item** (opened by that
-same re-ranking): a no-op sync spends 1097.1s of its 1147.2s (96%) failing to
-download 49 files that answer with HTML instead of bytes, 33 of them
-concentrated in one course's "Part-3" folder; the failures write no manifest
-entry, so every sync retries the same 18 minutes of dead weight. Cheapest
-next step (registered, not yet run): open one Part-3 file in the visible
-browser and watch what the server actually answers, before touching any
-code — in progress 2026-08-13, blocked mid-attempt only by the account's own
-one-crawl-at-a-time lock (another sync was already running); retry once it
-clears. Question 43 (bulk-download-as-ZIP) drops to second, still stalled on
-the same DOM-flakiness finding from 2026-08-12's Step B — two untried
-directions are named in its own entry. **Nothing on this list is blocked on
-the maintainer** — Question 39 is decided and built, and Question 5 is fully
+sync, start to `Done.`" **Question 44 is still the top item**, now sharply
+narrowed by five live experiments on 2026-08-13: a no-op sync spends 1097.1s
+of its 1147.2s (96%) failing to download 49 files, and this run showed the
+failure needs neither a specific folder (an isolated, single-course replay of
+the worst-hit folder came back 0/48 clean, twice) nor any concurrency setting
+(download-side and discovery-side both tried at 1 and their production
+defaults, no change) - it needs the session to discover **two or more
+courses**, full stop; one course alone is always clean, any two (tested:
+Algorithmen und Datenstrukturen + Softwaretechnologie) reproduce the
+identical 49 every time. Cause of that multi-course trigger is still
+unconfirmed; the model file names the next cheap, decisive experiment (pair
+Softwaretechnologie with a *different* second course) for whoever picks this
+up next. Question 43 (bulk-download-as-ZIP) sits second, still stalled on the
+same DOM-flakiness finding from 2026-08-12's Step B — two untried directions
+are named in its own entry. **Nothing on this list is blocked on the
+maintainer** — Question 39 is decided and built, and Question 5 is fully
 closed (all three halves — see `docs/BACKLOG-archive.md`). Nothing further is
 planned on the course-level HTTP concurrency thread — Question 41 closed
 2026-08-11 as a no-go.

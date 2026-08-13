@@ -165,7 +165,7 @@ Re-ranked 2026-08-12 with the target redefined. Leverage now means *seconds off
 discovery-internal question below it — none of those can win more than the ~50s
 discovery costs in total.
 
-### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement; this is 96% of a no-op sync
+### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); narrowed 2026-08-13 by five live experiments to "two-or-more-course session, not concurrency" — cause of the multi-course trigger still unconfirmed, policy half still undecided
 
 **The finding.** A no-op sync spends 1097.1s downloading zero files. All of it
 is 49 files failing the same way: the direct GET returns HTML, the browser
@@ -344,6 +344,61 @@ threshold sits. *Refuted if:* the 49 now succeed with only 2 courses
 discovered, which would say the trigger is not raw breadth but something
 tied to the presence of the *other* 4 courses specifically (a stranger,
 more specific hypothesis with no candidate mechanism yet). Result to follow.
+
+**Result (2026-08-13, autopilot, live): REFUTED. Discovering only the two
+affected courses (`Algorithmen und Datenstrukturen` + `Softwaretechnologie
+(SoSe 26)`, 248 files, not the full 349) reproduced the identical 49
+failures, identical 33/6/4/6 breakdown.** The other four courses are not
+needed at all - this sharpens "full breadth" down to "more than one course
+in the same session", a much smaller and more specific trigger than
+originally framed. Combined with the two clean single-course probes (always
+exactly one course, always 0/48), the minimal reproduction now known is:
+**one course discovered alone never fails; the same course discovered
+alongside even one other course fails completely, every time, on the exact
+same files.**
+
+**Where this cycle stops, and why.** Five live experiments, in this order,
+each with a registered prediction and a clean refute/confirm: pagination
+visibility (refuted), same-page concurrent download (refuted), cross-page
+concurrent download at production's real `download_concurrency: 3`
+(refuted), discovery-time course concurrency (refuted), and course-count
+breadth (narrowed to "2 courses is already sufficient, not 6"). That is a
+five-for-five run of clean, decisive results and a real, load-bearing
+narrowing of the search space - this project's own "three-attempts-without-
+closing" pattern does not apply here because every attempt closed something,
+which is the difference between grinding and iterating. Stopping here rather
+than immediately trying to find where between 1 and 2 courses the trigger
+sits (there is nowhere between - 2 is already the minimum multi-course case)
+or which specific *pair* of courses matters (untested: does Softwaretechnologie
+paired with a course *other* than Algorithmen also fail on Part-3, or is
+Algorithmen specifically load-bearing?) is a judgement call to leave for a
+fresh cycle's budget, not a dead end.
+
+**Next experiment, not yet run.** Pair Softwaretechnologie with a *different*
+second course (e.g. `Analysis`, not `Algorithmen und Datenstrukturen`) and
+see whether Part-3/1/2 still fail. *Counts as* "any second course triggers
+it": Softwaretechnologie's own folders fail regardless of which course joins
+it in the session - points at something about Softwaretechnologie/these
+folders specifically becoming fragile the moment the session is not
+single-course, a session-scoped property triggered by *crossing a course
+boundary* at all rather than by any particular course pairing. *Counts as*
+"Algorithmen specifically matters": Softwaretechnologie stays clean paired
+with a different second course - a much stranger result that would need its
+own follow-up (what is special about pairing with Algorithmen, given
+Algorithmen's own Vorlesung folder is itself one of the 49-file failures -
+worth asking whether the *order* discovered matters, or whether it is
+specifically failing folders on both sides of a pairing that reinforce each
+other). Either result is decisive and cheap (2-course discovery, retry-only
+against the existing scratch manifest, as this cycle's runs already show
+take well under the original 349-file/19-minute scale).
+
+**Policy half, unblocked by any of the above (Question 44's own original
+framing) and still not decided:** today's answer to "what should a sync do
+with a file that fails the same way every single time" is "retry it forever,
+silently, at roughly 20s/attempt" - a default nobody chose, not a fix for
+the cause above. A negative-manifest-entry-with-backoff would cap that cost
+regardless of whether the cause is ever found, and does not need to wait for
+it.
 
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 

@@ -305,62 +305,45 @@ real trigger is something else entirely (a property of these specific
 folders/files themselves, unrelated to timing or concurrency). Result to be
 appended below once it finishes.
 
-**Result (2026-08-13, autopilot, live): REFUTED, identically to the
-download-concurrency test above.** `course_concurrency: 1` with
-`download_concurrency: 1` (both axes now fully serial, retrying only the 49
-manifest-less failures against the same scratch manifest) reproduced **all
-49, in the exact same 33/6/4/6 breakdown by folder** (`Softwaretechnologie
-Part-3`: 33, `Part-1`: 6, `Part-2`: 4, `Algorithmen und
-Datenstrukturen/Vorlesung`: 6 - counted directly from this run's own error
-lines, not assumed). Neither axis of concurrency this campaign controls has
-any effect on this failure, individually or together - the "concurrent
-course discovery corrupts shared per-session state" hypothesis (built on the
-real Question 41 precedent) is now closed the same way the download-side one
-was.
+**Result (2026-08-13, autopilot, live): REFUTED again, cleanly.**
+`course_concurrency: 1` *and* `download_concurrency: 1` together (fully
+serial discovery, fully serial downloads, nothing concurrent anywhere in the
+whole run) still reproduced the identical 49 failures, the identical
+33/6/4/6 breakdown. **Both concurrency axes this project controls are now
+ruled out for this failure**, closing off the entire family of explanations
+this question chased across three live experiments (same-page concurrent
+download, cross-page concurrent download, cross-course concurrent
+discovery). Whatever distinguishes a clean run from a failing one, it is not
+speed or ordering-under-contention.
 
-*Secondary observation, not yet chased further:* this fully-serial retry-only
-run's own audit log shows **100 `fast-path-refresh-hit` successes across 248
-distinct file URLs** touched over the network, not just the 49 that ended up
-erroring - i.e. every file in the affected course gets re-resolved
-(a per-file "counter-refresh" HTTP round-trip) on every run regardless of
-whether the manifest will end up skipping it, and this run's download phase
-alone took 2316.9s (vs. the original full 6-course run's 1097.1s *for the
-same 49 failures*, inside a much larger 349-file run) - i.e. serial retry of
-just the failures was slower in wall-clock than concurrent handling of the
-same failures inside the full run. Plausibly explained by losing whatever
-overlap the concurrent runs got between one file's fallback timeout and the
-next file's fetch starting; not investigated this cycle, and orthogonal to
-the cause question - flagged so a future timing-focused cycle does not
-re-discover it from scratch.
+**What is left standing, stated precisely.** Across five live experiments
+now, exactly one variable has ever correlated with the outcome: whether the
+session, in total, discovers *only* the course containing the target
+folder, or discovers the *full configured course list*. Every single-course
+discovery (both isolated Part-3 probes) came back 0/48. Every run that
+discovered all 6 configured courses (the original full sync, the
+concurrency=1 retry, the course_concurrency=1 retry) came back with the
+identical 49. Concurrency was the first, obvious candidate for "what changes
+between narrow and broad discovery" and is now excluded on both axes -
+which leaves *breadth itself* (how many distinct sections/pages one session
+visits before reaching these files) as the standing hypothesis, via
+whatever server-side per-session Wicket bookkeeping that implies (a
+page-instance cap, an eviction policy, or something ID-space-related) -
+still unconfirmed, but no longer competing with a concurrency explanation.
 
-**What this leaves.** Every mechanism this campaign's own tooling can vary
-(download concurrency, course concurrency, folder identity, single-course
-isolation) has now been tested and refuted or ruled irrelevant. The
-surviving distinction between every clean isolated replay (0/48, single
-course, narrow discovery) and every failing run (49/49, always the real
-6-course `courses:` list) is **discovery breadth measured in sections
-visited before the failing files are reached, not concurrency** - the
-isolated 48/48 replay's own discovery step only ever visited
-Softwaretechnologie's own sections *needed to enumerate Part-3*, not the
-other five real courses nor even Softwaretechnologie's own other Parts
-(1/2/4/5), so "breadth" was never actually isolated from "which course" in
-any test run so far. **Next, cheap, decisive step (not yet run): discover
-and attempt-download only Softwaretechnologie (`courses: ["Softwaretechnologie
-(SoSe 26)"]`), but do not restrict discovery to Part-3 alone - let it walk
-the course's own full section tree (Part-1 through Part-5, Vorlesung, etc.)
-exactly as a real sync would, then attempt the Part-3 files.** *Prediction:*
-if same-course breadth alone (visiting Softwaretechnologie's other five-plus
-sections before Part-3) reproduces some or all of the 33 Part-3 failures,
-that confirms "sections visited this session" as the invariant, independent
-of which courses they belong to - a session-scoped, capacity-limited or
-recency-evicted piece of server state is the leading mechanism this would
-support. *Refuted if:* Part-3 still succeeds 33/33 with the rest of
-Softwaretechnologie's own sections visited first - which would mean the
-other five real courses specifically (not section count in the abstract) are
-needed to trigger it, and the next step after that would be visiting one
-*other* course's sections (not Softwaretechnologie's own) before attempting
-Part-3, to test "any intervening session traffic" against "specifically
-switching between courses."
+**New decisive step, running live as of this update:** rerun with only the
+two affected courses (`Algorithmen und Datenstrukturen`,
+`Softwaretechnologie (SoSe 26)`) in `courses:` - cutting session breadth
+from 6 courses/~349 files down to 2/~248 without touching either
+concurrency setting (left at 1/1, already proven inert). *Prediction:* if
+breadth itself (not "all 6 specifically") is what matters, the same 49
+still fail, since discovering *two* courses is still meaningfully broader
+than the single-course probes that came back clean - this is the sharper,
+cheaper way to test breadth-as-such before trying to find where the
+threshold sits. *Refuted if:* the 49 now succeed with only 2 courses
+discovered, which would say the trigger is not raw breadth but something
+tied to the presence of the *other* 4 courses specifically (a stranger,
+more specific hypothesis with no candidate mechanism yet). Result to follow.
 
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 

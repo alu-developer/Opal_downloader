@@ -165,7 +165,7 @@ Re-ranked 2026-08-12 with the target redefined. Leverage now means *seconds off
 discovery-internal question below it — none of those can win more than the ~50s
 discovery costs in total.
 
-### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); narrowed 2026-08-13 by six live experiments to "two-or-more-course session, not concurrency", and confirmed folder-independent-of-pairing for the two largest failing folders (Part-3, Part-1) via a second, different course pairing — cause of the multi-course trigger and Part-2's inconsistency both still unconfirmed, policy half still undecided
+### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); seven live experiments on 2026-08-13 ruled out pagination, both concurrency axes, and discovery order, isolating the trigger to "which course pairs with Softwaretechnologie" specifically — mechanism still needs a source read, not another live probe; policy half still undecided
 
 **The finding.** A no-op sync spends 1097.1s downloading zero files. All of it
 is 49 files failing the same way: the direct GET returns HTML, the browser
@@ -423,6 +423,39 @@ has never actually been varied independently of which course is paired.
 Reversing the order (Softwaretechnologie discovered first, the other course
 second) on an already-tested pairing would cleanly separate "which second
 course" from "which course is discovered first."
+
+**Result (2026-08-13, later autonomous cycle, live): REFUTED - order is not
+the variable.** Reran the Algorithmen pairing with the order reversed
+(Softwaretechnologie discovered first, Algorithmen second - the opposite of
+every prior run including the original 33/6/4/6 baseline): **identical
+result, 33/6/4/6, same files by name.** Order has no effect. Combined with
+the Analysis-pairing result above, this cleanly isolates the real variable:
+**it is specifically which course is paired with Softwaretechnologie -
+Algorithmen reproduces Part-2's 4 failures, Analysis does not - independent
+of which one is discovered first.**
+
+That sharpens the standing hypothesis further. Algorithmen's own `Vorlesung`
+folder is itself one of the 49 originally-tracked failures - a second course
+that is *itself* fragile (has its own paginated/complex folder hitting this
+same failure class) may be what pushes Softwaretechnologie's smaller,
+more marginal Part-2 (4 files) over the edge, while a "clean" second course
+(Analysis, whose own files all downloaded without error in that test) does
+not. Part-1 and Part-3 need no such push - both are large/complex enough to
+fail with *any* second course, clean or not. Untested: whether pairing
+Softwaretechnologie with a *different* course that also has its own known
+fragile/paginated folder reproduces Part-2's failure too (confirming "a
+second fragile folder in the session" as the real trigger) - the cheapest
+candidate would be a synthetic one, since no other course in this account is
+independently known to hit this failure class yet.
+
+**Seven live experiments this campaign day, seven clean, decisive results -
+a genuinely well-isolated finding for one open question.** Cause (why does a
+second course's discovery - or a second course's *own* fragile folder -
+perturb Softwaretechnologie's download-time state at all) is still
+unconfirmed; that would need reading OPAL/Wicket's session/page-store
+behavior directly (comparable to how Question 43's source trail was built)
+rather than another live probe, since every concurrency- and order-based
+lever this campaign controls has now been tried and excluded.
 
 **Policy half, unblocked by any of the above (Question 44's own original
 framing) and still not decided:** today's answer to "what should a sync do

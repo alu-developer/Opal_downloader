@@ -36,21 +36,24 @@ closed; see the archive.)_
 
 ## Next
 
-`docs/sync-speed-model.md` holds the ranked list. **Question 43 is still the
-top item, now partway through its own Step B (live, 2026-08-12).** The bulk
-"download as ZIP" button (`FolderController.doBulkDownload` →
-`FolderZipMediaResource`) is confirmed live and renders reliably. What is
-blocking the rest of Step B (select files, trigger it, inspect the zip's
-timestamps, time it) is a new finding of its own: the row-selection
-checkboxes exist as real markup but render inconsistently across navigations
-— present on one DOM read, absent on the next, surviving this project's own
-production section-stability wait and four other distinct attempts. Not
-diagnosed this cycle; two concrete next moves are named in Question 43's own
-entry (watch for a periodic AJAX refresh; a longer human-observed session).
-**Nothing on this list is blocked on the maintainer** — Question 39 is
-decided and built, and Question 5 is fully closed (all three halves — see
-`docs/BACKLOG-archive.md`). Nothing further is planned on the course-level
-HTTP concurrency thread — Question 41 closed 2026-08-11 as a no-go.
+`docs/sync-speed-model.md` holds the ranked list, re-ranked 2026-08-12 when
+the maintainer redefined the speed target from "discovery" to "the whole
+sync, start to `Done.`" **Question 44 is now the top item** (opened by that
+same re-ranking): a no-op sync spends 1097.1s of its 1147.2s (96%) failing to
+download 49 files that answer with HTML instead of bytes, 33 of them
+concentrated in one course's "Part-3" folder; the failures write no manifest
+entry, so every sync retries the same 18 minutes of dead weight. Cheapest
+next step (registered, not yet run): open one Part-3 file in the visible
+browser and watch what the server actually answers, before touching any
+code — in progress 2026-08-13, blocked mid-attempt only by the account's own
+one-crawl-at-a-time lock (another sync was already running); retry once it
+clears. Question 43 (bulk-download-as-ZIP) drops to second, still stalled on
+the same DOM-flakiness finding from 2026-08-12's Step B — two untried
+directions are named in its own entry. **Nothing on this list is blocked on
+the maintainer** — Question 39 is decided and built, and Question 5 is fully
+closed (all three halves — see `docs/BACKLOG-archive.md`). Nothing further is
+planned on the course-level HTTP concurrency thread — Question 41 closed
+2026-08-11 as a no-go.
 
 ---
 

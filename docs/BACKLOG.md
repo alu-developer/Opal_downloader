@@ -29,8 +29,47 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 
 ## Now
 
-_(Empty as of 2026-08-12 — Question 39 is built and Question 5's last half is
-closed; see the archive.)_
+**`sync.lock` has been held for 5.5+ hours by a stuck live run, blocking every
+sync/list/login on the account.** Found 2026-08-13 by the weekly-review pass's
+Part C attempt: `main.exe list --config config.yaml` with
+`OPAL_HTTP_DISCOVERY=verify` failed immediately with `Error: a sync is already
+running (PID 14804, started at 2026-08-13T06:25:32Z)`. `~/.opal-downloader/sync.lock`
+confirms the same PID/timestamp; `Get-Process -Id 14804` confirms it is
+genuinely still alive (not a stale/crashed holder `internal/synclock` would
+have reclaimed) — `main.exe` in worktree
+`.claude/worktrees/suspicious-pare-359a30`, running since 08:25:32 local with
+no sign of stopping. That worktree's own `docs/RESUME.md` still reads the
+placeholder ("_Nothing in flight._"), so whatever it launched (most likely
+Question 44's "open one Part-3 file in the visible browser" live step, named
+in this file's own Next section as "in progress 2026-08-13, blocked mid-attempt
+... retry once it clears") left no checkpoint. Corroborating evidence: the
+`opal-downloader-autopilot` routine's own schedule shows a run at 11:49:53
+today with no new commit since 08:35:38 — its most recent cycle almost
+certainly hit this same lock and had nothing to show for it. Not fixed here
+(out of scope for this pass, and killing another session's process isn't this
+pass's call) — the maintainer should look at PID 14804 / that worktree
+directly. `internal/synclock` is working as designed (a genuinely-alive PID is
+correctly not reclaimed); the actual problem is whatever is inside that run
+that isn't finishing or reporting progress.
+
+**`internal/scraper/httpdiscovery_seed.go`'s `discoverSectionsHTTP` skips
+non-file sections silently — the browser path logs the same skip.** Found by
+this pass's Part B code review (window `bbc782d..07a7d0d`, 90 commits). The
+browser crawl path (`crawl.go` line ~207-219, `appendSectionFolderTargets`)
+explicitly logs every section it skips as structurally file-less (OPAL
+enrollment/Einschreibung nodes) via `logging.Detail(...)`, with a comment
+saying plainly "Auditable, not silent." `discoverSectionsHTTP` — the function
+HTTP-first discovery uses, HTTP-first having been the default sync path since
+2026-08-11 — skips the same class of node in two places (the tree-seed loop
+at line 128-135, and the `appendSectionFolderTargets` call at line 195) and
+logs neither: the tree-seed skip has no logging call at all, and line 195
+discards the call's `[]skippedSection` return value with `_`. No files are
+lost (enrollment nodes never hold files), but the audit trail this project
+built specifically because "skips must be auditable, not silent" is silently
+absent on the path everyone now runs by default. Cheap fix: thread the
+discarded `skipped` slice at line 195 through to a caller-supplied logger the
+same way `onSectionError`/`onSectionVisited` already are, and log the
+tree-seed loop's own skip the same way.
 
 ---
 

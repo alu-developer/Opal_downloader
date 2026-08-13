@@ -1,0 +1,1 @@
+2026-08-13T13:56Z — attempted, failed: sync.lock held by PID 14804 for 5.5+ hours (see docs/BACKLOG.md Now). No diff data produced.

@@ -39,25 +39,30 @@ _Nothing currently blocking a sync/list/login on the account — checked
 
 `docs/sync-speed-model.md` holds the ranked list, re-ranked 2026-08-12 when
 the maintainer redefined the speed target from "discovery" to "the whole
-sync, start to `Done.`" **Question 44 is still the top item**, now sharply
-narrowed by five live experiments on 2026-08-13: a no-op sync spends 1097.1s
-of its 1147.2s (96%) failing to download 49 files, and this run showed the
-failure needs neither a specific folder (an isolated, single-course replay of
-the worst-hit folder came back 0/48 clean, twice) nor any concurrency setting
-(download-side and discovery-side both tried at 1 and their production
-defaults, no change) - it needs the session to discover **two or more
-courses**, full stop; one course alone is always clean, any two (tested:
-Algorithmen und Datenstrukturen + Softwaretechnologie) reproduce the
-identical 49 every time. Cause of that multi-course trigger is still
-unconfirmed; the model file names the next cheap, decisive experiment (pair
-Softwaretechnologie with a *different* second course) for whoever picks this
-up next. Question 43 (bulk-download-as-ZIP) sits second, still stalled on the
-same DOM-flakiness finding from 2026-08-12's Step B — two untried directions
-are named in its own entry. **Nothing on this list is blocked on the
-maintainer** — Question 39 is decided and built, and Question 5 is fully
-closed (all three halves — see `docs/BACKLOG-archive.md`). Nothing further is
-planned on the course-level HTTP concurrency thread — Question 41 closed
-2026-08-11 as a no-go.
+sync, start to `Done.`" **Question 44 is still the top item.** Seven live
+experiments on 2026-08-13 fully excluded every concurrency- and order-based
+lever this project controls (download-side concurrency, discovery-side
+course concurrency, and discovery order all tried and ruled out) and
+isolated the trigger to **which course is paired with Softwaretechnologie
+in the same session** - Algorithmen und Datenstrukturen reproduces all 49
+original failures (including its own `Vorlesung` folder), Analysis
+reproduces the two largest (Part-3: 33, Part-1: 6) but not the smaller
+Part-2 (4), independent of which course is discovered first. A first
+source-reading pass the same day (`gh search code --repo OpenOLAT/OpenOLAT`)
+found a real candidate mechanism (OpenOLAT's `DTabs` per-session tab cap)
+but it does not cleanly fit the evidence - checked and registered as
+inconclusive, not confirmed. **No crisp next experiment is queued**; the
+model file's own next-step suggestion is now open-ended source reading
+(something at folder, not course, granularity) rather than a bounded live
+test, so whoever picks this up next should read that entry's "what a next
+pass should look for instead" note before choosing where to dig. Question 43
+(bulk-download-as-ZIP) sits second, still stalled on the same DOM-flakiness
+finding from 2026-08-12's Step B — two untried directions are named in its
+own entry. **Nothing on this list is blocked on the maintainer** — Question
+39 is decided and built, and Question 5 is fully closed (all three halves —
+see `docs/BACKLOG-archive.md`). Nothing further is planned on the
+course-level HTTP concurrency thread — Question 41 closed 2026-08-11 as a
+no-go.
 
 ---
 

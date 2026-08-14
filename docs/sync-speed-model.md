@@ -165,7 +165,7 @@ Re-ranked 2026-08-12 with the target redefined. Leverage now means *seconds off
 discovery-internal question below it — none of those can win more than the ~50s
 discovery costs in total.
 
-### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); seven live experiments on 2026-08-13 ruled out pagination, both concurrency axes, and discovery order, isolating the trigger to "which course pairs with Softwaretechnologie" specifically — mechanism still needs a source read, not another live probe; policy half still undecided
+### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); seven live experiments on 2026-08-13 ruled out pagination, both concurrency axes, and discovery order, isolating the trigger to "which course pairs with Softwaretechnologie" specifically; a first source-reading pass found OpenOLAT's DTabs mechanism but it doesn't cleanly fit — cause and policy half both still undecided
 
 **The finding.** A no-op sync spends 1097.1s downloading zero files. All of it
 is 49 files failing the same way: the direct GET returns HTML, the browser
@@ -456,6 +456,50 @@ unconfirmed; that would need reading OPAL/Wicket's session/page-store
 behavior directly (comparable to how Question 43's source trail was built)
 rather than another live probe, since every concurrency- and order-based
 lever this campaign controls has now been tried and excluded.
+
+**First source-reading pass (2026-08-13, autopilot, `gh search code
+--repo OpenOLAT/OpenOLAT`, no live run): one real, quantified per-session
+mechanism found, but it does not cleanly fit.** OpenOLAT's `DTabs`
+(`BaseFullWebappController.java`) caps how many courses/resources a single
+user session can have open at once (`maxTabs` - a configured limit, not
+hardcoded, exact value not looked up this pass) and normal navigation to a
+course (including a deep link into a specific `CourseNode`, which is what
+this project's crawler navigates to) goes through `createDTab`/`addDTab`,
+the same as a real user clicking through the course list. That is a genuine
+candidate for "a second course's presence perturbs the first" in principle.
+But its actual behavior at the cap does not match what was observed: when
+`dtabs.size() >= maxTabs`, `createDTab` **refuses to open the new tab at
+all** (`getWindowControl().setError("warn.tabsfull")`, returns `null`) -
+it does not evict the oldest tab to make room. If this were the mechanism,
+hitting the cap should make the *newer* course fail to open, not corrupt
+specific folders of whichever course was already open - and every live
+experiment's *second* course downloaded its own files without error (only
+Algorithmen's own `Vorlesung` failed, which is the same folder that fails
+when Algorithmen is the *only* course paired with Softwaretechnologie, not
+a symptom of being refused a tab). It also does not explain the
+folder-specific pattern at all: `DTab` granularity is one tab per
+*course*, not per folder, so it has no natural way to explain why only
+Softwaretechnologie's large/paginated folders (Part-1, Part-3, sometimes
+Part-2) are affected while its many other, smaller folders succeed every
+time in every run. **Registered as a checked, inconclusive lead - not
+confirmed, not fully refuted, but not the standing hypothesis either.** No
+Wicket-level page-store size/eviction config (`PageStore`,
+`maxSizePerSession`, `setPageManagerProvider`) turned up in this repo at
+all, suggesting OpenOLAT runs Wicket's page-store on its defaults rather
+than a custom-tuned one, which is a dead end for that specific angle rather
+than a finding.
+
+**What a next pass should look for instead**, since DTabs was the
+straightforward first guess and it didn't fit: something that operates at
+*folder* granularity, not course granularity, and that a second course's
+discovery could plausibly perturb even though the two courses' content is
+otherwise unrelated - e.g. a shared, session-scoped Wicket AJAX
+behavior/component id counter (`org.olat.core.gui` component id
+allocation) that could collide or roll over differently once a second
+course's own components are also being created, or something specific to
+how the "show all"/pagination toggle's own state is tracked per session
+rather than strictly per folder. Not chased further this pass - this is a
+genuinely open lead for whoever continues it, not a dead end to abandon.
 
 **Policy half, unblocked by any of the above (Question 44's own original
 framing) and still not decided:** today's answer to "what should a sync do

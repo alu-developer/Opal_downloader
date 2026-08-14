@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/text/encoding/unicode"
@@ -254,7 +255,14 @@ func Enable(exePath, hhmm string) error {
 		return fmt.Errorf("closing temporary task XML file: %w", err)
 	}
 
-	out, err := exec.Command("schtasks", "/Create", "/TN", TaskName, "/XML", tmpPath, "/F").CombinedOutput()
+	// HideWindow (CREATE_NO_WINDOW) avoids a console-window flash: these
+	// callers run from the GUI's native WebView2 window, which has no
+	// console of its own for schtasks.exe to attach to, so without this it
+	// would pop open a brand new one. Same fix as internal/notify's
+	// powershell.exe calls.
+	cmd := exec.Command("schtasks", "/Create", "/TN", TaskName, "/XML", tmpPath, "/F")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("schtasks /Create failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -275,7 +283,9 @@ func Enable(exePath, hhmm string) error {
 // obligation: TaskName is one global name per machine, so an automatic or
 // background call here would silently remove the user's live daily sync.
 func Disable() error {
-	out, err := exec.Command("schtasks", "/Delete", "/TN", TaskName, "/F").CombinedOutput()
+	cmd := exec.Command("schtasks", "/Delete", "/TN", TaskName, "/F")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if taskNotFound(out) {
 			return nil
@@ -288,7 +298,9 @@ func Disable() error {
 // Status queries whether the scheduled-sync task is currently registered
 // and, if so, its daily trigger time.
 func Status() (Info, error) {
-	out, err := exec.Command("schtasks", "/Query", "/TN", TaskName, "/XML").CombinedOutput()
+	cmd := exec.Command("schtasks", "/Query", "/TN", TaskName, "/XML")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if taskNotFound(out) {
 			return Info{Registered: false}, nil

@@ -123,6 +123,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 }`
 
 	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-Command", script)
+	hideWindow(cmd)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

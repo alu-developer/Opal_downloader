@@ -22,6 +22,7 @@ func openInDefaultBrowser(target string) error {
 		// placeholder so a URL containing "&" isn't misparsed as extra start
 		// arguments.
 		cmd = exec.Command("cmd", "/c", "start", "", target)
+		hideWindow(cmd)
 	case "darwin":
 		cmd = exec.Command("open", target)
 	default:

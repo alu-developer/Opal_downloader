@@ -3115,6 +3115,57 @@ instance) rather than calling the whole "find the version" question closed.
 `Server: Apache`) with zero OpenOLAT-specific marker anywhere in headers or
 markup.
 
+**Result (2026-08-15, same day, live probe, no login): CONFIRMED, and more
+directly than the prediction expected.** `curl`'d
+`https://bildungsportal.sachsen.de/opal/` unauthenticated (redirects through
+`/opal/shiblogin`, a Shibboleth SSO front door — no account touched). The
+`Server` header is a bare `Server: Apache` (kill-criterion-only on its own),
+but the page body settles the question by itself: it loads
+`/opal/wicket/resource/org.apache.wicket.resource.DynamicJQueryResourceReference/jquery/jquery-2.2.4-ver-F9EE266EF993962AD59E804AD9DEBE66.js`
+and
+`/opal/wicket/resource/org.apache.wicket.ajax.AbstractDefaultAjaxBehavior/res/js/wicket-ajax-jquery-ver-04D5389C5F00ED98AD39E57EBB5AA818.js`.
+Checked directly rather than assumed: `gh search code` for both exact class
+names confirms they are genuine Apache Wicket framework source
+(`apache/wicket`'s own `wicket-core` tree) — not OpenOLAT application code —
+and Wicket's own URL-mapping convention only ever serves resources at
+`/wicket/resource/<fully-qualified-class>/...`, so this path existing at all
+on the live server is direct, first-response proof that bildungsportal.sachsen.de
+runs a genuine Apache Wicket application underneath OpenOLAT, independent of
+anything found (or not found) by searching `OpenOLAT/OpenOLAT`'s own source.
+This is stronger than component (b) of the prediction asked for — not an
+inferred marker, a load-bearing resource URL the page cannot render without.
+Two secondary markers, also new: the bundled jQuery is pinned at **2.2.4**
+(a specific, dateable Wicket-library choice, though the exact Wicket version
+that defaults to it wasn't pinned down this cycle — `gh search`/`gh api
+search/code` for the string inside `apache/wicket`'s own repo came back
+empty, likely a search-index gap rather than absence); and every static
+asset (`/opal/raw/20260804/js/...`, `.../themes/opal_new/...`) is served
+under a **build-date path segment, `20260804`** — 11 days before this probe,
+so the deployment itself is actively rebuilt/current, not a frozen old
+install, which sharpens rather than resolves the puzzle: a live, recently-
+rebuilt deployment is still serving genuine `org.apache.wicket` resource
+URLs that do not exist anywhere in current `OpenOLAT/OpenOLAT` master.
+*Not fully confirmed*: no explicit OpenOLAT/OLAT release number or Wicket
+version number was found (the prediction's "maps to a specific release" bar)
+— only proof that Wicket itself, genuinely, is there.
+
+**New open question, sharper than before:** given the previous cycle
+already checked `OpenOLAT_12.5` (the oldest branch on `OpenOLAT/OpenOLAT`)
+and found zero "wicket" mentions even in its `pom.xml`, and this cycle now
+has hard proof the live server runs on real Wicket, the version gap is
+larger than "an older OpenOLAT release" can explain from the currently
+known branch list — either OPAL's lineage predates OpenOLAT's own GitHub
+history entirely (OLAT's roots go back further, to `forge.olat.org`/an
+original `olat`-named repo not yet searched), or it is confirmed now beyond
+doubt to be a private, unpublished Sachsen fork. Cheapest next step: search
+GitHub broadly (not scoped to `OpenOLAT` org, already tried once for
+Question 42 with a repo-name search — this needs a *code* search) for
+`org.apache.wicket` combined with `olat`-specific class names (e.g. search
+for other OpenOLAT-distinctive strings already known from this project's own
+captured HTML, like `BCCourseNode` or `pager-showall`, scoped broadly rather
+than to one org) to find a pre-GitHub or non-OpenOLAT-org OLAT codebase that
+still has Wicket. Not attempted this cycle.
+
 Older entries below, most recent first.
 
 ---

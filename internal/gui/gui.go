@@ -642,7 +642,7 @@ func (s *server) applySyncReadiness(data *landingData) {
 // CLAUDE.md records as false. The expiry is display only.
 func (s *server) sessionStatus() landingData {
 	credentials, err := config.LoadCredentials(s.configPath)
-	stateFile := config.DefaultStateFile
+	stateFile := config.PerInstallStateFile(s.configPath)
 	if err == nil {
 		stateFile = credentials.StateFile
 	}

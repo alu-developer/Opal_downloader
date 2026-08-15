@@ -1067,6 +1067,17 @@ precedent for tooling breaks.
 
 #### Finding — a fresh setup silently reuses whatever OPAL login already exists on the machine, skipping the promised "log in once" step
 
+**Fixed 2026-08-15 (autopilot).** `config.PerInstallStateFile(configPath)`
+scopes the implicit `session_state_file` default to configPath's own
+directory instead of the fixed global path; wired into config loading and
+into the Settings-save/landing-page call sites this finding named. Live-
+verified with the same "brand-new scratch config, no login" setup this walk
+used, plus a check that the real global session file this walk's own
+inheritance depended on still exists on this machine (confirming the old code
+would still reproduce it) - see `docs/BACKLOG-archive.md`'s "Done recently"
+entry for the full trail. The narrower "Cause, named sharply enough..."
+paragraph below stays for the record.
+
 The landing page's own copy states the plan up front: *"What you'll do once:
 ... Log in to OPAL once. Your login stays on this computer."* Bootstrapped a
 `config.yaml` through Settings exactly as README describes (left every field

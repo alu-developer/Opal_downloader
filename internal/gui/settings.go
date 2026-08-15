@@ -46,10 +46,14 @@ type subfolderDestinationRow struct {
 //
 // OpalURL and SessionStateFile are deliberately not exposed here: OPAL only
 // has one real-world instance in practice, and the session state file path
-// is an internal implementation detail. Both are always saved/loaded using
-// config.DefaultOPALURL / config.DefaultStateFile - see parseSettingsForm.
-// Advanced users who need something different can still hand-edit
-// config.yaml directly; the GUI just won't show or round-trip those fields.
+// is an internal implementation detail. OpalURL is always saved/loaded using
+// config.DefaultOPALURL; SessionStateFile is always saved using
+// config.PerInstallStateFile(configPath), scoped to this config.yaml's own
+// directory rather than a single machine-wide path (see that function's doc
+// comment for the cross-install identity leak this fixes) - see
+// parseSettingsForm. Advanced users who need something different can still
+// hand-edit config.yaml directly; the GUI just won't show or round-trip
+// those fields.
 type settingsViewData struct {
 	ConfigPath string
 	Error      string
@@ -184,8 +188,9 @@ func loadedToViewData(configPath string, loaded config.Loaded) settingsViewData 
 // same as course_folders.
 //
 // Credentials.URL and Credentials.StateFile are always set to
-// config.DefaultOPALURL / config.DefaultStateFile - the Settings form no
-// longer exposes either for editing (see settingsViewData's doc comment).
+// config.DefaultOPALURL / config.PerInstallStateFile(configPath) - the
+// Settings form no longer exposes either for editing (see settingsViewData's
+// doc comment).
 func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (settingsViewData, config.Loaded) {
 	_ = r.ParseForm()
 
@@ -287,7 +292,7 @@ func parseSettingsForm(r *http.Request, configPath string, base config.Loaded) (
 	loaded.App.SectionFolderNames = sectionFolderNames
 	loaded.App.SubfolderDestinations = subfolderDestinations
 	loaded.Credentials.URL = config.DefaultOPALURL
-	loaded.Credentials.StateFile = config.DefaultStateFile
+	loaded.Credentials.StateFile = config.PerInstallStateFile(configPath)
 
 	view.Warnings = config.Warnings(loaded.App)
 	if warning := sectionSubfolderToggleWarning(base, loaded); warning != "" {

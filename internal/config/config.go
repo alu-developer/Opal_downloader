@@ -14,7 +14,13 @@ import (
 )
 
 const (
-	DefaultOPALURL   = "https://bildungsportal.sachsen.de/opal/"
+	DefaultOPALURL = "https://bildungsportal.sachsen.de/opal/"
+
+	// DefaultStateFile is the session-state fallback used only when there is
+	// no configPath to scope a default to (config.Defaults(), called before
+	// any config.yaml exists or is even named). Everywhere a configPath is
+	// known, use PerInstallStateFile instead - see its own doc comment for
+	// why a single fixed path here caused a real cross-install identity leak.
 	DefaultStateFile = "~/.opal_storage_state.json"
 
 	// DefaultDownloadConcurrency is the default number of files downloaded
@@ -531,10 +537,38 @@ func LoadCredentials(configPath string) (Credentials, error) {
 	if err := loadYAML(configPath, &cfg); err != nil {
 		return Credentials{}, err
 	}
-	return credentialsFromRaw(cfg), nil
+	return credentialsFromRaw(cfg, configPath), nil
 }
 
-func credentialsFromRaw(cfg rawConfig) Credentials {
+// PerInstallStateFile is the session-state-file default used whenever a
+// config.yaml does not set session_state_file explicitly: the config's own
+// directory, not a single machine-wide path.
+//
+// Before this (found by the friction campaign's Walk 7, 2026-08-13, true
+// first-run persona): every config.yaml that left session_state_file unset -
+// which is all of them, since the Settings form never exposed the field -
+// resolved to the same fixed "~/.opal_storage_state.json" regardless of
+// which config.yaml or which worktree loaded it. A brand-new install, a
+// second account on the same Windows profile, or (this project's own daily
+// case) a second worktree pointed at its own config.yaml would silently
+// inherit whichever session an *earlier* install had already saved there and
+// report "Logged in" without ever having logged in itself - the identity a
+// sync actually uses was not under the fresh config's own control at all.
+// Scoping the default to configPath's directory means two config.yamls in
+// two different directories never share an implicit identity; an explicit
+// session_state_file in either one still overrides this, unchanged.
+//
+// configPath == "" (config.Defaults(), called before any config.yaml is even
+// named) falls back to DefaultStateFile - there is no install to scope to
+// yet.
+func PerInstallStateFile(configPath string) string {
+	if strings.TrimSpace(configPath) == "" {
+		return DefaultStateFile
+	}
+	return filepath.Join(filepath.Dir(configPath), ".opal_storage_state.json")
+}
+
+func credentialsFromRaw(cfg rawConfig, configPath string) Credentials {
 	opalURL := strings.TrimSpace(cfg.OPALURL)
 	if opalURL == "" {
 		opalURL = DefaultOPALURL
@@ -543,7 +577,7 @@ func credentialsFromRaw(cfg rawConfig) Credentials {
 
 	stateFile := strings.TrimSpace(cfg.SessionStateFile)
 	if stateFile == "" {
-		stateFile = DefaultStateFile
+		stateFile = PerInstallStateFile(configPath)
 	}
 
 	return Credentials{
@@ -557,7 +591,7 @@ func Load(configPath string) (Loaded, error) {
 	if err := loadYAML(configPath, &cfg); err != nil {
 		return Loaded{}, err
 	}
-	return fromRaw(cfg), nil
+	return fromRaw(cfg, configPath), nil
 }
 
 // Defaults is the configuration a user has before any config.yaml exists:
@@ -569,11 +603,11 @@ func Load(configPath string) (Loaded, error) {
 // first save, flipping a live-confirmed default (see
 // DefaultSkipEnrollmentSections) for every fresh install.
 func Defaults() Loaded {
-	return fromRaw(rawConfig{})
+	return fromRaw(rawConfig{}, "")
 }
 
-func fromRaw(cfg rawConfig) Loaded {
-	credentials := credentialsFromRaw(cfg)
+func fromRaw(cfg rawConfig, configPath string) Loaded {
+	credentials := credentialsFromRaw(cfg, configPath)
 
 	downloadPath := strings.TrimSpace(cfg.DownloadPath)
 	if downloadPath == "" {

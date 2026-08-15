@@ -480,6 +480,42 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **A fresh config.yaml no longer silently inherits whatever OPAL session
+  already exists on the machine** (2026-08-15, autopilot, fixing friction
+  campaign Walk 7's most severe finding, 2026-08-13). Root cause was
+  `internal/config.DefaultStateFile = "~/.opal_storage_state.json"`, a single
+  fixed path every config.yaml that left `session_state_file` unset resolved
+  to - which was all of them, since the Settings form never exposed the
+  field. New `config.PerInstallStateFile(configPath)` scopes the implicit
+  default to configPath's own directory instead
+  (`<config dir>/.opal_storage_state.json`); wired into
+  `credentialsFromRaw`/`fromRaw` (so `config.Load`/`LoadCredentials` resolve
+  it for any config.yaml that omits the field) and into
+  `internal/gui/settings.go`'s Settings-form save and
+  `internal/gui/gui.go`'s pre-config landing-page check (both previously
+  hardcoded to the same global constant). An explicit `session_state_file` in
+  an existing config.yaml still overrides this, unchanged - only configs that
+  relied on the implicit default move. Live-verified, not just unit-tested:
+  built the real binary, pointed it at a brand-new scratch config directory
+  with no session file of its own, and drove the actual Settings-save HTTP
+  flow. Before submitting the fix, confirmed the real global session file
+  (`~/.opal_storage_state.json`) exists and is one day old on this machine -
+  exactly the state that would have made the bug reproduce. After the fix,
+  the landing page correctly reported "Not logged in yet" for the fresh
+  config instead of falsely inheriting that session. Full build, vet, and the
+  `internal/config`/`internal/gui` test suites all green; two config_test.go
+  tests updated to pin the new intentional divergence between
+  `Defaults()` (no configPath, falls back to the machine-wide default) and
+  `Load(configPath)` (scoped) rather than papering over it.
+  `internal/gui/tufast_setup.go`'s interactive-browser-launch call site was
+  checked and deliberately left on the global constant: read
+  `OpenInteractiveBrowserAt`/`scraper.New` directly and confirmed that call
+  path never reads or writes the state file at all (the TU-Fast install
+  browser's identity lives in the separate, genuinely-shared login profile
+  directory), so scoping it would have been a no-op change to dead-for-that-
+  path code, not a fix. The companion finding (a stale global "Last sync"
+  line on the same landing page, from `statuslog.ReadLastSyncDefault`) is a
+  separate root cause and still open in `docs/BACKLOG.md`.
 - **`discoverSectionsHTTP` (HTTP-first discovery, the default sync path since
   2026-08-11) now logs the structural section-type skips it was silently
   discarding** (2026-08-13, autopilot, weekly-review Part B finding). The

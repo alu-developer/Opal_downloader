@@ -494,6 +494,14 @@ func TestValidateRejectsEmptyCourseFolderValue(t *testing.T) {
 // copy that quietly falls behind Load is exactly the bug it was added to
 // prevent (internal/gui's first-run Settings page wrote
 // skip_enrollment_sections: false on a fresh install for that reason).
+//
+// Credentials.StateFile is the one deliberate exception, pinned separately
+// by TestDefaultsStateFileVsLoadStateFile below: Defaults() has no
+// configPath to scope a session-state default to, so it falls back to the
+// machine-wide DefaultStateFile, while Load(configPath) of the same empty
+// config.yaml scopes to that path's own directory via PerInstallStateFile -
+// see that function's doc comment for the cross-install identity leak this
+// divergence exists to fix.
 func TestDefaultsMatchesLoadOfEmptyConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
@@ -506,9 +514,37 @@ func TestDefaultsMatchesLoadOfEmptyConfig(t *testing.T) {
 		t.Fatalf("Load of an empty config.yaml failed: %v", err)
 	}
 
-	if !reflect.DeepEqual(Defaults(), loaded) {
-		t.Errorf("Defaults() has drifted from Load() of an empty config.yaml:\n Defaults() = %+v\n Load()     = %+v",
-			Defaults(), loaded)
+	defaults := Defaults()
+	defaults.Credentials.StateFile = loaded.Credentials.StateFile
+	if !reflect.DeepEqual(defaults, loaded) {
+		t.Errorf("Defaults() has drifted from Load() of an empty config.yaml (aside from the deliberate StateFile exception):\n Defaults() = %+v\n Load()     = %+v",
+			defaults, loaded)
+	}
+}
+
+// TestDefaultsStateFileVsLoadStateFile pins the one deliberate exception
+// TestDefaultsMatchesLoadOfEmptyConfig carves out: Defaults() (no configPath
+// known yet) falls back to the machine-wide DefaultStateFile, while
+// Load(configPath) of the same empty config.yaml scopes the same implicit
+// default to configPath's own directory. If this ever collapses back to
+// equal, PerInstallStateFile has silently stopped doing its job.
+func TestDefaultsStateFileVsLoadStateFile(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("failed to write empty config: %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load of an empty config.yaml failed: %v", err)
+	}
+
+	if loaded.Credentials.StateFile != filepath.Join(dir, ".opal_storage_state.json") {
+		t.Errorf("Load(configPath).Credentials.StateFile = %q, want scoped to %q", loaded.Credentials.StateFile, dir)
+	}
+	if Defaults().Credentials.StateFile != expandHome(DefaultStateFile) {
+		t.Errorf("Defaults().Credentials.StateFile = %q, want the machine-wide default %q", Defaults().Credentials.StateFile, expandHome(DefaultStateFile))
 	}
 }
 

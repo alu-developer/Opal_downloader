@@ -84,29 +84,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2 & 6, first-run walks 3 & 7)
 
-- **wrong — a fresh "first-time" setup silently reuses whatever OPAL login
-  already exists on the machine, skipping the "log in once" step the GUI's
-  own landing page promises, with no indication of whose session it is.**
-  Walk 7, 2026-08-13 (GUI, true first-run: empty scratch dir, no
-  `config.yaml`, no session file of its own). The landing page tells a new
-  user "What you'll do once: ... Log in to OPAL once." A brand-new
-  `config.yaml`, bootstrapped through Settings' own pre-filled-defaults flow
-  exactly as README describes, was never used to log in — yet the very next
-  page load reported `Logged in, valid until Sun 16 Aug, 13:59 (2 days
-  left)`. Cause, source-confirmed: `internal/config.DefaultStateFile =
-  "~/.opal_storage_state.json"` is a single fixed path outside `download_path`
-  and outside the fresh config's own control; the Settings form writes this
-  same literal default into every new `config.yaml` rather than leaving it
-  config-scoped or unset. Predicts the same silent inheritance for anyone
-  reinstalling, testing a second account on one Windows profile, or (this
-  project's own common case) running a second worktree pointed at a
-  different `config.yaml` while an earlier one already logged in. Distinct
-  from the already-filed global-status-file findings below: this one is the
-  actual authentication identity, not a reporting artifact. Fix direction not
-  designed here - either scope `session_state_file`'s default per-install
-  (e.g. next to `config.yaml`) or have the landing page say "using an
-  existing OPAL session" instead of rendering identically to a session this
-  setup actually created. Full walk: `docs/friction-campaign.md` Walk 7.
 - **wrong — the same first-run landing page shows a stale, unrelated "Last
   sync" line right next to its own "First time here?" message.** Walk 7,
   2026-08-13, same scratch setup as above: before any config existed at all,

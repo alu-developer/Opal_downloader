@@ -72,13 +72,14 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 2 (CLI), cycling back.** Walk 1 was the GUI, walk 2 the CLI,
+**Next surface: 1 (GUI), cycling back.** Walk 1 was the GUI, walk 2 the CLI,
 walk 3 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent
 sessions picked it independently before either had a result), walk 6 the CLI
 again, walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
 covered: walk 3 only exercised the CLI build+`list` path from a fresh clone,
-never `gui`'s own zero-config first load) — GUI has had four looks, CLI two,
-first-run-from-zero two; CLI is due.
+never `gui`'s own zero-config first load), walk 8 the CLI again (everyday
+use, found nothing wrong) — GUI has had four looks, CLI three, first-run-
+from-zero two; GUI is due.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -1173,8 +1174,104 @@ rendered as if it belonged to the current config" cause family.
    product question about intended scope, not a code-correctness one. Worth
    deciding before touching `DefaultStateFile`, since "fix" could mean either
    isolating it or just labeling it honestly.
+   **Answered 2026-08-15 (autopilot): scoped per-install.** One person/one
+   machine/one account was never actually the only real case this project
+   itself hits daily - a second worktree with its own `config.yaml` is this
+   project's own routine situation, and it shares the same machine. Scoping
+   removes the silent-inheritance failure mode outright rather than just
+   labeling it; an explicit `session_state_file` still lets anyone opt back
+   into sharing one session across configs by hand. See
+   `docs/BACKLOG-archive.md`'s "Done recently" entry.
 2. Do the GUI's other config-scoped-looking numbers share the same
    global-path leak the "Last sync" line has now been shown twice to have -
    specifically, does `/preview`'s force-re-download or developer-tools page
    read anything through a similarly fixed, unscoped path? Not checked this
    walk; cheap to check next time that page comes up for another reason.
+
+### Walk 8 — 2026-08-15, CLI everyday use (autopilot, phase 2)
+
+Rotation said CLI next. Walks 2 and 6 already covered CLI everyday use twice,
+so this walk deliberately looked for ground those two hadn't: the bare
+no-argument invocation, `--help`, `status`, a real `list` against the real
+account starting from an *already-expired* copied session (forcing the
+TU-Fast auto-recovery path to actually fire rather than just being read
+about), and error text for a typo'd command and a missing config file.
+
+**Scratch setup, green per "Breaking things safely."** Built current master
+(`go build -o tmp/friction/opal-downloader.exe .`), copied the real
+`config.yaml` into `tmp/friction/config.yaml` with `download_path`,
+`default_course_folder`, `course_folders`, and `subfolder_destinations` all
+redirected under `tmp/friction/downloads`, and copied the real session state
+(`~/.opal_storage_state.json`) to `tmp/friction/session_state.json`,
+referenced by the scratch config's own explicit `session_state_file` - the
+real file was only ever read, never written to or moved. `sync.lock` was
+free before and after.
+
+**Expectation registered before the first command:** running the binary with
+no arguments should behave like the near-universal CLI convention - print
+usage/help and exit - since that is what most first-time users try first.
+
+**Investigated, not a finding.** No-argument invocation instead launched the
+full GUI server in a native window (`Opal Downloader GUI opening in a native
+window (http://...)`), which looked like a hang from the outside (the
+20-second window before I checked showed zero captured output and a live,
+77MB-resident process with no `sync.lock` and no downloads yet). Read
+`cmd/opal-downloader/root.go`'s `Execute()` to diagnose (Rule 4 permits
+breaking persona to diagnose something already found): `len(os.Args) < 2`
+deliberately runs `runGUI(nil)`, documented in the code itself ("the web UI
+is the primary/default way most users interact with opal-downloader (see
+docs/gui-concept.md Section 5)"). Not a bug - a GUI server is *supposed* to
+keep running until killed, and `--help` (checked immediately after) prints
+clean, fast, and correct usage text without touching the GUI path at all.
+Killed the backgrounded GUI process (scratch-scoped, nothing to repair) and
+moved on.
+
+**Investigated, not a finding.** `status` reported the copied session
+"valid until Mon 17 Aug, 11:01 (38 hours left)"; the very next command,
+`list`, reported that same session file expired server-side and needed
+interactive re-login. A discrepancy worth chasing on its face, but the
+CLI's own `status` output already carries the exact caveat that predicts
+this ("OPAL can end it sooner; if it does, the next sync logs in again by
+itself" - matching `internal/gui/gui.go`'s own documented design, "The
+expiry is display only"). More likely explanation specific to this walk's
+own method than a product bug: copying a *live* session file that the real
+environment might still be touching is not a clean substitute for a
+genuinely idle one. `list` then exercised the exact self-healing path this
+project's memory already documents live-verified (TU-Fast auto-completing
+login with nobody at the keyboard): "Login page has not progressed yet
+(TU-Fast may not have fired) - reloading it (attempt 1 of 2)..." then a
+clean real discovery, 8 courses, 349 files, 73.7s total - consistent with
+the sync-speed campaign's own known ~50-90s discovery window. Confirms the
+self-healing path works exactly as documented rather than revealing
+anything new.
+
+**Confirmed working, no finding:** `--help`'s usage/options text (complete,
+accurate against every subcommand actually checked); a typo'd command
+(`sycn`) failed with a clean `Error: unknown command: sycn`, exit 1; a
+missing `--config` path failed with `Error: config file not found: ...`,
+exit 1; the real log file (`~/.opal-downloader/logs/opal-downloader.log`)
+correctly split `audience=user` (the same lines the console showed) from
+`audience=diag` (per-section skip detail, rate-ceiling stats) - the
+`--verbose` doc claim holds. `list` wrote only its visit-log metadata to the
+scratch `download_path`, no files - correct, `list` never downloads.
+
+**This walk's own verdict: nothing wrong, blocked, or bloated found** - six
+distinct paths through the CLI (bare invocation, `--help`, `status`, a real
+`list`, a bad command, a missing config) all matched documented or
+already-known-correct behavior, including one path (the expired-session
+auto-recovery) that is usually only read about rather than actually
+triggered live. Per Rule 6: reported plainly rather than manufacturing a
+finding: two candidate discrepancies were investigated and both resolved to
+"working as designed," not left unexamined to pad this walk with a false
+positive.
+
+#### New question this walk leaves (Rule 3)
+
+`smoke-check` and `dump-links` are both documented, real CLI subcommands
+(`--help` lists full flag syntax for each) that no everyday-use walk has
+exercised yet - walks 2, 6, and this one all stayed on the six subcommands
+above. Does `smoke-check --full-sync` (a real sync into a disposable scratch
+directory, per its own `--help` text) or `dump-links` behave as cleanly as
+what this walk checked, or is that untrodden ground for a reason? Cheap to
+check next time CLI is due: both take the same scratch-config recipe this
+walk already built.

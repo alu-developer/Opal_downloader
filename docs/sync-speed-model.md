@@ -3112,6 +3112,71 @@ repeat it. *Kill criterion*: if the search surfaces only page-level (not
 session-level) state, or only course-granularity mechanisms (DTabs-like),
 that counts as no new lead this pass.
 
+**Result (2026-08-15, same day, source-only): both (a) and (b) refuted for a
+sharper reason than "not found" — the searched codebase is not the codebase
+that's actually running.** (a) `AbstractComponent.dispatchID` is assigned via
+`CodeHelper.getRAMUniqueID()`, a JVM-wide unique-id generator reused all over
+OpenOLAT for unrelated component names — not session-bounded, no eviction, no
+collision path; dead end, confirmed by reading the assignment site directly,
+not just a search-snippet guess. (b) is where it gets interesting: this
+project's own captured live HTML (`internal/scraper/files.go`,
+`internal/scraper/httpdiscovery.go`, `showall_probe_test.go`) shows the real
+"show all" control firing `Wicket.Ajax.ajax({"u":"/opal/auth/.../CourseNode/
+1615865126729195011/Part-3?1091-1.0-fluidContainer-...-pager-showAllLink",
+"c":"id19c2e","e":"click"})` against a CSS class `pager-showall` — genuine
+Apache Wicket JavaScript (`Wicket.Ajax`, the literal global) with a classic
+Wicket hierarchical component-path URL (`pageId-version.number-
+componentPath-behaviorName`). **`gh search code` for `org.apache.wicket`,
+`Wicket.Ajax`, and `pager-showall` across `OpenOLAT/OpenOLAT`'s current
+master returns zero hits, for any of the three.** Neither candidate
+component matches either: the legacy `org.olat.core.gui.components.table.Table`
+or open-source table pager (`COMMAND_PAGEACTION_SHOWALL`) renders its show-all
+link via `o_XHRSubmit`, not `Wicket.Ajax.ajax`, and carries no `pager-showall`
+class (`TableRenderer.java`, read directly). The modern
+`FolderController`/`FlexiTable` path Question 43 traced (`bulkDownloadButton`/
+`doBulkDownload`) has no `pager-showall` class or pagination cache either
+(read directly, `getCachedContainer` is a per-call wrapper, not a shared
+cache). The repo's own architecture doc
+(`doc/openolat-architecture.md`) explicitly describes OpenOLAT as merely
+*comparable to* Wicket/Vaadin/JSF in being server-centric — not built on
+Wicket — and `gh search code "wicket" org:OpenOLAT` turns up nothing but that
+one doc-comparison sentence. **Diagnosis, sharp enough to have predicted the
+last two passes' near-misses in advance:** OPAL/Bildungsportal Sachsen's
+actual deployed folder browser is not the code on `OpenOLAT/OpenOLAT`'s
+current `master` branch at all — either a genuinely older release (from
+before OpenOLAT dropped a literal Apache Wicket dependency, if it ever had
+one this directly) or a Saxon-specific fork/patch nobody has located source
+for. That would explain, retroactively, why the 2026-08-13 DTabs read "didn't
+cleanly fit" (checked against the wrong version's DTab implementation) and
+why Question 43's `FolderController` bulk-download finding, while real
+*current-master* code, is unverified against what the live account actually
+serves. **This reclassifies every OpenOLAT-source-based finding on this list
+to date (DTabs, Question 43's `FolderController`/`bulkDownloadButton`,
+Question 44's own two passes) as "true of current master, unconfirmed against
+what OPAL actually runs"** — not wrong, since nothing here contradicts them,
+but a standing caveat that source reading alone cannot close this class of
+question until the version gap is resolved.
+
+**New open question, ranked above resuming the folder/component-id search:**
+what OpenOLAT/OLAT version or fork does bildungsportal.sachsen.de actually
+run, and can *that* source be found (an old git tag on `OpenOLAT/OpenOLAT`,
+a predecessor `olat`/`OLAT` repo, or a Bildungsportal/Sachsen-specific
+fork)? **Checked this pass, inconclusive:** GitHub's commit-search API
+(`gh api search/commits`) finds zero commits ever mentioning "wicket" in
+`OpenOLAT/OpenOLAT`'s indexed history at all - either the repo's tracked
+history (earliest commit surfaced dates to well after the project's real
+2018 GitHub creation, itself likely younger than the project's actual age;
+OpenOLAT/OLAT's roots go back further) never carried literal Wicket, meaning
+the live account's markup comes from a fork/branch this GitHub repo's history
+never contained, or the commit-search index simply doesn't reach back far
+enough to prove either way - not chased further this cycle. Cheapest next
+step for a future pass: check `gh api repos/OpenOLAT/OpenOLAT/tags` /
+`branches` for anything Sachsen/Saxon-named, and search GitHub broadly (not
+scoped to the `OpenOLAT` org) for forks or mirrors that do reference
+`org.apache.wicket`, which would at minimum bound how old or how divergent
+the deployed version is, before spending more time reading master for
+mechanisms that may not exist in the version that matters.
+
 Older entries below, most recent first.
 
 ---

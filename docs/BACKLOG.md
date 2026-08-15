@@ -51,11 +51,20 @@ Part-2 (4), independent of which course is discovered first. A first
 source-reading pass the same day (`gh search code --repo OpenOLAT/OpenOLAT`)
 found a real candidate mechanism (OpenOLAT's `DTabs` per-session tab cap)
 but it does not cleanly fit the evidence - checked and registered as
-inconclusive, not confirmed. **No crisp next experiment is queued**; the
-model file's own next-step suggestion is now open-ended source reading
-(something at folder, not course, granularity) rather than a bounded live
-test, so whoever picks this up next should read that entry's "what a next
-pass should look for instead" note before choosing where to dig. Question 43
+inconclusive, not confirmed. **A second source-reading pass (2026-08-15)
+found why: the account's live folder-browser HTML fires genuine Apache
+Wicket AJAX (`Wicket.Ajax.ajax`, class `pager-showall`), but current
+`OpenOLAT/OpenOLAT` master has zero trace of Apache Wicket anywhere -
+neither the legacy `Table` component nor the modern `FolderController`
+matches what's actually served.** Every OpenOLAT-source finding on this
+question to date (DTabs, Question 43's `FolderController`, this pass's own
+component-id/pagination search) is true of current master but unconfirmed
+against whatever OPAL actually runs - a version/fork gap, not a dead end.
+**Next step is finding which version/fork is actually deployed** (see
+`docs/sync-speed-model.md`'s "Next experiment" for the checked-but-
+inconclusive commit-search attempt and the cheaper follow-ups it names)
+before more time goes into reading master for mechanisms that may not exist
+in the running code. Question 43
 (bulk-download-as-ZIP) sits second, still stalled on the same DOM-flakiness
 finding from 2026-08-12's Step B — two untried directions are named in its
 own entry. **Nothing on this list is blocked on the maintainer** — Question

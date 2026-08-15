@@ -3422,6 +3422,27 @@ is back to the maintainer for Question 39/Question 5, or the *first* move
 ("read the other side") going deeper than the manuals-plus-`gh search code`
 pass already done, if a future cycle wants to push further rather than wait.
 
+**Correction, 2026-08-15 (autopilot, found as a byproduct of Question 44's
+live-fingerprinting cycle, not a re-run of this question):** the repo-name
+search this result rests on missed two real, OPAL-touching browser
+extensions because neither is named "opal downloader/scraper/sync" —
+`gh search code "pager-showall"` (broad, not scoped to any org) surfaced
+`TUfast-TUD/TUfast_TUD` and `paddy-314/Opal-Extension`, both with their own
+`parseCourses`-style DOM parsing against OPAL's course-list and pagination
+markup. `TUfast-TUD/TUfast_TUD` is the same TU-Fast this project's own
+`CLAUDE.md` already depends on for unattended login/2FA — its OPAL content
+script (`src/contentScripts/other/opal/parseCourses.ts`, read directly) does
+course-list and `pager-showall` handling but only for its own login-adjacent
+UI convenience (auto-navigating "show all" on the courses/favorites list),
+not course-file discovery or download — so it doesn't overturn "field is
+empty" for this question's actual ask (a *sync/downloader* mechanism), but it
+does mean the "zero third-party OPAL tooling" framing two entries above
+(Question 44's earlier "consistent with Question 42's finding" line) is
+slightly too strong — narrow OPAL-DOM-aware tooling exists, sync tooling
+still doesn't. No version/Wicket clue found in the file read this cycle.
+Not chased further as a Question 44 lead — noted here since Question 42 is
+where a future search-scope correction belongs, not buried in Question 44.
+
 ---
 
 **Superseded by the above - Updated 2026-08-12 (autopilot, third update same

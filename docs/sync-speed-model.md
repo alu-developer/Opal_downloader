@@ -3082,7 +3082,44 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-15 (autopilot): Question 44, second source-reading pass —
+**Updated 2026-08-15 (autopilot, third update same day): Question 44,
+live-server fingerprinting — following directly from the previous update's
+named next step, since source reading against `OpenOLAT/OpenOLAT` closed as
+"confirmed not the codebase running."**
+
+*Prediction, written before probing, per Rule 1.* A single unauthenticated
+`GET` of the OPAL login page (`https://bildungsportal.sachsen.de/opal/`,
+no account needed — this is the public entry page every visitor sees before
+signing in) plus its response headers will surface at least one concrete
+version or build marker, via one of: (a) an HTTP `Server` or
+`X-Powered-By`/`X-...-Version` header naming the app server or app version;
+(b) an HTML `<meta name="generator">` tag, footer attribution string, or
+HTML comment naming OpenOLAT/OLAT and a version number — common in Java web
+apps for licensing/attribution and rendered before login; (c) static
+resource URLs (CSS/JS) carrying a version or build-hash path segment (e.g.
+`/raw/<version>/...`), which OpenOLAT has historically used for
+cache-busting. *Suspected mechanism*: none of this requires authentication
+state, so if present it should show up on the very first response.
+*Counts as confirmed*: a concrete version/build string is found (in headers
+or page source) that maps to a specific OpenOLAT/OLAT release — checked
+against the branch/tag list the previous cycle already enumerated
+(`OpenOLAT_12.5` and up) or against the release's own changelog/README if
+the tag list alone doesn't date it precisely. *Counts as
+refuted/inconclusive*: no version-identifying string appears anywhere in
+headers or the unauthenticated page source, or one appears but does not map
+to any locatable OpenOLAT/OLAT release — register that plainly and name the
+next fingerprinting angle (e.g. diffing exact login-form field
+names/markup structure against a version-known public OpenOLAT demo
+instance) rather than calling the whole "find the version" question closed.
+*Kill criterion*: only generic infrastructure headers (e.g. plain
+`Server: Apache`) with zero OpenOLAT-specific marker anywhere in headers or
+markup.
+
+Older entries below, most recent first.
+
+---
+
+**Superseded by the above — Updated 2026-08-15 (autopilot): Question 44, second source-reading pass —
 following the 2026-08-13 pass's own "what a next pass should look for
 instead" note, since DTabs didn't fit.**
 

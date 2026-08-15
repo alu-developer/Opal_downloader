@@ -3082,7 +3082,42 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
-**Updated 2026-08-12 (maintainer redefined the target): Question 44, the 49
+**Updated 2026-08-15 (autopilot): Question 44, second source-reading pass —
+following the 2026-08-13 pass's own "what a next pass should look for
+instead" note, since DTabs didn't fit.**
+
+*Prediction, written before searching, per Rule 1.* Expect to find a
+session-scoped structure that operates at *component/AJAX-target*
+granularity, not course granularity — specifically: (a) a Wicket component-id
+or AJAX-behavior-id counter/registry shared across the whole session rather
+than per-page, where a second course's own component creation could advance,
+collide with, or evict entries belonging to Softwaretechnologie's large
+paginated folders; or (b) the "show all"/pagination toggle for `BCCourseNode`
+folders storing its expanded/collapsed or page-offset state in a session-wide
+map keyed coarsely enough (e.g. by a reused/truncated id, or a bounded-size
+cache) that a second course's own folder state can overwrite or push out
+Softwaretechnologie's. *Suspected mechanism*: whichever of (a)/(b) is found,
+it should explain why only Part-1/Part-3 (and sometimes Part-2) — the large,
+*paginated* folders — are affected while Softwaretechnologie's many small,
+unpaginated folders never fail, since pagination/AJAX-target state is the one
+thing those large folders have that the small ones don't.
+*Counts as confirmed*: a concrete session-scoped bounded structure (fixed-size
+cache, rolling counter with reuse, shared map keyed on something coarser than
+folder identity) is found, written to per folder/component, that a second
+course's own component creation would plausibly perturb. *Counts as
+refuted/still inconclusive*: nothing at folder/AJAX-target granularity turns
+up with genuine session-wide scope — register that plainly, the same way
+DTabs was registered, and name the next dead end so a future pass doesn't
+repeat it. *Kill criterion*: if the search surfaces only page-level (not
+session-level) state, or only course-granularity mechanisms (DTabs-like),
+that counts as no new lead this pass.
+
+Older entries below, most recent first.
+
+---
+
+**Superseded by the above — Updated 2026-08-12 (maintainer redefined the
+target): Question 44, the 49
 files that make a no-op sync take 19 minutes.** The first end-to-end
 measurement moved the ranked list: the download phase is 96% of a sync and the
 whole of it is retries that cannot succeed. Question 43 (bulk ZIP) stays alive

@@ -1119,6 +1119,15 @@ completeness.
 
 #### Finding — the same first-run landing page shows a stale, unrelated "Last sync" line directly under its own "First time here?" message
 
+**Fixed 2026-08-15 (autopilot).** `applyLastSync` now suppresses the line
+whenever `data.SetupNeeded` is true, rather than rescoping the underlying
+record - `statuslog.WriteLastSyncDefault` is deliberately machine-wide (every
+config's sync writes the same file), so the schedule banner's own use of the
+same file (walk 1's Finding 1, the "Optional, not a commitment" entry) is
+unaffected and stays open. Live-verified with a brand-new scratch config
+landing page against this machine's real `last-sync.json` - see
+`docs/BACKLOG-archive.md`'s "Done recently" entry for the full trail.
+
 Before any config existed (the very first load, before Settings was ever
 saved), the landing page read, in order: `First time here? This sets your
 download folder and picks the courses to sync.` immediately followed by

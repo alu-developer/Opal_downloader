@@ -84,22 +84,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2 & 6, first-run walks 3 & 7)
 
-- **wrong — the same first-run landing page shows a stale, unrelated "Last
-  sync" line right next to its own "First time here?" message.** Walk 7,
-  2026-08-13, same scratch setup as above: before any config existed at all,
-  the landing page read `First time here? This sets your download folder...`
-  directly above `Last sync: 33 minutes ago – 49 file(s) failed` - two
-  adjacent, contradictory claims about the same never-before-seen setup.
-  Cause, source-confirmed (`internal/gui/gui.go`): `SetupNeeded`/
-  `SyncBlockedReason` come from `config.Load(s.configPath)` (correctly
-  config-scoped) but `LastSyncKnown`/`LastSyncWhen`/`LastSyncDetail` come from
-  `statuslog.ReadLastSyncDefault`, a fixed global path unrelated to
-  `s.configPath` - the same "global status file" root cause the "Optional,
-  not a commitment" entry below already named for the *schedule* banner, now
-  confirmed to reach the *landing page's own last-sync line* too, and visibly
-  contradicting the adjacent first-run copy rather than just being stale.
-  Lower severity than the login-reuse finding above (nothing is silently
-  acted on, it is just confusing text) but same underlying cause family.
 - **wrong — `/schedule`'s on-logon catch-up promise is false for the real
   task, and cannot become true until the app is installed somewhere
   permanent.** Walk 6, 2026-08-13: the page states as fact that a missed run

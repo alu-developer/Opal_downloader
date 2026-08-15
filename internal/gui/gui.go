@@ -537,7 +537,23 @@ var readLastSyncFunc = statuslog.ReadLastSyncDefault
 // is safe on the hot path of every landing-page render. Anything missing or
 // corrupt leaves LastSyncKnown false and the line simply does not appear -
 // the same degrade-silently contract the scheduled banner already follows.
+//
+// data.SetupNeeded (must run after applySyncReadiness) also suppresses the
+// line, deliberately: the record this reads is machine-wide, written by
+// *any* config's sync (see statuslog.WriteLastSyncDefault's own doc
+// comment), not scoped to s.configPath the way the rest of this page is.
+// Showing it next to "First time here? This sets your download folder..."
+// (friction campaign Walk 7, 2026-08-13) reads as a claim about the setup
+// being configured right now, when it is really unrelated history from
+// somewhere else on the machine - a different config, a different worktree,
+// a previous install. It stays visible everywhere SetupNeeded is false,
+// where "your last sync" is at least about a config that has run before,
+// even if this project has no way to promise it was *this* config.
 func (s *server) applyLastSync(data *landingData) {
+	if data.SetupNeeded {
+		return
+	}
+
 	status, ok := readLastSyncFunc()
 	if !ok || status.Timestamp.IsZero() {
 		return

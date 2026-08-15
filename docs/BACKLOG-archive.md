@@ -480,6 +480,33 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **The first-run landing page no longer shows a stale, unrelated "Last
+  sync" line next to its own "First time here?" message** (2026-08-15,
+  autopilot, same session as the fix above, closing Walk 7's second finding).
+  Root cause was structurally different from the login-reuse bug even though
+  both trace to a global, unscoped path: `statuslog.WriteLastSyncDefault` is
+  *by design* a machine-wide "last sync of any kind" record - the CLI,
+  scheduled task, and GUI's own sync button all write the same file
+  regardless of which config.yaml ran them - so scoping the reader alone
+  (the session_state_file fix's approach) would have desynced it from an
+  equally-global writer, and rescoping the writer too is a real product
+  decision (would the scheduled-task status banner still want cross-config
+  visibility?) left alone rather than decided unilaterally. Instead,
+  `internal/gui/gui.go`'s `applyLastSync` now returns immediately when
+  `data.SetupNeeded` is true (set by the already-config-scoped
+  `applySyncReadiness`, which runs first) - the machine-wide line is
+  suppressed only on the page that is simultaneously telling the user
+  nothing has been configured yet, everywhere else it renders unchanged.
+  New test `TestApplyLastSyncSaysNothingWhenSetupNeeded` pins the fix; all
+  existing `applyLastSync` tests use a zero-valued `landingData{}` (so
+  `SetupNeeded` is false) and were unaffected. Live-verified the same way as
+  the companion fix: confirmed `~/.opal-downloader/last-sync.json` exists on
+  this machine, then loaded a brand-new scratch config's landing page and
+  confirmed the line no longer renders next to "First time here?". The
+  schedule banner's own use of the same global file (the "Optional, not a
+  commitment" entry, and Walk 6's on-logon finding) is unrelated and still
+  open in `docs/BACKLOG.md` - this only touched the landing page's last-sync
+  line.
 - **A fresh config.yaml no longer silently inherits whatever OPAL session
   already exists on the machine** (2026-08-15, autopilot, fixing friction
   campaign Walk 7's most severe finding, 2026-08-13). Root cause was

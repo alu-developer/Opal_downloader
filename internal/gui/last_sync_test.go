@@ -105,6 +105,28 @@ func TestApplyLastSyncDetailPerOutcome(t *testing.T) {
 	}
 }
 
+// TestApplyLastSyncSaysNothingWhenSetupNeeded pins the friction campaign's
+// Walk 7 fix (2026-08-15): a config.yaml that has never been set up must
+// never show a "Last sync" line at all, even when the machine-wide record
+// this reads from (see statuslog.WriteLastSyncDefault's own doc comment -
+// it is written by *any* config's sync, not scoped to this one) has a real,
+// recent, successful entry. Before this, "First time here? This sets your
+// download folder..." rendered directly above a stale, unrelated "Last
+// sync: ..." line for a setup that had never run anything - two adjacent,
+// contradictory claims about the same never-before-seen setup.
+func TestApplyLastSyncSaysNothingWhenSetupNeeded(t *testing.T) {
+	withLastSyncFake(t, func() (statuslog.Status, bool) {
+		return statuslog.Status{Outcome: statuslog.OutcomeSuccess, Timestamp: time.Now().Add(-90 * time.Minute)}, true
+	})
+
+	data := landingData{SetupNeeded: true}
+	(&server{}).applyLastSync(&data)
+
+	if data.LastSyncKnown {
+		t.Fatalf("LastSyncKnown = true while SetupNeeded; the line must not render on a first-time setup")
+	}
+}
+
 func TestHumanizeSince(t *testing.T) {
 	now := time.Date(2026, 8, 12, 15, 0, 0, 0, time.UTC)
 

@@ -3177,6 +3177,38 @@ scoped to the `OpenOLAT` org) for forks or mirrors that do reference
 the deployed version is, before spending more time reading master for
 mechanisms that may not exist in the version that matters.
 
+**Follow-up, same day (autopilot): both named next steps run, both negative.**
+`gh api repos/OpenOLAT/OpenOLAT/branches` and `/tags` list every release back
+to `OpenOLAT_12.5` (branches) and considerably further back (tags, 100+
+listed, still in the 18.x/19.x range at the page boundary checked) - none
+Sachsen/Saxon-named, nothing that looks like a regional fork. `gh search
+repos` for `"opal sachsen"`/`"bildungsportal"` (already run earlier this
+cycle for Question 42) found no OPAL/OpenOLAT fork on GitHub at all, regional
+or otherwise. Checked the oldest available branch directly rather than
+trusting the absence-of-a-name: `curl`'d `pom.xml` from `OpenOLAT_12.5` (the
+oldest branch listed) - zero mentions of "wicket". **This closes the
+"is it just an older public OpenOLAT release" branch of the question**: even
+the oldest version-controlled release on the public repo predates whatever
+gap exists, or never had literal Wicket to begin with, so a newer tag search
+would not help either. What remains open is qualitatively different from
+"read further back" - either OPAL/Bildungsportal Sachsen runs a private fork
+with no public source (plausible and common for regional educational
+platforms, and consistent with Question 42's finding that no third-party OPAL
+tooling exists publicly either), or the account's markup was never generated
+by literal `org.olat.core.gui` code at all but by some other layer this
+campaign hasn't identified. **Both are dead ends for the "read the public
+OpenOLAT source" move specifically** - the "when ideas run out" list's next
+untried option for this specific question is no longer "look further in this
+repo's history" but "fingerprint the live server directly" (e.g. an
+HTTP response header, a version string on an admin/about page if one is
+reachable, or the exact behavior difference from a version-known OpenOLAT
+demo instance) rather than more `gh search`/`curl raw.githubusercontent.com`
+against a codebase now reasonably confirmed not to be the one running.
+Not attempted this cycle - a live-server fingerprinting probe is a different
+kind of experiment than source reading, and deserves its own prediction
+written down first per Rule 1 rather than being folded into this cycle's
+result.
+
 Older entries below, most recent first.
 
 ---

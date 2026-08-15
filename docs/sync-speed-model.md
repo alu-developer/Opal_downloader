@@ -3166,6 +3166,19 @@ captured HTML, like `BCCourseNode` or `pager-showall`, scoped broadly rather
 than to one org) to find a pre-GitHub or non-OpenOLAT-org OLAT codebase that
 still has Wicket. Not attempted this cycle.
 
+**Quick check, same day (autopilot):** `gh search repos "olat"` (not scoped
+to `OpenOLAT` org) surfaces exactly one candidate old OLAT mirror,
+`huihoo/olat` ("基于OLAT/OpenOLAT的在线学习和培训系统", archived, last
+pushed 2016-03-13) — `gh search code "wicket" --repo huihoo/olat` returns
+zero hits, so this specific mirror is also a dead end for Wicket, same as
+`OpenOLAT_12.5`. Doesn't close the broader question (one more mirror ruled
+out, not the space of possible mirrors/forks), but narrows the "when ideas
+run out" list's next move back to live-server fingerprinting rather than
+more repo guessing — an admin/about page or HTTP `OPTIONS`/error-page probe
+on the real account, not attempted yet, is the next concrete step if a
+future cycle wants to keep pulling this thread rather than moving to
+Question 43's stalled Step B.
+
 Older entries below, most recent first.
 
 ---

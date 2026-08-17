@@ -73,6 +73,25 @@ see `docs/BACKLOG-archive.md`). Nothing further is planned on the
 course-level HTTP concurrency thread — Question 41 closed 2026-08-11 as a
 no-go.
 
+**Weekly review finding (self-imposed, 2026-08-17):** Question 44's cause
+half has now run at least 16 investigation-only commits since 2026-08-13
+(seven live experiments, three OpenOLAT source-reading passes, a live-server
+Wicket fingerprint, a branch/tag sweep, a mirror check) with nothing
+shipped — past the line `docs/work-quality.md` ("The sync-speed campaign,
+measured") draws for itself: *"a campaign that reaches five investigation
+commits with nothing shipped is failing — say so rather than continuing to
+measure."* The chase is now for which OpenOLAT/Wicket fork Sachsen runs, and
+`docs/sync-speed-model.md`'s own "Next experiment" section admits a real
+dead end is possible (a private, unpublished fork with no public source).
+Question 44's *policy* half — a negative-manifest-entry-with-backoff for a
+file that fails the same way every time — has been named "unblocked by any
+of the above" and sufficient by itself to hit the question's own kill line
+(~120s no-op sync, down from 1097s) at least three times in
+`docs/sync-speed-model.md`, and was never implemented. Nothing breaks by
+dropping the version/fork hunt tomorrow: the policy half reaches the
+measured target on its own, regardless of whether the cause is ever found.
+Ship the policy half next, ranked above resuming the cause hunt.
+
 ---
 
 ## Open findings

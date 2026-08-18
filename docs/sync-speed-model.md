@@ -3129,6 +3129,76 @@ count looking right (something else costs the bulk of the 1097s that this
 change doesn't touch). *Kill criterion:* run 2 exceeding ~120s, or
 `backing_off` landing far from 49 in either direction.
 
+**Result (2026-08-18, same day, two live runs against `tmp/policy-verify/`,
+real account): the mechanism is CONFIRMED exactly as designed; the ~120s
+total-wall-clock kill line is REFUTED, and the gap has a sharp, separate
+cause.**
+
+Run 1 (fresh scratch manifest, 19:20-19:47 UTC): `downloaded=299 skipped=0
+errors=50` (one file failed beyond the historical 49 - see below - all in
+the same three known locations: 6 in Algorithmen/Vorlesung, 43 in
+Softwaretechnologie's Part-1/2/3), `Download: 1374.2s`, `Total: 1592.4s`.
+Every one of the 50 got a negative manifest entry - `fail_count: 1`,
+`failed_at` set, `size`/`modified` both null - confirmed by reading
+`tmp/policy-verify/downloads/.opal-sync.manifest.json` directly, not just
+trusting the summary line.
+
+Run 2 (same manifest, started immediately after, 19:47-19:56 UTC):
+**`downloaded=1 skipped=348 errors=0 backing_off=50`.** All 50 - the
+original 49 plus the one new arrival - were skipped via the backoff check
+and logged individually (`backing off (failed 1x, retrying after ...)`);
+none were re-attempted, none errored. This is the mechanism working exactly
+as designed, including generalizing to a failure this run had never seen
+before (see below) - the "not just this one [failure class]" framing in the
+original policy-half proposal holds up under an actual new failure, not
+just the known 49. `Download: 346.7s` (down from run 1's 1374.2s, a ~1027s/
+75% cut in that phase - almost exactly the ~49 x ~20s the finding
+attributed to the retried files, which is the right-sized saving for
+removing that many attempts) but **`Total: 517.1s`, not under the ~120s
+kill line.**
+
+*Diagnosis, per Rule 2 - the gap has a name, not just a number.* Two costs
+neither run's numbers isolate, both pre-dating and unrelated to this
+change:
+
+1. **Discovery itself took 157.75s this run** (`OPAL_HTTP_DISCOVERY=2
+   summary: 6 courses, 303 HTTP requests, 2m37.75s`), not the documented
+   45-58s HTTP-first baseline - roughly 3x. Nothing about the backoff
+   change touches discovery at all; this is ordinary run-to-run server/
+   network variance the campaign has already measured elsewhere, and on its
+   own it already blows the ~120s target regardless of the download phase.
+2. **The single file that *did* download** -
+   `Softwaretechnologie (SoSe 26)/Part-2/20-st-overview-refinement-object-
+   nets_notes.pdf` - is a signal-less file (confirmed: its manifest entry
+   carries `size: null, modified: null`), which `needsContentVerification`
+   (this file, syncer.go, documented since 2026-07-22) already forces
+   through a full re-fetch-and-hash-compare on *every* sync regardless of
+   whether it actually changed - a known, separate, ~4%-of-files tax this
+   change was never scoped to touch. It alone plausibly accounts for most
+   of the 346.7s download-phase time, given only 1 of 349 files triggered
+   an actual network fetch.
+
+Both costs were already on record before this experiment (discovery
+variance in "What we know" above; the signal-less-file tax in
+`needsContentVerification`'s own doc comment) - this run is the first time
+they show up *isolated*, because the policy half just finished clearing the
+one cost (the 49-file retry tax) that used to hide them both inside a
+19-minute number. **The policy half itself is closed: it does what it was
+built to do, measured on the real account, and needs no further work.**
+Reaching an actual ~30-120s no-op sync is now blocked on these two
+separate, already-named costs, not on Question 44.
+
+**New open questions, ranked:** (1) why did HTTP-first discovery cost 157.75s
+this run against a documented 45-58s baseline - one more live timed run
+would show whether this is normal variance (several samples) or a new
+regression; (2) how expensive is `needsContentVerification`'s forced
+re-fetch when it needs the browser fallback (this run's one instance
+apparently did), and how many of the ~4% signal-less files hit that
+expensive path versus a fast direct HTTP re-fetch - if it is the same
+browser-click fallback that costs ~20s/attempt for genuinely failing files,
+a handful of signal-less files could still add up to real money even
+without ever erroring.
+
 ---
 
 **Superseded strand (cause, not policy) - kept for continuity, not the

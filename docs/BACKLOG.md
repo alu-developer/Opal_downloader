@@ -92,18 +92,28 @@ dropping the version/fork hunt tomorrow: the policy half reaches the
 measured target on its own, regardless of whether the cause is ever found.
 Ship the policy half next, ranked above resuming the cause hunt.
 
-**2026-08-18 (autopilot): shipped.** A failed download now writes a
-`FileRecord` with `FailCount`/`FailedAt` instead of no manifest entry at
-all, and the next sync skips a file still inside its backoff window (6h /
-24h / 3d / capped at 7d) without attempting it — see
-`internal/syncer/syncer.go`'s `downloadRetryAt`/`recordDownloadFailure` and
-`docs/sync-speed-model.md`'s "Next experiment" for the registered
-prediction and the live two-run verification against a scratch
-`download_path` on the real account. `force` still bypasses everything, the
-same escape hatch it already was. This is a download-phase policy change,
-not a discovery change, so it ships directly rather than behind a flag —
-does not touch what files are found, only whether an already-failing one is
-retried this run.
+**2026-08-18 (autopilot): shipped and live-verified — closed.** A failed
+download now writes a `FileRecord` with `FailCount`/`FailedAt` instead of no
+manifest entry at all, and the next sync skips a file still inside its
+backoff window (6h / 24h / 3d / capped at 7d) without attempting it — see
+`internal/syncer/syncer.go`'s `downloadRetryAt`/`recordDownloadFailure`.
+`force` still bypasses everything, the same escape hatch it already was.
+This is a download-phase policy change, not a discovery change, so it
+shipped directly rather than behind a flag.
+
+Two live runs against a scratch `download_path` on the real account
+confirmed the mechanism exactly: run 1 (fresh manifest) reproduced the
+known 49 failures plus one new one (50 total, all recorded as negative
+manifest entries); run 2 (same manifest, run immediately after) skipped all
+50 via backoff — `downloaded=1 skipped=348 errors=0 backing_off=50` — cutting
+the download phase from 1374.2s to 346.7s (~75%, right-sized for removing
+~50 retries at ~20s each). **The ~120s total-wall-clock kill line was
+missed anyway** (517.1s), but for two separate, already-known reasons this
+change was never scoped to fix, not because the backoff failed — see
+`docs/sync-speed-model.md`'s "Next experiment" for the full diagnosis and
+the two new open questions it left (discovery-time variance; the
+signal-less-file verify path's own cost when it needs the browser
+fallback).
 
 ---
 

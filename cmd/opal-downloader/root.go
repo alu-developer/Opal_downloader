@@ -990,7 +990,11 @@ func runSync(args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nDone. downloaded=%d skipped=%d errors=%d\n", stats.Downloaded, stats.Skipped, stats.Errors)
+	fmt.Printf("\nDone. downloaded=%d skipped=%d errors=%d", stats.Downloaded, stats.Skipped, stats.Errors)
+	if stats.SkippedFailing > 0 {
+		fmt.Printf(" backing_off=%d", stats.SkippedFailing)
+	}
+	fmt.Println()
 
 	fmt.Println()
 	timing.PrintDownloadSummary(stats.DownloadDuration, stats.Downloads)
@@ -1333,7 +1337,11 @@ func runSmokeCheckFullSync(ctx context.Context, sc *scraper.OpalScraper, appCfg 
 	if err != nil {
 		return err
 	}
-	fmt.Printf("--full-sync done. downloaded=%d skipped=%d errors=%d\n", stats.Downloaded, stats.Skipped, stats.Errors)
+	fmt.Printf("--full-sync done. downloaded=%d skipped=%d errors=%d", stats.Downloaded, stats.Skipped, stats.Errors)
+	if stats.SkippedFailing > 0 {
+		fmt.Printf(" backing_off=%d", stats.SkippedFailing)
+	}
+	fmt.Println()
 	if stats.Errors > 0 {
 		return fmt.Errorf("%d file(s) failed to download", stats.Errors)
 	}

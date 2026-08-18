@@ -3082,6 +3082,62 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Updated 2026-08-18 (autopilot): Question 44's policy half, shipped —
+prediction registered before the live verification run, per Rule 1.**
+
+The weekly review (2026-08-17, above) named the policy half - "a negative
+manifest entry with a retry-backoff" for a file that fails the same way
+every sync - as unblocked and sufficient on its own to hit the ~120s kill
+line, independent of whether the cause is ever found. Implemented in
+`internal/syncer/syncer.go`: a failed download now writes a `FileRecord`
+carrying `FailCount`/`FailedAt` instead of no entry at all, and the next
+sync's per-file loop checks `downloadRetryAt` before queuing a job - a file
+within its backoff window (6h after the 1st failure, 24h after the 2nd, 3d
+after the 3rd, capped at 7d) is skipped without ever calling `DownloadFile`.
+`force` bypasses it, same as it already bypasses change detection. A
+successful download always replaces the whole manifest entry, which clears
+both fields automatically - no separate reset path.
+
+*Prediction, written before running.* Two live runs against a scratch
+`download_path` (real account, real 6-course list, unmodified
+`download_concurrency: 3`/`course_concurrency: 2`, everything else identical
+to `config.yaml` - see `tmp/policy-verify/config.yaml`), back to back against
+the same manifest. **Run 1** (fresh manifest, no failure history yet) should
+reproduce the known finding close to unchanged: ~300 downloaded, ~49 errors,
+download phase costing close to the historical ~1097s, because this run is
+the one that *establishes* FailCount=1 for each failing file - the policy
+half caps the *next* run's cost, not this one's. **Run 2** (same scratch
+manifest, run immediately after) should skip all ~49 known-failing files via
+the new backoff check - none of them re-attempted, none counted as a new
+error - while the ~300 already-downloaded files skip normally, so run 2's
+total wall-clock should land close to bare discovery cost (~45-58s HTTP-
+first) with no ~18-minute download-phase tax, well under the ~120s kill
+line.
+
+*Suspected mechanism:* `downloadRetryAt` reads each file's `FailCount`/
+`FailedAt` from the manifest `Run 1` wrote and returns "not yet eligible"
+for all of them on `Run 2`, since 6h (the 1st-failure step) has obviously
+not elapsed between two runs seconds apart.
+
+*Counts as confirmed:* run 2's CLI summary shows `backing_off` close to 49
+and `errors` close to 0, and its total wall-clock is under ~120s.
+*Counts as refuted:* run 2 still attempts and fails close to 49 files (the
+backoff check isn't actually reached on the real code path - e.g. a nil
+manifest reference, a key mismatch between the failure-recording key and the
+lookup key), or wall-clock is not meaningfully reduced despite the skip
+count looking right (something else costs the bulk of the 1097s that this
+change doesn't touch). *Kill criterion:* run 2 exceeding ~120s, or
+`backing_off` landing far from 49 in either direction.
+
+---
+
+**Superseded strand (cause, not policy) - kept for continuity, not the
+active next step.** The following entries chase which OpenOLAT/Wicket fork
+Sachsen runs - genuinely open, but explicitly deprioritized by the
+2026-08-17 weekly review until the policy half above shipped. Now that it
+has, a future cycle may resume this strand or pick a fresh open question;
+nothing here blocks on it.
+
 **Updated 2026-08-15 (autopilot, third update same day): Question 44,
 live-server fingerprinting — following directly from the previous update's
 named next step, since source reading against `OpenOLAT/OpenOLAT` closed as

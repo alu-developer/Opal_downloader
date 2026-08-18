@@ -92,6 +92,19 @@ dropping the version/fork hunt tomorrow: the policy half reaches the
 measured target on its own, regardless of whether the cause is ever found.
 Ship the policy half next, ranked above resuming the cause hunt.
 
+**2026-08-18 (autopilot): shipped.** A failed download now writes a
+`FileRecord` with `FailCount`/`FailedAt` instead of no manifest entry at
+all, and the next sync skips a file still inside its backoff window (6h /
+24h / 3d / capped at 7d) without attempting it — see
+`internal/syncer/syncer.go`'s `downloadRetryAt`/`recordDownloadFailure` and
+`docs/sync-speed-model.md`'s "Next experiment" for the registered
+prediction and the live two-run verification against a scratch
+`download_path` on the real account. `force` still bypasses everything, the
+same escape hatch it already was. This is a download-phase policy change,
+not a discovery change, so it ships directly rather than behind a flag —
+does not touch what files are found, only whether an already-failing one is
+retried this run.
+
 ---
 
 ## Open findings

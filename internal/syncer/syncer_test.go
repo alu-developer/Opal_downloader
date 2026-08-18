@@ -881,13 +881,27 @@ func TestSyncCoursesHandlesDownloadErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadManifest failed: %v", err)
 	}
-	if len(manifest.Files) != 8 {
-		t.Fatalf("expected 8 manifest entries, got %d", len(manifest.Files))
+	// 10, not 8: a failed download now writes a negative manifest entry
+	// (FailCount/FailedAt, no Size/Modified) rather than nothing at all -
+	// Question 44's policy half, docs/sync-speed-model.md. That entry is
+	// what lets the *next* sync back off instead of retrying at full cost.
+	if len(manifest.Files) != 10 {
+		t.Fatalf("expected 10 manifest entries (8 downloaded + 2 failure records), got %d", len(manifest.Files))
 	}
 	for _, badIdx := range []int{2, 7} {
 		key := filepath.ToSlash(filepath.Join("Course A", files[badIdx].Name))
-		if _, ok := manifest.Files[key]; ok {
-			t.Fatalf("manifest should not contain failed download %s", key)
+		rec, ok := manifest.Files[key]
+		if !ok {
+			t.Fatalf("expected a negative manifest entry for failed download %s", key)
+		}
+		if rec.Size != nil || rec.Modified != nil {
+			t.Fatalf("failed download %s should carry no Size/Modified, got %+v", key, rec)
+		}
+		if rec.FailCount != 1 {
+			t.Fatalf("expected FailCount=1 for %s, got %d", key, rec.FailCount)
+		}
+		if rec.FailedAt == nil || *rec.FailedAt == "" {
+			t.Fatalf("expected FailedAt to be set for %s", key)
 		}
 	}
 }
@@ -978,6 +992,130 @@ func TestProcessRemoteFilesFiresExpectedEvents(t *testing.T) {
 		if e.CourseIndex != i+1 {
 			t.Fatalf("expected CourseIndex=%d on course_started event %+v", i+1, e)
 		}
+	}
+}
+
+// TestProcessRemoteFilesBacksOffAfterRepeatedFailure is Question 44's policy
+// half (docs/sync-speed-model.md): a file with a recent failure record must
+// not be retried at full cost on the very next sync.
+func TestProcessRemoteFilesBacksOffAfterRepeatedFailure(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.App{DownloadPath: dir}
+
+	targetKey := "Course A/a.pdf"
+	failedAt := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339Nano)
+	manifest := &Manifest{Path: filepath.Join(dir, ".opal-sync.manifest.json"), Files: map[string]FileRecord{
+		targetKey: {FailCount: 1, FailedAt: &failedAt},
+	}}
+
+	size := int64(123)
+	remoteFiles := []scraper.RemoteFile{
+		{Name: "a.pdf", Course: "Course A", Path: "a.pdf", URL: "https://example.test/a.pdf", Size: &size},
+	}
+
+	downloadCalled := false
+	downloadFn := func(fileURL, localPath string) error {
+		downloadCalled = true
+		return nil
+	}
+
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+
+	if downloadCalled {
+		t.Fatal("expected downloadFn not to be called while a recent failure is still backing off")
+	}
+	if stats.Skipped != 1 || stats.SkippedFailing != 1 {
+		t.Fatalf("expected 1 Skipped and 1 SkippedFailing, got %+v", stats)
+	}
+	if rec := manifest.Files[targetKey]; rec.FailCount != 1 {
+		t.Fatalf("expected the backed-off entry's FailCount to stay 1 (no attempt made), got %+v", rec)
+	}
+}
+
+// TestProcessRemoteFilesRetriesOnceBackoffExpires confirms the flip side: once
+// enough time has passed, the file is attempted again like any other.
+func TestProcessRemoteFilesRetriesOnceBackoffExpires(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.App{DownloadPath: dir}
+
+	targetKey := "Course A/a.pdf"
+	failedAt := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano)
+	manifest := &Manifest{Path: filepath.Join(dir, ".opal-sync.manifest.json"), Files: map[string]FileRecord{
+		targetKey: {FailCount: 1, FailedAt: &failedAt}, // 1st-failure backoff is 6h, long expired
+	}}
+
+	size := int64(123)
+	remoteFiles := []scraper.RemoteFile{
+		{Name: "a.pdf", Course: "Course A", Path: "a.pdf", URL: "https://example.test/a.pdf", Size: &size},
+	}
+
+	downloadFn := func(fileURL, localPath string) error {
+		return os.WriteFile(localPath, []byte("data"), 0o644)
+	}
+
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+
+	if stats.Downloaded != 1 || stats.SkippedFailing != 0 {
+		t.Fatalf("expected the file to be retried and succeed once backoff expired, got %+v", stats)
+	}
+	rec := manifest.Files[targetKey]
+	if rec.FailCount != 0 || rec.FailedAt != nil {
+		t.Fatalf("expected a successful retry to clear the failure record, got %+v", rec)
+	}
+}
+
+// TestProcessRemoteFilesForceBypassesBackoff confirms force (the escape
+// hatch a maintainer already reaches for to ignore manifest state) also
+// ignores an active backoff, rather than adding a second, separate override.
+func TestProcessRemoteFilesForceBypassesBackoff(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.App{DownloadPath: dir}
+
+	targetKey := "Course A/a.pdf"
+	failedAt := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339Nano)
+	manifest := &Manifest{Path: filepath.Join(dir, ".opal-sync.manifest.json"), Files: map[string]FileRecord{
+		targetKey: {FailCount: 1, FailedAt: &failedAt},
+	}}
+
+	size := int64(123)
+	remoteFiles := []scraper.RemoteFile{
+		{Name: "a.pdf", Course: "Course A", Path: "a.pdf", URL: "https://example.test/a.pdf", Size: &size},
+	}
+
+	downloadCalled := false
+	downloadFn := func(fileURL, localPath string) error {
+		downloadCalled = true
+		return os.WriteFile(localPath, []byte("data"), 0o644)
+	}
+
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, true /* force */, downloadFn, func(Event) {})
+
+	if !downloadCalled {
+		t.Fatal("expected force to bypass an active backoff and call downloadFn")
+	}
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected 1 downloaded, got %+v", stats)
+	}
+}
+
+// TestDownloadBackoffForEscalates locks down the step schedule itself so a
+// future edit notices if it accidentally flattens or reorders it.
+func TestDownloadBackoffForEscalates(t *testing.T) {
+	prev := time.Duration(0)
+	for failCount := 1; failCount <= 6; failCount++ {
+		got := downloadBackoffFor(failCount)
+		if got < prev {
+			t.Fatalf("expected downloadBackoffFor to never decrease, failCount=%d got %s after %s", failCount, got, prev)
+		}
+		prev = got
+	}
+	if got := downloadBackoffFor(0); got != 0 {
+		t.Fatalf("expected downloadBackoffFor(0) == 0, got %s", got)
+	}
+	// Caps at the last step rather than growing unbounded.
+	if downloadBackoffFor(4) != downloadBackoffFor(100) {
+		t.Fatalf("expected backoff to cap at the last step: failCount=4 -> %s, failCount=100 -> %s",
+			downloadBackoffFor(4), downloadBackoffFor(100))
 	}
 }
 

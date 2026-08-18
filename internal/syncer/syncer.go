@@ -81,6 +81,14 @@ type Stats struct {
 	Skipped    int
 	Errors     int
 
+	// SkippedFailing counts files skipped this run because they are backing
+	// off after repeated failures (see FileRecord.FailCount/downloadRetryAt),
+	// not because they are already up to date. Also included in Skipped, so
+	// every existing caller that only reads Skipped still gets a correct
+	// total; this field exists purely so a caller that wants to say more
+	// than "skipped" can.
+	SkippedFailing int
+
 	// DownloadDuration is the wall-clock time spent downloading files, i.e.
 	// everything in SyncCourses AFTER remote discovery
 	// (sc.ScrapeWithSavedSession) has returned: manifest comparison plus
@@ -153,6 +161,80 @@ type ProgressFunc func(Event)
 type FileRecord struct {
 	Size     *int64  `json:"size"`
 	Modified *string `json:"modified"`
+
+	// FailCount and FailedAt are Question 44's policy half
+	// (docs/sync-speed-model.md): a file that answers with HTML instead of
+	// its bytes (or fails any other way) used to be retried at full cost -
+	// two locator attempts plus a 5s timeout each - on every single sync
+	// forever, because an error wrote no manifest entry at all. Measured
+	// live at 49 files failing identically every run, ~1097s of an
+	// end-to-end 1147s sync spent downloading nothing.
+	//
+	// FailCount is the number of consecutive failures recorded for this key;
+	// FailedAt (UTC RFC3339Nano) is the most recent one. Both are omitempty
+	// so a manifest with no failures on record round-trips byte-identical to
+	// one written before these fields existed. A successful download always
+	// replaces the whole FileRecord (see processRemoteFiles' result loop),
+	// which clears both fields the moment the file goes through - no
+	// separate "reset on success" code needed.
+	FailCount int     `json:"fail_count,omitempty"`
+	FailedAt  *string `json:"failed_at,omitempty"`
+}
+
+// downloadRetryBackoff is how long a file that failed to download is left
+// alone before a sync attempts it again, indexed by FailCount (index 1 = the
+// first failure). A single blip costs one skipped attempt, not a permanent
+// one; a file that keeps failing the same way stops being retried at full
+// cost on every run. Scaled in hours/days, not seconds, because a sync runs
+// roughly once a day (the scheduled task's daily trigger) - a backoff on the
+// order of a rate-limiter's retry-after would still fire on every run.
+var downloadRetryBackoff = []time.Duration{
+	0, // index 0 is unreachable: recordDownloadFailure always sets FailCount>=1
+	6 * time.Hour,
+	24 * time.Hour,
+	3 * 24 * time.Hour,
+	7 * 24 * time.Hour,
+}
+
+// downloadBackoffFor returns the wait imposed after failCount consecutive
+// failures, capped at downloadRetryBackoff's last step so a file that never
+// recovers costs at most one attempt a week rather than growing unbounded.
+func downloadBackoffFor(failCount int) time.Duration {
+	if failCount <= 0 {
+		return 0
+	}
+	if failCount >= len(downloadRetryBackoff) {
+		return downloadRetryBackoff[len(downloadRetryBackoff)-1]
+	}
+	return downloadRetryBackoff[failCount]
+}
+
+// downloadRetryAt returns when a file with the given failure record becomes
+// eligible for another attempt, and false if there is no usable failure
+// record to back off from (no failure yet, or a FailedAt that failed to
+// parse - treated as "retry now" rather than blocking a file forever on a
+// malformed timestamp).
+func downloadRetryAt(rec FileRecord) (time.Time, bool) {
+	if rec.FailCount <= 0 || rec.FailedAt == nil {
+		return time.Time{}, false
+	}
+	failedAt, err := time.Parse(time.RFC3339Nano, *rec.FailedAt)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return failedAt.Add(downloadBackoffFor(rec.FailCount)), true
+}
+
+// recordDownloadFailure bumps key's failure record in place: FailCount up by
+// one, FailedAt to now. Any existing Size/Modified on the entry (a file that
+// downloaded successfully before and started failing later) is left alone -
+// only the failure half of the record changes.
+func recordDownloadFailure(manifest *Manifest, key string) {
+	rec := manifest.Files[key]
+	rec.FailCount++
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	rec.FailedAt = &now
+	manifest.Files[key] = rec
 }
 
 // ManifestFileName is the manifest's fixed file name inside download_path.
@@ -613,6 +695,26 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 		localPath := resolved.LocalPath
 
 		previous, ok := manifest.Files[targetKey]
+
+		// A file that has been failing the same way every sync (Question 44,
+		// docs/sync-speed-model.md) is otherwise always "changed" - it has
+		// never recorded a Size/Modified, since only a successful download
+		// writes those - so without this check it would be queued and
+		// retried at full cost on every single run forever. force bypasses
+		// it the same way it bypasses the change check below: force means
+		// "ignore manifest state and redownload", and a known-failing file is
+		// exactly the case a maintainer reaches for that flag to retry now.
+		if !force && ok {
+			if retryAt, hasBackoff := downloadRetryAt(previous); hasBackoff && time.Now().Before(retryAt) {
+				stats.Skipped++
+				stats.SkippedFailing++
+				fmt.Printf("  backing off (failed %dx, retrying after %s): %s\n",
+					previous.FailCount, retryAt.Local().Format("02.01 15:04"), targetKey)
+				progress(Event{Type: EventFileSkipped, Course: remoteFile.Course, File: targetKey})
+				continue
+			}
+		}
+
 		changed := force || fileChanged(remoteFile, ok, previous)
 
 		verify := false
@@ -701,6 +803,7 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 			if result.err != nil {
 				stats.Errors++
 				printSyncError(targetKey, result.err)
+				recordDownloadFailure(manifest, targetKey)
 				progress(Event{Type: EventError, Course: result.job.remoteFile.Course, File: targetKey, Err: result.err})
 				continue
 			}

@@ -5155,6 +5155,66 @@ decision is the maintainer's, not a counter's — no cap on the campaign, the ki
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
 
+### 2026-08-18 (autopilot): Question 44 closed - the campaign's first fully-shipped-and-live-verified fix since the target was redefined - keep going
+
+Well past 5 cycles since the last report (2026-08-12): seven live experiments
+and three OpenOLAT source-reading passes (2026-08-13/15) isolated Question
+44's cause to "which course pairs with Softwaretechnologie" without fully
+explaining it, a live-server Wicket fingerprint confirmed the running OPAL
+instance is not `OpenOLAT/OpenOLAT` master (a version/fork gap, not yet
+resolved), and the 2026-08-17 weekly review flagged the cause hunt as 16
+investigation-only commits with nothing shipped - past this project's own
+"five commits, nothing shipped, say so" line - and named the policy half as
+unblocked and sufficient on its own regardless of whether the cause is ever
+found.
+
+**This cycle shipped it.** A failed download now writes a negative manifest
+entry (`FailCount`/`FailedAt`) instead of nothing, and the next sync backs
+off (6h/24h/3d, capped at 7d) instead of retrying at full cost. Two live
+runs against a scratch `download_path` on the real account confirmed the
+mechanism exactly as predicted: `downloaded=1 skipped=348 errors=0
+backing_off=50`, cutting the download phase from 1374.2s to 346.7s. The
+~120s total-wall-clock kill line was still missed (517.1s) - not because the
+mechanism failed, but for two separate, already-known reasons (discovery
+running 3x its documented baseline this run; one signal-less file's
+pre-existing forced-verify cost) - see "Next experiment" above for the full
+diagnosis. **First fully closed-loop cycle since the 2026-08-12 target
+redefinition: prediction written and committed before the run, live-run
+result matched it on the dimension it actually controlled, the gap on the
+dimension it didn't was explained rather than hand-waved, and the code
+shipped to master the same cycle.**
+
+Two side findings surfaced along the way, both filed in `docs/BACKLOG.md`'s
+friction section rather than chased here: `~/.opal-downloader/last-sync.json`
+is written unconditionally regardless of `--config`, so this cycle's own
+scratch-config verification runs briefly clobbered the maintainer's real
+sync status (recovered from `scheduled-run-history.jsonl`, not fabricated -
+now added to the friction campaign's amber tier); and a same-day phase-2
+walk (`smoke-check`) turned up a live Softwaretechnologie course-discovery
+dropout that sits close enough to Question 44's own unresolved cause
+question to be worth a future cause-hunt cycle knowing about, filed as an
+open question with an explicit self-inflicted-load caveat rather than a
+bug claim.
+
+**What's known now that wasn't 5 cycles ago:** a no-op sync's ~18-minute
+download-phase tax is gone by design, not by luck - it caps at a bounded,
+shrinking cost for *any* future failure class, not just these 49 files
+(demonstrated live: a 50th, previously-unseen failure got the same
+treatment automatically). What's still open: the cause of the HTML-instead-
+of-bytes responses themselves (deprioritized, not abandoned - the
+version/fork gap is real and unresolved); why this cycle's own discovery
+ran 3x its documented baseline; how expensive the signal-less-file verify
+path is when it needs the browser fallback; and the new Softwaretechnologie
+course-dropout question above. None of these block reaching a ~30-120s
+no-op sync on their own the way the 49-file tax did - they are the next
+layer down, not a new version of the same wall.
+
+**Recommendation: keep going.** The campaign just proved its own loop works
+end to end on a real, shippable fix - the next cycle's cheapest honest step
+is the discovery-time-variance question (one more timed run settles whether
+157.75s was noise or a regression) before returning to either the
+version/fork cause hunt or Question 43's stalled bulk-ZIP investigation.
+
 ### 2026-08-12 (session, maintainer question "wie schnell ist derzeit ein sync?"): the target is now the whole sync, and the campaign had been measuring the short half
 
 Not a cycle — a question that turned into the measurement this campaign never

@@ -166,7 +166,18 @@ maintainer. Walk detail, expectations and named causes:
   (2026-08-17, not fabricated), but that recovery path only exists because a
   *scheduled* run happens to also log to a second, append-only file -
   nothing would have caught a manual `sync --config` doing the same thing
-  with no history file to fall back on. Same root cause likely reaches
+  with no history file to fall back on. **Answers walk 7's own open question
+  2** (`docs/friction-campaign.md`, "Do the GUI's other config-scoped-looking
+  numbers share the same global-path leak the 'Last sync' line has now been
+  shown twice to have") for the write side specifically: yes, and it is not
+  just a display quirk on a not-yet-configured landing page (walk 7's finding,
+  fixed 2026-08-15 by hiding the line) - the write itself is unconditional,
+  so a fully-configured real install's status can be clobbered by an
+  unrelated scratch run anywhere on the machine. `WriteLastSyncDefault`
+  being machine-wide was a deliberate, named design choice at the time
+  (walk 7); this finding is that the choice has a real cost the campaign's
+  own scratch-config-for-experiments practice now pays. Same root cause
+  likely reaches
   `login`/`list --scheduled` and any other command that writes through
   `statuslog` - not checked this pass. Fix is a maintainer call: either
   `WriteLastSyncDefault` should take `download_path` (or the whole config

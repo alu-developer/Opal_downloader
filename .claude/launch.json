@@ -6,6 +6,12 @@
       "runtimeExecutable": "go",
       "runtimeArgs": ["run", ".", "gui", "--port", "8734"],
       "port": 8734
+    },
+    {
+      "name": "opal-gui-friction",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", ".", "gui", "--port", "8766", "--config", "tmp/friction/config.yaml"],
+      "port": 8766
     }
   ]
 }

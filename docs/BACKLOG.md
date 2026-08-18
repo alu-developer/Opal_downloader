@@ -124,7 +124,7 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2 & 6, first-run walks 3 & 7)
+### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8 & 9, first-run walks 3 & 7)
 
 - **wrong — `/schedule`'s on-logon catch-up promise is false for the real
   task, and cannot become true until the app is installed somewhere
@@ -189,6 +189,53 @@ maintainer. Walk detail, expectations and named causes:
   config from a worktree is not actually side-effect-free the way
   `docs/friction-campaign.md`'s green/amber tiering assumes - `last-sync.json`
   needs to move from unlisted to the amber tier (snapshot-first) explicitly.
+- **friction — `smoke-check` silently ignores `--config`'s `courses:` list
+  and always crawls every enrolled course (`*`), unlike every other command.**
+  Walk 9, 2026-08-18: expected (from the command's own `--help` text, "Local,
+  on-demand check that the crawl still actually works against real OPAL") a
+  check *of my configured courses*; got 8 courses discovered against a
+  6-course `config.yaml`, including two (`[WS25/26] Programmierung`,
+  `Helfende DMS`) not in the file at all. Cause, source-confirmed:
+  `internal/smokecheck/smokecheck.go:212` hardcodes
+  `sc.ScrapeWithSavedSession(ctx, []string{"*"})`, never reading
+  `cfg.Courses`. Plausibly intentional (a smoke test arguably should check
+  the whole account's reachability, not one config's subset) but undocumented
+  either way - the help text reads identically to `list`'s, which *does*
+  respect the filter. Its baseline file
+  (`~/.opal-downloader/smoke-baseline.json`, `DefaultBaselinePath`) is the
+  same "fixed home-directory path regardless of `--config`" pattern as
+  `last-sync.json` above, though lower stakes here: no baseline existed yet
+  on this machine, so this walk's scratch-config run established the first
+  one honestly (it always reads the real account either way) rather than
+  overwriting a real prior value. Fix, if this isn't the intended design: read
+  `cfg.Courses` the same way `list`/`sync` do, or say plainly in `--help`
+  that `smoke-check` is account-wide by design.
+- **question — Softwaretechnologie (SoSe 26) course discovery itself, not
+  just individual file downloads, was unstable across two `smoke-check` runs
+  eight minutes apart on the same account.** Walk 9, 2026-08-18: run 1 found
+  it with `0 files (0.3s)` (all its other 210 files were found minutes
+  earlier by a real `sync` - see the Question 44 verification above); run 2
+  dropped it entirely - not "0 files", genuinely absent from both the
+  per-course discovery output and the final baseline breakdown, despite
+  "Found 8 course links" (matching run 1's course-link count) printing first.
+  Nothing in the visible CLI output explains the gap - no error line, no
+  timeout message, no course-skipped notice. **Caveat that matters for
+  reading this honestly: this session ran two full syncs and two smoke-checks
+  against the same real account inside about an hour, entirely for its own
+  testing purposes** (Question 44's live verification, this walk) - self-
+  inflicted, unusually heavy load this account does not normally see in a
+  day, and run 2 also needed an interactive TU-Fast relogin mid-run (the
+  saved session had expired between the two smoke-checks), which is itself
+  more session churn than a normal daily use pattern produces. This may be
+  nothing more than that - not a claim of a new bug, and not chased further
+  this walk. Filed because it sits close enough to Question 44's still-open
+  cause question (`docs/sync-speed-model.md`: "which course pairs with
+  Softwaretechnologie", "a second course's discovery perturbs
+  Softwaretechnologie's state") that a future cause-hunt cycle should know
+  this data point exists: **course-level dropout, not just file-level HTML
+  responses, may be part of the same family** - worth a clean, isolated
+  repro (a single smoke-check against a *rested* session, no other activity
+  that hour) before reading anything more into it.
 
 ---
 

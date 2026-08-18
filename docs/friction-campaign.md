@@ -72,14 +72,26 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 1 (GUI), cycling back.** Walk 1 was the GUI, walk 2 the CLI,
-walk 3 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent
-sessions picked it independently before either had a result), walk 6 the CLI
-again, walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
-covered: walk 3 only exercised the CLI build+`list` path from a fresh clone,
-never `gui`'s own zero-config first load), walk 8 the CLI again (everyday
-use, found nothing wrong) — GUI has had four looks, CLI three, first-run-
-from-zero two; GUI is due.
+**Next surface: 1 (GUI), for a session with a browser tool.** Walk 1 was the
+GUI, walk 2 the CLI, walk 3 first-run-from-zero, walks 4 and 5 the GUI again
+(two concurrent sessions picked it independently before either had a
+result), walk 6 the CLI again, walk 7 first-run-from-zero again (a
+GUI-specific angle walk 3 never covered: walk 3 only exercised the CLI
+build+`list` path from a fresh clone, never `gui`'s own zero-config first
+load), walk 8 the CLI again (everyday use, found nothing wrong), walk 9 the
+CLI again (`smoke-check`, two findings) — GUI has had four looks, CLI four,
+first-run-from-zero two; GUI is due *by count*.
+
+**But an unattended autopilot session cannot do a GUI walk at all** (found
+walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
+scheduled-task/unattended session outright - "nobody is present to approve
+the command" - so there is no browser tool available to drive one, full
+stop, regardless of rotation. Walks 6, 8, and 9 all landed on CLI instead for
+this same reason, whether or not they said so explicitly at the time. An
+unattended run should treat CLI/first-run as the only two surfaces actually
+in rotation for it and pick whichever of those is due; the GUI slot stays
+reserved for a session with an interactive browser tool (or a human) to pick
+up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -1288,3 +1300,79 @@ directory, per its own `--help` text) or `dump-links` behave as cleanly as
 what this walk checked, or is that untrodden ground for a reason? Cheap to
 check next time CLI is due: both take the same scratch-config recipe this
 walk already built.
+
+### Walk 9 — 2026-08-18, CLI everyday use (autopilot, phase 2)
+
+Rotation said GUI next (four looks vs CLI's three at the time). **Not
+possible from this session**: `preview_start` refuses to launch a dev server
+from an unattended/scheduled-task session outright ("nobody is present to
+approve the command") - there is no browser tool available to drive a GUI
+walk here at all, not a persona choice. Fell back to CLI, following walks 6
+and 8's precedent of picking whatever the rotation note *actually* allowed
+that day. Picked up walk 8's own leftover question instead: does
+`smoke-check` behave as cleanly as the six commands walk 8 already checked?
+
+**Scratch setup, green per "Breaking things safely."** `tmp/friction/
+config.yaml` - the real `config.yaml`'s course list, `download_path`
+redirected under `tmp/friction/downloads`, `session_state_file` pointed at a
+copy of the real session token (`tmp/friction/session_state.json`, gitignored
+`tmp/`).
+
+**Expectation registered before running:** `smoke-check`'s own `--help` line
+- "Local, on-demand check that the crawl still actually works against real
+OPAL" - reads like `list` with a pass/fail wrapper, so I expected it to
+crawl *this config's* courses and compare against a saved baseline.
+
+#### Finding — `smoke-check` always crawls every enrolled course, ignoring `--config`'s `courses:` filter entirely
+
+Ran it against the 6-course scratch config; it found and baselined against
+**8** courses, two of which (`[WS25/26] Programmierung`, `Helfende DMS`)
+are not in `config.yaml` at all. Source-confirmed:
+`internal/smokecheck/smokecheck.go:212` calls
+`sc.ScrapeWithSavedSession(ctx, []string{"*"})` - hardcoded, `cfg.Courses`
+never read. Tag **friction**: may well be the intended design (checking the
+whole account's reachability rather than one config's slice of it is a
+defensible smoke-test goal), but nothing in `--help` says so, and the
+identically-worded-sounding `list` command respects the filter - a user has
+no way to know these two commands disagree here without reading source.
+Full detail and the baseline-file side note: `docs/BACKLOG.md`'s friction
+section.
+
+#### Finding — Softwaretechnologie dropped out of course discovery entirely on the second of two `smoke-check` runs, eight minutes apart
+
+First run: `Softwaretechnologie (SoSe 26): 0 files (0.3s)`. Second run,
+started immediately after to check whether the first was reproducible:
+Softwaretechnologie is not in the per-course output *or* the baseline
+breakdown at all, despite both runs reporting the same "Found 8 course
+links" count first. No error, timeout, or skip message anywhere in the CLI
+output explains the gap. **Read this with the load this session put on the
+account already priced in**: by the time of run 2, this same session had
+already run two full live syncs (Question 44's verification, ~35 minutes of
+crawling) and one smoke-check against the same account, and run 2 itself
+needed an interactive TU-Fast relogin mid-run (the saved session had
+expired) - unusually heavy, self-inflicted churn, not a normal day's use.
+Filed as a **question**, not a bug claim, because it sits next to Question
+44's own open cause question (`docs/sync-speed-model.md`: does a second
+course's presence perturb Softwaretechnologie's state) closely enough that
+a future cause-hunt pass should know course-level dropout, not just
+file-level HTML failures, showed up once. Full detail:
+`docs/BACKLOG.md`'s friction section.
+
+**This walk's own verdict:** two findings, both filed - `smoke-check`'s
+course-filter surprise (friction, source-confirmed, likely by design but
+undocumented) and the Softwaretechnologie dropout (a question, explicitly
+not chased further given the confound named above).
+
+*Break from persona, for diagnosis only:* read
+`internal/smokecheck/smokecheck.go` once the course-count mismatch was
+already observed live, to find the `[]string{"*"}` line and its baseline
+path.
+
+#### New question this walk leaves (Rule 3)
+
+A clean repro of the Softwaretechnologie dropout - one `smoke-check` run
+against a rested session, no other activity that hour - would separate "real
+course-level instability, same family as Question 44" from "this session's
+own unusually heavy testing load." Nobody has run it that way yet; every
+data point on this specific symptom so far comes from a session that was
+already hammering the account for an unrelated reason.

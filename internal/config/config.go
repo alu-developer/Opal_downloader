@@ -568,6 +568,35 @@ func PerInstallStateFile(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), ".opal_storage_state.json")
 }
 
+// IsDefaultPath reports whether configPath is the same file every CLI/GUI
+// entry point falls back to when --config is not passed:
+// filepath.Join(cwd, "config.yaml") (see cmd/opal-downloader's projectDir()
+// and internal/gui's Options.ConfigPath, which both use this exact
+// fallback). A relative configPath is resolved against cwd before
+// comparing, so "config.yaml" and an absolute path to the same file both
+// count as default.
+//
+// Exists so a command run with an explicit scratch --config (friction
+// walks, sync-speed experiments, anything under tmp/) can be told apart
+// from a real run against the maintainer's own config, and skip writes to
+// machine-wide state meant to describe "the account's most recent sync" -
+// see statuslog.WriteLastSyncDefault's doc comment for the bug this closes
+// (found 2026-08-18: a scratch `sync --config tmp/...` clobbered the real
+// last-sync record because the write was unconditional).
+func IsDefaultPath(configPath string) bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	def := filepath.Join(cwd, "config.yaml")
+
+	absConfig, err := filepath.Abs(configPath)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(absConfig) == filepath.Clean(def)
+}
+
 func credentialsFromRaw(cfg rawConfig, configPath string) Credentials {
 	opalURL := strings.TrimSpace(cfg.OPALURL)
 	if opalURL == "" {

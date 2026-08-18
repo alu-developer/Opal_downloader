@@ -152,64 +152,6 @@ maintainer. Walk detail, expectations and named causes:
   on-logon-trigger finding above is blocked on exactly that surface. The
   2026-08-11 installer work was engineering verification with full knowledge
   of the code, so none of it counts as a persona walk.
-- **wrong — `~/.opal-downloader/last-sync.json` (and the "last sync" line the
-  GUI builds from it) is config-independent, so *any* sync silently
-  overwrites the maintainer's real status, including one run against a
-  scratch `--config` for testing.** Found live, 2026-08-18, during Question
-  44's own verification runs: two `sync --config tmp/policy-verify/...`
-  calls against a throwaway `download_path` each called
-  `statuslog.WriteLastSyncDefault` (`cmd/opal-downloader/root.go` line ~860,
-  unconditionally, regardless of `--config`), leaving the maintainer's real
-  GUI landing page reporting the scratch run's numbers ("1 downloaded, 348
-  skipped") as if it were his real account state. Recovered this instance
-  from `~/.opal-downloader/scheduled-run-history.jsonl`'s last real entry
-  (2026-08-17, not fabricated), but that recovery path only exists because a
-  *scheduled* run happens to also log to a second, append-only file -
-  nothing would have caught a manual `sync --config` doing the same thing
-  with no history file to fall back on. **Answers walk 7's own open question
-  2** (`docs/friction-campaign.md`, "Do the GUI's other config-scoped-looking
-  numbers share the same global-path leak the 'Last sync' line has now been
-  shown twice to have") for the write side specifically: yes, and it is not
-  just a display quirk on a not-yet-configured landing page (walk 7's finding,
-  fixed 2026-08-15 by hiding the line) - the write itself is unconditional,
-  so a fully-configured real install's status can be clobbered by an
-  unrelated scratch run anywhere on the machine. `WriteLastSyncDefault`
-  being machine-wide was a deliberate, named design choice at the time
-  (walk 7); this finding is that the choice has a real cost the campaign's
-  own scratch-config-for-experiments practice now pays. Same root cause
-  likely reaches
-  `login`/`list --scheduled` and any other command that writes through
-  `statuslog` - not checked this pass. Fix is a maintainer call: either
-  `WriteLastSyncDefault` should take `download_path` (or the whole config
-  path) into its identity somehow, or every command that can run against a
-  non-default `--config` needs to skip the shared status write entirely
-  (today's assumption is baked in - the file's own doc comment calls it "the
-  most recent outcome" with no notion of *whose* config that outcome
-  belongs to). Until decided, running *any* experiment against a scratch
-  config from a worktree is not actually side-effect-free the way
-  `docs/friction-campaign.md`'s green/amber tiering assumes - `last-sync.json`
-  needs to move from unlisted to the amber tier (snapshot-first) explicitly.
-- **friction — `smoke-check` silently ignores `--config`'s `courses:` list
-  and always crawls every enrolled course (`*`), unlike every other command.**
-  Walk 9, 2026-08-18: expected (from the command's own `--help` text, "Local,
-  on-demand check that the crawl still actually works against real OPAL") a
-  check *of my configured courses*; got 8 courses discovered against a
-  6-course `config.yaml`, including two (`[WS25/26] Programmierung`,
-  `Helfende DMS`) not in the file at all. Cause, source-confirmed:
-  `internal/smokecheck/smokecheck.go:212` hardcodes
-  `sc.ScrapeWithSavedSession(ctx, []string{"*"})`, never reading
-  `cfg.Courses`. Plausibly intentional (a smoke test arguably should check
-  the whole account's reachability, not one config's subset) but undocumented
-  either way - the help text reads identically to `list`'s, which *does*
-  respect the filter. Its baseline file
-  (`~/.opal-downloader/smoke-baseline.json`, `DefaultBaselinePath`) is the
-  same "fixed home-directory path regardless of `--config`" pattern as
-  `last-sync.json` above, though lower stakes here: no baseline existed yet
-  on this machine, so this walk's scratch-config run established the first
-  one honestly (it always reads the real account either way) rather than
-  overwriting a real prior value. Fix, if this isn't the intended design: read
-  `cfg.Courses` the same way `list`/`sync` do, or say plainly in `--help`
-  that `smoke-check` is account-wide by design.
 - **question — Softwaretechnologie (SoSe 26) course discovery itself, not
   just individual file downloads, was unstable across two `smoke-check` runs
   eight minutes apart on the same account.** Walk 9, 2026-08-18: run 1 found
@@ -246,8 +188,29 @@ only in one session's context window. Not commitments. An entry leaves in one
 of two directions: up into the work above, or into `docs/BACKLOG-archive.md`
 once it is done, decided, or shown not to matter.
 
-_(Empty as of 2026-08-12 — everything that stood here was already closed or
-decided and now sits in the archive's "Settled" section.)_
+- **`TestSyncScheduledSkipsWhenAlreadySucceededToday` (`cmd/opal-downloader/
+  root_test.go`) is not hermetic — under contention it falls through its own
+  dedup guard into a real live sync against the real OPAL account.** Found
+  2026-08-19 while verifying the last-sync.json fix above: with a stray
+  concurrent `go test` process already holding the real `~/.opal-downloader/
+  sync.lock`, this test - which fakes `readScheduledStatusForDedup` to
+  report "already succeeded today" specifically so it should return
+  `errAlreadySucceededToday` before touching the network - instead ran a
+  full ~166s discovery/download pass against the real account (8 courses,
+  349 files, real TU-Fast login), landing only in a scratch temp
+  `download_path` so no real files were touched. Reproduced identically on
+  unmodified `master` (not something this session's changes caused). Passes
+  cleanly in isolation with no contending process. Root cause not
+  diagnosed - plausible mechanism is that `alreadySucceededToday`'s
+  in-process fake and the real filesystem-backed `sync.lock` are two
+  different guards, and something about lock contention or its retry path
+  reaches the real scraper before the dedup check runs, but that is a guess,
+  not confirmed by reading the code. Real risk: any future test run that
+  overlaps another (two sessions, this project's own worktree-per-session
+  habit, a CI matrix) can trigger an unplanned real crawl during `go test`.
+  Worth a source-reading pass to find why the guard doesn't hold under
+  contention, or making the test's scraper fully faked so a guard miss fails
+  loudly instead of degrading into a real network call.
 
 ---
 

@@ -206,7 +206,15 @@ func (sp *syncPage) runJob(ctx context.Context, sc *scraper.OpalScraper, loaded 
 	//
 	// Deliberately after the listOnly branch above returns, so a preview
 	// `list` never counts as a sync - it downloads nothing.
-	writeLastSyncFunc(buildGUISyncStatus(time.Now(), ctx, err, stats))
+	//
+	// Skipped for an explicit non-default --config (config.IsDefaultPath),
+	// matching the CLI's runSync guard: this record is machine-wide, not
+	// scoped to sp.configPath, so a GUI run against a scratch config would
+	// otherwise clobber the maintainer's real "last sync" line - see
+	// docs/BACKLOG.md's last-sync.json finding, 2026-08-18.
+	if config.IsDefaultPath(sp.configPath) {
+		writeLastSyncFunc(buildGUISyncStatus(time.Now(), ctx, err, stats))
+	}
 
 	if err != nil {
 		sp.publishCancelOrError(ctx, err)

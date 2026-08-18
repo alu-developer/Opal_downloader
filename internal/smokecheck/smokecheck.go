@@ -209,6 +209,12 @@ type Result struct {
 // error, since that is smoke-check's actual job to detect and report
 // clearly, not to treat as an exceptional condition.
 func Run(ctx context.Context, sc Discoverer, opts Options) (Result, error) {
+	// "*" deliberately, ignoring config.yaml's courses: filter (which Options
+	// above does not even carry): this is an account-wide reachability
+	// check, not a check of one config's subset - documented in the CLI's
+	// --help (`smoke-check` line and its own option note) after a friction
+	// walk (2026-08-18) found the two reading identically to `list`'s, which
+	// does respect the filter.
 	files, err := sc.ScrapeWithSavedSession(ctx, []string{"*"})
 	if err != nil {
 		return Result{}, err

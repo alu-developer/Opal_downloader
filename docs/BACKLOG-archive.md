@@ -480,6 +480,45 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **`smoke-check`'s account-wide course scope is now documented instead of
+  silent** (2026-08-19, autopilot, closing walk 9's friction finding,
+  2026-08-18). Decided to keep the behavior rather than change it - checking
+  every enrolled course regardless of `config.yaml`'s `courses:` filter is a
+  defensible goal for an account-reachability smoke test, and narrowing it
+  to match `list`/`sync` would make it test less, not more, correctly. Fixed
+  the actual complaint (nothing said this out loud) instead: the top-level
+  command list and the `smoke-check`-only options block in `--help`
+  (`cmd/opal-downloader/root.go`) now both state it plainly, and
+  `internal/smokecheck/smokecheck.go`'s `Run` carries a comment at the
+  `[]string{"*"}` call. No behavior change, so no new test - existing
+  smoke-check tests were unaffected by construction.
+- **A scratch `sync --config` can no longer clobber the maintainer's real
+  "last sync" record** (2026-08-19, autopilot, closing the last-sync.json
+  finding found live 2026-08-18 during Question 44's verification runs).
+  Root cause: `statuslog.WriteLastSyncDefault` is machine-wide by design (see
+  its own doc comment), but both places that called it -
+  `cmd/opal-downloader/root.go`'s `runSync` and `internal/gui/sync.go`'s
+  sync handler - called it unconditionally regardless of which `--config`
+  the run actually used, so a scratch `sync --config tmp/.../config.yaml`
+  overwrote the real record with a throwaway run's numbers. Picked the
+  finding's second named option (skip the shared write for a non-default
+  config) over widening the record's identity: it needed no format/schema
+  change and left the "machine-wide record of the real account" contract
+  intact for the common case. New `config.IsDefaultPath(configPath)`
+  compares an absolute `configPath` against `cwd/config.yaml` (the fallback
+  every CLI/GUI entry point already uses when `--config` is omitted); both
+  call sites now skip the write unless it returns true. Pinned by new
+  `TestIsDefaultPath` (`internal/config/config_test.go`) and verified by
+  reading the two call sites' guards - not re-run live, since the bug itself
+  only reproduces by comparing a real run's on-disk effect against a
+  scratch one over two separate invocations, and the mechanism (a path
+  comparison gating an existing, already-tested write) doesn't need a fresh
+  live crawl to confirm. `go build ./...` clean; `go test` passes across
+  `internal/config`, `internal/gui`, `internal/statuslog`, and
+  `cmd/opal-downloader` (excluding one pre-existing unrelated flake, see
+  `docs/BACKLOG.md`'s Noticed section). `/preview`'s own pages were not
+  checked for the same pattern - walk 7's open question 2 stays open for
+  that half.
 - **The first-run landing page no longer shows a stale, unrelated "Last
   sync" line next to its own "First time here?" message** (2026-08-15,
   autopilot, same session as the fix above, closing Walk 7's second finding).

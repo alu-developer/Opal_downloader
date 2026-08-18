@@ -556,3 +556,28 @@ func TestDefaultsSkipsEnrollmentSections(t *testing.T) {
 		t.Fatal("Defaults().App.SkipEnrollmentSections is false; a zero-valued App is not the default one")
 	}
 }
+
+// TestIsDefaultPath pins the comparison every WriteLastSyncDefault call site
+// now guards with (cmd/opal-downloader's runSync, internal/gui's sync.go) -
+// found live 2026-08-18: an explicit scratch --config must not be mistaken
+// for the real cwd/config.yaml, or a throwaway run clobbers the maintainer's
+// real last-sync record.
+func TestIsDefaultPath(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+
+	if !IsDefaultPath("config.yaml") {
+		t.Error("relative \"config.yaml\" (the CLI/GUI fallback) should be the default path")
+	}
+	if !IsDefaultPath(filepath.Join(cwd, "config.yaml")) {
+		t.Error("absolute cwd/config.yaml should be the default path")
+	}
+	if IsDefaultPath(filepath.Join(cwd, "tmp", "friction", "config.yaml")) {
+		t.Error("a scratch config under tmp/ must not be reported as the default path")
+	}
+	if IsDefaultPath(filepath.Join(cwd, "other-config.yaml")) {
+		t.Error("a differently-named config in the same directory must not be reported as the default path")
+	}
+}

@@ -849,9 +849,19 @@ func runSync(args []string) (err error) {
 	// statuslog's lastSyncFileName doc comment). Registered before the
 	// scheduled block so it still runs when that one returns early.
 	//
+	// Skipped for an explicit non-default --config (config.IsDefaultPath):
+	// this record is machine-wide, not scoped to configPath, so a scratch
+	// run (friction walks, sync-speed experiments under tmp/) would
+	// otherwise clobber the maintainer's real "last sync" line with a
+	// throwaway account/download_path's numbers - found live 2026-08-18,
+	// see docs/BACKLOG.md's last-sync.json finding.
+	//
 	// Write failures are warned about, never returned: this note is not the
 	// user's files.
 	defer func() {
+		if !config.IsDefaultPath(configPath) {
+			return
+		}
 		usedInteractiveLogin := false
 		if sc != nil {
 			usedInteractiveLogin = sc.UsedInteractiveLogin()
@@ -1569,7 +1579,7 @@ func printHelp() {
 	fmt.Println("  sync    Download new/changed files")
 	fmt.Println("  dump-links  Open a page and write all detected link candidates to a JSON file")
 	fmt.Println("  schedule    Enable/disable/check a daily automatic sync via Windows Task Scheduler")
-	fmt.Println("  smoke-check Local, on-demand check that the crawl still actually works against real OPAL (read-only by default)")
+	fmt.Println("  smoke-check Local, on-demand check that the crawl still actually works against real OPAL (read-only by default; always checks every enrolled course, unlike list/sync it ignores config.yaml's courses: filter)")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  init --config <path>")
@@ -1594,6 +1604,7 @@ func printHelp() {
 	fmt.Println("  --visit-report          (list only) Print the cross-run section visit-effectiveness report from .opal-visit-log.json and exit - no browser/login needed")
 	fmt.Println("  --no-skip-enrollment-sections  Visit every OPAL 'Einschreibung' (enrollment/sign-up) course-node section instead of skipping it (overrides config.yaml's skip_enrollment_sections: true default) - escape hatch if the structural skip is ever wrong for your OPAL instance")
 	fmt.Println("  --scheduled             (sync only) Unattended mode for Task Scheduler: fails fast if TU-Fast isn't set up in the dedicated login profile instead of waiting for a 2FA click that will never come. Also enforced: a single-instance overlap-guard lock, checked on every sync (scheduled or manual/GUI), so two runs never race.")
+	fmt.Println("  smoke-check ignores config.yaml's courses: filter and always crawls every enrolled course ('*') - it's an account-wide reachability check, not a check of your configured subset. Use `list` if you want a config-scoped preview.")
 	fmt.Println("  --threshold n           (smoke-check only) Percent the discovered file count may drop below the saved baseline before failing (default 20)")
 	fmt.Println("  --reset-baseline        (smoke-check only) Discard the saved baseline and record the current file count as the new starting point")
 	fmt.Println("  --full-sync             (smoke-check only) Also run a real sync into a disposable scratch directory, to test file-download reachability in addition to discovery")

@@ -1212,6 +1212,15 @@ rendered as if it belonged to the current config" cause family.
    specifically, does `/preview`'s force-re-download or developer-tools page
    read anything through a similarly fixed, unscoped path? Not checked this
    walk; cheap to check next time that page comes up for another reason.
+   **Answered for the write side, 2026-08-18/19:** found live during
+   Question 44's verification runs that `statuslog.WriteLastSyncDefault`
+   itself is unconditional regardless of `--config` (`cmd/opal-downloader/
+   root.go`'s `runSync` and `internal/gui/sync.go`'s sync handler both called
+   it no matter what config a run used), so a scratch `--config` run could
+   clobber the maintainer's real last-sync record. Fixed 2026-08-19
+   (autopilot): both call sites now skip the write unless
+   `config.IsDefaultPath(configPath)` - see `docs/BACKLOG-archive.md`'s
+   "Done recently" entry. `/preview`'s own pages remain unchecked.
 
 ### Walk 8 — 2026-08-15, CLI everyday use (autopilot, phase 2)
 
@@ -1362,6 +1371,16 @@ file-level HTML failures, showed up once. Full detail:
 course-filter surprise (friction, source-confirmed, likely by design but
 undocumented) and the Softwaretechnologie dropout (a question, explicitly
 not chased further given the confound named above).
+
+**Closed 2026-08-19 (autopilot, phase 1):** kept the behavior (an
+account-wide reachability check is a defensible smoke-test goal, and
+changing it would narrow what the command actually verifies), fixed the
+"undocumented" half instead - the top-level command list and the
+`smoke-check`-only options block in `--help` now both say plainly that it
+ignores `courses:` and always crawls everything, and
+`internal/smokecheck/smokecheck.go`'s `Run` carries a comment at the `"*"`
+call pointing back to this walk. The Softwaretechnologie-dropout question
+is unaffected and still open.
 
 *Break from persona, for diagnosis only:* read
 `internal/smokecheck/smokecheck.go` once the course-count mismatch was

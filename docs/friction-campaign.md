@@ -162,6 +162,19 @@ The GUI's status files are **global, not config-scoped** — fixed paths under
 `scheduled-run-history.jsonl`, and the dismiss marker. Testing what the banner
 does therefore has to touch the real ones.
 
+**`last-sync.json` belongs in this list too (added 2026-08-18, found live, not
+by inspection)** — it looked unlisted because it is not written by the
+*scheduled*-run path this section was written to describe, but
+`WriteLastSyncDefault` (`cmd/opal-downloader/root.go`) fires for *any*
+`sync`, CLI or GUI, scheduled or manual, **and it is not config-scoped either
+— a `sync --config tmp/whatever/config.yaml` overwrites it exactly the same
+as a real one, with no marker distinguishing which config produced the
+numbers on it.** Confirmed the hard way: Question 44's own live verification
+runs (`docs/sync-speed-model.md`) overwrote the maintainer's real
+`last-sync.json` with a scratch run's counts before this entry existed to
+warn about it. Any sync-triggering action against ANY config counts as amber
+from now on, not just direct edits to the status files themselves.
+
 Copy them to `tmp/friction-restore/` first, then break them, then restore.
 Stakes if a run is killed mid-way: a wrong or missing banner — which is
 precisely what walk 1 documented as already happening, so the worst case is

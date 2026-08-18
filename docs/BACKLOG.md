@@ -152,6 +152,32 @@ maintainer. Walk detail, expectations and named causes:
   on-logon-trigger finding above is blocked on exactly that surface. The
   2026-08-11 installer work was engineering verification with full knowledge
   of the code, so none of it counts as a persona walk.
+- **wrong — `~/.opal-downloader/last-sync.json` (and the "last sync" line the
+  GUI builds from it) is config-independent, so *any* sync silently
+  overwrites the maintainer's real status, including one run against a
+  scratch `--config` for testing.** Found live, 2026-08-18, during Question
+  44's own verification runs: two `sync --config tmp/policy-verify/...`
+  calls against a throwaway `download_path` each called
+  `statuslog.WriteLastSyncDefault` (`cmd/opal-downloader/root.go` line ~860,
+  unconditionally, regardless of `--config`), leaving the maintainer's real
+  GUI landing page reporting the scratch run's numbers ("1 downloaded, 348
+  skipped") as if it were his real account state. Recovered this instance
+  from `~/.opal-downloader/scheduled-run-history.jsonl`'s last real entry
+  (2026-08-17, not fabricated), but that recovery path only exists because a
+  *scheduled* run happens to also log to a second, append-only file -
+  nothing would have caught a manual `sync --config` doing the same thing
+  with no history file to fall back on. Same root cause likely reaches
+  `login`/`list --scheduled` and any other command that writes through
+  `statuslog` - not checked this pass. Fix is a maintainer call: either
+  `WriteLastSyncDefault` should take `download_path` (or the whole config
+  path) into its identity somehow, or every command that can run against a
+  non-default `--config` needs to skip the shared status write entirely
+  (today's assumption is baked in - the file's own doc comment calls it "the
+  most recent outcome" with no notion of *whose* config that outcome
+  belongs to). Until decided, running *any* experiment against a scratch
+  config from a worktree is not actually side-effect-free the way
+  `docs/friction-campaign.md`'s green/amber tiering assumes - `last-sync.json`
+  needs to move from unlisted to the amber tier (snapshot-first) explicitly.
 
 ---
 

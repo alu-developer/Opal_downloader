@@ -5472,6 +5472,62 @@ decision is the maintainer's, not a counter's — no cap on the campaign, the ki
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
 
+### 2026-08-19 (autopilot): five cycles since the last report, a second shipped-and-live-verified fix, a real correctness bug found along the way - keep going, but pace the live-crawl load
+
+Five cycles since 2026-08-18: (1) source-reading arithmetic for the
+signal-less-file browser-fallback cost, no live run; (2)-(3) the 157.75s
+discovery outlier chased and closed by re-reading data already on disk (no
+new live run needed either) - it was a stale "What we know" table plus one
+self-inflicted-heavy-load session, not a live mystery; (4)-(5) this cycle,
+live: the "~4%-of-files" `needsContentVerification` figure was checked
+against a real fresh manifest and found to be close to 100% under the
+now-default HTTP-first discovery path (root-caused to the HTTP candidate
+parser never seeing a file row's sibling `<td>` cells, only the anchor's
+own text) - but a live rerun showed the aggregate cost of that is small
+(200.0s, closing the question), and in diagnosing *that* result surfaced an
+unrelated, real, previously-unknown correctness bug: two different remote
+files sharing a filename across different course sections silently
+collided onto the same manifest/local path whenever `use_section_subfolders`
+is `false` (the shipped example config's own default), each sync
+re-downloading both and one silently overwriting the other forever, with
+no warning. **Fixed and live-verified this cycle** - `internal/syncer/
+syncer.go` now dedupes on target path and warns by name; the fix cut a real
+run from `downloaded=38` (19 files each fetched 2-3x) to `downloaded=19`
+exactly, with 21 named collisions surfacing a third affected course that
+had been invisible before the warning existed.
+
+**What's known now that wasn't 5 cycles ago:** the "~4%" signal-less figure
+this file cited since 2026-08-18 was wrong (closer to 100% under the
+current default), but that mattered less than expected - the verify tax
+itself is cheap in aggregate, so Question 2 is closed with no further work
+needed. The bigger find was procedural, not a number: a live experiment
+built to answer one question (verify cost) surfaced a second, unrelated,
+real bug (silent file-collision data loss) once its result didn't match
+the clean story predicted - the campaign's own Rule 2 ("name the cause
+sharply") is what turned "38 downloaded, expected ~0-a few" into a shipped
+fix instead of a shrug. **What's still open:** the version/fork gap behind
+Question 44's HTML-instead-of-bytes cause (deprioritized, unresolved);
+Question 43's stalled bulk-ZIP investigation (two untried directions
+already named in its own entry); whether the HTTP-first candidate parser
+should be fixed to actually recover size/date signal (lower priority now
+that the tax of not having it is confirmed small) or left as is.
+
+**Recommendation: keep going, but this session specifically should stop
+running new live crawls now.** Four real live syncs/discoveries against the
+real account happened in this one autopilot run alone (Phase 1's
+sync.lock-contention check, Phase 2's Walk 12 first sync, and this phase's
+two verify/fix-verification reruns) - on top of whatever the day's normal
+scheduled/manual activity already was. This project has already recorded
+one same-day heavy-load session producing an unexplained discovery dropout
+(Walk 9, 2026-08-18) with an explicit "unusually heavy self-inflicted load"
+caveat; stacking a fifth live run in the same session on the same day would
+make any future anomaly harder to attribute, not easier. Nothing above is
+blocked by waiting - the next open questions (Question 43's stalled
+directions, the fork-identification dead end) either need source reading
+first or are explicitly not worth resuming yet. A future cycle, ideally a
+different day or at least a fresh session, is the right place for the next
+live experiment.
+
 ### 2026-08-18 (autopilot): Question 44 closed - the campaign's first fully-shipped-and-live-verified fix since the target was redefined - keep going
 
 Well past 5 cycles since the last report (2026-08-12): seven live experiments

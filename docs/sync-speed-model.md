@@ -3199,6 +3199,90 @@ browser-click fallback that costs ~20s/attempt for genuinely failing files,
 a handful of signal-less files could still add up to real money even
 without ever erroring.
 
+**Cycle, 2026-08-19 (autopilot): Question 2 above, source-reading only - the
+real `sync.lock` was held by the real daily scheduled sync for this run's
+entire session (confirmed via `Get-Process`, docs/friction-campaign.md's
+Walk 10), so no new live run was possible. Per Rule 2, "reading source beats
+probing a live server" where it can - narrowed the candidate mechanism
+instead of leaving the question as a bare number to chase later.**
+
+*Prediction, written before reading, per Rule 1 (registered against data
+already on disk - run 2's 346.7s download-phase number - rather than a new
+live measurement).* If the single signal-less file that downloaded in run 2
+needed `downloadFileViaBrowser`'s full retry structure before succeeding,
+the code's own timeout constants predict a plausible worst-case cost in the
+same order of magnitude as the observed 346.7s, without needing to invoke
+either of the two alternative explanations this cycle also had to rule out
+(a cold browser launch, or rate-limiter backoff escalation).
+
+*Source reading, in order:*
+1. **`runVerifyJob` (`internal/syncer/syncer.go:447`) calls the identical
+   `downloadFn` every normal download job calls** - `needsContentVerification`
+   decides *whether* a file goes through `DownloadFile`, but the verify path
+   itself adds no special-casing once there: same fast-GET/counter-refresh/
+   browser-fallback chain as any other file, plus a cheap local
+   `sameFileContents` byte comparison afterward. This rules out "the verify
+   mechanism itself is slow" - whatever cost this run paid, it paid for the
+   same reason a normal failing download would.
+2. **The browser is not cold at download time.** `ScrapeWithSavedSession`'s
+   own doc comment: "The browser is still used to list courses
+   (`discoverCourseLinks`), never to visit a single section" - even under
+   `OPAL_HTTP_DISCOVERY=2`, so a live Chromium page is already running by
+   the time the download phase starts. Rules out a first-launch cost as the
+   explanation.
+3. **The rate limiter's backoff cannot have escalated here.**
+   `internal/polite/polite.go`'s `Observe` only steps `backoffLevel` up on a
+   literal HTTP 429/503; this project's own long-documented failure mode for
+   these files is a `200` response whose body is HTML instead of the file
+   (`download.go`'s `DownloadFile` doc comment, `plainURLServesHTML`) - a
+   `200` *decrements* the backoff level if anything. `DefaultMinInterval` is
+   250ms either way (`polite.go`), so even a dozen politely-gated requests
+   for one file add single-digit seconds, not hundreds. Rules out
+   rate-limiting as the explanation.
+4. **The retry structure's own worst-case arithmetic, from its timeout
+   constants alone, reaches the right order of magnitude.**
+   `downloadFileViaBrowser` (`download.go`) tries `browserFallbackMaxAttempts`
+   = **2** outer attempts (1.5s wait between); each calls
+   `tryCandidatePagesInOrder` against up to **3** candidate pages
+   (`SourceURL`, `ShowAllURL`, `ExpandedPageURL`); each page attempt is a
+   `gotoPolitely` navigation (up to 20s timeout) plus a 1.1s render wait
+   (`contentFallbackWaitMs`) plus `tryClickDownloadSelectors`, which tries
+   **2** click strategies (href-match, then text-match), each wrapped in a
+   15s `ExpectDownload` timeout. Stacked worst case per page: ~20s nav +
+   1.1s wait + 2×15s click timeouts ≈ 51s; three pages ≈ 153s; two outer
+   attempts (plus the 1.5s pause between) ≈ **~308s** - within the same
+   order of magnitude as run 2's actual 346.7s for a phase where this was
+   the only file that did real work.
+
+*Counts as confirmed (for a future live run):* a `--debug-clicks` run
+against a manifest primed to force exactly one signal-less file through
+this path (`s.auditLog`'s `"click"`/`"click-success"`/`"fast-path-refresh-*"`
+lines, already wired throughout this code, would show the real sequence and
+real per-step timings) lands in the 200-350s range for that one file with
+several failed candidate/click attempts logged before the success. *Counts
+as refuted:* the same run shows the file succeeding quickly (most of its
+attempts hit the happy path) and the real 346.7s traces to something this
+reading missed entirely.
+
+**Not closed - explicitly a source-reading-only cycle, no live confirmation
+attempted.** The arithmetic is a plausibility check on the *shape* of the
+explanation (a multiplicative retry structure can legitimately cost minutes
+for one file), not a measurement of what actually happened in that specific
+run. Registered here rather than silently assumed, per this file's own
+standing rule that a byte-diff/live number is what counts as proof, not a
+plausible argument.
+
+**New open question, sharper than before:** if a live run confirms this
+shape, is `browserFallbackMaxAttempts=2` × 3 candidate pages × 2 click
+strategies the right amount of thoroughness to pay for automatically, or
+should a file this expensive to resolve get the same negative-manifest/
+backoff treatment Question 44's policy half already gives to files that
+fail outright - i.e., should "took over N seconds to eventually succeed"
+also earn a lighter retry budget next time, not just "failed outright"?
+Not answered this cycle - a product tradeoff (reliability vs. speed for the
+same small set of edge-case files) that needs the live number first, not a
+call to make from arithmetic alone.
+
 ---
 
 **Superseded strand (cause, not policy) - kept for continuity, not the

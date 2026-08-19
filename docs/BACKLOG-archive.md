@@ -480,6 +480,41 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **`smoke-check` and `dump-links` now take `sync.lock` before touching the
+  account, closing walk 10's finding (2026-08-19, autopilot).** Both called
+  `scraper.New` with no overlap guard at all, so either could run a real
+  crawl concurrently with a real `sync`/`list`/`login` — the exact condition
+  behind the 2026-08-02 and 2026-08-06 collision incidents
+  (`docs/BACKLOG-archive.md`). Fixed exactly as the finding named it: both
+  now call `acquireCrawlOverlapLock`/`defer releaseOverlap()`, the same
+  proven pattern `runList`/`runLogin` already used — no new mechanism.
+  `smoke-check`'s lock is acquired *before* `scraper.EnsureTUFastPresent`,
+  ahead of every other check, so a concurrent run is refused as cheaply as
+  possible and the new test doesn't depend on the test machine having
+  TU-Fast set up. Treated the finding's own open question (deliberate
+  omission vs. oversight) as a judgment call rather than a maintainer
+  block: a "smoke test" designed to *require* running during a live sync to
+  exercise concurrent access would be a surprising, undocumented design for
+  a command whose own doc comment calls it "read-only, safe to run often,"
+  and the lock's entire documented purpose is preventing exactly this
+  overlap — nothing in the code or docs suggested smoke-check was meant to
+  be the exception. New `TestSmokeCheckRefusesWhileAnotherRunHoldsTheOverlapLock`/
+  `TestDumpLinksRefusesWhileAnotherRunHoldsTheOverlapLock`
+  (`cmd/opal-downloader/listoverlap_test.go`) pin both, following
+  `TestListRefusesWhileAnotherRunHoldsTheOverlapLock`'s existing pattern.
+  Also folded in walk 10's second finding, the bare lock-held message: since
+  `synclock.ErrHeld`'s message (`internal/synclock/synclock.go`) is shared by
+  every caller, one edit now gives `sync`/`list`/`login`/`smoke-check`/
+  `dump-links` all a sentence of guidance ("likely today's scheduled sync or
+  another opal-downloader command; wait for it to finish and try again")
+  instead of a bare PID and timestamp — `docs/OPERATIONS.md`'s lock-holder
+  table updated to list the two new callers. `go build ./...` clean;
+  `go vet ./...` clean; `go test ./...` passes across every package (skipped
+  only the pre-existing, separately-tracked non-hermetic
+  `TestSyncScheduledSkipsWhenAlreadySucceededToday` — a real `sync.lock` was
+  held by another process at test time, which is exactly that test's known
+  trigger condition, see the Noticed entry it left; not re-run here to avoid
+  reproducing it).
 - **`smoke-check`'s account-wide course scope is now documented instead of
   silent** (2026-08-19, autopilot, closing walk 9's friction finding,
   2026-08-18). Decided to keep the behavior rather than change it - checking

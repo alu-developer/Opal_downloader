@@ -126,58 +126,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8 & 9, first-run walks 3, 7 & 10)
 
-- **wrong — `smoke-check` and `dump-links` never take `sync.lock`, so either
-  can run a real crawl concurrently with a real `sync`/`list`/`login` -
-  exactly the condition that already caused two silent-failure incidents
-  before the lock existed.** Walk 10, 2026-08-19: source-swept every
-  `scraper.New(` call site in `cmd/opal-downloader/root.go` against every
-  `acquireCrawlOverlapLock` call site. `login` and `list` call it directly;
-  `sync` locks one layer down in `internal/syncer.SyncCoursesWithProgress`
-  (confirmed live - this walk's own `login` attempt was refused by a real
-  `sync` holding the lock); `smoke-check` (`runSmokeCheck`) and `dump-links`
-  (`runDumpLinks`) call it nowhere. `docs/OPERATIONS.md`'s own words for why
-  the lock exists: "concurrent crawls present one authenticated identity to
-  a Wicket backend that is stateful server-side per session," naming two
-  real incidents this caused (2026-08-02 raw Playwright launch timeout,
-  2026-08-06 silent 0-file collapse - both `docs/BACKLOG-archive.md`).
-  `smoke-check` is the higher-risk of the two: a real, unattended-safe,
-  TU-Fast-triggering command anyone (or automation) could run at any time,
-  including the exact minute a scheduled `sync` is already crawling - this
-  walk's own collision shows that overlap happens roughly daily, not
-  rarely. `dump-links` is lower-risk (maintainer-only debugging tool, no
-  documented end-user workflow) but has the identical gap and the fix
-  should cover both. **Possibly explains Walk 9's still-open
-  Softwaretechnologie-dropout question** (2026-08-18: two full `sync`s and
-  two `smoke-check`s against the real account within about an hour,
-  unexplained course-level dropout on the second `smoke-check`) - this
-  finding doesn't confirm those runs actually overlapped in wall-clock time,
-  only that nothing would have stopped them from doing so, which walk 9 had
-  no reason to check for at the time. Fix: `runSmokeCheck` and
-  `runDumpLinks` should call `acquireCrawlOverlapLock`/`defer
-  releaseOverlap()` the same way `runList` already does - a proven,
-  one-line-per-site pattern, not new mechanism. **Left one open question
-  before the mechanical fix lands:** is the omission deliberate (does
-  smoke-check need to run *during* a sync to test something about
-  concurrent access?) or an oversight - worth a maintainer call given Walk
-  9's course-filter finding turned out to be intentional design once asked.
-  Full detail: `docs/friction-campaign.md` Walk 10.
-- **friction — a first-time user who hits the real single-instance lock
-  gets a bare PID and a timestamp, with no guidance on what to do.** Walk
-  10, 2026-08-19: `opal-downloader login`, run from a genuinely fresh clone
-  as a first-timer following the README, refused instantly with `Error: a
-  sync is already running (PID 39684, started at 2026-08-19T09:06:47Z)` -
-  the real daily scheduled sync happened to be running at that exact
-  moment, confirmed via `Get-Process`. The lock itself is correct and
-  already documented for maintainers (`docs/OPERATIONS.md`: "that is the
-  intended outcome, not a bug - wait for the first to finish"), but that
-  context reaches nobody who only sees the CLI's own message - no ETA, no
-  "this is probably today's scheduled sync," no suggestion to retry in a
-  few minutes. `synclock.ErrHeld` (`internal/synclock/synclock.go`) is one
-  shared message returned identically by `sync`, `list`, and `login`, so
-  every command that touches the account hits the same bare text under the
-  same daily-recurring condition. Fix, if wanted: fold a sentence of the
-  `docs/OPERATIONS.md` framing into the CLI message itself. Full detail:
-  `docs/friction-campaign.md` Walk 10.
 - **wrong — `/schedule`'s on-logon catch-up promise is false for the real
   task, and cannot become true until the app is installed somewhere
   permanent.** Walk 6, 2026-08-13: the page states as fact that a missed run

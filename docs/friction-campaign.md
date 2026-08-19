@@ -1432,7 +1432,7 @@ red action - no login profile or download folder here is real, and
 open Chromium, complete TU-Fast auto-login unattended (this project's own
 standing finding), and finish in seconds.
 
-#### Finding — a first-time user who hits the real single-instance lock gets a bare PID and no guidance on what to do
+#### Finding — a first-time user who hits the real single-instance lock gets a bare PID and no guidance on what to do (fixed 2026-08-19, autopilot, phase 1)
 
 `login` refused instantly: `Error: a sync is already running (PID 39684,
 started at 2026-08-19T09:06:47Z)`. Not a fluke or a self-collision - checked
@@ -1473,7 +1473,7 @@ walk's goal (going further than Walk 3) could not be reached: waiting out a
 real scheduled sync's full duration was judged not worth blocking this run
 for, so the walk stops at `login`'s refusal rather than a finished download.
 
-#### Finding — `smoke-check` never takes `sync.lock`, so it can run a real crawl concurrently with a real `sync`/`list`/`login`, exactly the condition that has already caused two silent-failure incidents
+#### Finding — `smoke-check` never takes `sync.lock`, so it can run a real crawl concurrently with a real `sync`/`list`/`login`, exactly the condition that has already caused two silent-failure incidents (fixed 2026-08-19, autopilot, phase 1 - `dump-links` covered too)
 
 Cheap to check (Rule 2's "check the prediction where checking is cheap"),
 so checked immediately rather than left as a question:
@@ -1555,3 +1555,14 @@ test something about concurrent access?) or just an oversight from
 Not answered this walk - worth a maintainer call before the mechanical fix
 lands, in case "smoke-check ignores the lock" is intentional the same way
 Walk 9's course-filter finding turned out to be.
+
+**Answered 2026-08-19 (autopilot, phase 1), as a judgment call rather than a
+maintainer block:** nothing in the code or docs supports "deliberate" -
+`smoke-check`'s own doc comment calls it "read-only, safe to run often,"
+the same property `list` already has and already locks for; a smoke test
+that *needed* to run concurrently with a real sync to validate something
+about concurrent access would be a surprising, undocumented design nobody
+had actually described anywhere, unlike Walk 9's course-filter case where
+the account-wide scope was an active, checkable design choice with its own
+rationale once asked. Treated as an oversight and fixed exactly as this
+finding named it - see `docs/BACKLOG-archive.md`'s "Done recently" entry.

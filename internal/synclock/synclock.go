@@ -134,7 +134,7 @@ func Acquire(path string) (release func(), err error) {
 			continue
 		}
 		if lockHolderStillRunning(existing) {
-			return nil, fmt.Errorf("%w (PID %d, started at %s)", ErrHeld, existing.PID, existing.StartedAt)
+			return nil, fmt.Errorf("%w (PID %d, started at %s) - likely today's scheduled sync or another opal-downloader command; wait for it to finish and try again", ErrHeld, existing.PID, existing.StartedAt)
 		}
 		// Stale lock: the recorded PID is no longer running, so whatever
 		// process wrote it crashed or was force-killed without releasing it.

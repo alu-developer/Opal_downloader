@@ -200,7 +200,7 @@ file loss twice.
 
 | Lock | Covers | Held by |
 |---|---|---|
-| `~/.opal-downloader/sync.lock` (`internal/synclock`) | a whole crawl, or a whole login | `sync` (CLI, GUI and scheduled alike, via `syncer.SyncCoursesWithProgress`), `list` and `login` (both since 2026-08-10), every live probe test in `internal/scraper` (since 2026-08-10, via `beginLiveProbe`) |
+| `~/.opal-downloader/sync.lock` (`internal/synclock`) | a whole crawl, or a whole login | `sync` (CLI, GUI and scheduled alike, via `syncer.SyncCoursesWithProgress`), `list` and `login` (both since 2026-08-10), `smoke-check` and `dump-links` (both since 2026-08-19), every live probe test in `internal/scraper` (since 2026-08-10, via `beginLiveProbe`) |
 | `Local\opal-downloader-session-…` named mutex (`internal/scraper/session_lock_windows.go`) | session *establishment* only — reading/writing the session-state file, and the interactive login browser | every `ensureSession` call, i.e. `login`/`list`/`sync` |
 
 A second crawl gets `a sync is already running (PID …, started at …)` and

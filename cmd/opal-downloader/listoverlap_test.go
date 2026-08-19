@@ -81,6 +81,51 @@ func TestLoginRefusesWhileAnotherRunHoldsTheOverlapLock(t *testing.T) {
 	}
 }
 
+// smoke-check and dump-links took no overlap lock at all until 2026-08-19 -
+// docs/BACKLOG.md's friction-campaign walk 10 found the gap by sweeping every
+// scraper.New call site against every acquireCrawlOverlapLock call site.
+// smoke-check is the higher-risk of the two: a real, documented,
+// unattended-safe command anyone (or automation) could run at any time,
+// including the exact minute a scheduled sync is already crawling.
+//
+// Acquired before scraper.EnsureTUFastPresent, so this test never touches
+// the real ~/.opal-downloader/login-profile directory and passes regardless
+// of whether TU-Fast is set up on the machine running it.
+func TestSmokeCheckRefusesWhileAnotherRunHoldsTheOverlapLock(t *testing.T) {
+	held := fmt.Errorf("%w (PID 4321, started at 2026-08-19T09:00:00Z)", synclock.ErrHeld)
+
+	calls := 0
+	original := acquireCrawlOverlapLock
+	acquireCrawlOverlapLock = func() (func(), error) {
+		calls++
+		return nil, held
+	}
+	t.Cleanup(func() { acquireCrawlOverlapLock = original })
+
+	err := runSmokeCheck([]string{"--config", writeMinimalConfig(t)})
+	if !errors.Is(err, synclock.ErrHeld) {
+		t.Fatalf("expected smoke-check to refuse with synclock.ErrHeld while another run holds the lock, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected smoke-check to ask for the overlap lock exactly once, got %d", calls)
+	}
+}
+
+// dump-links is maintainer-only, but has the identical gap: it opens the same
+// shared session against the same account.
+func TestDumpLinksRefusesWhileAnotherRunHoldsTheOverlapLock(t *testing.T) {
+	held := fmt.Errorf("%w (PID 4321, started at 2026-08-19T09:00:00Z)", synclock.ErrHeld)
+
+	original := acquireCrawlOverlapLock
+	acquireCrawlOverlapLock = func() (func(), error) { return nil, held }
+	t.Cleanup(func() { acquireCrawlOverlapLock = original })
+
+	err := runDumpLinks([]string{"--config", writeMinimalConfig(t), "--url", "https://bildungsportal.sachsen.de/opal/some-course"})
+	if !errors.Is(err, synclock.ErrHeld) {
+		t.Fatalf("expected dump-links to refuse with synclock.ErrHeld while another run holds the lock, got %v", err)
+	}
+}
+
 // The other direction: --visit-report reads a local log file and never opens a
 // browser or touches OPAL, so it must not be blocked by a sync running
 // elsewhere. Without this, taking the lock earlier in runList (an easy

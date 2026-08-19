@@ -1179,6 +1179,18 @@ func runDumpLinks(args []string) error {
 		return err
 	}
 
+	// Same coarse lock runList/runLogin take, and for the identical reason:
+	// this crawls the account's live session with the shared saved cookie
+	// file, so it has to contend with a `sync`/`list`/`login` in progress
+	// instead of presenting a second identity to the same stateful Wicket
+	// backend. dump-links is maintainer-only and had no documented reason to
+	// be exempt - see docs/BACKLOG.md's friction-campaign findings (walk 10).
+	releaseOverlap, err := acquireCrawlOverlapLock()
+	if err != nil {
+		return err
+	}
+	defer releaseOverlap()
+
 	sc := scraper.New(credentials.URL, credentials.StateFile)
 	sc.SetDeveloperMode(devMode)
 	defer sc.Close()
@@ -1250,6 +1262,22 @@ func runSmokeCheck(args []string) error {
 			return fmt.Errorf("unknown option for smoke-check: %s", args[i])
 		}
 	}
+
+	// Same coarse lock runList/runLogin take, and for the identical reason:
+	// smoke-check crawls the account's live session with the shared saved
+	// cookie file, so it has to contend with a `sync`/`list`/`login` in
+	// progress instead of presenting a second identity to the same stateful
+	// Wicket backend. Unlike dump-links, smoke-check is a real, documented,
+	// unattended-safe command anyone (or automation) can run at any time,
+	// including while a scheduled sync is crawling - see docs/BACKLOG.md's
+	// friction-campaign findings (walk 10) for the collision this closes.
+	// Acquired before EnsureTUFastPresent, ahead of any other check, so a
+	// concurrent run is refused as cheaply as possible.
+	releaseOverlap, err := acquireCrawlOverlapLock()
+	if err != nil {
+		return err
+	}
+	defer releaseOverlap()
 
 	// Fail fast (no network call, filesystem-only - same property
 	// EnsureTUFastPresent already documents) rather than risk hanging for a

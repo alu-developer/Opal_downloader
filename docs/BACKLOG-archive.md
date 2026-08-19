@@ -22,6 +22,53 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **`TestSyncScheduledSkipsWhenAlreadySucceededToday`
+  (`cmd/opal-downloader/root_test.go`) non-hermeticity, three mechanisms
+  tried and ruled out (2026-08-19, autopilot) — likely a misattributed real
+  session, not a test bug.** Original report (2026-08-19, while verifying
+  the last-sync.json fix): with a stray concurrent process already holding
+  the real `~/.opal-downloader/sync.lock`, this test — which fakes
+  `readScheduledStatusForDedup` to report "already succeeded today"
+  specifically so it should return `errAlreadySucceededToday` before
+  touching the network — instead ran a full ~166s discovery/download pass
+  against the real account (8 courses, 349 files, real TU-Fast login),
+  landing only in a scratch temp `download_path`. Reproduced on unmodified
+  `master`; passed cleanly in isolation.
+  **Pass 1 — same-test contention, ruled out:** read `alreadySucceededToday`
+  (`cmd/opal-downloader/root.go`) — it runs before `config.Load`, long
+  before `sync.lock` is touched (that happens later, inside
+  `internal/syncer`), and decides purely from the in-process
+  `readScheduledStatusForDedup` fake, with no code path to `sync.lock` at
+  all. Ran two genuinely simultaneous
+  `go test -run TestSyncScheduledSkipsWhenAlreadySucceededToday` processes
+  against each other: both passed in 0.00s/0.01s.
+  **Pass 2 — other-package live probes, ruled out:** checked all 24
+  `internal/scraper/*_probe_test.go` files (grepped every `t.Skip(` /
+  `os.Getenv("OPAL` call) — every one requires its own explicit `OPAL_*` env
+  var before touching the real account, unset by default (confirmed the
+  shell had none set). A bare `go test ./...` — the original incident's
+  invocation — cannot make any of them run; `.github/workflows/ci.yml` relies
+  on exactly this to run `go test ./...` on GitHub Actions with no OPAL
+  credentials and stay green.
+  **Pass 3 — real sync.lock contention, ruled out, live-verified:** built the
+  worktree's own `main.exe` (from repo root — `cmd/opal-downloader` is
+  `package opaldownloader`, not `main`; the real entry point is the
+  repo-root `main.go`), started a real background `sync` against a scratch
+  config (`tmp/friction/scratch-download`, gitignored), confirmed via
+  `~/.opal-downloader/sync.lock` that it was genuinely running (mid-crawl,
+  courses being scanned), then ran the dedup test while that lock was held.
+  `TestSyncScheduledSkipsWhenAlreadySucceededToday` passed in 0.01s, network
+  untouched, while the real sync kept crawling underneath it.
+  **Conclusion:** all three candidate mechanisms for "contention makes the
+  guard fall through" are now individually disproven. The better-fitting
+  explanation is that the original run's ~166s crawl was a genuine, separate
+  concurrent `sync` (matching `scheduled-run-history.jsonl`'s real PID
+  collisions logged in almost exactly that window, 2026-08-18T21:24 to
+  2026-08-19T00:24 local — PIDs 15412 and 36856) whose output or timing got
+  misattributed to the test run rather than caused by it. Not proven (no PID
+  was captured for the process actually inside the original run), so kept as
+  a documentation note rather than fully closed — but nothing in the test's
+  own guard logic needs fixing unless it recurs with a captured PID.
 - **Walk 11's `list --visit-report` umlaut-mojibake finding fixed 2026-08-19
   (autopilot, phase 1).** `internal/visitlog/visitlog.go`'s `truncate`
   sliced `s[:max-1]` on the raw byte string; any 2-byte UTF-8 character

@@ -183,50 +183,17 @@ only in one session's context window. Not commitments. An entry leaves in one
 of two directions: up into the work above, or into `docs/BACKLOG-archive.md`
 once it is done, decided, or shown not to matter.
 
-- **`TestSyncScheduledSkipsWhenAlreadySucceededToday` (`cmd/opal-downloader/
-  root_test.go`) is not hermetic — under contention it falls through its own
-  dedup guard into a real live sync against the real OPAL account.** Found
-  2026-08-19 while verifying the last-sync.json fix above: with a stray
-  concurrent `go test` process already holding the real `~/.opal-downloader/
-  sync.lock`, this test - which fakes `readScheduledStatusForDedup` to
-  report "already succeeded today" specifically so it should return
-  `errAlreadySucceededToday` before touching the network - instead ran a
-  full ~166s discovery/download pass against the real account (8 courses,
-  349 files, real TU-Fast login), landing only in a scratch temp
-  `download_path` so no real files were touched. Reproduced identically on
-  unmodified `master` (not something this session's changes caused). Passes
-  cleanly in isolation with no contending process. Root cause not
-  diagnosed - plausible mechanism is that `alreadySucceededToday`'s
-  in-process fake and the real filesystem-backed `sync.lock` are two
-  different guards, and something about lock contention or its retry path
-  reaches the real scraper before the dedup check runs, but that is a guess,
-  not confirmed by reading the code. Real risk: any future test run that
-  overlaps another (two sessions, this project's own worktree-per-session
-  habit, a CI matrix) can trigger an unplanned real crawl during `go test`.
-  Worth a source-reading pass to find why the guard doesn't hold under
-  contention, or making the test's scraper fully faked so a guard miss fails
-  loudly instead of degrading into a real network call.
-  **2026-08-19 (autopilot): source read, one hypothesis ruled out by a live
-  experiment, root cause still open.** Read `alreadySucceededToday`
-  (`cmd/opal-downloader/root.go`) - it is called as literally the first
-  substantive step in `runSync`, before `config.Load` and long before
-  anything touches `sync.lock` (that lock is acquired much later, inside
-  `internal/syncer`), and it decides purely from the in-process
-  `readScheduledStatusForDedup` fake - there is no code path connecting it
-  to `sync.lock` state at all, which already weakens the "lock contention
-  reaches the scraper before the dedup check runs" guess. Tested the most
-  literal reading of "contention" directly: ran two genuinely simultaneous
-  `go test -run TestSyncScheduledSkipsWhenAlreadySucceededToday` processes
-  against each other. Both passed in 0.00s/0.01s - two live instances of
-  this exact test contending with each other does not reproduce the bug, so
-  that specific mechanism is ruled out. **Left open, narrower than before:**
-  the original incident happened during a full `go test ./...` run, where
-  *other packages'* tests (e.g. `internal/scraper`'s real live-probe tests)
-  run as separate concurrent OS processes and may have been the one
-  actually touching the real account and `sync.lock` at that moment - worth
-  checking next whether the ~166s crawl was correctly attributed to this
-  test at all (timestamps in a full `-v` run's log) before spending more
-  time on this test's own guard logic, which held up under direct testing.
+- **`TestSyncScheduledSkipsWhenAlreadySucceededToday` non-hermeticity: three
+  mechanisms tried, all three ruled out — most likely explanation is now a
+  misattributed real concurrent session, not a guard bug.** See
+  `docs/BACKLOG-archive.md` "Settled" for the full trail (same-test
+  contention, other-package live probes, and — 2026-08-19 (autopilot,
+  live-verified) — a real background `sync` genuinely holding `sync.lock`,
+  none of which make the test fall through). **Not fully closed:** no PID was
+  captured for the process actually inside the original incident's run, so
+  the misattribution explanation is well-evidenced, not proven. Downgraded
+  from "real risk" to a documentation-only follow-up: nothing left to fix in
+  the test unless it recurs with a captured PID.
 
 ---
 

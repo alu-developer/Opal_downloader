@@ -3378,7 +3378,80 @@ measurements (71.99s/78.90s 2026-08-10, 71.67s/75.48s today - all single,
 unhurried crawls with no concurrent account activity) remain the
 representative range for "What we know."
 
----
+**Cycle, 2026-08-19 (autopilot, fourth cycle): the "~4%-of-files" figure for
+`needsContentVerification`'s forced re-fetch tax is WRONG, and the real
+number is close to 100% for any manifest built under the current default -
+found by inspection of two real manifests, not yet live-measured for cost.**
+
+While driving a genuine first-run-from-zero walk (`docs/friction-campaign.md`
+Walk 12 - fresh clone, `setup`, `login`, `list`, then a real `sync` to
+completion, all courses), the resulting fresh scratch manifest
+(`downloads/.opal-sync.manifest.json`, 349 files: 299 downloaded, 50 errors)
+came back with **328 of 349 entries carrying `size: null, modified: null`
+and *zero* entries with a real numeric size** - not the documented "~4%
+signal-less" figure this file has cited since the 2026-08-18 cycle. Compared
+against the maintainer's real, weeks-old manifest (`~/OneDrive/
+.opal-sync.manifest.json`, read-only, not modified): **575 entries carry a
+real numeric size against only 37 nulls** - the opposite ratio.
+
+**Root cause, confirmed by reading both discovery paths' source, not
+guessed:** `appendSectionFiles` (`files.go`) extracts Size/Modified from a
+candidate's `rowText` field via `parseRowSizeBytes`/`parseRowModified`
+(matching OPAL's "Größe"/"Zuletzt geändert" table columns). The **browser**
+path's JS candidate builder (`files.go`, `extractSectionContentCandidates`)
+climbs to the closest `<tr>` ancestor and uses `row.textContent` - so
+`rowText` includes the sibling `<td>` cells that actually carry size/date.
+The **HTTP-first** path's candidate builder (`httpdiscovery.go`,
+`httpCandidate`) has no DOM tree to climb - it regex-matches raw `<a>...</a>`
+tags out of the fetched HTML and can only use the anchor's own inner text,
+which is documented in the code's own comment (`httpdiscovery.go:83-89`) as
+an approximation: *"a file row's size/date live in sibling `<td>` cells
+outside the anchor anyway"* - so `parseRowSizeBytes`/`parseRowModified`
+almost never find a match against it. `OPAL_HTTP_DISCOVERY=2` (HTTP-first)
+has been the default since 2026-08-11 (`docs/BACKLOG-archive.md`), so every
+manifest entry created or refreshed from that point on gets no size/date
+signal at all - the real manifest's 575 non-null entries are load-bearing
+survivors from before that switch, not evidence the current default still
+produces them; a manifest built entirely under today's default (this walk's
+scratch one) shows the true current rate: effectively 100%, not 4%.
+
+**Consequence, not yet measured live:** `needsContentVerification` triggers
+whenever `hasPrevious && remote.Size == nil && remote.Modified == nil` -
+under the current default this is true for nearly every file, meaning
+**every file that would otherwise skip cleanly on an unchanged second sync
+instead gets queued as a `runVerifyJob`** (full re-fetch + local hash
+compare via the same `downloadFn` a real download uses), not just the
+documented rare exception. This file's own 2026-08-18/19 cycles already
+worked out that *one* such verify job, when it needs the expensive
+browser-fallback path, can plausibly cost 200-350s from timeout-constant
+arithmetic alone - the open question that arithmetic was scoped to was "is
+this worth it for a handful of files"; at close to 100% of files it is a
+different, much bigger question.
+
+**Prediction, written before running the next experiment (Rule 1).** This
+walk's own scratch manifest (`tmp`-adjacent, see
+`docs/friction-campaign.md` Walk 12 for the exact path) is sitting right
+there with ~299 signal-less downloaded entries and 50 backed-off failures -
+rerunning `sync` against it unchanged is the cheapest possible live
+measurement of this at real scale, no new crawl needed. *Suspected
+mechanism:* most of the ~299 verify jobs should resolve via the fast
+HTTP-GET-plus-hash-compare path (`runVerifyJob` calls the identical
+`downloadFn` any normal download uses, and these are ordinary reachable
+files, not the 50 broken ones) - individually cheap, but 299 of them run
+through `download_concurrency: 3` serialized/rate-limited access to the same
+server-side session, the way this campaign has repeatedly found OPAL
+punishes bulk access. *Counts as confirmed (verify tax is small in
+aggregate):* total wall-clock lands within a small multiple of bare
+discovery (~70-120s), showing 299 individually-cheap HTTP verifies do not
+add up to real money. *Counts as refuted (verify tax is itself a real,
+already-present cost):* total wall-clock is a large fraction of Run 1's
+1223.9s (i.e., verifying almost matches the cost of downloading), which
+would mean this project has been paying a large, silent, already-live tax
+on every second-and-later sync since 2026-08-11, independent of Question
+44's 49-50 broken files. *Kill criterion:* over ~300s (2.5x the ~120s
+target, generous slack for 299 sequential HTTP round-trips) means the tax
+alone blocks the ~30-120s target on its own merits, regardless of any other
+open question on this list. Result to follow in the same session.
 
 **Superseded strand (cause, not policy) - kept for continuity, not the
 active next step.** The following entries chase which OpenOLAT/Wicket fork

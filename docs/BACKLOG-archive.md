@@ -552,6 +552,18 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **A first sync's `error:` lines now explain themselves instead of reading
+  as "this tool is broken," closing walk 12's finding (2026-08-19,
+  autopilot).** A genuine first-timer's first `sync` ended
+  `downloaded=299 skipped=0 errors=50` with 50 unexplained `error:` lines and
+  no hint that the 2026-08-18 backoff fix already makes the *next* sync fast
+  and quiet. `runSync` (`cmd/opal-downloader/root.go`) now prints one extra
+  line whenever `stats.Errors > 0`: that failures are usually transient
+  server-side issues, not a setup problem, and future syncs retry them
+  automatically with backoff instead of at full cost every time. Left
+  `--full-sync`'s smoke-check summary untouched — that path intentionally
+  treats any error as a hard failure and isn't the first-run surface walk 12
+  found the problem on.
 - **`smoke-check` and `dump-links` now take `sync.lock` before touching the
   account, closing walk 10's finding (2026-08-19, autopilot).** Both called
   `scraper.New` with no overlap guard at all, so either could run a real

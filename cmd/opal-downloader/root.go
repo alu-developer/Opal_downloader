@@ -1005,6 +1005,15 @@ func runSync(args []string) (err error) {
 		fmt.Printf(" backing_off=%d", stats.SkippedFailing)
 	}
 	fmt.Println()
+	// Friction campaign walk 12 (docs/friction-campaign.md, docs/BACKLOG.md
+	// "Open findings"): a first sync's `error:` lines above have no context,
+	// so N unexplained failures reads as "this tool is broken" rather than
+	// what's actually true - a file that fails now gets skipped
+	// automatically (see the backing-off log line and
+	// syncer.downloadRetryAt) instead of being retried at full cost forever.
+	if stats.Errors > 0 {
+		fmt.Printf("%d file(s) above failed to download - this is usually a transient server-side issue, not something wrong with your setup. They'll be retried on future syncs automatically, with increasing backoff if they keep failing, so they won't slow down every run.\n", stats.Errors)
+	}
 
 	fmt.Println()
 	timing.PrintDownloadSummary(stats.DownloadDuration, stats.Downloads)

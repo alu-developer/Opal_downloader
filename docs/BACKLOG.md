@@ -167,20 +167,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9 & 11, first-run walks 3, 7, 10 & 12)
 
-- **friction — a first-time user's first real `sync` mixes 50 known-flaky
-  error lines into 299 success lines with nothing distinguishing "this is a
-  known issue, not your fault" and no hint that the next sync will be fast.**
-  Walk 12, 2026-08-19: a genuine fresh-clone-to-completed-sync run (first
-  time this campaign reached an actual finished first sync) took ~20 minutes
-  and ended `downloaded=299 skipped=0 errors=50`, the exact known Question 44
-  failure shape (`docs/sync-speed-model.md`) - but from a first-timer's seat,
-  with no context, 50 unexplained `error:` lines in your very first run reads
-  as "this tool is broken," not "these 50 files have a known server-side
-  quirk and your second sync will skip them via backoff in seconds." The
-  2026-08-18 backoff fix already makes the *next* sync fast and quiet; this
-  finding is specifically about the first run's own unexplained output, which
-  the backoff change didn't touch and wasn't scoped to. Full detail:
-  `docs/friction-campaign.md` Walk 12.
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
   a new file.** Walk 11, 2026-08-19: of the report's ~300 rows, an

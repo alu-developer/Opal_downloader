@@ -136,7 +136,7 @@ constraint again — against a 30s target it is the whole budget.
 | | |
 |---|---|
 | Lossless floor, pure browser crawl | **~207s** (282 sections) |
-| Lossless floor, HTTP-first (today's default) | **45-58s** |
+| Lossless floor, HTTP-first (today's default) | **~72-79s measured** (71.99s/78.90s, 2026-08-10, PR #134; 71.67s/75.48s, 2026-08-19 - "45-58s" was a since-superseded projection, see Question 38 and 2026-08-19's second cycle in "Next experiment") |
 | Settle wait | 338ms/section, **64%** of the time in sections |
 | Stability poll | 172ms/section, **32%** |
 | Real work (extraction, navigation) | 14ms/section, **2%** |
@@ -3282,6 +3282,69 @@ also earn a lighter retry budget next time, not just "failed outright"?
 Not answered this cycle - a product tradeoff (reliability vs. speed for the
 same small set of edge-case files) that needs the live number first, not a
 call to make from arithmetic alone.
+
+**Cycle, 2026-08-19 (autopilot, same day, second cycle): open question (1)
+from above - is the 157.75s discovery run normal variance or a
+regression? - answered by re-analysis of data already on disk, no
+dedicated live run needed, per Rule 2.**
+
+*Prediction, registered against data already on disk before reading it as
+an experiment result:* this run's phase 1/phase 2 work happened to run two
+independent full `OPAL_HTTP_DISCOVERY=2` discovery passes against the real
+account for unrelated reasons (a `smoke-check` verifying Walk 9's
+rested-session hypothesis, a `list` during Walk 11's friction walk, both
+same 8-course/349-file account state, both today). If 157.75s was ordinary
+variance rather than a regression, both should land closer to the
+documented 45-58s baseline than to 157.75s - discovery cost bouncing around
+inside a wide-but-bounded range, not settling near either extreme.
+
+*Data:* `smoke-check`'s own summary line: `OPAL_HTTP_DISCOVERY=2 summary: 8
+courses, 338 HTTP requests, 1m15.4819861s` (75.48s). `list`'s own summary
+line, run separately less than an hour later: `OPAL_HTTP_DISCOVERY=2
+summary: 8 courses, 314 HTTP requests, 1m11.6664568s` (71.67s). Both
+against the identical real 8-course/349-file account state (confirmed:
+identical per-course breakdown in both outputs), both with `sync.lock` free
+and no concurrent opal-downloader activity (Walk 11's own persona-check
+covered this).
+
+*Diagnosis, per Rule 2 - and it sharpened once checked against this file's
+own history rather than stopping at "not close to either extreme."*
+Chasing where "45-58s" actually came from (Question 38, above) turns up
+that it was **never a measurement of the real floor** - it is a
+*projection* from a per-fetch-time constant (58s at 315ms/section, 45s at
+208ms/section), explicitly superseded on 2026-08-10 once Step B2 measured
+the real end-to-end crawl directly: **71.99s and 78.90s wall-clock, live,
+on this same account (PR #134)** - Question 38's own text says so
+("Downgraded 2026-08-10 ... Step B2 now exists and has been measured
+directly ... So the practical question this was a proxy for is answered by
+a better measurement than either 208ms or 315ms could give"). Today's two
+numbers (71.67s, 75.48s) land almost exactly on top of those two
+2026-08-10 measurements. **There is no drift - "What we know"'s summary
+table (line 139) was simply never updated after Question 38 downgraded the
+projection in favor of the real measurement two weeks ago.** The 157.75s
+outlier from 2026-08-18 is now the one number that stands apart from four
+consistent measurements clustered at 71-79s (2026-08-10 ×2, today ×2), not
+the leading edge of a trend - closer to "one bad run" than "the new
+normal," though still only one outlier's worth of evidence either way.
+
+**Fixed the actual bug this cycle found: the stale table, not a live
+drift.** "What we know" above (`Lossless floor, HTTP-first`) updated from
+"45-58s" (a superseded projection) to "~72-79s (4 measurements: 71.99s/
+78.90s on 2026-08-10, 71.67s/75.48s on 2026-08-19), one 157.75s outlier
+on 2026-08-18 not yet reconciled" - so the next person reading this table
+sees the real measured range, not two-week-stale arithmetic.
+
+**New open question, replacing (1):** with the "drift" question closed
+(there wasn't one), the 157.75s outlier is now the standing anomaly worth
+explaining on its own terms - is it explainable by something concrete
+(this project's own documented run-to-run server-load variance, a
+same-day confound like the heavy load Walk 9 already flagged for
+2026-08-18) or does it need its own dedicated live run to pin down?
+Lower priority than it looked before this cycle: one outlier against four
+consistent measurements is weak evidence of an active problem, and the
+~120s kill line survives on the 71-79s numbers alone (with headroom to
+spare before the download-phase costs Question 44's "Next experiment"
+already named).
 
 ---
 

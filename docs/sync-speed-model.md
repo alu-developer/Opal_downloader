@@ -3453,6 +3453,71 @@ target, generous slack for 299 sequential HTTP round-trips) means the tax
 alone blocks the ~30-120s target on its own merits, regardless of any other
 open question on this list. Result to follow in the same session.
 
+**Result (2026-08-19, same session, live, real account): CONFIRMED for the
+original question - the verify tax is small in aggregate - but the run
+surfaced a separate, unrelated, more serious correctness bug that explains
+most of what did show up as "downloaded."**
+
+`sync` against the unchanged scratch manifest: **`downloaded=38 skipped=311
+errors=0 backing_off=50`, `Download: 150.9s`, `Total: 200.0s`.** Under the
+~300s kill line - the ~261 genuinely signal-less-and-actually-unchanged
+files verified and skipped cheaply, exactly as predicted, and did not
+reproduce anything like Run 1's 1223.9s or the earlier single-file's
+200-350s worst case. **This closes the original question: `needsContentVerification`
+firing for close to 100% of files (not the documented ~4%) is not, by
+itself, an expensive tax once most of those files actually are unchanged -
+the fast HTTP-GET-plus-hash-compare path is cheap per file even run ~261
+times in one sync.**
+
+**But 38, not 0, files show as "downloaded" (a real re-fetch, not a cheap
+verify-skip), and that count does not match the "occasional real content
+change" story the prediction expected.** Checked (Rule 2 - the gap needed a
+name, not just a number): every "downloaded:" line groups into only **19
+unique files**, each printed 2-3 times (`Koenigreich.zip` 3x, everything
+else 2x) - and the identical pattern, identical files, identical counts
+already appear in **Run 1's** log too (`sync_run.log:48-49`,
+`sync_run.log:308-310`), so this is not something Run 2's verify path
+introduced - it happens on every sync, unconditionally, independent of
+manifest state.
+
+**Root cause, confirmed via the visit log
+(`downloads/.opal-visit-log.json`):** `2026 LA20`'s section list includes
+both current-semester homework sections and a `Material aus dem
+Wintersemester` (prior-semester archive) section. This walk's scratch
+config left `use_section_subfolders: false` - the setup-generated example
+config's own default, not a deliberately unusual setting - so every file's
+manifest/local path is just `<course>/<sanitized filename>` with no section
+component at all. Two files named identically (`U01.pdf` .. `U14.pdf`, an
+exercise-numbering scheme evidently reused between the current and archived
+semester's material; `Koenigreich.zip` similarly reused across
+Softwaretechnologie's own homework sections, 3x) resolve to the **same**
+`targetKey`. The syncer's per-file job-building loop (`syncer.go`, the loop
+building `jobs` from `remoteFiles`) has no dedup on `targetKey` before
+queuing - discovery correctly reports 349 unique-by-URL files (confirmed:
+`OPAL_HTTP_DISCOVERY=2 summary` and `Discovered 349 remote files` both say
+349, not more), but two *different* remote files sharing a target path both
+become separate `downloadJob`s, both actually download, and both write
+`manifest.Files[targetKey]` on the single result-draining goroutine -
+whichever result lands last in `resultCh` wins the manifest entry and the
+bytes on disk. **The other file's content is silently discarded, with no
+warning, every single sync, for as long as `use_section_subfolders` stays
+at its default `false`.**
+
+**Not a Question 44/2 finding - a distinct, more serious one.** The
+maintainer's own real `config.yaml` already sets `use_section_subfolders:
+true` (checked, read-only), so his real syncs are not exposed to this
+specific collision - but the *shipped example config* (`config.example.yaml`,
+what `init`/`setup`/the GUI's Settings page all bootstrap a first-timer
+into, and what this walk's own persona setup used unmodified) defaults to
+`false`. Filed to `docs/BACKLOG.md` as its own correctness finding, not
+folded into this question - it is a data-loss-shaped bug (a real file's
+content is silently unrecoverable from a normal sync, not just slow),
+independent of anything about signal-less files or HTTP-first discovery.
+
+**Question 2 (signal-less-file verify cost) is now closed**: confirmed
+cheap in aggregate against a real ~261-file sample, no further live run
+needed on this specific question.
+
 **Superseded strand (cause, not policy) - kept for continuity, not the
 active next step.** The following entries chase which OpenOLAT/Wicket fork
 Sachsen runs - genuinely open, but explicitly deprioritized by the

@@ -3346,6 +3346,38 @@ consistent measurements is weak evidence of an active problem, and the
 spare before the download-phase costs Question 44's "Next experiment"
 already named).
 
+**Cycle, 2026-08-19 (autopilot, same day, third cycle): the 157.75s outlier
+question above, closed by cross-referencing timestamps already on record -
+no new live run needed, per Rule 2.**
+
+*Prediction, registered before checking:* if the 157.75s discovery run
+(policy-verify run 1, 19:20-19:47 UTC 2026-08-18) happened during the same
+session `docs/friction-campaign.md`'s Walk 9 already flagged as unusually
+heavy account load that day, the two documents' own timestamps/durations
+should line up closely enough to confirm they describe the same session,
+not two coincidentally-adjacent ones.
+
+*Check:* Walk 9 (`docs/friction-campaign.md`) states its smoke-checks ran
+"after this session had already run two full live syncs (Question 44's
+verification, ~35 minutes of crawling)." This file's own record of that
+verification: run 1, 19:20-19:47 UTC (27 min) immediately followed by run
+2, 19:47-19:56 UTC (9 min) - 36 minutes combined, matching Walk 9's "~35
+minutes" almost exactly, and "immediately after" matching run 2 starting
+the instant run 1 ended.
+
+**Confirmed: same session.** The 157.75s discovery run is not an
+independent, unexplained data point - it is embedded inside the exact
+session Walk 9 already named as self-inflicted heavy load (two full syncs
+back to back, then two smoke-checks within about an hour, one needing an
+interactive relogin mid-run). A session running that much sustained
+account traffic producing one slower-than-usual discovery pass is a
+mundane, already-on-record explanation, not a new mystery - closes this
+question without needing a fresh live run to isolate it further.
+**Outlier explained, not chased further.** The four normal-condition
+measurements (71.99s/78.90s 2026-08-10, 71.67s/75.48s today - all single,
+unhurried crawls with no concurrent account activity) remain the
+representative range for "What we know."
+
 ---
 
 **Superseded strand (cause, not policy) - kept for continuity, not the

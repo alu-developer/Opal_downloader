@@ -72,8 +72,8 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for
-a session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
+**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a session with a
+browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
 walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
@@ -82,22 +82,24 @@ clone, never `gui`'s own zero-config first load), walk 8 the CLI again
 (everyday use, found nothing wrong), walk 9 the CLI again (`smoke-check`,
 two findings), walk 10 first-run-from-zero again (CLI angle, two findings),
 walk 11 the CLI again (everyday use, two findings - mojibake truncation and
-visit-report noise) — GUI has had four looks, CLI five, first-run-from-zero
-two; GUI is due *by count*, but see below for why an unattended run can't
-take it.
+visit-report noise), walk 12 first-run-from-zero again (reached a completed
+first `sync` for the first time this campaign; one friction finding, one
+finding fed directly into the active sync-speed cycle) — GUI has had four
+looks, CLI five, first-run-from-zero three; GUI is due *by count*, but see
+below for why an unattended run can't take it.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, and 11 all landed on CLI
-instead for this same reason, whether or not they said so explicitly at the
-time. An unattended run should treat CLI/first-run as the only two surfaces
-actually in rotation for it and pick whichever of those is due (of the two,
-first-run-from-zero is due next: last touched walk 10, same day, vs CLI's
-walk 11, also same day but the more recently-run of the two) - the GUI slot
-stays reserved for a session with an interactive browser tool (or a human)
-to pick up - it is not skipped, just not reachable from here.
+stop, regardless of rotation. Walks 6, 8, 9, 11, and 12 all landed on CLI or
+first-run-from-zero instead for this same reason, whether or not they said
+so explicitly at the time. An unattended run should treat CLI/first-run as
+the only two surfaces actually in rotation for it and pick whichever of
+those is due (of the two, CLI is due next: last touched walk 11, vs
+first-run-from-zero's walk 12, both 2026-08-19 but walk 12 more recent) -
+the GUI slot stays reserved for a session with an interactive browser tool
+(or a human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -1696,5 +1698,104 @@ since the mojibake bug above was only found because this walk happened to
 use a course name containing an umlaut long enough to hit truncation - a
 GUI walk that never opens a long non-ASCII course name would walk right
 past the same class of bug the way seven prior CLI/GUI walks apparently did.
+
+### Walk 12 — 2026-08-19, first-run-from-zero (autopilot, phase 2)
+
+Rotation note (updated after Walk 10) said first-run-from-zero is due next
+for an unattended session (GUI stays unreachable here; Walk 11 took CLI).
+Walk 10 reached `login` before a real collision with the daily scheduled
+sync stopped it short of an actual completed `sync` - this walk's goal was
+to go one step further and finish the full journey a real first-time
+student would follow.
+
+**Setup:** genuine fresh `git clone` into an unrelated scratch temp
+directory (not `tmp/friction/` - true zero, same method Walk 10 used).
+Followed `README.md` literally, in persona: `go build -o
+opal-downloader.exe .`, then `setup` (installs Playwright, writes
+`config.yaml` from the example) - both clean, no surprises, matching
+Walk 10's own finding that this part of the surface has no rough edges.
+Left the generated config almost untouched (`download_path: "./downloads"`,
+`courses: ["*"]`), the same "first-timer would leave this alone" choice
+Walk 10 made and justified there - the download folder is scratch, the
+session file is the real shared `~/.opal_storage_state.json` by design
+(this project's own intended one-login-reuses-everywhere behavior).
+
+**Expectation registered before `login`:** having just followed `setup`'s
+own printed next steps, I expected `opal-downloader login` to open
+Chromium, complete TU-Fast auto-login unattended, and finish in seconds.
+
+**Mostly true, one small gap.** No lock collision this time (Walk 10's
+finding was about a real scheduled sync happening to be running at that
+exact moment, not a standing problem). Login did need one internal retry -
+printed `Login page has not progressed yet (TU-Fast may not have fired) -
+reloading it (attempt 1 of 2)...` before succeeding - self-healed with no
+visible failure and no persona break needed to understand it (the message
+explains itself). Not filed as a finding: the retry is visible, explained,
+and worked on the first attempt at recovery - the "seconds" expectation
+was optimistic, not violated in a way a user would experience as broken.
+
+**Expectation registered before `list`:** with `courses: ["*"]`, I expected
+every enrolled course to show up, whether or not it has files, since I
+never told it to filter anything.
+
+`list` found 8 course links, discovery took 74.2s, and reported "Found 6
+courses" with a footnote: "(2 of 8 enrolled courses had no files and are
+not listed above)" - matches expectations once read carefully (the
+footnote does explain the gap), no finding.
+
+**Expectation registered before `sync`:** the first real sync should
+download every file from every listed course into `./downloads`, and would
+likely take a while given `list` alone took over a minute.
+
+**Reality: `downloaded=299 skipped=0 errors=50`, `Total: 1223.9s` (~20
+minutes).** The 50 errors are this project's own long-standing, already-
+tracked Question 44 finding (`docs/sync-speed-model.md`) - 44 in
+Softwaretechnologie, 6 in Algorithmen und Datenstrukturen/Vorlesung, the
+same shape recorded there since 2026-08-12. Not a new finding on its own -
+but this is the first time this campaign's persona walks (rather than a
+sync-speed-model source-reading cycle) has actually sat through a
+first-time user's real, uninstructed encounter with it: a brand-new user
+following only the README, on their very first sync, waits 20 minutes and
+gets 50 silent-ish error lines mixed into 299 success lines with no
+summary distinguishing "these are known-flaky files, not your fault" from
+"something about your setup is broken." `docs/OPERATIONS.md`/the backoff
+policy (shipped 2026-08-18) means their *second* sync will be fast - but
+nothing in the first run's own output tells a first-timer that, and a
+20-minute first impression with 50 unexplained errors is a real first-run
+cost this campaign hadn't measured from the user's side before. Tag:
+**friction**. Filed to `docs/BACKLOG.md`.
+
+#### Finding — a fresh first-run manifest gets almost no file size/date metadata at all, silently, because of which discovery path is now the default
+
+Not something a persona walk would notice directly (the manifest is not
+user-facing), but surfaced while diagnosing the sync above and immediately
+relevant to `docs/sync-speed-model.md`'s active work, so chased rather than
+left for a future session to rediscover: this run's manifest has 328 of 349
+entries with no recorded file size or modified date at all, against the
+real long-running account manifest's 575-of-612 real sizes. Root cause,
+prediction, and the live measurement it drives are written up in
+`docs/sync-speed-model.md`'s "Next experiment" section (fourth 2026-08-19
+cycle) rather than duplicated here, per this file's own "walk vs. work"
+split with the backlog/model file.
+
+**This walk's own verdict:** first-run-from-zero can now be walked all the
+way to a completed real sync from an unattended session - the thing Walk 10
+couldn't finish. One friction finding filed (the unexplained 50-error first
+impression); one structural discovery-path finding fed directly into the
+active sync-speed cycle instead of sitting separately. Build, `setup`,
+`login` (TU-Fast auto-completion, one self-healing retry), and `list` all
+matched expectations with no friction - the rough edges are specifically in
+what happens *after* a successful first sync, not in getting there.
+
+#### New question this walk leaves (Rule 3)
+
+Given the manifest-metadata finding above generalizes far past "one
+edge-case file" (see the sync-speed-model entry), is the fix better placed
+in the HTTP-first candidate parser (fetch the section's raw HTML once, then
+locate each anchor's enclosing `<tr>` by string search, since there is no
+real DOM tree over HTTP) or is a real DOM diff not worth the added
+complexity if the aggregate cost measured this session turns out to be
+small? Not answered by this walk - the sync-speed-model cycle's live result
+decides which way this question even needs to go.
 
 Rotation note updated at the top of this file (`Next surface`).

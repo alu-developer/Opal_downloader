@@ -22,6 +22,20 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **Walk 9's Softwaretechnologie course-discovery dropout question closed
+  2026-08-19 (autopilot, phase 1) — the rested-session repro it asked for
+  came back clean, no dropout.** With `sync.lock` free and no other
+  opal-downloader activity that hour, a single live `smoke-check` found all
+  8 courses including `Softwaretechnologie (SoSe 26): 210 files (41.1s)` -
+  its full known count, no 0-file result, no absence from the output.
+  Confirms walk 9's own caveat was the likely explanation all along: that
+  session's dropout came from unusually heavy self-inflicted load (two full
+  syncs plus a smoke-check inside an hour, one mid-run TU-Fast relogin), not
+  a standing discovery bug in the same family as Question 44. One clean run
+  doesn't prove "never happens under load," only "doesn't happen normally" -
+  but there is no positive evidence left pointing at a real mechanism, and
+  nothing further is planned unless it recurs. Full detail:
+  `docs/friction-campaign.md` Walk 9's closing note.
 - **`sync.lock` held 5.5+ hours by PID 14804 (worktree
   `suspicious-pare-359a30`) on 2026-08-13 — closed, self-resolved, root cause
   of the *duration* unconfirmed and not further pursued.** `internal/synclock`

@@ -1379,8 +1379,22 @@ changing it would narrow what the command actually verifies), fixed the
 `smoke-check`-only options block in `--help` now both say plainly that it
 ignores `courses:` and always crawls everything, and
 `internal/smokecheck/smokecheck.go`'s `Run` carries a comment at the `"*"`
-call pointing back to this walk. The Softwaretechnologie-dropout question
-is unaffected and still open.
+call pointing back to this walk.
+
+**Softwaretechnologie-dropout question closed 2026-08-19 (autopilot, phase
+1) - the rested-session repro this walk asked for, run.** `sync.lock` was
+free, no other opal-downloader activity that hour (also the first live
+crawl since the smoke-check/dump-links lock fix landed the same run - see
+Walk 10). A single `smoke-check` found all 8 courses cleanly, including
+`Softwaretechnologie (SoSe 26): 210 files (41.1s)` - no dropout, no 0-file
+result, matching its known full count exactly. **Prediction confirmed**:
+this session's own unusually heavy load (two syncs plus a smoke-check
+inside an hour, one mid-run relogin) is the more likely explanation than a
+standing discovery bug, same family as Question 44. Not fully proven absent
+- one clean run rules out "happens every time," not "never happens under
+load" - but there is no positive evidence left for a Question-44-adjacent
+mechanism, and nothing more is planned on this question unless it
+recurs.
 
 *Break from persona, for diagnosis only:* read
 `internal/smokecheck/smokecheck.go` once the course-count mismatch was

@@ -152,32 +152,6 @@ maintainer. Walk detail, expectations and named causes:
   on-logon-trigger finding above is blocked on exactly that surface. The
   2026-08-11 installer work was engineering verification with full knowledge
   of the code, so none of it counts as a persona walk.
-- **question — Softwaretechnologie (SoSe 26) course discovery itself, not
-  just individual file downloads, was unstable across two `smoke-check` runs
-  eight minutes apart on the same account.** Walk 9, 2026-08-18: run 1 found
-  it with `0 files (0.3s)` (all its other 210 files were found minutes
-  earlier by a real `sync` - see the Question 44 verification above); run 2
-  dropped it entirely - not "0 files", genuinely absent from both the
-  per-course discovery output and the final baseline breakdown, despite
-  "Found 8 course links" (matching run 1's course-link count) printing first.
-  Nothing in the visible CLI output explains the gap - no error line, no
-  timeout message, no course-skipped notice. **Caveat that matters for
-  reading this honestly: this session ran two full syncs and two smoke-checks
-  against the same real account inside about an hour, entirely for its own
-  testing purposes** (Question 44's live verification, this walk) - self-
-  inflicted, unusually heavy load this account does not normally see in a
-  day, and run 2 also needed an interactive TU-Fast relogin mid-run (the
-  saved session had expired between the two smoke-checks), which is itself
-  more session churn than a normal daily use pattern produces. This may be
-  nothing more than that - not a claim of a new bug, and not chased further
-  this walk. Filed because it sits close enough to Question 44's still-open
-  cause question (`docs/sync-speed-model.md`: "which course pairs with
-  Softwaretechnologie", "a second course's discovery perturbs
-  Softwaretechnologie's state") that a future cause-hunt cycle should know
-  this data point exists: **course-level dropout, not just file-level HTML
-  responses, may be part of the same family** - worth a clean, isolated
-  repro (a single smoke-check against a *rested* session, no other activity
-  that hour) before reading anything more into it.
 
 ---
 

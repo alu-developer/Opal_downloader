@@ -81,6 +81,23 @@ Windows note: `go build -o opal-downloader .` (without `.exe`) produces an
 extensionless file that PowerShell's call operator (`./opal-downloader`) does
 not reliably execute. Use the `.exe` form above on Windows.
 
+### Building `opal-downloader-setup.exe` locally
+
+End users should download the installer from [Releases](https://github.com/alu-developer/Opal_downloader/releases/latest)
+(see above) rather than building it. To build one yourself (e.g. to test an
+installer change before pushing a release tag), run:
+
+```powershell
+.\scripts\build-installer.ps1
+```
+
+from a repo checkout, with [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+installed and a populated `%USERPROFILE%\.opal-downloader\ms-playwright`
+(run `opal-downloader.exe setup` once first if that's empty). It builds the
+binary, stages the local Chromium cache, and compiles
+`installer\output\opal-downloader-setup.exe`. This is the same one-command
+path `.github/workflows/release.yml` uses to build every published release.
+
 ## Quick Start (Web UI)
 
 Once built (see "Build from source" above), just run the binary with no arguments:

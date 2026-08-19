@@ -3283,6 +3283,42 @@ Not answered this cycle - a product tradeoff (reliability vs. speed for the
 same small set of edge-case files) that needs the live number first, not a
 call to make from arithmetic alone.
 
+**Maintainer decision, 2026-08-19 (`/decide` round).** Shrinking the retry
+budget for a file that *eventually* succeeds is not the direction — the
+maintainer's framing reorders this question rather than answering it as
+posed:
+
+1. **Avoid the expensive path first, don't just budget it.** Before falling
+   back to `downloadFileViaBrowser`'s multi-page/multi-click chain at all,
+   check whether there is a cheap signal for "is this file even new or
+   changed" (an HTTP `Last-Modified`/`ETag`/content-length check, or
+   whatever the plain-GET path already sees before it decides the response
+   is HTML instead of bytes) — if the file is unchanged, there should be no
+   need to invoke the fallback chain at all. This is a new open question
+   this file did not carry before: **does `plainURLServesHTML`'s HTML
+   response carry any cheap signal that would let a sync skip the fallback
+   chain for a file that is unchanged since last time, rather than
+   re-running the full expensive resolution on every sync?** Worth
+   source-reading before the next live cycle touches this thread.
+2. **If a file genuinely is new/changed and the slow path is the only way
+   to get it, waiting is acceptable — but it must be visible.** The sync's
+   own status output/log should say plainly that a specific file is going
+   through the slow multi-minute resolution path, not leave it looking like
+   a hang.
+3. **Firm constraint: a slow single-file resolution must never block
+   anything else.** Nothing else in the sync — other files, other
+   sections, the `Done.` line for everything unrelated — may sit waiting on
+   one file's browser-fallback chain. Whatever shape the fix takes
+   (running the fallback chain out-of-line from the main phase, moving it
+   to the end after everything else, or another mechanism), serializing
+   the whole download phase behind one slow file is the thing to design
+   away, independent of whatever the retry-budget answer turns out to be.
+
+This does not close the open question above (the retry-budget-shrink idea
+may still be worth doing once the live number exists) — it adds a cheaper,
+higher-leverage question ahead of it and a hard non-negotiable (item 3) that
+applies regardless of how the rest resolves.
+
 **Cycle, 2026-08-19 (autopilot, same day, second cycle): open question (1)
 from above - is the 157.75s discovery run normal variance or a
 regression? - answered by re-analysis of data already on disk, no
@@ -3517,6 +3553,28 @@ independent of anything about signal-less files or HTTP-first discovery.
 **Question 2 (signal-less-file verify cost) is now closed**: confirmed
 cheap in aggregate against a real ~261-file sample, no further live run
 needed on this specific question.
+
+**Maintainer decision, 2026-08-19 (`/decide` round): keep going, resume the
+cause hunt.** Asked whether to keep going on the campaign given the ~120s
+kill line is still missed (517.1s at the 2026-08-18 checkpoint), the
+maintainer's own recollection is that a sync used to take **~300s before
+this campaign started** — worth noting this is close to this cycle's own
+Run 2 number above (`Total: 200.0s`, well under 300s) and to the
+2026-08-18 policy-half result (346.7s download phase), so the ~300s
+figure the maintainer is comparing against may already be within reach on
+recent numbers rather than a target still far off; not confirmed end-to-end
+this cycle, worth an explicit end-to-end re-measurement early in the next
+one rather than assumed. Decision: **resume the version/fork cause hunt**
+(deprioritized since the 2026-08-17 weekly review, now unblocked since the
+policy half shipped 2026-08-18) — explicit maintainer instruction, not a
+reprioritization this file is making on its own. Additionally: **the next
+cycle should try something genuinely new**, not another source-reading pass
+of the same kind that produced 16 investigation-only commits before the
+policy half shipped — e.g. an approach not yet attempted on this question,
+rather than a further pass over `OpenOLAT/OpenOLAT`'s known-absent Wicket
+codebase or another narrow live probe of the same shape as the ones already
+run. Not prescribed further than that; left to the next cycle's own
+judgment which new approach is cheapest to try first.
 
 **Superseded strand (cause, not policy) - kept for continuity, not the
 active next step.** The following entries chase which OpenOLAT/Wicket fork

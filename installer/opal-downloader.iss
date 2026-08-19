@@ -107,6 +107,31 @@ DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
+; Found 2026-08-19 (maintainer report, live-reproduced): re-running this
+; installer to upgrade over an existing install fails whenever the app is
+; still running - either the GUI server (opal-downloader.exe) or a headless
+; browser session it started (chrome-headless-shell.exe under the bundled
+; Chromium cache), both of which this install also has to overwrite.
+; Without CloseApplications, Inno's RestartManager check (on by default in
+; Inno 6) detects the running files but can only ask them to close nicely -
+; neither process handles that request, so the install aborts outright in
+; silent mode ("Some applications could not be shut down" -> default Abort)
+; and in the interactive wizard presents an Abort/Retry/Ignore prompt that,
+; if the user picks Ignore, proceeds to copy over a still-locked .exe and
+; fails with a genuine Windows access-denied error - which is what was
+; reported. CloseApplications=force makes Setup terminate whatever is still
+; holding the files open instead of asking, so the upgrade proceeds
+; unattended. Trade-off accepted: this can interrupt an in-progress sync if
+; the user upgrades mid-sync - acceptable because the download-phase backoff
+; policy (docs/BACKLOG.md, Question 44's policy half) and the manifest's
+; own resume-on-next-sync behavior already treat an interrupted file as
+; something the next sync retries, not silent data loss. RestartApplications
+; is left at its default (yes) but does little here in practice - Setup can
+; only auto-restart an app that registered restart info with RestartManager,
+; which neither our own Go binary nor Chromium does - the existing
+; postinstall "gui" [Run] step below (skipped in silent/CI installs on
+; purpose) is what actually relaunches the app for an interactive upgrade.
+CloseApplications=force
 OutputDir={#SourcePath}output
 OutputBaseFilename=opal-downloader-setup
 Compression=lzma2/normal

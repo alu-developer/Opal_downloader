@@ -207,6 +207,56 @@ jobs:
             Write-Host "note: $wrong exists on this runner (not created by the install step)"
           }
 
+      - name: Verify an upgrade succeeds while the app is still running
+        # Regression test for a bug found 2026-08-19 (maintainer report,
+        # live-reproduced locally): re-running the installer to upgrade an
+        # existing install failed whenever opal-downloader.exe or a
+        # chrome-headless-shell.exe it started were still running - Inno's
+        # RestartManager check found the locked files but, without
+        # CloseApplications=force (installer/opal-downloader.iss), could
+        # only ask them to close nicely. Neither process does, so a silent
+        # install aborted outright and an interactive one hit a genuine
+        # Windows access-denied error if the user pushed past the prompt.
+        # This starts a real chrome-headless-shell.exe from the install the
+        # previous step just did (same binary the app itself launches -
+        # internal/scraper/session.go's headless path), plus the app's own
+        # exe, then re-runs the identical silent install over them and
+        # asserts it still exits 0 and the locked processes are gone
+        # afterward - a green run here is what CloseApplications=force is
+        # actually for, so a future edit to this script that drops or
+        # weakens that line fails CI instead of failing silently on
+        # someone's machine.
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\Opal Downloader"
+          $appExe = Join-Path $installDir "opal-downloader.exe"
+          if (-not (Test-Path $appExe)) { throw "expected the previous step's install at $appExe" }
+
+          $shellExe = Get-ChildItem -Path (Join-Path $env:USERPROFILE ".opal-downloader\ms-playwright") `
+            -Recurse -Filter "chrome-headless-shell.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $shellExe) { throw "expected chrome-headless-shell.exe under the install's Chromium cache" }
+
+          $appProc = Start-Process -FilePath $appExe -ArgumentList "gui","--port","8793" -WindowStyle Hidden -PassThru
+          $shellProc = Start-Process -FilePath $shellExe.FullName `
+            -ArgumentList "--headless","--remote-debugging-port=9333","--user-data-dir=$env:RUNNER_TEMP\hs-verify" -PassThru
+          Start-Sleep -Seconds 3
+
+          $exe = "${{ steps.build.outputs.exe_path }}"
+          $p = Start-Process -FilePath $exe `
+            -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/NOICONS" `
+            -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            throw "upgrade-while-running failed with exit code $($p.ExitCode) - CloseApplications=force may be missing or not working"
+          }
+
+          Start-Sleep -Seconds 2
+          foreach ($id in @($appProc.Id, $shellProc.Id)) {
+            if (Get-Process -Id $id -ErrorAction SilentlyContinue) {
+              throw "process $id was still running after the upgrade - CloseApplications=force did not close it"
+            }
+          }
+          Write-Host "OK: upgrade succeeded (exit 0) and both previously-locking processes were closed"
+
       - name: Create GitHub Release and upload assets
         # Tag pushes only. A workflow_dispatch run exists to verify the
         # installer, not to publish one.

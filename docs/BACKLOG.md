@@ -139,6 +139,23 @@ the two new open questions it left (discovery-time variance; the
 signal-less-file verify path's own cost when it needs the browser
 fallback).
 
+**Maintainer decision, 2026-08-19 (`/decide` round): keep going, resume the
+version/fork cause hunt** (deprioritized since 2026-08-17, unblocked now
+that the policy half above shipped), **and the next cycle should try a
+genuinely new approach**, not another pass of the same source-reading shape
+that already spent 16 commits without shipping. Full reasoning and the
+maintainer's own "~300s before this campaign started" recollection —
+already close to recent numbers, worth an explicit end-to-end
+re-measurement early next cycle — in `docs/sync-speed-model.md`'s "Next
+experiment" section. Same round also decided the shape of the
+retry-budget/slow-file question that cycle left open: look first for a
+cheap way to skip the expensive browser-fallback chain entirely for
+unchanged files (rather than shrinking its retry budget), communicate
+clearly when a file genuinely needs the slow path, and — a hard
+constraint, independent of how the rest resolves — **one slow file's
+resolution must never block anything else in the sync.** Detail in the
+same section, "Maintainer decision, 2026-08-19".
+
 ---
 
 ## Open findings
@@ -196,12 +213,55 @@ maintainer. Walk detail, expectations and named causes:
   whenever the executable (registered *or* currently running) sits inside a
   git working tree, which every way this project runs today does. Nothing is
   installed at any of the obvious permanent locations (checked, not assumed).
-  Fix needs a maintainer call, not more code: run the real installer once and
-  re-enable the schedule from there, or add an override that trusts a git
-  checkout anyway. Full diagnosis: `docs/friction-campaign.md` Walk 6. This
-  also **downgrades the previous line here** ("repair (b) shipped and closes
-  the failure mode") - shipped as code, not yet live on the machine it was
-  meant to fix.
+  Full diagnosis: `docs/friction-campaign.md` Walk 6.
+
+  **Maintainer decision, 2026-08-19 (`/decide` round): install via the real
+  installer** (`installer/opal-downloader.iss`, already built and shipping
+  per `docs/installer-plan.md`) rather than adding a git-checkout override.
+  Trying this surfaced two real, previously-undocumented installer problems
+  rather than a clean install:
+
+  - **Fixed and live-verified same session:** re-running the installer to
+    upgrade over an existing install failed whenever the app was still
+    running — either `opal-downloader.exe` itself or a
+    `chrome-headless-shell.exe` it had started. Reproduced locally (built
+    the installer with `scripts\build-installer.ps1`, installed once,
+    started both processes, re-ran the installer): Inno's RestartManager
+    check found the running files but couldn't close them gracefully, so a
+    silent install aborted outright (`Some applications could not be shut
+    down` → default Abort) and an interactive one would hit a genuine
+    Windows access-denied error if the user pushed past the prompt. Fixed
+    by adding `CloseApplications=force` to `installer/opal-downloader.iss`'s
+    `[Setup]` section — re-ran the identical repro after rebuilding: log
+    now shows `Shutting down applications using our files. (forced)`, all
+    four locking processes gone, upgrade completes with exit code 0. See
+    the `.iss` file's own comment at that line for the full trade-off
+    (can interrupt an in-progress sync; accepted, since the download-phase
+    backoff policy already treats an interrupted file as retry-next-sync,
+    not data loss). Also added a regression test to
+    `.github/workflows/release.yml`'s `workflow_dispatch`-only verify job
+    ("Verify an upgrade succeeds while the app is still running") — starts
+    the just-installed app and a `chrome-headless-shell.exe`, re-runs the
+    installer over them, and fails CI if the upgrade doesn't exit 0 or
+    either process survives, so a future edit that drops
+    `CloseApplications=force` fails loudly instead of silently.
+  - **Fixed:** `scripts\build-installer.ps1` (the one-command way to build
+    `opal-downloader-setup.exe` locally, already used by the release
+    workflow) was never mentioned in `README.md` — the maintainer had no
+    way to discover it. Added a "Building `opal-downloader-setup.exe`
+    locally" subsection to the README's "Build from source" section.
+
+  The SmartScreen "check with the software publisher" warning the
+  maintainer also hit while doing this is **expected, already documented**
+  (README's "About the Windows security warning", the release workflow's
+  own release notes) — not a new finding.
+
+  **Still open:** installing for real and confirming `schedule enable` from
+  the installed location reaches the real scheduled task with a working
+  logon trigger — not done this session (this session's installs were
+  disposable local test builds, uninstalled again afterward, not a real
+  permanent install). That step still needs the maintainer to actually run
+  the (now-fixed) installer on his own machine for real.
 - **Optional, not a commitment:** an outcome-independent "when did a sync last
   actually *succeed*" staleness signal — walk 1's Finding 1, repair (a). Still
   just a broader defence-in-depth layer on top of (b) - see the entry above

@@ -72,26 +72,32 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 1 (GUI), for a session with a browser tool.** Walk 1 was the
-GUI, walk 2 the CLI, walk 3 first-run-from-zero, walks 4 and 5 the GUI again
-(two concurrent sessions picked it independently before either had a
-result), walk 6 the CLI again, walk 7 first-run-from-zero again (a
-GUI-specific angle walk 3 never covered: walk 3 only exercised the CLI
-build+`list` path from a fresh clone, never `gui`'s own zero-config first
-load), walk 8 the CLI again (everyday use, found nothing wrong), walk 9 the
-CLI again (`smoke-check`, two findings) — GUI has had four looks, CLI four,
-first-run-from-zero two; GUI is due *by count*.
+**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for
+a session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
+first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
+picked it independently before either had a result), walk 6 the CLI again,
+walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
+covered: walk 3 only exercised the CLI build+`list` path from a fresh
+clone, never `gui`'s own zero-config first load), walk 8 the CLI again
+(everyday use, found nothing wrong), walk 9 the CLI again (`smoke-check`,
+two findings), walk 10 first-run-from-zero again (CLI angle, two findings),
+walk 11 the CLI again (everyday use, two findings - mojibake truncation and
+visit-report noise) — GUI has had four looks, CLI five, first-run-from-zero
+two; GUI is due *by count*, but see below for why an unattended run can't
+take it.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, and 9 all landed on CLI instead for
-this same reason, whether or not they said so explicitly at the time. An
-unattended run should treat CLI/first-run as the only two surfaces actually
-in rotation for it and pick whichever of those is due; the GUI slot stays
-reserved for a session with an interactive browser tool (or a human) to pick
-up - it is not skipped, just not reachable from here.
+stop, regardless of rotation. Walks 6, 8, 9, and 11 all landed on CLI
+instead for this same reason, whether or not they said so explicitly at the
+time. An unattended run should treat CLI/first-run as the only two surfaces
+actually in rotation for it and pick whichever of those is due (of the two,
+first-run-from-zero is due next: last touched walk 10, same day, vs CLI's
+walk 11, also same day but the more recently-run of the two) - the GUI slot
+stays reserved for a session with an interactive browser tool (or a human)
+to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -1580,3 +1586,115 @@ had actually described anywhere, unlike Walk 9's course-filter case where
 the account-wide scope was an active, checkable design choice with its own
 rationale once asked. Treated as an oversight and fixed exactly as this
 finding named it - see `docs/BACKLOG-archive.md`'s "Done recently" entry.
+
+### Walk 11 — 2026-08-19, CLI everyday use (autopilot, phase 2)
+
+Walk 10 (same day, prior autopilot run) covered first-run-from-zero;
+`Next surface` line and the walk log agree CLI-everyday-use is due next for
+an unattended session (GUI stays unreachable here - see that line). Picked
+up as an ordinary CLI user checking on their sync, not chasing a specific
+open question this time.
+
+**Setup:** genuinely the maintainer's real `config.yaml` (copied into the
+worktree, unmodified) - `status`/`list` are read-only by construction, and
+this walk deliberately avoided `sync`/`smoke-check --full-sync`/anything
+else that writes, once `status`'s own output showed `Download path:
+C:/Users/alois/OneDrive (OK)` - the real one, not a scratch path.
+
+**Expectation registered before running `--help`:** as someone who's used
+this a few times, I expected the top-level help to remind me what my usual
+workflow looks like, and `status`/`list` to be quick, safe ways to check in
+without risking anything.
+
+`--help`, `status`, `list`, `schedule status` all matched expectations
+exactly - fast, informative, no surprises. Tried `list --visit-report`
+next, purely because it was in `--help`'s own flag list and sounded like a
+reasonable thing to check before a "why is my sync slow" question.
+
+#### Finding — course/section names containing German umlauts render as `�` (mojibake) once truncated in `list --visit-report`'s table
+
+**Expectation:** a plain-text table listing my own course names back to me,
+correctly, the way `list`'s own course-discovery output already does.
+
+**Reality:** every row for `So26 Programmieren - Weiterführende Konzepte
+(Math-Ba-PR20)` printed as `So26 Programmieren - Weiterf�…` - a replacement
+character where "ü" should be, in dozens of rows. Some `Softwaretechnologie`
+rows showed the same corruption elsewhere in their title (e.g. `Software-
+Entwicklu…`, missing an "ng").
+
+*Break from persona, for diagnosis only:* read `internal/visitlog/
+visitlog.go` once the garbled text was already visible in the terminal.
+`FormatReport` (line 200) calls `truncate(s.Course, 30)` /
+`truncate(s.SectionTitle, 35)`; `truncate` (line 205) checks `len(s) <= max`
+and slices `s[:max-1]` - both operate on **byte** length/index, not rune
+count. Any multi-byte UTF-8 character (every German umlaut/ß is 2 bytes)
+whose second byte falls past the byte-30/35 cutoff gets its first byte kept
+and second byte dropped, producing an invalid UTF-8 sequence that renders
+as `�`. Confirmed this is the *only* call site (`grep -rn "truncate("` across
+`internal/`, `cmd/` - one function, one caller, both in this file), so the
+blast radius is exactly this one report, not a shared helper reused
+elsewhere - but the byte-vs-rune mistake is a generic pattern, worth
+checking again if a similar truncate-for-display helper is ever added
+elsewhere (GUI's own course-name truncation, if it has any, wasn't checked
+this walk - no browser tool available to an unattended session).
+
+Tag: **wrong** - it does not print the name back correctly, and does so
+reliably (every umlaut-containing name over the length threshold, every
+run) rather than intermittently. Fix is small and contained: truncate by
+`[]rune(s)` instead of the raw string. Filed to `docs/BACKLOG.md`.
+
+#### Finding — `list --visit-report`'s "always empty" signal is buried under leaf-page nodes that were structurally never going to report a new file
+
+**Expectation:** a short, actionable list of course *sections* (folders)
+that never yield files, so I'd know which ones are safe to mentally ignore
+or ask about being skipped.
+
+**Reality:** ~300 rows, and the overwhelming majority - by name, individual
+per-lecture/per-exercise items, not folders: `Vorlesung 1` through
+`Vorlesung 14`, fourteen separate `Musterlösung` rows, `Woche 01`..`14`,
+`1. Übung`..`14. Übung` - are tagged `empty on all N visit(s)`, the exact
+same notation the report uses for a genuinely wasteful, always-empty
+*folder*. Nothing in the output distinguishes "this folder never has
+files, worth flagging" from "this is a single-item leaf page that was
+never structurally going to contribute a *new* file entry at its own node."
+
+*Break from persona, for diagnosis only:* read `internal/scraper/crawl.go`
+around `recordSectionVisit` (called from the section-visiting loop, not
+gated on the visited node actually being a folder) - confirms one visit-log
+entry is written per course-tree node the crawl's breadth-first walk
+reaches, whether or not that node turns out to have any children of its
+own. A single-lecture page and a genuinely-empty folder both produce
+identical `AlwaysEmpty` rows; the report has no way to tell them apart, and
+neither does its reader.
+
+Tag: **friction/bloat** - the report technically works (every number is
+correct), but with an estimated 85%+ of its ~300 rows structurally
+guaranteed to read "empty" regardless of whether anything is actually
+wrong, a user (or a future skip-heuristic reading this same data - see
+`docs/sync-speed-model.md`'s repeated interest in section-skip strategies)
+has no way to separate signal from noise without manually cross-referencing
+every row against the real course structure. Not chased into a fix this
+walk - the right shape of a fix (restrict `AlwaysEmpty` reporting to nodes
+that had at least one *child* section queued, i.e. were structurally
+capable of being a folder?) needs more OPAL-structure knowledge than one
+walk should assume. Filed to `docs/BACKLOG.md`.
+
+**This walk's own verdict:** two findings, both filed, both source-confirmed
+past the point of a guess. `status`/`list`/`schedule status` all matched
+expectations with no friction found - a clean pass on the basics, the
+opposite of nothing-to-report (Rule 3 needs one open question regardless of
+a walk landing findings, not only when it doesn't).
+
+#### New question this walk leaves (Rule 3)
+
+Does the GUI have its own truncation/ellipsis logic for course or section
+names anywhere in its own UI, and if so, does it make the same byte-vs-rune
+mistake `internal/visitlog`'s `truncate` did? Not checkable from an
+unattended session (no browser tool reachable here) - worth a GUI walk
+picking this up specifically rather than a generic "everyday use" pass,
+since the mojibake bug above was only found because this walk happened to
+use a course name containing an umlaut long enough to hit truncation - a
+GUI walk that never opens a long non-ASCII course name would walk right
+past the same class of bug the way seven prior CLI/GUI walks apparently did.
+
+Rotation note updated at the top of this file (`Next surface`).

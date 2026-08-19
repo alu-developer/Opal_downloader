@@ -124,8 +124,46 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8 & 9, first-run walks 3, 7 & 10)
+### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9 & 11, first-run walks 3, 7 & 10)
 
+- **wrong — `list --visit-report` mangles course/section names containing
+  German umlauts into `�` (mojibake) once truncated.** Walk 11, 2026-08-19:
+  `So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20)` printed as
+  `So26 Programmieren - Weiterf�…` in every row. Source-confirmed:
+  `internal/visitlog/visitlog.go`'s `truncate` (called from `FormatReport`)
+  checks `len(s) <= max` and slices `s[:max-1]` - both byte-based, not
+  rune-based - so any 2-byte UTF-8 character (every German umlaut/ß) whose
+  second byte lands past the byte-30/35 cutoff gets truncated mid-character,
+  producing invalid UTF-8. `truncate` has exactly one call site (grepped
+  `internal/`, `cmd/`), so the blast radius is this one report only - not a
+  shared helper reused elsewhere. Fix: truncate by `[]rune(s)` instead of
+  the raw byte string. Full detail: `docs/friction-campaign.md` Walk 11.
+  **Left one open question**: does the GUI have its own name-truncation
+  logic anywhere, and does it make the same mistake? Not checkable from an
+  unattended session (no browser tool reachable) - worth a GUI walk picking
+  this up specifically, since this bug was only found by luck (a long
+  enough umlaut-containing course name existing on the real account).
+- **friction/bloat — `list --visit-report`'s "always empty" signal is
+  buried under leaf-page nodes that were structurally never going to report
+  a new file.** Walk 11, 2026-08-19: of the report's ~300 rows, an
+  estimated 85%+ are tagged `empty on all N visit(s)` - the same notation
+  for a genuinely wasteful always-empty *folder* and for an individual
+  per-lecture/per-exercise leaf page (`Vorlesung 1`..`14`, fourteen separate
+  `Musterlösung` rows, `Woche 01`..`14`) that was never structurally going
+  to contribute a *new* file at its own node. Source-confirmed:
+  `internal/scraper/crawl.go`'s `recordSectionVisit` call is not gated on
+  the visited node actually having children - one visit-log entry is
+  written per course-tree node the crawl's breadth-first walk reaches,
+  whether it's a folder or a single-item leaf. Every number in the report
+  is correct; a human (or a future skip-heuristic reading this same data -
+  see `docs/sync-speed-model.md`'s repeated interest in section-skip
+  strategies) has no way to separate a real problem section from
+  structurally-guaranteed noise without manually cross-referencing every
+  row against the real course structure. Not chased into a fix - the right
+  shape (restrict `AlwaysEmpty` reporting to nodes that had at least one
+  *child* section queued, i.e. were structurally capable of being a
+  folder?) needs more OPAL-structure knowledge than one walk should assume.
+  Full detail: `docs/friction-campaign.md` Walk 11.
 - **wrong — `/schedule`'s on-logon catch-up promise is false for the real
   task, and cannot become true until the app is installed somewhere
   permanent.** Walk 6, 2026-08-13: the page states as fact that a missed run

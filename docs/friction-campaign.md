@@ -1395,3 +1395,163 @@ course-level instability, same family as Question 44" from "this session's
 own unusually heavy testing load." Nobody has run it that way yet; every
 data point on this specific symptom so far comes from a session that was
 already hammering the account for an unrelated reason.
+
+### Walk 10 — 2026-08-19, first-run-from-zero (autopilot, phase 2), CLI angle
+
+Rotation said GUI or first-run next (both tied at last touched 2026-08-13,
+Walk 7; CLI was Walk 9, just done, so excluded by the "don't repeat" rule).
+Tried GUI first, in persona: `preview_start` with the repo's own
+`opal-gui-friction` launch config. Refused outright - *"Dev servers can't be
+started from unattended sessions (scheduled-task runs and remote-dispatched
+trees) - nobody is present to approve the command."* Same wall Walk 9 hit for
+plain CLI-vs-GUI reasons; confirms it also blocks a *named* launch config, not
+just the generic dev-server path. Fell back to first-run-from-zero, done via
+the CLI as Walk 3 already established that surface doesn't require the GUI.
+Went further than Walk 3, which stopped after `list`: this walk tried to
+reach an actual completed `sync`.
+
+**Scratch setup, green per "Breaking things safely."** A genuine fresh
+`git clone` of the real repo into an unrelated scratch temp directory (not
+`tmp/friction/` - true zero, no config.yaml, no session state file of its
+own). Followed only `README.md`, as a first-time contributor would: `go build
+-o opal-downloader.exe .`, then `setup` (installs Playwright browsers,
+creates `config.yaml` from the example - both succeeded cleanly, no
+surprises, matches the README's own description exactly). Left the generated
+`config.yaml` almost untouched (`download_path: "./downloads"`, contained
+inside the scratch clone - the one field the README tells a first-timer to
+check), which also means `session_state_file` stayed at its documented
+default `~/.opal_storage_state.json` - the real, shared, home-directory
+session. Reading it is the project's own intended "one login reuses
+everywhere on this machine" design (see `docs/BACKLOG-archive.md`'s
+2026-08-15 entry closing Walk 7's session-reuse finding), so this is not a
+red action - no login profile or download folder here is real, and
+`download_path` was never anything but the scratch clone's own subfolder.
+
+**Expectation registered before running `login`:** having just followed
+`setup`'s printed next steps literally, I expected `opal-downloader login` to
+open Chromium, complete TU-Fast auto-login unattended (this project's own
+standing finding), and finish in seconds.
+
+#### Finding — a first-time user who hits the real single-instance lock gets a bare PID and no guidance on what to do
+
+`login` refused instantly: `Error: a sync is already running (PID 39684,
+started at 2026-08-19T09:06:47Z)`. Not a fluke or a self-collision - checked
+(persona break, diagnosis only): `Get-Process -Id 39684` names
+`C:\07_Arbeitszeug\Open_github\Opal_downloader\main.exe`, the *real* checkout,
+started 2026-08-19T11:06:12 local time - this is almost certainly the real
+daily scheduled sync, running for real, on this machine, at the moment this
+walk happened to try `login`. `status` (offline, no lock needed) confirmed
+the account's session is otherwise healthy - "valid until Sat 22 Aug, 2 days
+left." Source-confirmed the message and the design intent
+(`internal/synclock/synclock.go`'s `ErrHeld`, `docs/OPERATIONS.md`'s own
+line: *"That is the intended outcome, not a bug - wait for the first to
+finish"*) - the lock itself is correct, deliberate, and already documented
+for whoever maintains this code. The gap is narrower and still real: nothing
+in the message itself, which is all an actual first-time CLI user sees,
+says any of that. No ETA, no "this is probably today's scheduled sync,"
+no "try again in a few minutes" - just a PID and a timestamp, which reads
+like an internal diagnostic dump to someone who has never heard of this
+project's lock file. Tag: **friction**. **Predicted and confirmed without a
+second live run:** `ErrHeld` is one shared error
+(`internal/synclock/synclock.go`) returned identically by `sync`, `list`,
+and `login` alike (`docs/OPERATIONS.md`'s lock table) - so this is not a
+`login`-specific rough edge, every command that touches the account hits the
+same bare message under the same real-world condition (a scheduled sync
+overlapping a manual attempt), which by design happens roughly once a day
+for anyone who also uses the CLI/GUI by hand.
+
+*Break from persona, for diagnosis only:* confirmed the holder PID via
+`Get-Process`, read `internal/synclock/synclock.go` and
+`docs/OPERATIONS.md`'s lock table after the refusal was already observed
+live.
+
+**This walk's own verdict:** the real overlap-guard fired on a genuine
+first-attempt collision with the account's actual daily scheduled sync -
+not a scratch-environment artifact, the most "real" a friction finding gets
+in this campaign. One finding filed. The completed-`sync` half of this
+walk's goal (going further than Walk 3) could not be reached: waiting out a
+real scheduled sync's full duration was judged not worth blocking this run
+for, so the walk stops at `login`'s refusal rather than a finished download.
+
+#### Finding — `smoke-check` never takes `sync.lock`, so it can run a real crawl concurrently with a real `sync`/`list`/`login`, exactly the condition that has already caused two silent-failure incidents
+
+Cheap to check (Rule 2's "check the prediction where checking is cheap"),
+so checked immediately rather than left as a question:
+`docs/OPERATIONS.md`'s lock table credits "every live probe test in
+`internal/scraper`" as a holder via `beginLiveProbe` - source-confirmed that
+is literally true, but only of the package's own `_test.go` probes
+(`internal/scraper/probelogging_test.go`'s `beginLiveProbe`, referenced by
+name in every `*_probe_test.go` file). The *production* path
+`smoke-check` actually runs - `cmd/opal-downloader/root.go`'s
+`runSmokeCheck` calling `smokecheck.Run` calling
+`sc.ScrapeWithSavedSession` directly - calls `acquireCrawlOverlapLock`
+nowhere. `list`, `sync`, and `login` all take the lock (grep for
+`acquireCrawlOverlapLock` in `root.go` confirms it guards exactly those
+three); `smoke-check` is a fourth command that opens the same authenticated
+Playwright session against the same OPAL account and is not in that list.
+
+Tag: **wrong**, not just friction - `docs/OPERATIONS.md`'s own words for
+why the lock exists at all: *"concurrent crawls present one authenticated
+identity to a Wicket backend that is stateful server-side per session"*,
+and names two real incidents this already caused before the lock existed
+(2026-08-02's raw Playwright launch timeout, 2026-08-06's silent 0-file
+collapse - both in `docs/BACKLOG-archive.md`). `smoke-check` reopens
+exactly that hole for itself: it is a real, unattended-safe,
+TU-Fast-triggering command a user or a scheduled task could run at any
+time, including the exact minute a scheduled `sync` is already crawling -
+this walk's own login attempt above proves that overlap is not rare, it
+happens roughly daily. **Retroactively relevant to Walk 9's own open
+question**, filed 2026-08-18: that walk ran two full `sync`s and two
+`smoke-check`s against the real account within about an hour and saw
+Softwaretechnologie drop out of discovery entirely on the second
+`smoke-check`, unexplained. Whether any of those runs' wall-clock windows
+actually overlapped was never checked (walk 9 treated the load as
+"unusually heavy" in aggregate, not specifically concurrent) - but this
+finding means concurrency was *possible* the whole time, since nothing
+would have stopped it, which walk 9 did not know to check for. This does
+not confirm walk 9's dropout was caused by an actual overlap, only that the
+mechanism this project has already twice traced session-corruption
+symptoms to was live and unguarded during the exact session that produced
+the dropout.
+
+Fix, matching the existing pattern exactly: `runSmokeCheck` should call
+`acquireCrawlOverlapLock`/release the same way `runList` already does,
+before `smokecheck.Run`. Left for a Phase 1 pass (walks file, Phase 1
+fixes) rather than fixed inline here, but flagged as high priority given
+the specific, already-twice-real failure mode it reopens.
+
+*Break from persona, for diagnosis only:* grepped `root.go` for
+`acquireCrawlOverlapLock` and read `probelogging_test.go`/`probeoverlap_test.go`
+after noticing `runSmokeCheck`'s code (already open from documenting the
+walk above) had no lock call visible.
+
+**Checked while cheap (Rule 2):** `dump-links` (`runDumpLinks`) has the
+identical gap - no `acquireCrawlOverlapLock` call, same `sc.Close()`/
+`closeBrowserOnInterrupt` shape as `smoke-check`. Lower real-world risk
+(a maintainer-only debugging tool, not part of any automation or documented
+end-user workflow - its own doc comment says so), so not filed as its own
+finding, but the fix below should cover both commands, not just
+`smoke-check`.
+
+**Swept completely (Rule 2), not left as a question:** every
+`scraper.New(` call site in `root.go` cross-checked against every
+`acquireCrawlOverlapLock` call site. Five commands construct a scraper:
+`login` (locked, line 553) and `list` (locked, line 696) call
+`acquireCrawlOverlapLock` directly in `root.go`; `sync` locks one layer
+down, inside `internal/syncer.SyncCoursesWithProgress`
+(`docs/OPERATIONS.md`'s table, and live-confirmed by this walk's own
+`login` refusal - the real holder PID was a real `sync`); `dump-links` and
+`smoke-check` call neither, anywhere. Coverage is complete: exactly two
+commands have the gap, no third exists.
+
+#### New question this walk leaves (Rule 3)
+
+Given the fix is a one-line, already-proven pattern (`list`'s own
+`acquireCrawlOverlapLock`/`defer releaseOverlap()` pair, copied into
+`runSmokeCheck` and `runDumpLinks`), is there a reason it was never added
+for these two - deliberate (smoke-check is meant to run *during* a sync, to
+test something about concurrent access?) or just an oversight from
+`smoke-check`/`dump-links` being added after the lock, or predating it?
+Not answered this walk - worth a maintainer call before the mechanical fix
+lands, in case "smoke-check ignores the lock" is intentional the same way
+Walk 9's course-filter finding turned out to be.

@@ -552,6 +552,32 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Fixed a near-miss in the friction campaign's own scratch-environment
+  recipe (found live 2026-08-19, autopilot, while preparing a CLI walk).**
+  `docs/friction-campaign.md`'s "Breaking things safely" section only ever
+  told a walker to redirect `download_path` and `session_state_file` when
+  building `tmp/friction/config.yaml` - but `course_folders`,
+  `default_course_folder`, and `subfolder_destinations` can each hold an
+  *absolute* path (the maintainer's real `config.yaml` does, for several
+  courses), and `resolveCourseSubfolderBase`
+  (`internal/syncer/syncer.go`) uses that path verbatim when it's absolute -
+  `download_path` never re-enters the picture for that course. The actual
+  `tmp/friction/config.yaml` sitting in the repo had exactly this: three
+  `course_folders` entries and one `subfolder_destinations` entry still
+  pointing at the maintainer's real OneDrive folders, even though walk 8
+  (2026-08-15) had already worked out and applied the correct fix for its own
+  run - that fix was never folded back into the durable recipe, so it didn't
+  survive whatever later walk copied `config.yaml` fresh. A `sync` against
+  the broken file would have written real course files straight into the
+  real OneDrive tree while recording it in the *scratch* manifest, invisible
+  to the real one. Caught before any damage - `tmp/friction/downloads/` was
+  empty, meaning no `sync` had actually been run against the broken config
+  yet, only read-only commands. Fixed both: redirected the scratch
+  `config.yaml`'s absolute entries to relative paths (they resolve safely
+  under `download_path` like any other relative course folder), and added an
+  explicit callout to the recipe naming all three fields and the exact
+  mechanism, so a future fresh copy doesn't regress the same way a third
+  time.
 - **A first sync's `error:` lines now explain themselves instead of reading
   as "this tool is broken," closing walk 12's finding (2026-08-19,
   autopilot).** A genuine first-timer's first `sync` ended

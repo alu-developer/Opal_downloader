@@ -134,7 +134,7 @@ or under a path the config names.**
 
 | what breaks | where it lives | config-scoped? |
 |---|---|---|
-| downloaded files | `download_path` | yes |
+| downloaded files | `download_path` | yes, **unless** a `course_folders`/`default_course_folder`/`subfolder_destinations` entry is itself an absolute path — see the callout below |
 | the sync manifest | `.opal-sync.manifest.json` **inside** `download_path` (`syncer.go:435`) | yes |
 | the session | `session_state_file` | yes |
 | the server it talks to | `opal_url` | yes |
@@ -154,6 +154,26 @@ tmp/friction/downloads/     scratch download_path — the manifest lands here to
 tmp/friction/state.json     copy of the real session state, so a walk does not
                             have to log in first
 ```
+
+**Redirecting `download_path` alone is not enough — check `course_folders`,
+`default_course_folder`, and `subfolder_destinations` too, every time.** Any
+of the three can hold an *absolute* path (the maintainer's real config does,
+for several courses), and `resolveCourseSubfolderBase`
+(`internal/syncer/syncer.go`) uses that path verbatim whenever it is
+absolute — `download_path` never re-enters the picture for that course. A
+`sync` against a config with those left un-redirected would write real
+course files straight into the maintainer's real OneDrive folders while
+recording the download in the *scratch* manifest, invisible to the real one.
+Found live 2026-08-19 (autopilot): `tmp/friction/config.yaml` had exactly
+this — copied fresh at some point after walk 8 first worked out the fix
+(walk 8's own write-up names all three fields), but the fix was never folded
+into this recipe, so it didn't survive the next fresh copy. `sync` was never
+run against the broken file (`tmp/friction/downloads/` was empty when found),
+so nothing was actually written to the wrong place — but the near-miss is why
+this paragraph exists now instead of a fourth rediscovery. **Any relative
+value in these three fields is already safe** (it resolves under
+`download_path` like normal); only absolute values need rewriting to a
+relative path or an absolute one under `tmp/friction/downloads/`.
 
 Then pass `--config tmp/friction/config.yaml` to everything.
 

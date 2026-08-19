@@ -185,6 +185,27 @@ once it is done, decided, or shown not to matter.
   Worth a source-reading pass to find why the guard doesn't hold under
   contention, or making the test's scraper fully faked so a guard miss fails
   loudly instead of degrading into a real network call.
+  **2026-08-19 (autopilot): source read, one hypothesis ruled out by a live
+  experiment, root cause still open.** Read `alreadySucceededToday`
+  (`cmd/opal-downloader/root.go`) - it is called as literally the first
+  substantive step in `runSync`, before `config.Load` and long before
+  anything touches `sync.lock` (that lock is acquired much later, inside
+  `internal/syncer`), and it decides purely from the in-process
+  `readScheduledStatusForDedup` fake - there is no code path connecting it
+  to `sync.lock` state at all, which already weakens the "lock contention
+  reaches the scraper before the dedup check runs" guess. Tested the most
+  literal reading of "contention" directly: ran two genuinely simultaneous
+  `go test -run TestSyncScheduledSkipsWhenAlreadySucceededToday` processes
+  against each other. Both passed in 0.00s/0.01s - two live instances of
+  this exact test contending with each other does not reproduce the bug, so
+  that specific mechanism is ruled out. **Left open, narrower than before:**
+  the original incident happened during a full `go test ./...` run, where
+  *other packages'* tests (e.g. `internal/scraper`'s real live-probe tests)
+  run as separate concurrent OS processes and may have been the one
+  actually touching the real account and `sync.lock` at that moment - worth
+  checking next whether the ~166s crawl was correctly attributed to this
+  test at all (timestamps in a full `-v` run's log) before spending more
+  time on this test's own guard logic, which held up under direct testing.
 
 ---
 

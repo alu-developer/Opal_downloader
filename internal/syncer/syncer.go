@@ -682,6 +682,7 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 
 	jobs := make([]downloadJob, 0, len(remoteFiles))
 	seenCourses := map[string]bool{}
+	seenTargets := map[string]scraper.RemoteFile{}
 	courseIndex := 0
 	for _, remoteFile := range remoteFiles {
 		if !seenCourses[remoteFile.Course] {
@@ -693,6 +694,29 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 		resolved := resolveRemoteTargetPath(cfg, remoteFile)
 		targetKey := filepath.ToSlash(resolved.ManifestKey)
 		localPath := resolved.LocalPath
+
+		// Two distinct remote files (different URLs, e.g. the same filename
+		// reused across two different course sections such as a current-
+		// semester and an archived section) can resolve to the identical
+		// local path whenever nothing about the path distinguishes their
+		// section - which is exactly what use_section_subfolders=false (the
+		// shipped config.example.yaml's own default) does. Without this
+		// check both would be queued, both would download, and whichever
+		// result the single result-draining goroutine below processed last
+		// would silently overwrite the other on disk with no record either
+		// ever existed (found live, docs/sync-speed-model.md's 2026-08-19
+		// fourth cycle: 2026 LA20/U01.pdf..U14.pdf and Softwaretechnologie's
+		// Koenigreich.zip collided this way on every sync). Keeping the
+		// first-seen remote file and loudly warning about the rest turns a
+		// silent, permanent loss of one file's content into a visible
+		// prompt to enable use_section_subfolders or rename the source
+		// files - it does not by itself recover the skipped file.
+		if first, seen := seenTargets[targetKey]; seen {
+			fmt.Printf("  warning: %s: two different remote files share this path (%q and %q) - keeping the first, skipping the second. Enable use_section_subfolders to keep both.\n",
+				targetKey, first.URL, remoteFile.URL)
+			continue
+		}
+		seenTargets[targetKey] = remoteFile
 
 		previous, ok := manifest.Files[targetKey]
 

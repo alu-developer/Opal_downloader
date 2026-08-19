@@ -1176,6 +1176,42 @@ func TestProcessRemoteFilesSkipsUnchangedFiles(t *testing.T) {
 	}
 }
 
+// TestProcessRemoteFilesDedupesCollidingTargetPaths reproduces the
+// docs/sync-speed-model.md 2026-08-19 fourth-cycle finding live: two
+// different remote files (different URL/SectionTitle, e.g. a current-
+// semester and an archived section reusing the same filename) that resolve
+// to the identical local/manifest path must not both be downloaded - the
+// second would silently overwrite the first on disk with no record either
+// existed. Only the first-seen file should be attempted.
+func TestProcessRemoteFilesDedupesCollidingTargetPaths(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.App{DownloadPath: dir}
+	manifest := &Manifest{Path: filepath.Join(dir, ".opal-sync.manifest.json"), Files: map[string]FileRecord{}}
+
+	remoteFiles := []scraper.RemoteFile{
+		{Name: "U01.pdf", Course: "2026 LA20", Path: "2026 LA20/U01.pdf", SectionTitle: "Hausaufgabe 1", URL: "https://example.test/current/U01.pdf"},
+		{Name: "U01.pdf", Course: "2026 LA20", Path: "2026 LA20/U01.pdf", SectionTitle: "Material aus dem Wintersemester", URL: "https://example.test/archive/U01.pdf"},
+	}
+
+	var downloadedURLs []string
+	downloadFn := func(fileURL, localPath string) error {
+		downloadedURLs = append(downloadedURLs, fileURL)
+		return os.WriteFile(localPath, []byte("data"), 0o644)
+	}
+
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+
+	if stats.Downloaded != 1 {
+		t.Fatalf("expected exactly 1 download despite 2 colliding remote files, got %+v", stats)
+	}
+	if len(downloadedURLs) != 1 || downloadedURLs[0] != "https://example.test/current/U01.pdf" {
+		t.Fatalf("expected only the first-seen colliding file to be downloaded, got %v", downloadedURLs)
+	}
+	if _, ok := manifest.Files["2026 LA20/U01.pdf"]; !ok {
+		t.Fatalf("expected a manifest entry for the surviving file")
+	}
+}
+
 func TestSyncCoursesWithProgressNilCallbackDoesNotPanic(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.App{DownloadPath: dir}

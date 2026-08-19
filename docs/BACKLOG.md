@@ -33,6 +33,30 @@ _Nothing currently blocking a sync/list/login on the account — checked
 2026-08-14: `~/.opal-downloader/sync.lock` does not exist. The 2026-08-13
 5.5-hour hold is closed, see `docs/BACKLOG-archive.md`._
 
+**2026-08-19 (autopilot): shipped and live-verified — closed.** A
+correctness bug found while diagnosing a sync-speed experiment
+(`docs/sync-speed-model.md`'s fourth 2026-08-19 cycle): two different
+remote files sharing a filename across different course sections (e.g.
+current-semester vs. an archived "Material aus dem Wintersemester" section)
+collided onto the same local/manifest path whenever `use_section_subfolders`
+is `false` — the shipped `config.example.yaml`'s own default. The syncer's
+job-building loop had no dedup on the resolved target path, so both files
+downloaded every sync and whichever result landed last silently overwrote
+the other on disk with no warning, forever. Fixed in
+`internal/syncer/syncer.go`'s `processRemoteFiles`: the loop now keeps the
+first remote file seen for a given target path and prints a named warning
+for every collision, naming both source URLs. Unit-tested with the real
+course/URL shape from the finding
+(`TestProcessRemoteFilesDedupesCollidingTargetPaths`). Live-verified against
+the real account (scratch `download_path`): before the fix, `downloaded=38`
+for only 19 truly distinct files (each downloaded twice, one 3x); after,
+`downloaded=19` exactly, with 21 collision warnings printed (a third course,
+`So26 Programmieren`, was also affected — not visible from the pre-fix log
+alone). The maintainer's real `config.yaml` already sets
+`use_section_subfolders: true`, so his real syncs were never exposed to this
+specific collision — but any user on the shipped default was and had no way
+to know a file was silently missing.
+
 ---
 
 ## Next

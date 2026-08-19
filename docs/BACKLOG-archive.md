@@ -22,6 +22,17 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **Walk 11's `list --visit-report` umlaut-mojibake finding fixed 2026-08-19
+  (autopilot, phase 1).** `internal/visitlog/visitlog.go`'s `truncate`
+  sliced `s[:max-1]` on the raw byte string; any 2-byte UTF-8 character
+  (every German umlaut/ß) whose second byte landed past the cutoff produced
+  invalid UTF-8, rendered as `�`. Fixed by slicing `[]rune(s)` instead of the
+  byte string; regression tests added (`TestTruncateSplitsOnRunesNotBytes`,
+  `TestFormatReportTruncatesLongUmlautNameWithoutMojibake`) using the exact
+  reported course name. **Left open, not closed by this fix:** whether the
+  GUI has its own separate name-truncation logic that makes the same
+  mistake — not checkable from an unattended session (no browser tool
+  reachable here); worth a GUI walk picking this up specifically.
 - **Walk 9's Softwaretechnologie course-discovery dropout question closed
   2026-08-19 (autopilot, phase 1) — the rested-session repro it asked for
   came back clean, no dropout.** With `sync.lock` free and no other

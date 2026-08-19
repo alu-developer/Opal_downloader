@@ -2,8 +2,10 @@ package visitlog
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestLoadMissingFileReturnsEmptyNotError(t *testing.T) {
@@ -150,6 +152,38 @@ func TestFormatReportLeavesReliableSectionNoteBlank(t *testing.T) {
 	report := FormatReport(stats)
 	if contains(report, "empty on") {
 		t.Fatalf("expected no 'empty on' note for a section that was never empty, got:\n%s", report)
+	}
+}
+
+func TestFormatReportTruncatesLongUmlautNameWithoutMojibake(t *testing.T) {
+	stats := []SectionStat{
+		{Course: "So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20)", SectionTitle: "Vorlesung", SectionURL: "https://opal/z", Visits: 1, EmptyVisits: 1},
+	}
+	report := FormatReport(stats)
+	if !utf8.ValidString(report) {
+		t.Fatalf("expected valid UTF-8 output, got invalid bytes in:\n%q", report)
+	}
+	if contains(report, "�") {
+		t.Fatalf("expected no U+FFFD replacement character in output, got:\n%s", report)
+	}
+}
+
+func TestTruncateSplitsOnRunesNotBytes(t *testing.T) {
+	// "Weiterführende" - the ü sits right where a byte-based cutoff at 30
+	// would slice the string mid-character, producing invalid UTF-8.
+	s := "So26 Programmieren - Weiterführende Konzepte"
+	got := truncate(s, 30)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncate produced invalid UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("truncate(%q, 30) = %q, want it to end with the ellipsis", s, got)
+	}
+	if n := utf8.RuneCountInString(got); n != 30 {
+		t.Fatalf("truncate(%q, 30) = %q, want exactly 30 runes, got %d", s, got, n)
+	}
+	if !strings.HasPrefix(s, strings.TrimSuffix(got, "…")) {
+		t.Fatalf("truncate(%q, 30) = %q, prefix does not match original string", s, got)
 	}
 }
 

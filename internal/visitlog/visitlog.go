@@ -203,11 +203,12 @@ func FormatReport(stats []SectionStat) string {
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	r := []rune(s)
+	if len(r) <= max {
 		return s
 	}
 	if max <= 1 {
-		return s[:max]
+		return string(r[:max])
 	}
-	return s[:max-1] + "…"
+	return string(r[:max-1]) + "…"
 }

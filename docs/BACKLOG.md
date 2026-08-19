@@ -126,23 +126,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9 & 11, first-run walks 3, 7 & 10)
 
-- **wrong — `list --visit-report` mangles course/section names containing
-  German umlauts into `�` (mojibake) once truncated.** Walk 11, 2026-08-19:
-  `So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20)` printed as
-  `So26 Programmieren - Weiterf�…` in every row. Source-confirmed:
-  `internal/visitlog/visitlog.go`'s `truncate` (called from `FormatReport`)
-  checks `len(s) <= max` and slices `s[:max-1]` - both byte-based, not
-  rune-based - so any 2-byte UTF-8 character (every German umlaut/ß) whose
-  second byte lands past the byte-30/35 cutoff gets truncated mid-character,
-  producing invalid UTF-8. `truncate` has exactly one call site (grepped
-  `internal/`, `cmd/`), so the blast radius is this one report only - not a
-  shared helper reused elsewhere. Fix: truncate by `[]rune(s)` instead of
-  the raw byte string. Full detail: `docs/friction-campaign.md` Walk 11.
-  **Left one open question**: does the GUI have its own name-truncation
-  logic anywhere, and does it make the same mistake? Not checkable from an
-  unattended session (no browser tool reachable) - worth a GUI walk picking
-  this up specifically, since this bug was only found by luck (a long
-  enough umlaut-containing course name existing on the real account).
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
   a new file.** Walk 11, 2026-08-19: of the report's ~300 rows, an

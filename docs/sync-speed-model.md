@@ -3190,16 +3190,37 @@ either). Downgraded from "the campaign's most urgent open item" (the
 previous report's framing) to a documented one-off, matching how Walk 9's
 own dropout was eventually treated - **not reopened unless it recurs.**
 
-**New open question, ranked:** with the session-load thread now closed,
-the two remaining open items from the 2026-08-20 report are: (a) the
-mutex-sharing fix itself (options a/b/c from cycle 1, still not picked -
-weakened further by this cycle's own finding that contention now costs
-*nothing* extra when the backoff policy is doing its job, same as cycle 3
-found), and (b) the deprioritized version/fork cause hunt behind Question
-44's original HTML-instead-of-bytes finding. Neither is cheap or has a
-new angle this cycle surfaced - next cycle should pick whichever the
-maintainer would rather see move, or default to (a) since it is scoped
-and shippable rather than open-ended source archaeology.
+**Correction while writing this up:** re-read the third cycle's own full
+entry above rather than relying on the report summary's shorthand - the
+mutex-sharing fix (option (a), parallel fallback resolution) is **not**
+actually an open pick between (a)/(b)/(c) any more. That same cycle
+already reclassified it, twice, in increasing detail: first "ranked below
+closing the recurrence question," then - once the recurrence check showed
+these files skip cleanly on the real account, never reaching the mutex at
+all - explicitly "worth building for first-run experience, not for the
+maintainer's own ~30s/no-op target... ranked as a first-run-experience item
+(`docs/friction-campaign.md`'s territory), rather than continued work
+under Question 44's routine-sync framing." Nothing this cycle changes that
+- it only reconfirms contention costs nothing extra when the backoff
+policy is doing its job. So there is no pending mutex-fix decision left
+under this campaign; if it gets built, it belongs to the friction
+campaign's first-run findings (walk 12/14's own "20-minute first
+impression" entries), not here.
+
+**New open question, ranked:** with the session-load thread closed and the
+mutex-fix non-question corrected above, the one item this campaign has
+actually deferred without a source-level answer is the deprioritized
+version/fork cause hunt behind Question 44's original HTML-instead-of-bytes
+finding (`docs/BACKLOG.md`'s "Next" section has the full history: 16+
+investigation commits before 2026-08-17's report flagged it as over
+`docs/work-quality.md`'s own failing-campaign line, then the 2026-08-19
+`/decide` round un-paused it on the condition that the next cycle try "a
+genuinely new approach," not another source-reading pass of the same
+shape). That condition was never met - this session's cycles 1-6 all went
+toward the session-load/contention thread instead, not the version/fork
+question. Next cycle should either find that genuinely new approach (not
+just another `gh search code` pass) or explicitly re-close the question
+for lack of one, rather than let it sit deferred indefinitely.
 
 **Cycle, 2026-08-20 (autopilot, fifth cycle today, new session): does the
 70+ minute `needsContentVerification` stall on

@@ -1334,6 +1334,19 @@ func runSmokeCheck(args []string) error {
 	}
 
 	if fullSync {
+		// Release the overlap lock taken above before handing off to
+		// runSmokeCheckFullSync, which calls syncer.SyncCoursesWithProgress -
+		// that independently re-acquires this identical lock file and, with
+		// no reentrancy, would otherwise find its own still-recorded PID and
+		// refuse itself with "a sync is already running", deadlocking
+		// --full-sync on every invocation (see docs/BACKLOG.md's friction
+		// walk 15). releaseOverlap is idempotent (synclock.Acquire's release
+		// closure), so the deferred call above becomes a safe no-op once this
+		// fires early. This does reopen a narrow window where a different
+		// process could grab the lock between here and runSmokeCheckFullSync
+		// acquiring its own - accepted, since the same window already exists
+		// running `list` then `sync` as two separate commands.
+		releaseOverlap()
 		fmt.Println()
 		if err := runSmokeCheckFullSync(context.Background(), sc, loaded.App); err != nil {
 			return fmt.Errorf("smoke-check: --full-sync failed: %s", statuslog.SanitizeMessage(err.Error()))

@@ -2230,4 +2230,22 @@ than just a manual one-off? Not answered this walk - worth a live
 back-to-back timing check once the fix lands, rather than assumed safe
 purely by analogy to `list`-then-`sync`.
 
+**Fixed and live-verified, 2026-08-20 (autopilot, next run's phase 1).**
+`releaseOverlap()` now fires explicitly right before the `if fullSync`
+block in `runSmokeCheck` (`cmd/opal-downloader/root.go`), exactly the
+direction named above; the function-end `defer` becomes a no-op via the
+release closure's own `released` guard. Live-verified against the real
+account: `smoke-check --full-sync` ran discovery (8 courses, 349 files),
+then entered the full-sync phase and began actually downloading files into
+its scratch directory (dozens of `downloaded:` lines, including several
+that needed the slow browser-fallback path) - the exact point that
+previously failed within the first second with "a sync is already
+running," citing its own PID. The run was cut short by this session's own
+test harness timeout partway through downloads, not by any lock error, so
+the timed-out process's stale `sync.lock` entry was removed by hand
+afterward (confirmed dead PID first, same as any ordinary stale-lock
+reclaim). **The race-window question above is still open** - this run
+proved the deadlock is gone, not that the reopened window is safe; that
+still wants the live back-to-back timing check named above.
+
 Rotation note updated at the top of this file (`Next surface`).

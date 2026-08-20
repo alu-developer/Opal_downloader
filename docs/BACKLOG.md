@@ -30,48 +30,13 @@ questions and its rules), `docs/friction-campaign.md` (walk findings),
 ## Now
 
 _Nothing currently blocking a sync/list/login on the account — checked
-2026-08-14: `~/.opal-downloader/sync.lock` does not exist. The 2026-08-13
-5.5-hour hold is closed, see `docs/BACKLOG-archive.md`._
+2026-08-20 (this run): `~/.opal-downloader/sync.lock` does not exist. The
+2026-08-13 5.5-hour hold is closed, see `docs/BACKLOG-archive.md`._
 
-**blocker — `smoke-check --full-sync` cannot ever succeed: it deadlocks
-against its own already-held lock, on every single invocation.** Walk 15,
-2026-08-20 (friction campaign). `runSmokeCheck`
-(`cmd/opal-downloader/root.go:1285-1289`) acquires the cross-process
-overlap lock (`synclock`, `~/.opal-downloader/sync.lock`) once at the top
-of the function, `defer`-released only when the whole function returns.
-`--full-sync` (`runSmokeCheckFullSync`, called from inside that same
-still-open scope) calls `syncer.SyncCourses` → `SyncCoursesWithProgress`
-(`internal/syncer/syncer.go:510`), which independently re-acquires the
-*identical* lock file - a plain `O_CREATE|O_EXCL` lock with no reentrancy
-(`internal/synclock/synclock.go`), so the second acquisition finds its own
-still-live PID already recorded and refuses itself, citing its own PID as
-"a sync is already running." Not a race or a rare contention case - two
-independent live runs both reproduced it 100% of the time, each citing its
-own captured PID as the blocker (one via a real invocation, one via
-`Start-Process -PassThru` to capture the PID independently and confirm the
-match). Introduced by walk 10's otherwise-correct 2026-08-19 fix for
-"`smoke-check` never takes `sync.lock`" - nothing exercised the
-`--full-sync` combination since then to notice, until this walk finally
-answered walk 8's seven-walk-old open question about it. Confirmed this is
-the *only* affected code path: `runSync` never pre-acquires the lock at the
-cmd layer (relies solely on `SyncCoursesWithProgress`'s own acquisition,
-per `docs/OPERATIONS.md`'s documented design), and `runList`/`runLogin`
-pre-acquire but never call into `syncer.SyncCourses` - `dump-links` checked
-too (it shares walk 10's lock treatment but never calls `syncer`, so it's
-clear). Fix direction: release the outer lock explicitly right after
-`smokecheck.Run` finishes (before the `if fullSync` block), instead of only
-via the function-end `defer` - `synclock`'s own `release` closure is
-already idempotent, so the deferred call becomes a safe no-op once this
-fires early. This reopens a narrow window between the two phases where a
-different process could grab the lock first, which walk 15 judged
-acceptable (the same window already exists running `list` then `sync` as
-two separate commands) but left as an open question worth a live timing
-check once the fix lands. Full detail: `docs/friction-campaign.md` Walk 15.
-
-_Otherwise nothing open right now — the 2026-08-19 target-path-collision fix
-and the 2026-08-20 weekly-review Part B panic-safety fix (`DownloadFile`'s
-browser-fallback mutex) both shipped and are live/test-verified; detail
-moved to `docs/BACKLOG-archive.md`._
+_Nothing open right now — the walk 15 `smoke-check --full-sync` self-deadlock
+(2026-08-19 target-path-collision fix and 2026-08-20 weekly-review Part B
+panic-safety fix too) all shipped and are live/test-verified; detail moved
+to `docs/BACKLOG-archive.md`._
 
 ---
 
@@ -315,6 +280,13 @@ once it is done, decided, or shown not to matter.
   the misattribution explanation is well-evidenced, not proven. Downgraded
   from "real risk" to a documentation-only follow-up: nothing left to fix in
   the test unless it recurs with a captured PID.
+- **`smoke-check --full-sync`'s two-phase lock handoff reopens a narrow race
+  window** (a different process could grab `sync.lock` between the discovery
+  phase's early release and `--full-sync`'s own nested acquisition), now that
+  the walk 15 self-deadlock is fixed and live-verified — see
+  `docs/friction-campaign.md` Walk 15's "New question this walk leaves" for
+  why this is judged acceptable by analogy to running `list` then `sync`
+  separately, but not yet proven safe with a live back-to-back timing check.
 
 ---
 

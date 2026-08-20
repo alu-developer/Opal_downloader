@@ -3082,6 +3082,47 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-08-20 (autopilot, fourth cycle today): where does the real
+account's own no-op sync actually spend its time now, given the previous
+cycle just showed the flaky-file serialization tax isn't part of it?**
+
+**Design, written before running, per Rule 1.** Reproduce the real
+account's *steady state* without ever touching its real folder, per the
+standing rule: copy the real `_2. Semester`/`_4. Semester` course folders
+(the two the real `course_folders` config maps into; `Default_downloads`
+skipped - none of the 6 configured courses resolve there) and the real
+`.opal-sync.manifest.json` (read-only copies, originals untouched) into
+`tmp/q-noop/root`, then a scratch config
+(`config.scratch-noop.yaml`) with `course_folders`/`subfolder_destinations`
+rewritten to the same relative structure under that root, otherwise
+identical to the real config (same 6 courses, same
+`use_section_subfolders`/concurrency settings). Run
+`sync --config config.scratch-noop.yaml --profile` - with real files
+present at every manifest-recorded path and nothing changed remotely since
+2026-08-19, this should behave exactly like the real account's own next
+routine sync.
+
+*Expected numbers.* Given the previous cycle's finding, I expect **near-zero
+downloads** (everything already on disk with matching manifest metadata)
+and the wall-clock to be dominated by **discovery**, not download - recent
+`list`-only walks measured 50-74s for the same 6-8 courses (walk 12: 74.2s,
+walk 14: 57.1s), so I predict `Total` lands in a similar 50-90s band, with
+`--profile`'s per-course breakdown confirming discovery as the dominant
+line item rather than downloads. This would still be short of the ~30s
+target but for a different reason than Question 44 ever named - discovery
+time, not flaky-file handling.
+
+**Kill criterion.** If `Total` comes back far outside that band (e.g. still
+near the historical ~1097s, or the ~120s previously cited as the current
+no-op baseline lands somewhere unexpected in the `--profile` breakdown),
+the discovery-time theory is wrong and the real ~120s figure needs
+re-diagnosing rather than assumed. If most of the wall-clock genuinely is
+discovery, that reopens discovery-phase speed (already covered by
+Questions 8/9/22/25/etc.) as the actually-relevant thread for the
+maintainer's own routine-sync target, not Question 44.
+
+---
+
 **Cycle, 2026-08-20 (autopilot, third cycle today, after a friction walk):
 does browser-fallback contention (the previous cycle's own new ranked
 question) actually happen in a real sync, or is it a theoretical risk that

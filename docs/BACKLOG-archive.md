@@ -552,6 +552,30 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Walk 14's two doc/redaction findings, both shipped and verified
+  (2026-08-20, autopilot).**
+  - README's "Commands" table now lists `schedule enable|disable|status` and
+    `smoke-check`, plus a short "Automation: run sync on its own" subsection
+    pointing at `schedule enable` - closing the gap where a first-timer
+    following only the README had no way to discover automatic daily
+    syncing exists, even though both are real, `--help`-documented
+    subcommands.
+  - The browser-fallback click error's "(technical detail: ...)" half no
+    longer redacts long filenames. `printSyncError`'s own field
+    (`targetKey`) was already protected by walk 13's fix, but
+    `internal/scraper/download.go`'s `tryClickDownloadSelectors` built its
+    own error text separately, embedding the filename directly into
+    Playwright locator strings (`a[href*='<name>.pdf']`,
+    `GetByText(candidate.LinkText, ...)`) with no `logging.ProtectPath`
+    wrapping - so any filename with a 32+ character no-spaces tail still
+    came back `[redacted].pdf` in that half of the diagnostic line. Fixed by
+    wrapping `selector` and `candidate.LinkText` with `logging.ProtectPath`
+    at the two `fmt.Errorf` call sites that build `attemptErrs`. Added
+    `TestProtectedPathSurvivesTheScrubInsideASelectorString`
+    (`internal/logging/scrub_test.go`) covering the selector-string case
+    specifically, since the existing `ProtectPath` tests only exercised a
+    bare manifest-key value. `go build ./...`, `go vet ./...`, and
+    `go test ./...` all green.
 - **`DownloadFile`'s browser-fallback mutex is panic-safe again (2026-08-20,
   autopilot), closing the weekly review Part B finding.** The 2026-08-20
   hold-duration audit instrumentation (`internal/scraper/download.go`,

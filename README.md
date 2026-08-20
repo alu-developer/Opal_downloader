@@ -187,6 +187,25 @@ below work exactly as before - the web UI does not replace or change them.
 | `./opal-downloader login --dev` | Developer mode (visible browser, useful for tracing) |
 | `./opal-downloader list --dev` | Developer mode for listing/discovery tracing |
 | `./opal-downloader sync --dev` | Developer mode for full crawl/download tracing |
+| `./opal-downloader schedule enable [--time HH:MM]` \| `disable` \| `status` | Enable/disable/check a daily automatic sync via Windows Task Scheduler |
+| `./opal-downloader smoke-check` | Local, on-demand check that the crawl still works against real OPAL (read-only by default; always checks every enrolled course, ignoring `config.yaml`'s `courses:` filter) |
+
+### Automation: run sync on its own
+
+Once a manual `sync` works, `schedule enable` registers a Windows Task
+Scheduler task that runs `sync --scheduled` once a day without anyone at the
+machine - no separate cron setup needed. `schedule status` reports whether
+it's registered and when it last ran; `schedule disable` removes it again.
+
+```bash
+./opal-downloader schedule enable --time 07:00
+./opal-downloader schedule status
+```
+
+`smoke-check` is a separate, lighter check for the same worry ("is the crawl
+still working?") - it verifies discovery still finds roughly the expected
+number of files without downloading anything, so it's safe to run anytime,
+including while a scheduled sync is in progress.
 
 ## Configuration
 

@@ -105,6 +105,27 @@ func TestProtectedPathSurvivesTheScrub(t *testing.T) {
 	}
 }
 
+// The browser-fallback click error embeds the filename inside a CSS
+// attribute selector (internal/scraper/download.go's tryClickDownloadSelectors),
+// not as a bare manifest key - this must survive the scrub the same way,
+// closing friction campaign walk 14's finding that only printSyncError's own
+// field was protected while this half of the "(technical detail: ...)"
+// clause still redacted long filenames.
+func TestProtectedPathSurvivesTheScrubInsideASelectorString(t *testing.T) {
+	const longName = "37-st-analysis-eu-rent-example_slides_and_notes_extended.pdf"
+	selector := ProtectPath("a[href*='" + longName + "']")
+	msg := "href-match " + selector + ": locator.Click: Timeout 5000ms exceeded"
+
+	got := scrubForFile(msg)
+
+	if strings.Contains(got, "[redacted]") {
+		t.Fatalf("the selector's filename was redacted:\n%s", got)
+	}
+	if !strings.Contains(got, longName) {
+		t.Fatalf("scrubbed message lost the filename %q:\n%s", longName, got)
+	}
+}
+
 // Holding a protected path out of the scrub must not create a hole for a
 // real credential sitting right next to it in the same message.
 func TestNonPathCredentialsAreStillRedactedAlongsideAProtectedPath(t *testing.T) {

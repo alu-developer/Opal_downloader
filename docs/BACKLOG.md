@@ -148,44 +148,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11 & 13, first-run walks 3, 7, 10, 12 & 14)
 
-- **wrong — `README.md`'s "Commands" table never mentions `schedule` or
-  `smoke-check`, so a first-timer following only the README has no way to
-  discover that automatic daily syncing exists.** Walk 14, 2026-08-20. Both
-  are real, working, `--help`-documented subcommands
-  (`cmd/opal-downloader/root.go`'s `printHelp`) - `schedule` is literally
-  "make this run on its own without me", the exact thing a first-timer
-  reaches for right after their first successful manual sync - but
-  `grep -ni schedule README.md` / `grep -ni smoke-check README.md` both
-  return nothing. Cross-checked line-by-line against `printHelp`'s full
-  command list: every other subcommand (`init`, `setup`, `status`, `gui`,
-  `login`, `list`, `sync`, `dump-links`) is documented in README, so this
-  isn't a generally-stale table - `schedule`/`smoke-check` were specifically
-  never added when they shipped, and nothing (no test, no CI step) keeps
-  `printHelp` and README in sync, so the same gap will recur for the next
-  new subcommand unless something is added. Fix: add both to README's
-  Commands table (and ideally a short "Automation" section pointing at
-  `schedule enable`, matching the weight `docs/OPERATIONS.md` already gives
-  it) - a small, self-contained doc fix. Full detail:
-  `docs/friction-campaign.md` Walk 14.
-- **wrong — walk 13's diagnostic-log filename fix only covers the manifest-key
-  field; the same message's "technical detail" half still redacts filenames
-  inside Playwright selector strings.** Walk 14, 2026-08-20, found while
-  live-verifying walk 13's shipped fix. `printSyncError`'s own field
-  (`internal/syncer/syncer.go`) is fixed and confirmed working live - but
-  `internal/scraper/download.go`'s click-search loop builds the `(technical
-  detail: ...)` half separately, embedding the target filename directly into
-  Playwright locator strings (`a[href*='<name>.pdf']`,
-  `getByText('<name>.pdf')`) that are never wrapped in
-  `logging.ProtectPath` before reaching `logging.Detail` - so any filename
-  with 32+ characters before its extension still comes back
-  `[redacted].pdf` in that half of the line, live-confirmed in this walk's
-  own log (`href-match a[href*='[redacted].pdf']`). One file in the same run
-  escaped only because its name happened to be exactly 30 characters,
-  under the threshold - not because anything protects it. Fix mirrors walk
-  13's own shape: wrap the filename with `logging.ProtectPath` wherever
-  `download.go` assembles the selector-error text, most likely inside
-  `downloadFileViaBrowser`/`tryCandidatePagesInOrder`. Full detail:
-  `docs/friction-campaign.md` Walk 14.
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
   a new file.** Walk 11, 2026-08-19. **Partially shipped and live-verified,

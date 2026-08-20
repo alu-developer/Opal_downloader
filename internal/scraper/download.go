@@ -429,7 +429,7 @@ func (s *OpalScraper) tryClickDownloadSelectors(page playwright.Page, candidate 
 			s.auditLog("click-success", page, selector, "download fallback href-match succeeded for "+localPath)
 			return download.SaveAs(localPath)
 		}
-		attemptErrs = append(attemptErrs, fmt.Errorf("href-match %s: %w", selector, clickErr))
+		attemptErrs = append(attemptErrs, fmt.Errorf("href-match %s: %w", logging.ProtectPath(selector), clickErr))
 	} else {
 		attemptErrs = append(attemptErrs, errors.New("href-match skipped: candidate has no usable link target"))
 	}
@@ -443,7 +443,7 @@ func (s *OpalScraper) tryClickDownloadSelectors(page playwright.Page, candidate 
 			s.auditLog("click-success", page, candidate.LinkText, "download fallback text-match succeeded for "+localPath)
 			return download.SaveAs(localPath)
 		}
-		attemptErrs = append(attemptErrs, fmt.Errorf("text-match %q: %w", candidate.LinkText, clickErr))
+		attemptErrs = append(attemptErrs, fmt.Errorf("text-match %q: %w", logging.ProtectPath(candidate.LinkText), clickErr))
 	} else {
 		attemptErrs = append(attemptErrs, errors.New("text-match skipped: candidate has no recorded link text"))
 	}

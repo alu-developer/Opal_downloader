@@ -97,21 +97,23 @@ func extractSectionFiles(existing []FileRef, fileSeen map[string]struct{}, cours
 // failure rather than the indefinite hang Step B2's first live run hit.
 //
 // onSectionVisited (may be nil), if set, is called once per section actually
-// reached (root included) with its title, URL and how many new files that
-// section contributed - the same shape and the same "reached and extracted,
-// not just queued" semantics as the browser path's recordSectionVisit call
-// in collectCourseFiles (crawl.go). Without this, shipping HTTP-first as the
-// default silently stopped internal/visitlog's persistent cross-run log from
-// accumulating anything at all (found 2026-08-11, re-running Question 36's
-// own Step B1 probe after B2 became the default: VisitRecords() came back
-// empty because nothing on this path ever called recordSectionVisit).
+// reached (root included) with its title, URL, how many new files that
+// section contributed, and whether it had any subsection/folder links
+// (queued or skipped as a known non-file node type) - the same shape and the
+// same "reached and extracted, not just queued" semantics as the browser
+// path's recordSectionVisit call in collectCourseFiles (crawl.go). Without
+// this, shipping HTTP-first as the default silently stopped
+// internal/visitlog's persistent cross-run log from accumulating anything at
+// all (found 2026-08-11, re-running Question 36's own Step B1 probe after B2
+// became the default: VisitRecords() came back empty because nothing on
+// this path ever called recordSectionVisit).
 //
 // Returns every file found, the number of HTTP requests issued, and the
 // downloadCandidates map appendSectionFiles builds alongside them (the
 // counter-refresh retry data download.go's fast-path-miss branch looks up by
 // file URL - see extractSectionFiles's own doc comment for why this must be
 // threaded through rather than discarded).
-func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, skipNonFileSections bool, onSectionError func(url string, err error), onSectionVisited func(sectionTitle, sectionURL string, filesFound int)) ([]FileRef, int, map[string]downloadCandidate, error) {
+func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, skipNonFileSections bool, onSectionError func(url string, err error), onSectionVisited func(sectionTitle, sectionURL string, filesFound int, hadChildren bool)) ([]FileRef, int, map[string]downloadCandidate, error) {
 	rootBody, err := httpGetText(fetch, course.URL)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("HTTP GET course root %s: %w", course.URL, err)
@@ -124,6 +126,14 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 	visited := map[string]struct{}{}
 	sectionTitles := map[string]string{rootKey: course.Title}
 
+	// rootHadChildren tracks whether the tree seed (rather than a folder-link
+	// scan of the root page's own body, which runs later inside the main
+	// loop below) found the root section any children - queued or skipped.
+	// The seed loop's additions land in queue/skipped before the main loop's
+	// visit-and-measure-the-delta pattern (used for every other section) can
+	// see them, since the root is always processed first - so it needs its
+	// own explicit tracking rather than falling out of that pattern.
+	rootHadChildren := false
 	for _, n := range ParseCourseTreeNodes(rootBody) {
 		k := sectionKey(n.URL, course.RepoID)
 		if _, dup := queued[k]; dup {
@@ -135,6 +145,7 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 			// re-offer it - mirrors appendSectionFolderTargets's own
 			// bookkeeping for the same case.
 			queued[k] = struct{}{}
+			rootHadChildren = true
 			// Auditable, not silent - same reasoning and same log line as
 			// the browser path's identical skip in crawl.go.
 			logging.Detail("Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)", n.Title, n.URL)
@@ -143,6 +154,7 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 		queued[k] = struct{}{}
 		sectionTitles[k] = n.Title
 		queue = append(queue, n.URL)
+		rootHadChildren = true
 	}
 
 	var files []FileRef
@@ -191,20 +203,22 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 
 		filesBefore := len(files)
 		files = extractSectionFiles(files, fileSeen, course, section, candidates, showAllCandidates, showAllURL, opalURL, downloadCandidates)
-		if onSectionVisited != nil {
-			onSectionVisited(section.Title, current, len(files)-filesBefore)
-		}
 
 		expandCandidates := candidates
 		if showAllCandidates != nil {
 			expandCandidates = append(append([]map[string]string(nil), candidates...), showAllCandidates...)
 		}
+		queueBefore := len(queue)
 		var skipped []skippedSection
 		queue, skipped = appendSectionFolderTargets(queue, queued, visited, expandCandidates, opalURL, course.RepoID, current, course.URL, course.Title, sectionTitles, skipNonFileSections)
 		for _, sk := range skipped {
 			// Auditable, not silent - see appendSectionFolderTargets's doc
 			// comment and crawl.go's identical logging for the browser path.
 			logging.Detail("Skipping section %q (%s): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)", sk.Title, sk.URL)
+		}
+		if onSectionVisited != nil {
+			hadChildren := len(queue) > queueBefore || len(skipped) > 0 || (current == course.URL && rootHadChildren)
+			onSectionVisited(section.Title, current, len(files)-filesBefore, hadChildren)
 		}
 	}
 

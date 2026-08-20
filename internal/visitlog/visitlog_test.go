@@ -114,6 +114,31 @@ func TestAggregateKeepsMostRecentSectionTitle(t *testing.T) {
 	}
 }
 
+func TestAggregateSetsEverHadChildrenFromAnyVisit(t *testing.T) {
+	records := []Record{
+		{Course: "Analysis", SectionTitle: "Vorlesung 3", SectionURL: "https://opal/leaf", FilesFound: 0, HadChildren: false, Timestamp: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+		{Course: "Analysis", SectionTitle: "Ordner", SectionURL: "https://opal/folder", FilesFound: 0, HadChildren: false, Timestamp: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+		// A later visit finding children is enough to mark the section a
+		// container even though an earlier visit (e.g. a transient page
+		// glitch, or before some subsections existed) did not.
+		{Course: "Analysis", SectionTitle: "Ordner", SectionURL: "https://opal/folder", FilesFound: 0, HadChildren: true, Timestamp: time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)},
+	}
+	stats := Aggregate(records)
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 aggregated sections, got %d: %#v", len(stats), stats)
+	}
+	byURL := map[string]SectionStat{}
+	for _, s := range stats {
+		byURL[s.SectionURL] = s
+	}
+	if byURL["https://opal/leaf"].EverHadChildren {
+		t.Fatalf("expected the leaf section (never had children across any visit) to have EverHadChildren=false")
+	}
+	if !byURL["https://opal/folder"].EverHadChildren {
+		t.Fatalf("expected the folder section (had children on one of two visits) to have EverHadChildren=true")
+	}
+}
+
 func TestAggregateEmptyInput(t *testing.T) {
 	stats := Aggregate(nil)
 	if len(stats) != 0 {
@@ -132,6 +157,22 @@ func TestFormatReportIncludesAlwaysEmptyNote(t *testing.T) {
 	report := FormatReport(stats)
 	if !contains(report, "empty on all 8 visit(s)") {
 		t.Fatalf("expected report to flag the always-empty section, got:\n%s", report)
+	}
+}
+
+func TestFormatReportLabelsAlwaysEmptyContainerDistinctlyFromLeaf(t *testing.T) {
+	stats := []SectionStat{
+		{Course: "Analysis", SectionTitle: "Ordner", SectionURL: "https://opal/folder", Visits: 9, EmptyVisits: 9, EverHadChildren: true},
+		{Course: "Analysis", SectionTitle: "Vorlesung 3", SectionURL: "https://opal/leaf", Visits: 9, EmptyVisits: 9, EverHadChildren: false},
+	}
+	report := FormatReport(stats)
+	if !contains(report, "empty on all 9 visit(s) (container - files live in subsections)") {
+		t.Fatalf("expected the section that ever had children to carry the container label, got:\n%s", report)
+	}
+	for _, line := range strings.Split(report, "\n") {
+		if contains(line, "Vorlesung 3") && contains(line, "container") {
+			t.Fatalf("expected the never-had-children leaf section to NOT carry the container label (no positive evidence either way), got line:\n%s", line)
+		}
 	}
 }
 

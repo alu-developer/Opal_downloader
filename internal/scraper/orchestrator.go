@@ -354,8 +354,8 @@ func (s *OpalScraper) newHTTPCourseFileCollector(fetch httpFetcher, totalCourses
 		onSectionError := func(url string, serr error) {
 			logging.Warn("OPAL_HTTP_DISCOVERY=2: %s: %v", url, serr)
 		}
-		onSectionVisited := func(sectionTitle, sectionURL string, filesFound int) {
-			s.recordSectionVisit(course.Title, sectionTitle, sectionURL, filesFound)
+		onSectionVisited := func(sectionTitle, sectionURL string, filesFound int, hadChildren bool) {
+			s.recordSectionVisit(course.Title, sectionTitle, sectionURL, filesFound, hadChildren)
 		}
 		files, reqs, downloadCandidates, derr := discoverSectionsHTTP(fetch, course, s.opalURL, s.skipEnrollmentSections, onSectionError, onSectionVisited)
 		atomic.AddInt64(requestCounter, int64(reqs))

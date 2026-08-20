@@ -379,7 +379,10 @@ func (s *OpalScraper) SetDeveloperMode(enabled bool) {
 // collectCourseFiles (crawl.go) once a section's Goto+extraction has
 // actually succeeded (so this reflects a real visit, not a failed
 // navigation attempt) - see VisitRecords for how a caller retrieves these.
-func (s *OpalScraper) recordSectionVisit(course, sectionTitle, sectionURL string, filesFound int) {
+// hadChildren records whether the section's page had any subsection/folder
+// links (queued or skipped as a known non-file node type) - see
+// visitlog.Record.HadChildren's doc comment for what this distinguishes.
+func (s *OpalScraper) recordSectionVisit(course, sectionTitle, sectionURL string, filesFound int, hadChildren bool) {
 	s.visitLogMu.Lock()
 	defer s.visitLogMu.Unlock()
 	s.visitRecords = append(s.visitRecords, visitlog.Record{
@@ -388,6 +391,7 @@ func (s *OpalScraper) recordSectionVisit(course, sectionTitle, sectionURL string
 		SectionURL:   sectionURL,
 		FilesFound:   filesFound,
 		Timestamp:    time.Now(),
+		HadChildren:  hadChildren,
 	})
 }
 

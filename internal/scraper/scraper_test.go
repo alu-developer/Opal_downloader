@@ -143,18 +143,18 @@ func TestVisitRecordsAccumulatesAndReturnsCopy(t *testing.T) {
 		t.Fatalf("expected no visit records on a fresh scraper, got %d", len(got))
 	}
 
-	s.recordSectionVisit("Analysis", "Übungen", "https://opal/1", 3)
-	s.recordSectionVisit("Analysis", "Forum", "https://opal/2", 0)
+	s.recordSectionVisit("Analysis", "Übungen", "https://opal/1", 3, true)
+	s.recordSectionVisit("Analysis", "Forum", "https://opal/2", 0, false)
 
 	records := s.VisitRecords()
 	if len(records) != 2 {
 		t.Fatalf("expected 2 recorded visits, got %d: %#v", len(records), records)
 	}
-	if records[0].Course != "Analysis" || records[0].SectionTitle != "Übungen" || records[0].SectionURL != "https://opal/1" || records[0].FilesFound != 3 {
+	if records[0].Course != "Analysis" || records[0].SectionTitle != "Übungen" || records[0].SectionURL != "https://opal/1" || records[0].FilesFound != 3 || !records[0].HadChildren {
 		t.Fatalf("unexpected first record: %#v", records[0])
 	}
-	if records[1].FilesFound != 0 {
-		t.Fatalf("expected second record to have FilesFound=0, got %#v", records[1])
+	if records[1].FilesFound != 0 || records[1].HadChildren {
+		t.Fatalf("expected second record to have FilesFound=0, HadChildren=false, got %#v", records[1])
 	}
 
 	// VisitRecords must return an independent copy - mutating the returned
@@ -183,7 +183,7 @@ func TestRecordSectionVisitConcurrentSafe(t *testing.T) {
 		go func(worker int) {
 			defer wg.Done()
 			for j := 0; j < perWorker; j++ {
-				s.recordSectionVisit("Course", "Section", "https://opal/section", j%3)
+				s.recordSectionVisit("Course", "Section", "https://opal/section", j%3, j%2 == 0)
 				_ = s.VisitRecords()
 			}
 		}(i)

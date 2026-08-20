@@ -42,6 +42,14 @@ type Record struct {
 	SectionURL   string    `json:"section_url"`
 	FilesFound   int       `json:"files_found"`
 	Timestamp    time.Time `json:"timestamp"`
+	// HadChildren records whether this visit's page had at least one
+	// subsection/folder link queued (or skipped as a known non-file node
+	// type) for further crawling - i.e. whether this node was structurally
+	// a container, as opposed to a terminal leaf page. Older log entries
+	// written before this field existed decode as false, which is
+	// indistinguishable from a genuine leaf - see FormatReport's doc
+	// comment on why that ambiguity is left visible rather than guessed at.
+	HadChildren bool `json:"had_children"`
 }
 
 type logFile struct {
@@ -104,6 +112,15 @@ type SectionStat struct {
 	Visits       int
 	EmptyVisits  int
 	LastVisited  time.Time
+	// EverHadChildren is true if any recorded visit to this section found
+	// subsection/folder links to queue (see Record.HadChildren). A node
+	// that is AlwaysEmpty() but EverHadChildren is a container whose own
+	// page never lists a file directly - expected, not necessarily a
+	// problem. A node that is AlwaysEmpty() and never EverHadChildren is a
+	// true terminal leaf that has contributed nothing across every visit.
+	// This does not decide which of the two is "wasteful" - see
+	// FormatReport's doc comment - it only makes the distinction visible.
+	EverHadChildren bool
 }
 
 // AlwaysEmpty reports whether every recorded visit to this section found 0
@@ -140,6 +157,9 @@ func Aggregate(records []Record) []SectionStat {
 		stat.Visits++
 		if r.FilesFound == 0 {
 			stat.EmptyVisits++
+		}
+		if r.HadChildren {
+			stat.EverHadChildren = true
 		}
 		if r.Timestamp.After(stat.LastVisited) {
 			stat.LastVisited = r.Timestamp
@@ -179,6 +199,23 @@ func Aggregate(records []Record) []SectionStat {
 
 // FormatReport renders stats (as returned by Aggregate) as a plain-text
 // table for CLI output.
+//
+// An AlwaysEmpty row whose visits ever had subsection links gets a
+// "(container - files live in subsections)" suffix, so a human scanning the
+// report can positively identify (not guess) the case that's expected and
+// uninteresting: a folder page whose own node never lists a file directly
+// because the files live in its subsections, which get their own rows.
+// EverHadChildren can only prove "yes, this is a container" - it cannot
+// prove "no, this is a true leaf", since a row whose visits all predate the
+// Record.HadChildren field (added after this report's first version)
+// decodes that field as false indistinguishably from a genuine
+// never-had-children leaf. So the report adds the container label when it
+// has positive evidence and otherwise says nothing further, rather than
+// asserting "leaf" on data that might just be stale - see the package doc
+// comment on why silent skip-based-on-history was rejected; the same
+// caution applies to labeling based on absence of evidence. This still
+// doesn't decide whether a genuine leaf is worth acting on, but it removes
+// the container case from the "needs manual cross-referencing" pile.
 func FormatReport(stats []SectionStat) string {
 	if len(stats) == 0 {
 		return "No section visits recorded yet. Run `list` or `sync` at least once to start building history.\n"
@@ -190,6 +227,9 @@ func FormatReport(stats []SectionStat) string {
 		notes := ""
 		if s.AlwaysEmpty() {
 			notes = fmt.Sprintf("empty on all %d visit(s)", s.Visits)
+			if s.EverHadChildren {
+				notes += " (container - files live in subsections)"
+			}
 		} else if s.EmptyVisits > 0 {
 			// The signal a maintainer actually needs: this section sometimes
 			// has files and sometimes doesn't, which an always-empty note

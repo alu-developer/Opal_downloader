@@ -87,12 +87,13 @@ func TestDiscoverSectionsHTTPReportsVisitsForVisitLog(t *testing.T) {
 	}}
 
 	type visit struct {
-		title, url string
-		filesFound int
+		title, url  string
+		filesFound  int
+		hadChildren bool
 	}
 	var visits []visit
-	_, _, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, func(sectionTitle, sectionURL string, filesFound int) {
-		visits = append(visits, visit{sectionTitle, sectionURL, filesFound})
+	_, _, _, err := discoverSectionsHTTP(fetcher, course, opalURL, false, nil, func(sectionTitle, sectionURL string, filesFound int, hadChildren bool) {
+		visits = append(visits, visit{sectionTitle, sectionURL, filesFound, hadChildren})
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -101,19 +102,29 @@ func TestDiscoverSectionsHTTPReportsVisitsForVisitLog(t *testing.T) {
 	if len(visits) != 3 {
 		t.Fatalf("expected one onSectionVisited call per reached section (root, node22, sub-path), got %d: %+v", len(visits), visits)
 	}
-	want := map[string]int{
-		course.URL: 0,
-		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22":     0,
-		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": 1,
+	// hadChildren distinguishes a container (root: seeds node22; node22: its
+	// own body links to Sub) from a terminal leaf (Sub: its body links only
+	// to file.pdf, a file link, not a folder link) - see
+	// visitlog.Record.HadChildren's doc comment for what this feeds.
+	want := map[string]struct {
+		files       int
+		hadChildren bool
+	}{
+		course.URL: {0, true},
+		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22":     {0, true},
+		"https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/22/Sub": {1, false},
 	}
 	for _, v := range visits {
-		wantCount, ok := want[v.url]
+		wantVisit, ok := want[v.url]
 		if !ok {
 			t.Errorf("unexpected visit for %s", v.url)
 			continue
 		}
-		if v.filesFound != wantCount {
-			t.Errorf("%s: expected filesFound=%d, got %d", v.url, wantCount, v.filesFound)
+		if v.filesFound != wantVisit.files {
+			t.Errorf("%s: expected filesFound=%d, got %d", v.url, wantVisit.files, v.filesFound)
+		}
+		if v.hadChildren != wantVisit.hadChildren {
+			t.Errorf("%s: expected hadChildren=%v, got %v", v.url, wantVisit.hadChildren, v.hadChildren)
 		}
 	}
 }

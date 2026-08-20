@@ -197,15 +197,22 @@ func (s *OpalScraper) collectCourseFiles(page playwright.Page, course CourseRef)
 				expandedPageURL = ""
 			}
 			files = appendSectionFiles(files, fileSeen, candidates, course, section, currentURL, visit.showAllURL, expandedPageURL, showAllViaClick, s.opalURL, downloadCandidates)
+			queueBefore := len(queue)
+			var skipped []skippedSection
+			queue, skipped = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles, s.skipEnrollmentSections)
 			// Record this visit for the persistent cross-run visit-effectiveness
 			// log (internal/visitlog) - one entry per section actually reached
 			// (Goto+extraction succeeded, past the `continue`s above), noting how
-			// many *new* files this visit contributed. This is purely
-			// observational (see visitlog's package doc): it does not change
-			// what gets crawled, just records it for later human review.
-			s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection)
-			var skipped []skippedSection
-			queue, skipped = appendSectionFolderTargets(queue, queued, visited, candidates, s.opalURL, course.RepoID, currentURL, course.URL, course.Title, sectionTitles, s.skipEnrollmentSections)
+			// many *new* files this visit contributed and whether the section had
+			// any subsection/folder links (queued above, or skipped as a known
+			// non-file node type - both mean the page had children, just not
+			// necessarily crawled ones). This must run after
+			// appendSectionFolderTargets so hadChildren reflects that call's
+			// result. This is purely observational (see visitlog's package doc):
+			// it does not change what gets crawled, just records it for later
+			// human review.
+			hadChildren := len(queue) > queueBefore || len(skipped) > 0
+			s.recordSectionVisit(course.Title, sectionTitle, currentURL, len(files)-filesBeforeSection, hadChildren)
 			for _, sk := range skipped {
 				// Auditable, not silent - see appendSectionFolderTargets's doc
 				// comment. Deliberately a distinct log line rather than

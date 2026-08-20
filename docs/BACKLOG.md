@@ -169,25 +169,46 @@ maintainer. Walk detail, expectations and named causes:
 
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
-  a new file.** Walk 11, 2026-08-19: of the report's ~300 rows, an
-  estimated 85%+ are tagged `empty on all N visit(s)` - the same notation
-  for a genuinely wasteful always-empty *folder* and for an individual
-  per-lecture/per-exercise leaf page (`Vorlesung 1`..`14`, fourteen separate
-  `Musterlösung` rows, `Woche 01`..`14`) that was never structurally going
-  to contribute a *new* file at its own node. Source-confirmed:
-  `internal/scraper/crawl.go`'s `recordSectionVisit` call is not gated on
-  the visited node actually having children - one visit-log entry is
-  written per course-tree node the crawl's breadth-first walk reaches,
-  whether it's a folder or a single-item leaf. Every number in the report
-  is correct; a human (or a future skip-heuristic reading this same data -
-  see `docs/sync-speed-model.md`'s repeated interest in section-skip
-  strategies) has no way to separate a real problem section from
-  structurally-guaranteed noise without manually cross-referencing every
-  row against the real course structure. Not chased into a fix - the right
-  shape (restrict `AlwaysEmpty` reporting to nodes that had at least one
-  *child* section queued, i.e. were structurally capable of being a
-  folder?) needs more OPAL-structure knowledge than one walk should assume.
-  Full detail: `docs/friction-campaign.md` Walk 11.
+  a new file.** Walk 11, 2026-08-19. **Partially shipped and live-verified,
+  2026-08-20 (autopilot):** every visit record now also carries
+  `HadChildren` - whether the section's page had any subsection/folder
+  links (queued, or skipped as a known non-file node type) - computed by
+  reordering `appendSectionFolderTargets` before `recordSectionVisit` in
+  both `internal/scraper/crawl.go` (browser path) and
+  `internal/scraper/httpdiscovery_seed.go` (`discoverSectionsHTTP`, the
+  default HTTP-first path). `visitlog.SectionStat.EverHadChildren`
+  aggregates it across visits, and `FormatReport` appends "(container -
+  files live in subsections)" to an always-empty row that ever had
+  children, so a human no longer has to cross-reference the real course
+  structure to identify *that* specific case. Deliberately does **not**
+  attempt a "(leaf)" label for the rest - `EverHadChildren=false` is
+  indistinguishable from "no data yet" on log entries written before this
+  field existed, and asserting "leaf" on an absence of evidence risks being
+  confidently wrong, which is worse than the status quo. Unit-tested
+  (`TestAggregateSetsEverHadChildrenFromAnyVisit`,
+  `TestFormatReportLabelsAlwaysEmptyContainerDistinctlyFromLeaf`,
+  `TestDiscoverSectionsHTTPReportsVisitsForVisitLog`'s extended
+  assertions). Live-verified against the real account (scratch
+  `download_path`, fresh visit log): of 251 always-empty rows across 8
+  courses, exactly 9 got the container label (course roots plus one
+  `Algorithmen und Datenstrukturen/Materialien` folder) - the rest were
+  genuine leaves (`Forum`, `Hausaufgabe 1`..`N`, one row per assignment)
+  that never had children.
+
+  **Still open, and this is most of the original complaint:** that live run
+  shows the container label only resolves ~4% of always-empty rows - the
+  other ~96% (`Hausaufgabe N`-shaped per-item leaves, matching Walk 11's
+  `Vorlesung`/`Woche` examples) are genuine leaves with no children, and
+  whether *that* is "structurally guaranteed, ignore it" or "a real gap
+  worth a human's attention" is a real OPAL-course-content question this
+  session has no grounds to answer from the crawl structure alone - a
+  `Hausaufgabe N` page being empty could mean "this node is just a
+  container for other things" or "the assignment isn't posted yet", and
+  those look identical to the crawler. Chasing further needs either
+  maintainer input on what these leaf pages are supposed to contain, or
+  cross-referencing enough real course pages by hand to find a second
+  structural signal - not more source-reading. Full detail:
+  `docs/friction-campaign.md` Walk 11.
 - **wrong — `/schedule`'s on-logon catch-up promise is false for the real
   task, and cannot become true until the app is installed somewhere
   permanent.** Walk 6, 2026-08-13: the page states as fact that a missed run

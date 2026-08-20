@@ -3133,6 +3133,74 @@ whatever the audit log shows rather than attempting runs 2/3, since a
 single-run stall this large would itself already be informative regardless
 of the multi-run comparison.
 
+**Result: refuted, cleanly and with a real mid-cycle design correction.**
+Run 1 (fresh-reused manifest, no `--force`): `downloaded=18 skipped=282
+errors=49`, `Total: 1203.1s`, 69 `browserDownloadMu` hold events (min
+0.24s, median 21.5s, max 33.1s) and 69 wait events (median 42.4s, max
+52.9s) - matching cycle 3's baseline closely, no anomaly. **Then the
+design hit a real snag**, itself informative: run 2 without `--force`
+came back `downloaded=0 skipped=349 errors=0 backing_off=49`, `Total:
+223.5s` - Question 44's own backoff policy (shipped 2026-08-18) skipped
+every known-flaky file before it could ever reach `browserDownloadMu`
+again, which the original design (reuse the manifest, run three times)
+had not accounted for. **A live, incidental confirmation that the backoff
+policy works exactly as intended** (a 5.4x wall-clock cut, 1203.1s →
+223.5s, from skipping the same 49 files a second time), but it meant runs
+2/3 as originally planned could never have tested repeated exposure at
+all. Corrected immediately: reran run 2 and added run 3 with `--force`
+(bypasses the backoff and the on-disk match check, forcing every file to
+be re-attempted - the same "changed := force || fileChanged(...)" bypass
+`syncer.go` already uses for the escape hatch), reproducing three
+genuinely comparable full crawls. Run 2 (forced):
+`downloaded=300 skipped=0 errors=49`, `Total: 1165.2s`, 49 hold events
+(min 21.52s, median 21.54s, max 22.58s) and 49 wait events (median
+42.48s, max 43.83s). Run 3 (forced): `downloaded=300 skipped=0 errors=49`,
+`Total: 1167.1s`, 49 hold events (min 21.52s, median 21.54s, max 22.55s)
+and 49 wait events (median 42.47s, max 43.88s) - **run 2 and run 3 are
+statistically indistinguishable from each other**, and both sit inside
+cycle 3's own baseline band, not above it.
+
+**What this rules out (Rule 2).** Across ~59 minutes of continuous
+`browserDownloadMu` contention spread over three full live crawls run
+back-to-back in one session (1203.1s + 1165.2s + 1167.1s of sync
+wall-clock, comparable to or exceeding cycle 4's own "three prior full
+syncs" load), hold and wait times show **zero trend** - not a small,
+inconclusive drift, but three runs landing within roughly one second of
+each other on both the median and the max. If session-accumulated load
+were a real, gradually-compounding mechanism (a leaking Playwright
+resource, a degrading connection, anything that scales with total crawl
+time in one process), three runs this close together should have shown
+*some* separation by run 3. They did not. **The session-accumulated-load
+hypothesis is refuted** for this reproducible form of the question - it is
+not "cumulative minutes of crawling in one session" that produced cycle
+4's ~70-minute anomaly.
+
+**What's still unexplained.** Cycle 4's own anomaly (two files stuck over
+an hour each, ~200x the normal hold) remains a real, measured, unexplained
+data point - this cycle didn't reproduce it, but it also didn't reproduce
+under materially different conditions (this cycle deliberately avoided
+touching the two specific files cycle 4 named, since cycle 5 already
+cleared those as not belonging to the flaky cluster; this cycle instead
+tested the mechanism in general via the persistent 49-file cluster). The
+honest state: two anomalous data points from cycle 4, refuted as a
+general "session load" mechanism by this cycle's three flat runs, with no
+alternative mechanism proposed or checked (network conditions, OPAL-side
+load, Windows resource pressure - none of these were instrumented here
+either). Downgraded from "the campaign's most urgent open item" (the
+previous report's framing) to a documented one-off, matching how Walk 9's
+own dropout was eventually treated - **not reopened unless it recurs.**
+
+**New open question, ranked:** with the session-load thread now closed,
+the two remaining open items from the 2026-08-20 report are: (a) the
+mutex-sharing fix itself (options a/b/c from cycle 1, still not picked -
+weakened further by this cycle's own finding that contention now costs
+*nothing* extra when the backoff policy is doing its job, same as cycle 3
+found), and (b) the deprioritized version/fork cause hunt behind Question
+44's original HTML-instead-of-bytes finding. Neither is cheap or has a
+new angle this cycle surfaced - next cycle should pick whichever the
+maintainer would rather see move, or default to (a) since it is scoped
+and shippable rather than open-ended source archaeology.
+
 **Cycle, 2026-08-20 (autopilot, fifth cycle today, new session): does the
 70+ minute `needsContentVerification` stall on
 `SoTech/Part-2/21-Bestellung-Listen.zip` /

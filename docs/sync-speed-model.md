@@ -3082,6 +3082,57 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-08-20 (autopilot, sixth cycle today, new session): does
+session-accumulated load (several full live crawls run back-to-back in one
+session) actually degrade `browserDownloadMu` hold times over the
+sequence, or was the ~70-minute anomaly a one-off?**
+
+**Design, written before running, per Rule 1.** Picked up directly from
+the last report's own recommendation ("the session-load question is the
+one item worth a dedicated cycle before this campaign moves on"). Built a
+scratch reproduction at `tmp/q-session-load/` following the standing
+recipe: read-only `robocopy` of the real `_2. Semester`/`_4. Semester`
+course folders (645 files) and the real `.opal-sync.manifest.json` into
+`tmp/q-session-load/root/`, a scratch `config.yaml` with every
+`course_folders`/`default_course_folder`/`subfolder_destinations` absolute
+entry rewritten to point under that root (verified with
+`grep -i onedrive tmp/q-session-load/config.yaml` returning nothing before
+running anything), same 6 courses/concurrency settings as the real config,
+`session_state_file` left pointing at the real shared
+`~/.opal_storage_state.json` (read-only reuse, the project's own designed
+behavior, same as every prior cycle). Running
+`sync --config tmp/q-session-load/config.yaml --debug-clicks --profile`
+**three times back-to-back in this one session**, reusing the same scratch
+manifest across runs (not resetting it between runs - the point is
+accumulated load within one session, and reusing the manifest also keeps
+each run cheap, since the ~300 non-flaky files match-and-skip after run 1
+and only the ~43-50 known-flaky files keep hitting `browserDownloadMu`
+each time). After each run, extracting every `browser-fallback-lock-wait`/
+`-lock-hold` duration from that run's own audit log and computing
+median/max, then comparing the three runs' distributions.
+
+*Expected numbers.* If session load is **not** the mechanism: all three
+runs' median hold stays close to cycle 3's already-measured ~21.5s
+baseline, with no upward trend - runs 2 and 3 might even be faster than
+run 1 if some flaky files happen to resolve via the fast path this time
+(matching cycle 5's finding that not every "flaky" file is flaky on every
+attempt). If session load **is** the mechanism: hold times should trend
+upward run-over-run, with run 3 showing either a clear multi-minute median
+or at least one individual file's hold time climbing toward the tens-of-
+minutes range that cycle 4 measured - a real trend across 3 points, not
+just noise on one file.
+
+**Kill criterion.** Confirms the theory: any run shows a clear, monotonic
+upward trend in hold times (not just one noisy outlier) with run 3
+materially worse than run 1. Refutes it: all three runs' hold-time
+distributions stay statistically indistinguishable from cycle 3's ~21.5s
+median/~22.5s max baseline, with no trend. Wall-clock cap: **90 minutes
+total across all three runs** - if run 1 alone already approaches that on
+its own (echoing cycle 4's 76-minute single-run stall), kill it and report
+whatever the audit log shows rather than attempting runs 2/3, since a
+single-run stall this large would itself already be informative regardless
+of the multi-run comparison.
+
 **Cycle, 2026-08-20 (autopilot, fifth cycle today, new session): does the
 70+ minute `needsContentVerification` stall on
 `SoTech/Part-2/21-Bestellung-Listen.zip` /

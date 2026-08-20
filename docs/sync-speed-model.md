@@ -3082,6 +3082,76 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-08-20 (autopilot, fifth cycle today, new session): does the
+70+ minute `needsContentVerification` stall on
+`SoTech/Part-2/21-Bestellung-Listen.zip` /
+`23-st-connectors-iterators-channels_notes.pdf` reproduce, and is it the
+same `browserDownloadMu` queueing mechanism the third cycle already found
+(scaled up by HTTP-first's near-100% verify rate), or something specific to
+these two files?**
+
+**Design, written before running, per Rule 1.** The previous cycle's own
+"cheapest next check" called for re-running the full 6-course scratch
+reproduction with `--debug-clicks` added - but that full reproduction
+already cost 76 minutes once (killed, still running) and this cycle wants a
+decisive answer, not just a repeat at the same cost. Narrower version of
+the same idea: restrict the scratch config to **only Softwaretechnologie**
+(`courses: ["Softwaretechnologie (SoSe 26)"]`) - both target files live
+there, and Softwaretechnologie alone already carries the large majority of
+this campaign's known-flaky population (33-43 of the historical ~49
+failures, every cycle so far). Copy only the real, read-only
+`_4. Semester/SoTech/Downloads` folder and the real
+`.opal-sync.manifest.json` (untouched, all entries, not filtered - the
+syncer only touches the configured course's own keys) into
+`tmp/q44b/root`, a scratch config pointing there with the same
+`course_folders`/`use_section_subfolders`/concurrency settings as the real
+one, and run `sync --config tmp/q44b/config.yaml --debug-clicks --profile`.
+
+**The mechanism this is actually testing.** Cycle 3 found `browserDownloadMu`
+is scraper-wide and 98% contended, with a ~21.5s median hold per file - so
+the wait *any* file sees is roughly `(queue position) × 21.5s`. Cycle 4's
+run had a much larger contending population than cycle 3's 49
+(likely most of its 87 `needsContentVerification` jobs plus its 15
+failures - up to ~102 candidates for the same single mutex, well over
+cycle 3's 49). If **queueing** explains the ~70-minute stall, cutting the
+scratch run down to one course should cut the contending population
+roughly proportionally too, and both target files should resolve in
+materially less than an hour - not instantly, but scaled down with the
+smaller queue. If instead these two specific files are genuinely
+pathological (their size - a `.zip` and a large notes PDF - a retry loop,
+or some other property unrelated to queue depth), they should still take
+close to an hour *regardless* of how much smaller the rest of the queue is.
+
+*Expected numbers.* Softwaretechnologie carries roughly 60% of the full
+351-file discovered set (210/349) and historically the large majority of
+the flaky population, so I expect this run's own contending population to
+be smaller than cycle 4's ~102 but not dramatically so - a rough guess of
+25-60 minutes total wall clock, with both target files finishing
+individually in well under an hour if the queueing theory holds (a
+proportionally-scaled wait, not an unscaled one).
+
+**Kill criterion.** *Confirms queueing* (closes the question in the
+direction cycle 3's own contention finding predicts, and reopens option
+(a) - a second browser tab dedicated to fallback resolution - as
+justified against the *real* population size, not the narrow 49-file
+estimate cycle 3 priced it against): both target files finish, and their
+individual `browser-fallback-lock-wait` durations are consistent with their
+position in this run's own contention queue (i.e., roughly
+`(number of same-run lock-wait/-hold lines logged before them) × ~21.5s`,
+allowing generous slack for hold-time variance). *Refutes queueing, points
+at something file-specific instead*: either target file's own wait or hold
+duration is wildly out of proportion to the run's own queue depth (e.g.
+still tens of minutes despite fewer than ~30 files ever contending the
+mutex in this run), which would mean the next step is reading what
+`downloadFileViaBrowser` actually does differently for a `.zip`/this
+specific PDF rather than more queueing arithmetic. Wall-clock cap for this
+cycle, independent of either outcome: killed at 50 minutes if still
+running, with whatever the audit log shows by then reported honestly
+(matches cycle 4's own precedent of reporting a killed-but-informative run
+rather than waiting indefinitely).
+
+---
+
 **Cycle, 2026-08-20 (autopilot, fourth cycle today): where does the real
 account's own no-op sync actually spend its time now, given the previous
 cycle just showed the flaky-file serialization tax isn't part of it?**

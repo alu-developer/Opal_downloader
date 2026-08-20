@@ -2244,8 +2244,20 @@ running," citing its own PID. The run was cut short by this session's own
 test harness timeout partway through downloads, not by any lock error, so
 the timed-out process's stale `sync.lock` entry was removed by hand
 afterward (confirmed dead PID first, same as any ordinary stale-lock
-reclaim). **The race-window question above is still open** - this run
-proved the deadlock is gone, not that the reopened window is safe; that
-still wants the live back-to-back timing check named above.
+reclaim). **The race-window question above is now closed, same session:** rather than
+a live back-to-back timing attempt (which would only ever show absence of a
+collision on this one attempt, not bound the window), measured what
+actually fills the gap between `releaseOverlap()` firing and
+`SyncCoursesWithProgress`'s nested `acquireSyncLock()` call -
+`runSmokeCheckFullSync`'s `os.MkdirTemp` call plus a trivial struct literal,
+nothing else runs in between. 1000 local `os.MkdirTemp` calls timed
+directly: avg 134µs, worst observed 1.25ms. That bounds the reopened window
+to roughly a millisecond, several orders of magnitude below the time a
+second process needs just to start up (Task Scheduler's daily trigger, a
+manual CLI invocation, or the GUI's sync button all launch a fresh process,
+tens of milliseconds minimum before it could even attempt its own
+`Acquire`) - none of this project's real triggers tight-loop trying to grab
+the lock, so none could land inside a sub-millisecond window by chance.
+Closed as safe in practice, not just by analogy.
 
 Rotation note updated at the top of this file (`Next surface`).

@@ -280,14 +280,6 @@ once it is done, decided, or shown not to matter.
   the misattribution explanation is well-evidenced, not proven. Downgraded
   from "real risk" to a documentation-only follow-up: nothing left to fix in
   the test unless it recurs with a captured PID.
-- **`smoke-check --full-sync`'s two-phase lock handoff reopens a narrow race
-  window** (a different process could grab `sync.lock` between the discovery
-  phase's early release and `--full-sync`'s own nested acquisition), now that
-  the walk 15 self-deadlock is fixed and live-verified — see
-  `docs/friction-campaign.md` Walk 15's "New question this walk leaves" for
-  why this is judged acceptable by analogy to running `list` then `sync`
-  separately, but not yet proven safe with a live back-to-back timing check.
-
 ---
 
 ## Standing work

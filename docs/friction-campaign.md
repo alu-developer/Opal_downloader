@@ -72,8 +72,8 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for
-a session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
+**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a session with a
+browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
 walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
@@ -87,19 +87,22 @@ first `sync` for the first time this campaign; one friction finding, one
 finding fed directly into the active sync-speed cycle), walk 13 the CLI
 again (everyday use, `sync` itself run to completion for the first time on
 this surface; one "wrong" finding in the diagnostic log's own credential
-scrub) — GUI has had four looks, CLI six, first-run-from-zero three; GUI is
-due *by count*, but see below for why an unattended run can't take it.
+scrub), walk 14 first-run-from-zero again (README's own Commands table
+found missing two real, `--help`-documented commands; one live-verified
+follow-on to walk 13's fix, still open in the technical-detail field) — GUI
+has had four looks, CLI seven, first-run-from-zero four; GUI is due *by
+count*, but see below for why an unattended run can't take it.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, 12, and 13 all landed on
-CLI or first-run-from-zero instead for this same reason, whether or not
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, and 14 all landed
+on CLI or first-run-from-zero instead for this same reason, whether or not
 they said so explicitly at the time. An unattended run should treat
 CLI/first-run as the only two surfaces actually in rotation for it and pick
-whichever of those is due (of the two, first-run-from-zero is due next:
-last touched walk 12, 2026-08-19, vs CLI's walk 13, 2026-08-20) - the GUI
+whichever of those is due (of the two, CLI is due next: last touched walk
+13, 2026-08-20, vs first-run's walk 14, same day but later) - the GUI
 slot stays reserved for a session with an interactive browser tool (or a
 human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
@@ -1938,5 +1941,136 @@ which this run's own `[redacted]`-obscured log lines show retried the same
 `Part-3` file repeatedly at ~21-22s intervals) rather than a UX finding this
 walk should own - handed to phase 3 as a fresh data point rather than
 re-investigated twice.
+
+Rotation note updated at the top of this file (`Next surface`).
+
+### Walk 14 — 2026-08-20, first-run-from-zero (autopilot, phase 2, second walk this calendar day from a different run)
+
+Rotation note (updated after walk 12) said first-run-from-zero is due next
+for an unattended session, last touched walk 12 (2026-08-19); walk 13 (same
+day as this one, an earlier run) took CLI instead. This run's own phase 1
+had already shipped walk 13's own fix (see `docs/BACKLOG-archive.md`), so
+this walk doubled as a live check of that fix in the exact scenario it was
+built for - a genuinely fresh, first-ever manifest - not something walk 13's
+own confirmation run (which reused an existing scratch manifest) had
+covered.
+
+**Setup:** genuine fresh `git clone` into an unrelated scratch temp
+directory (same method walks 3/10/12 used - true zero, not `tmp/friction/`).
+Followed `README.md` literally, in persona: `go build -o
+opal-downloader.exe .`, `setup` (installs Playwright, writes `config.yaml`
+from the example) - both clean, no surprises, matching every prior
+first-run walk. Left the generated config untouched
+(`download_path: "./downloads"`, `courses: ["*"]`) - same "first-timer
+leaves it alone" choice walks 10/12 made and justified.
+
+**Expectation registered before `login`/`list`/`sync`:** identical to walk
+12's - unattended TU-Fast login, then a full course listing, then a first
+sync that downloads everything and explains any failures. All three matched:
+login needed the same self-healing one-retry warning walk 12 already found
+unremarkable, `list` found the same 8 courses/349 files in 57.1s, and `sync`
+finished `downloaded=279 skipped=0 errors=49, Total: 1141.4s` (~19 min) with
+the walk-13 explanatory line printed correctly - **the fix from earlier
+today's phase 1 confirmed working on the exact case it targets, a real
+first-ever manifest, not just walk 13's own reused-manifest check.** No new
+finding in the run itself.
+
+#### Finding — the README a first-timer is told to read never mentions the two commands that answer "how do I make this run on its own?"
+
+**Expectation, registered while reading `README.md` end-to-end before
+touching anything (the literal in-persona starting point every first-run
+walk uses):** having just read the whole page top to bottom, including its
+full "Commands" table, I'd expect that table to be the complete list of
+things this tool can do - so if "make it run automatically every day" is
+possible at all, the table is where I'd expect to find the command for it.
+
+**Reality:** it isn't there. `grep -ni schedule README.md` and
+`grep -ni smoke-check README.md` both return nothing - not one mention,
+anywhere in the file, of either word. Both are real, fully-implemented,
+already-`--help`-documented subcommands (`cmd/opal-downloader/root.go`'s
+`printHelp`, lines 1618-1619/1630-1631/1644-1647): `schedule` is described
+there as "Enable/disable/check a daily automatic sync via Windows Task
+Scheduler" with a full `schedule enable [--time HH:MM] | disable | status`
+usage line, and `smoke-check` as an account-wide reachability check with its
+own three flags. Neither is a hidden or experimental feature - `schedule`
+is exactly the "make this run on its own" answer a first-timer would be
+looking for after finishing their first manual sync, and it is entirely
+absent from the one document the project's own README/GitHub page tells a
+new user to start with.
+
+*Rule 2 - naming the cause sharply enough to predict where else it shows
+up, then checking:* README's "Commands" table lists every other real
+subcommand (`init`, `setup`, `status`, `gui`, `login`, `list`, `sync`,
+`dump-links`, plus the `--dev`/`--force` variants) - cross-checked
+line-by-line against `printHelp`'s own list and found complete except for
+these two. So the cause isn't "the table is generally stale" - it's
+narrower: **README's Commands table was never updated when `schedule` and
+`smoke-check` were added**, and nothing enforces the two staying in sync
+(`printHelp` and `README.md` are two independent, hand-maintained lists).
+That predicts the same gap will recur for the *next* new subcommand unless
+something ties them together - checked cheaply by confirming there is no
+test or CI step comparing the two (`grep -rn "printHelp" --include=*_test.go`
+and a scan of `.github/workflows/ci.yml` found none), so the prediction
+holds: nothing currently stops a fourth command from going the same way.
+
+Tag: **wrong** (README misrepresents the tool's own feature set to the
+audience it's aimed at) / **friction** (walk 6's own finding already
+established that discovering + fixing the on-logon-trigger promise needed a
+real install; this finding is upstream of that - a reader following only
+the README has no way to even learn `schedule` exists in the first place,
+regardless of whether the trigger itself works). Filed to `docs/BACKLOG.md`.
+
+#### Finding — walk 13's fix protects the manifest-key field, but the same message's "technical detail" half still loses filenames to the identical redaction bug
+
+*Break from persona, for diagnosis only (Rule 4):* while confirming walk
+13's fix live (above), read this run's own diagnostic log
+(`~/.opal-downloader/logs/opal-downloader.log`) to check the fix at the
+source rather than trust the console output alone. The primary field is
+fixed exactly as designed - `download error detail for
+default/Softwaretechnologie (SoSe 26)/36-st-scenario-analysis-use-cases_notes.pdf:
+...` keeps its full path, unredacted. But the same line's `(technical
+detail: ...)` half, generated separately by
+`internal/scraper/download.go`'s Playwright click-search loop (not
+`printSyncError`, and never wrapped in `logging.ProtectPath`), still shows
+`href-match a[href*='[redacted].pdf']` and
+`text-match "[redacted].pdf": playwright: timeout...` for every file whose
+name is 32+ characters before `.pdf` - the exact same
+`statuslog.SanitizeMessage` token-shaped redaction walk 13 diagnosed,
+independently reachable through a second, unfixed call site. One file in
+this run's own log escaped it only by chance -
+`37-st-analysis-eu-rent-example.pdf` sits at exactly 30 characters before
+the extension, under the 32-character threshold, so its selector strings
+show up intact (`text-match "37-st-analysis-eu-re... [truncated]"`) purely
+because it's a couple of characters short, not because anything protects
+it.
+
+Tag: **wrong** - same failure mode as walk 13, same fix shape
+(`logging.ProtectPath` already exists and does exactly this; the technical
+detail's Playwright selector strings just need to go through it too before
+reaching `logging.Detail`, most likely inside
+`downloadFileViaBrowser`/`tryCandidatePagesInOrder`
+(`internal/scraper/download.go`), wherever the selector text and the target
+filename are assembled into the error). Not fixed this walk (Rule 5/phase-2
+scope: file it, a later run's phase 1 does the fix) - filed to
+`docs/BACKLOG.md`.
+
+**This walk's own verdict:** first-run-from-zero completed end-to-end again
+with no new friction in the build/setup/login/list/sync path itself; walk
+13's fix live-confirmed working on the exact scenario it was built for; one
+new "wrong" finding in the README's own documentation completeness, and one
+narrow but real follow-on gap in walk 13's fix itself, found by verifying
+rather than assuming the fix was complete.
+
+#### New question this walk leaves (Rule 3)
+
+Is README.md's Commands table the only place this "hand-maintained list
+drifts from the real command set" pattern shows up, or does the same gap
+exist between `printHelp`'s own flag descriptions and what each subcommand
+actually accepts (checked here only for the *command list*, not the full
+option surface)? Not checked this walk - the Commands-table gap alone was
+enough for a clean, scoped finding; a future walk or a source-reading pass
+could diff `printHelp`'s per-command flag lines against each `run*`
+function's actual flag-parsing loop the same way this walk diffed the
+command list against README.
 
 Rotation note updated at the top of this file (`Next surface`).

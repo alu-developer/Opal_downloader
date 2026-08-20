@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/mxschmitt/playwright-go"
@@ -129,9 +130,23 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 	plainURLServesHTML := err == nil && response != nil && response.Status() == 200 &&
 		strings.Contains(strings.ToLower(response.Headers()["content-type"]), "text/html")
 
+	// Sync-speed Question 44 follow-on (2026-08-20): --debug-clicks-gated
+	// instrumentation to measure how often a worker actually waits behind
+	// another file's browser-fallback resolution, rather than guessing from
+	// first principles. auditLog already no-ops when s.debugClicks is
+	// false, so this costs one time.Now() call on the normal path.
+	waitStart := time.Now()
 	s.browserDownloadMu.Lock()
-	defer s.browserDownloadMu.Unlock()
-	return s.downloadFileViaBrowser(fileURL, localPath, plainURLServesHTML)
+	if wait := time.Since(waitStart); s.debugClicks {
+		s.auditLog("browser-fallback-lock-wait", nil, fileURL, fmt.Sprintf("waited %s for browserDownloadMu", wait))
+	}
+	holdStart := time.Now()
+	result := s.downloadFileViaBrowser(fileURL, localPath, plainURLServesHTML)
+	if s.debugClicks {
+		s.auditLog("browser-fallback-lock-hold", nil, fileURL, fmt.Sprintf("held browserDownloadMu for %s", time.Since(holdStart)))
+	}
+	s.browserDownloadMu.Unlock()
+	return result
 }
 
 // attemptDirectDownload performs a stateless HTTP GET against requestURL

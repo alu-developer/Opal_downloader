@@ -3124,6 +3124,94 @@ fraction show real wait time, that's the evidence needed to justify
 building (a) or (b) in a future cycle, and this run's own numbers name
 which files/sections are the ones actually colliding.
 
+**Result: contention is not rare - it is the dominant cost of the entire
+download phase.** `sync --config config.scratch.yaml --debug-clicks`
+against a fresh scratch manifest, real account: `downloaded=300 errors=49,
+Total: 1148.1s` (`tmp/q-lockwait-run.log`). Parsed all 49
+`browser-fallback-lock-wait` audit lines from the run's own debug JSONL
+(`~/.opal-downloader/debug-logs/debug-20260820-104408.389.jsonl`):
+
+- **48 of 49 (98%) waited a non-trivial amount** (>=0.5s) for
+  `browserDownloadMu` - only the very first fallback file of the whole run
+  found the lock free. Median wait **42.6s**, max **43.9s**, 44 of 49 waited
+  30s or more. This is the opposite of the "rare collision" framing option
+  (c) was weighing - contention is the *default* outcome for this
+  population, not an edge case.
+- **Hold durations are short and consistent**: min 21.5s, max 22.5s, median
+  21.5s (`browser-fallback-lock-hold` lines, same run) - each file's full
+  fallback resolution (both `browserFallbackMaxAttempts` attempts, already
+  serialized inside one `Lock`/`Unlock` pair) costs about 21.5s, not the
+  "~200-350s" figure the previous cycle's item-3 diagnosis estimated from
+  first principles. That estimate was wrong by roughly 10x - worth
+  correcting here since it fed directly into ranking this question above
+  other work. (Cause of the old estimate not chased further; plausibly
+  conflated a single attempt with the multi-sync retry-with-backoff cost,
+  which is a different thing.)
+- **Sum of all 49 holds: 1059.5s** - 92% of the run's 1148.1s total
+  wall-clock and 97% of its 1093.8s download phase. The 300 successful
+  fast-path downloads cost the remaining ~34s combined, effectively free by
+  comparison. **The entire download phase's wall-clock is, in practice, the
+  serialized fallback queue** - `download_concurrency: 3` buys real
+  parallelism for the fast-path files (which finish almost immediately) but
+  effectively **zero** parallelism for this population, because all 49 of
+  them fight over the same single mutex one at a time. Confirms the earlier
+  diagnosis's arithmetic (`browserDownloadMu` is scraper-wide, not
+  per-file), but the *scale* - 98% collision rate, not "rare" - is new.
+- **Grouped by `CourseNode` ID, all 49 came from exactly 2 sections**: 43
+  from `RepositoryEntry/53228666883/CourseNode/1615865126729195011`
+  (Softwaretechnologie - one shared `CourseNode` behind all three of
+  `Part-1`/`Part-2`/`Part-3`'s local target folders, split 6/4/33 by the
+  sync log's own `error:` lines, matching Question 44's long-standing
+  33/6/4 figures exactly) and 6 from
+  `RepositoryEntry/53290106881/CourseNode/1775615795226691003`
+  (Algorithmen und Datenstrukturen's `Vorlesung`) - the same two sections
+  this campaign has already named repeatedly (Question 44). The mechanism
+  predicted (path-sorted queue + a small worker pool means files from the
+  same flaky section land on concurrent workers around the same time) holds
+  up exactly; what wasn't predicted correctly was the magnitude.
+
+**This closes the question with the opposite answer to what option (c)
+assumed, but doesn't automatically mean building (a) is worth it** - one
+real caveat, checked cheaply rather than assumed: this specific 1059.5s
+serialization tax is paid on a **fresh** manifest (every file a live
+candidate) or whenever the 2026-08-18 backoff policy's window reopens (6h /
+24h / 3d / capped at 7d) - not on every "routine" sync the ~30s target is
+actually about, since a file already inside its backoff window is skipped
+before `DownloadFile` is ever called, never touching the mutex. Checked the
+maintainer's own real manifest (`C:\Users\alois\OneDrive\.opal-sync.manifest.json`,
+read-only, last updated 2026-08-19) for how often this recurs in practice on
+the account that actually matters: **zero of 612 entries carry a
+`fail_count` at all.** Surprising and not chased further this cycle - either
+his real config's course/section set doesn't reproduce this specific
+collision the way the scratch run's identical course list did, or something
+about his last real sync's timing/state differs from every scratch
+reproduction this campaign has run - but it means this cycle cannot yet say
+how often the real account actually pays this cost. Named as this cycle's
+open question below rather than guessed at.
+
+**Recommendation, not shipped:** option (a) (a second browser tab/page
+dedicated to fallback resolution, so up to `download_concurrency` fallback
+files resolve in true parallel instead of one at a time) would cut this
+tail from ~1059s toward roughly 1059s/3 ≈ 353s when it fires - a real,
+sizeable win on the syncs that hit it, but still nowhere near the ~30s
+target on its own, and its value depends entirely on the still-open
+recurrence question above. Building it now, before that question is
+answered, risks solving a cost that may not actually recur on the one
+account this matters for. Ranked below closing the recurrence question
+first.
+
+**New open question, ranked (Rule 5):** why does the maintainer's real
+manifest show zero `fail_count` entries when every scratch reproduction of
+the same 6-course list this campaign has ever run - including this one -
+reproduces the same ~49-50 failures reliably? Cheapest next check: read the
+real manifest's `updated_at` against the real scheduled-sync history
+(`docs/BACKLOG.md`/Routines) to see whether a real sync has actually run
+*since* the 2026-08-18 backoff policy shipped, and if so, whether it
+downloaded those specific files successfully (in which case the account's
+real behavior genuinely differs from every scratch run) or simply never
+reached them (in which case the manifest's silence doesn't mean the account
+is unaffected, only that it hasn't been measured).
+
 ---
 
 **Cycle, 2026-08-20 (autopilot, second cycle today): the 2026-08-19

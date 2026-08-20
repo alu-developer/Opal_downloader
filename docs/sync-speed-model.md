@@ -3200,17 +3200,59 @@ answered, risks solving a cost that may not actually recur on the one
 account this matters for. Ranked below closing the recurrence question
 first.
 
-**New open question, ranked (Rule 5):** why does the maintainer's real
-manifest show zero `fail_count` entries when every scratch reproduction of
-the same 6-course list this campaign has ever run - including this one -
-reproduces the same ~49-50 failures reliably? Cheapest next check: read the
-real manifest's `updated_at` against the real scheduled-sync history
-(`docs/BACKLOG.md`/Routines) to see whether a real sync has actually run
-*since* the 2026-08-18 backoff policy shipped, and if so, whether it
-downloaded those specific files successfully (in which case the account's
-real behavior genuinely differs from every scratch run) or simply never
-reached them (in which case the manifest's silence doesn't mean the account
-is unaffected, only that it hasn't been measured).
+**Recurrence question answered, same cycle - and it changes the
+recommendation above materially.** Checked `Get-ScheduledTaskInfo
+OpalDownloaderScheduledSync`: `LastRunTime 2026-08-19 11:06:13,
+LastTaskResult 0` - a real scheduled sync *did* run after the 2026-08-18
+backoff policy shipped, so the manifest's zero `fail_count` entries are not
+explained by "it never got the chance." Read the real manifest directly for
+the exact 49 files this cycle's scratch run just failed on (same
+`use_section_subfolders: true` layout, so the real target keys are
+findable): **every single one of them already has a valid `size`/`modified`
+entry, dated weeks before this campaign started** - the three
+`37-st-analysis-eu-rent-example*.pdf` files at `06.07.2026`, the
+`Vorlesung_7/8/9_10*.pdf` files at `24.07.2026`/`26.07.2026`. These files
+were downloaded successfully long ago, before whatever now makes them
+consistently fail a *fresh* attempt, and on every routine sync since, the
+manifest's own unchanged-file check (`size`/`modified` still match) skips
+them **before `DownloadFile` is ever called** - they never reach
+`browserDownloadMu`, on the real account, at all.
+
+**This means the 1059.5s/98%-contention tax this cycle measured does not
+currently cost the maintainer's own routine syncs anything** - it is a
+fresh-manifest-only cost. It is real, and it is exactly what a genuine new
+user hits on their first sync (matching walk 12 and walk 14's own "20-minute
+first impression, 49-50 unexplained-until-recently errors" finding) - a
+first-run UX problem this campaign had been implicitly treating as a
+routine-sync speed problem since Question 44 opened 2026-08-12, because
+every reproduction run *this campaign itself has ever used* starts from a
+fresh scratch manifest. **Revises the recommendation above:** option (a)
+(parallel fallback resolution) is worth building for first-run experience,
+not for the maintainer's own ~30s/no-op target - it would not move that
+number at all on his account today, since the files it would speed up are
+never attempted there. Ranked as a first-run-experience item
+(`docs/friction-campaign.md`'s territory, alongside walk 12/14's own
+first-sync findings) rather than continued work under Question 44's
+routine-sync framing.
+
+**Bigger implication, worth flagging plainly rather than burying in a
+parenthetical:** if this specific mechanism was never the routine-sync
+cost this campaign has spent 20+ investigation commits chasing since
+2026-08-12, whatever *does* make up the real account's current no-op-sync
+time (last measured around ~120s, `docs/BACKLOG.md`'s "Now"/weekly-review
+history) needs re-attributing - most likely the discovery/crawl phase
+itself (a fresh `list` alone measured 50-74s across recent walks), not the
+download phase's flaky-file handling. Not re-measured this cycle - the next cycle's cheapest move is a
+`--profile` no-op sync that reproduces the real account's *steady state*
+without touching the real folder: copy the real manifest (read-only copy,
+not a modification) into a scratch `download_path` alongside the actual
+downloaded files it references, point a scratch config at that copy, and
+run `sync --profile` there. An empty/fresh scratch manifest would not
+answer this - it would just re-measure this cycle's own fresh-manifest
+result - so reusing the real manifest's already-populated state is what
+makes this a like-for-like measurement of "where does a real no-op sync's
+~120s go now," without the standing "never modify the real download_path"
+rule ever being at risk.
 
 ---
 

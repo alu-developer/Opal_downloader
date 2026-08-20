@@ -88,6 +88,26 @@ func TestVerboseShowsDiagnostics(t *testing.T) {
 	}
 }
 
+// In verbose mode a diagnostic reaches the console directly, bypassing the
+// file handler's scrubForFile entirely - so a ProtectPath-wrapped value (a
+// manifest key, a selector string) must have its markers stripped there too,
+// or the raw \x01/\x02 bytes print to the terminal instead of the plain text
+// they were meant to protect elsewhere. Found live 2026-08-20: a
+// --debug-clicks audit line showed literal marker bytes around a selector.
+func TestVerboseConsoleStripsProtectionMarkersInsteadOfLeakingThem(t *testing.T) {
+	console, _ := setup(t, true)
+
+	Detail("href-match %s: timeout", ProtectPath("a[href*='long-filename.pdf']"))
+
+	out := console.String()
+	if strings.ContainsAny(out, "\x01\x02") {
+		t.Errorf("a path marker leaked to the console as a raw control byte: %q", out)
+	}
+	if !strings.Contains(out, "a[href*='long-filename.pdf']") {
+		t.Errorf("the protected value itself was lost, not just its markers: %q", out)
+	}
+}
+
 // The file is what someone attaches to a bug report, so it has to be safe to
 // attach without anyone remembering to check it.
 func TestTheLogFileIsScrubbed(t *testing.T) {

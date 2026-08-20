@@ -41,6 +41,17 @@ func ProtectPath(s string) string {
 	return pathMarkerStart + s + pathMarkerEnd
 }
 
+// StripProtectionMarkers removes ProtectPath's markers, leaving the wrapped
+// value visible as plain text. For any output path that never runs
+// scrubForFile's credential scrub in the first place (the console handler,
+// see consoleHandler.Handle) - there is nothing for the markers to protect
+// the value from there, so left alone they print as raw, unpaired control
+// bytes instead of disappearing invisibly the way they do on the scrubbed
+// file path.
+func StripProtectionMarkers(s string) string {
+	return protectedPattern.ReplaceAllString(s, "$1")
+}
+
 // scrubForFile sanitizes a message for the diagnostic log while keeping the
 // one field that makes the log worth having.
 //

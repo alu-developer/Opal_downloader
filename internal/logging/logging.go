@@ -284,7 +284,13 @@ func (c *consoleHandler) Handle(_ context.Context, r slog.Record) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_, err := fmt.Fprintln(c.w, prefix+r.Message)
+	// The console never runs scrubForFile's credential scrub (that's the
+	// file handler's job, below) - so a ProtectPath-wrapped value reaching
+	// here has nothing to be protected from, and its markers must be
+	// stripped rather than scrubbed away, or they print as raw control
+	// bytes (found live, 2026-08-20: a --debug-clicks audit line showed
+	// literal \x01...\x02 around a selector string on the terminal).
+	_, err := fmt.Fprintln(c.w, prefix+StripProtectionMarkers(r.Message))
 	return err
 }
 

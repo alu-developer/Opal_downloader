@@ -72,8 +72,8 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for a
-session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
+**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a session with a
+browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
 walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
@@ -92,20 +92,24 @@ found missing two real, `--help`-documented commands; one live-verified
 follow-on to walk 13's fix, still open in the technical-detail field), walk
 15 the CLI again (`smoke-check --full-sync`, walk 8's own leftover open
 question, finally run to completion - one **blocker**, a 100%-reproducible
-self-deadlock) — GUI has had four looks, CLI eight, first-run-from-zero
-four; GUI is due *by count*, but see below for why an unattended run can't
-take it.
+self-deadlock), walk 16 first-run-from-zero again (installer surface still
+blocked - no Inno Setup on this machine; fell back to build-from-source,
+followed the README's own "Quick Start (Web UI)" flow for the first time
+this campaign - one "wrong" finding, the README describes the pre-native-
+window print-URL flow that Windows no longer uses) — GUI has had four
+looks, CLI eight, first-run-from-zero five; GUI is due *by count*, but see
+below for why an unattended run can't take it.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, and 15 all
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, and 16 all
 landed on CLI or first-run-from-zero instead for this same reason, whether
 or not they said so explicitly at the time. An unattended run should treat
 CLI/first-run as the only two surfaces actually in rotation for it and pick
-whichever of those is due (of the two, first-run-from-zero is due next:
-last touched walk 14, 2026-08-20, vs CLI's walk 15, same day but later) -
+whichever of those is due (of the two, CLI is due next: last touched
+walk 15, 2026-08-20, vs first-run-from-zero's walk 16, same day but later) -
 the GUI slot stays reserved for a session with an interactive browser tool
 (or a human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
@@ -2259,5 +2263,105 @@ tens of milliseconds minimum before it could even attempt its own
 `Acquire`) - none of this project's real triggers tight-loop trying to grab
 the lock, so none could land inside a sub-millisecond window by chance.
 Closed as safe in practice, not just by analogy.
+
+Rotation note updated at the top of this file (`Next surface`).
+
+### Walk 16 — 2026-08-20, first-run-from-zero (autopilot, phase 2, fourth walk this calendar day from a different run)
+
+Rotation note said first-run-from-zero is due next for an unattended run
+(last touched walk 14, same day; CLI took walk 15, also same day). Tried
+the installer surface first, since `docs/BACKLOG.md` names it as "still
+unwalked by the campaign proper" - blocked immediately: Inno Setup (`iscc`)
+is not installed on this machine, so `scripts\build-installer.ps1` cannot
+run here at all. Filed as a fact, not chased further (Rule 4: this is a
+missing tool, not something in-persona effort gets past). Fell back to
+"build from source" first-run, walk 12's method: genuine fresh `git clone`
+into an unrelated scratch temp directory, followed `README.md` literally.
+
+**Setup:** `git clone` → `go run .../playwright@v0.6100.0 install` (silent
+success, matching walk 12's own note that this is expected upstream
+behavior) → `go build -o opal-downloader.exe .`. All three clean, no
+surprises - same ground walks 10/12 already covered, no new finding there.
+
+**Expectation registered before the next step:** rather than repeat
+walks 3/7/10/12's `init`/`setup`/`login`/`list`/`sync` CLI path a fifth
+time, followed the README's own headline flow instead - "Quick Start (Web
+UI)" is the *first* thing the README shows after "Build from source", and
+no walk in this campaign's log has actually followed it. Its own text: "Once
+built... just run the binary with no arguments... starts a local web server
+bound to 127.0.0.1 and prints the URL to open in your browser." I expected:
+run with no args, get a printed URL, open my own browser to it, see a
+Settings form pre-filled with defaults since no `config.yaml` exists yet.
+
+#### Finding — the README's "Quick Start (Web UI)" section describes the old print-the-URL flow; current Windows behavior auto-opens a native window instead, and never prints the line the README quotes
+
+**Reality:** running the freshly-built binary with no arguments printed
+`Opal Downloader GUI opening in a native window (http://127.0.0.1:51083)...`
+- not the URL-to-open-yourself line the README shows. *Break from persona,
+diagnosis only (Rule 4):* `internal/gui/gui.go:215-232` - `hasNativeWindow`
+is a compile-time constant, `true` on Windows
+(`internal/gui/window_windows.go:26`) and `false` everywhere else
+(`window_other.go:15`). When true, the server opens a native WebView2
+window and blocks until it closes, printing only the one line above; the
+README's quoted "prints the URL to open in your browser... Press Ctrl-C to
+stop" text is the `hasNativeWindow == false` branch
+(`gui.go:234-235`), which non-Windows platforms still hit but Windows -
+this project's only currently-supported install target, per the README's
+own "Download & Install (Windows)" section and the Windows-only installer -
+never does.
+
+Confirmed the window genuinely opened, not just printed: `tasklist` showed
+`opal-downloader.exe` still running (blocked on the window, as documented)
+and a fresh crop of `msedgewebview2.exe` child processes (WebView2's
+multi-process model - main/renderer/GPU/utility, ~24 processes for one
+window) that were not present before the run. The HTTP server itself works
+exactly as documented underneath - `curl`'d `/` and `/settings` directly
+(text-only substitute for actually clicking, logged as a persona break
+since a real user would open a real browser, not curl) and confirmed the
+settings form really is pre-filled with sensible defaults
+(`download_path` defaults to `./downloads`) as the README separately
+promises - that part is accurate.
+
+**Cause, named sharply enough to predict where else it shows up:** the
+native-window feature shipped without a matching README update, so any
+doc text describing the *old* headless "prints URL, wait for Ctrl-C"
+interaction model is now wrong specifically for Windows. Checked the
+prediction (Rule 2): `docs/gui-concept.md:137` ("...or just prints the
+URL") and `docs/gui-concept.md:346` (an open design question - "Does it
+auto-open the browser or just print a URL?") are both stale the same way -
+the second one poses as unanswered a question the shipped code already
+answers. `docs/gui-concept.md` is a design doc rather than user-facing, so
+lower priority than the README, but the same fix (state the native-window
+behavior, note the non-Windows fallback) applies to both. Tag: **wrong** -
+not a blocker (the feature works, arguably better than what's documented),
+but the README states a specific interaction model as fact and current
+Windows behavior does something else entirely.
+
+Cleaned up after the run: killed the test `opal-downloader.exe` and the
+WebView2 processes it spawned (`taskkill /F`) rather than leaving a stray
+window and ~24 background processes on the desktop from an unattended
+session - six unrelated `msedgewebview2.exe` PIDs returned "Access is
+denied" during cleanup, consistent with them belonging to the maintainer's
+own, unrelated browser session rather than this test run; left untouched.
+
+**This walk's own verdict:** one finding (`docs/BACKLOG.md`), source- and
+live-confirmed (process list + WebView2 child processes, not just the
+printed line). Installer surface remains unwalked - a tooling gap on this
+machine, not a persona finding, but worth recording since it is now the
+second run to hit it (see `docs/BACKLOG.md`'s existing installer-surface
+note).
+
+#### New question this walk leaves (Rule 3)
+
+No flag or env var opts out of the native window on Windows
+(`hasNativeWindow` is a hardcoded `const`, not read from any flag/config) -
+is that fine, or does a headless/automated/SSH use of bare `opal-downloader`
+(this walk's own curl-based workaround being one example) deserve an escape
+hatch back to the old print-URL behavior? Not answered this walk;
+`sync --scheduled` (the one automated caller in this codebase) is
+independently confirmed unaffected (`internal/scheduler/scheduler_windows.go:194`
+always passes an explicit `sync --scheduled` argument, never bare no-args),
+so this is a hypothetical-automation question, not an operational risk
+today.
 
 Rotation note updated at the top of this file (`Next surface`).

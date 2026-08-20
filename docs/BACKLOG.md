@@ -146,7 +146,7 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11 & 13, first-run walks 3, 7, 10, 12 & 14)
+### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13 & 15, first-run walks 3, 7, 10, 12, 14 & 16)
 
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
@@ -258,7 +258,41 @@ maintainer. Walk detail, expectations and named causes:
   walk 6 sharpens why that now matters beyond general thoroughness: the
   on-logon-trigger finding above is blocked on exactly that surface. The
   2026-08-11 installer work was engineering verification with full knowledge
-  of the code, so none of it counts as a persona walk.
+  of the code, so none of it counts as a persona walk. **Confirmed still
+  blocked, walk 16, 2026-08-20:** this machine has no Inno Setup (`iscc`)
+  installed, so `scripts\build-installer.ps1` cannot run here at all - a
+  tooling gap, not a persona finding, and the second unattended run in a row
+  to hit it. Needs either Inno Setup installed on this machine or a live
+  session with it available.
+- **wrong — the README's "Quick Start (Web UI)" section describes the old
+  print-the-URL-and-wait-for-Ctrl-C flow; current Windows behavior (this
+  project's only supported install target) auto-opens a native WebView2
+  window instead and never prints that line.** Walk 16, 2026-08-20.
+  `internal/gui/gui.go:215-232`: `hasNativeWindow` is a hardcoded compile-time
+  `const`, `true` on Windows (`window_windows.go:26`), `false` elsewhere
+  (`window_other.go:15`) - no flag or config toggles it. When true, the
+  actual printed line is `Opal Downloader GUI opening in a native window
+  (<url>)...`, and the process blocks until the window is closed by hand;
+  the README's quoted "prints the URL to open in your browser... Press
+  Ctrl-C to stop" text is the `hasNativeWindow == false` branch
+  (`gui.go:234-235`), which only non-Windows platforms reach. Live-confirmed
+  as a real window, not just a log line: `tasklist` showed the test process
+  still running (blocked on the window) plus ~24 new `msedgewebview2.exe`
+  child processes (WebView2's normal multi-process model) that were not
+  present before the run; cleaned up afterward with `taskkill /F` rather
+  than leaving a stray window/process cluster from an unattended session.
+  The rest of the section is accurate - `curl`'d `/` and `/settings`
+  directly and confirmed the settings form really is pre-filled with
+  sensible defaults (`download_path` → `./downloads`) with no `config.yaml`
+  present, exactly as documented. Same staleness also present in
+  `docs/gui-concept.md:137` and `:346` (a design-doc open question the
+  shipped code already answers) - lower priority than the README since it's
+  not user-facing, but the same fix applies. Fix direction: update the
+  README's Quick Start section to describe the native-window behavior on
+  Windows and name the non-Windows fallback explicitly, rather than stating
+  the old flow as universal fact. Tag: **wrong**, not **blocker** - the
+  feature itself works fine, arguably better than what's documented; only
+  the doc is out of date. Full detail: `docs/friction-campaign.md` Walk 16.
 
 ---
 

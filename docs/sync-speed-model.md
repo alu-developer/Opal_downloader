@@ -3150,6 +3150,91 @@ running, with whatever the audit log shows by then reported honestly
 (matches cycle 4's own precedent of reporting a killed-but-informative run
 rather than waiting indefinitely).
 
+**Result: neither hypothesis confirmed - the stall simply did not
+reproduce, and the two target files turn out not to belong to the
+long-standing flaky cluster at all.** `sync --config tmp/q44b/config.yaml
+--debug-clicks --profile` finished cleanly in **980.6s** (no kill needed):
+`downloaded=0 skipped=167 errors=43`. Both target files -
+`21-Bestellung-Listen.zip` and `23-st-connectors-iterators-channels_notes.pdf`
+- resolved via the **fast counter-refresh path** in under 1.1s each
+(`fast-path-refresh-hit`, "verified unchanged"), never once touching
+`browserDownloadMu` or the slow browser-fallback path at all. No stall, no
+elevated wait, nothing - the files this cycle was built to test behaved
+exactly like the other 165 clean files in the run.
+
+**The 43 errors this run are the same long-standing cluster this campaign
+has tracked since 2026-08-11** (33 Part-3 / 6 Part-1 / 4 Part-2, pixel-
+identical to every prior measurement), and every `browser-fallback-lock-wait`/
+`-lock-hold` duration in the run matches cycle 3's own characterization
+exactly - max wait 43.4s, max hold 22.5s, none remotely close to the
+70-minute figure cycle 4 measured. The 4 Part-2 failures this run are all
+`25-Graphs*` files - a completely different file group from the two
+`21-`/`23-`-prefixed files cycle 4's stall was about. **The files that
+stalled for over an hour last cycle are not members of the stable,
+reproducible flaky cluster at all** - they behave like perfectly ordinary
+files under a fresh session with no other same-day live crawl load.
+
+**What this rules in and out (Rule 2).** Ruled out: population-size
+queueing does not scale up to anything close to an hour even when directly
+re-targeting the exact two files that stalled, at a population (43
+contenders) large enough to have produced a real, measured ~16-minute
+download phase via ordinary contention (947.6s ÷ 43 ≈ 22s/file, matching
+cycle 3's median hold almost exactly) - so "just more queueing" was never
+going to explain a 70-minute *single-file* wait, and this cycle confirms
+that arithmetic gap directly rather than by estimate. Also ruled out (or at
+least not needed as an explanation): anything specific to these two files'
+content, size, or type - a `.zip` and a PDF that resolved via the *fastest*
+path available, not the slowest. What is **not** ruled out, and is now the
+leading explanation by elimination: cycle 4's own session had already run
+three full live crawls that day before the stall (walk 14's sync, the
+contention cycle's sync, and the stalling run itself) on top of whatever a
+concurrent session added earlier - the exact "unusually heavy self-inflicted
+load" pattern this campaign has already named at least twice before (Walk
+9's Softwaretechnologie dropout, 2026-08-18; this file's own 2026-08-19
+report). This cycle's own session had comparatively light same-day load
+(one ~48s smoke-check discovery from the preceding friction walk, nothing
+like cycle 4's three full syncs) and did not reproduce anything unusual.
+
+**Closing this specific instance, not the general risk.** The two named
+files are no longer flagged as suspect - nothing about them predicts a
+repeat. But the *mechanism* this leaves unclosed is real and still
+concerning: **some property of a heavily-loaded session can turn an
+ordinary ~21.5s browser-fallback resolution into something 100-200x
+slower, on files that are otherwise completely unremarkable** - and that
+property has not been named, only correlated with same-day load twice now
+without a source-level explanation for *why* load would do that (a leaked
+Playwright page/tab accumulating across three prior full crawls in one
+process? A degraded network/OPAL-side condition from sustained traffic?
+Neither checked this cycle).
+
+**New open question, ranked by what's actually left:** is heavy same-day
+session load (specifically: several full live crawls already run in the
+*same process*, not just the same day) a real, reproducible cause of
+occasional 100x+ slow browser-fallback resolutions, checkable by
+deliberately running 3-4 full syncs back-to-back in one session and
+watching whether *any* file's `browser-fallback-lock-hold` duration
+degrades over the sequence - or is this cycle's own clean result (light
+load, no anomaly) plus cycle 4's own heavy-load anomaly just two data
+points that happen to correlate, with the real trigger still
+unidentified? Not cheap to check (deliberately reproducing heavy load
+costs another 3-4 full sync cycles' worth of wall clock), so ranked below
+whatever this campaign picks up next rather than run immediately - but
+worth naming precisely rather than leaving as a vague "maybe load-related"
+note, since a session-accumulation mechanism (rather than a per-file one)
+would be a genuinely new, previously-unconsidered failure class for this
+project's browser-fallback path.
+
+**Incidental fix, same cycle:** while reading this run's own audit output
+live, found `logging.ProtectPath`'s markers (`\x01`/`\x02`) leaking as raw
+control bytes into the terminal whenever `--debug-clicks`/verbose mode is
+on - the console handler never scrubs (only the file handler does), so a
+protected value had nothing stripping its markers on that path. Fixed
+(`internal/logging/logging.go`'s `consoleHandler.Handle` now calls a new
+`logging.StripProtectionMarkers` before printing), tested
+(`TestVerboseConsoleStripsProtectionMarkersInsteadOfLeakingThem`), shipped
+directly rather than filed - unrelated to sync speed but cheap to fix in
+passing.
+
 ---
 
 **Cycle, 2026-08-20 (autopilot, fourth cycle today): where does the real
@@ -6103,6 +6188,76 @@ Every 5 cycles, each ending with a recommendation: keep going or stop, and why. 
 decision is the maintainer's, not a counter's — no cap on the campaign, the kill criterion
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
+
+### 2026-08-20 (autopilot): five cycles since the last report, the mutex-contention mechanism confirmed and quantified, a real 70+ minute anomaly found then not reproduced - keep going, with one clearly-named open question
+
+Five cycles since 2026-08-19's report, all 2026-08-20: (1) the maintainer's
+own `/decide`-round follow-up cycle - an end-to-end re-measurement (closing
+the "~300s recollection" question with a real number), item 2's silent-wait
+UX fix shipped and live-verified, item 3's mutex-sharing diagnosed with
+three fix options named (a/b/c) but not picked; (2) checked whether
+browser-fallback contention costs the real account anything *today* -
+found it doesn't, because every currently-flaky file's manifest entry
+already matches on disk and gets skipped before ever reaching the mutex;
+(3) live-measured contention directly with `--debug-clicks`: **not rare -
+98% of fallback acquisitions wait, median 42.6s, hold 21.5s median,
+summing to 92% of the download phase's wall-clock** - the earlier
+~200-350s hold estimate that had ranked this question was itself wrong by
+~10x, corrected here; (4) a real-manifest reproduction of the account's own
+steady state surfaced a genuine, alarming anomaly - two files stuck in
+`needsContentVerification` for **over an hour each** (~200x the normal
+hold), reported with a heavy-same-day-load caveat rather than as a
+confirmed conclusion; (5) this cycle, a fresh-session, single-course
+targeted re-run of the exact two files that stalled: **they did not
+reproduce at all** - both resolved via the fast path in under 1.1s, and
+turned out not to belong to the long-standing 43-file flaky cluster in the
+first place. Also this cycle, incidentally: found and fixed a real bug
+(`logging.ProtectPath` markers leaking as raw control bytes into verbose
+console output) while reading this cycle's own audit trail.
+
+**What's known now that wasn't 5 cycles ago:** the mutex-contention
+mechanism this campaign long suspected is now measured, not estimated -
+98% collision rate, ~21.5s median hold, and it accounts for the entire
+download phase's wall-clock on a fresh manifest (92-97%). On the real
+account's own manifest, this currently costs *nothing* (every flaky file
+already matches on disk and is skipped before the mutex), so the
+contention finding is real but not currently load-bearing for the
+maintainer's actual routine syncs. The ~300s "before this campaign" figure
+the maintainer recalled is addressed (item 1, cycle 1). **What's still
+open:** the version/fork gap behind Question 44's HTML-instead-of-bytes
+cause (deprioritized since 2026-08-17, still unresolved); the mutex-sharing
+fix itself (options a/b/c from cycle 1, not picked - and now, per cycle 3,
+known to matter only on a fresh/reopened-backoff manifest, which weakens
+the case for building it soon); and the new one this report is really
+about.
+
+**The new open question, named as precisely as this cycle can manage:**
+does heavy same-day *session* load (several full live crawls already run
+in the same process) cause occasional 100x+ slow browser-fallback
+resolutions on otherwise-unremarkable files? Two data points so far, both
+consistent with the theory but neither confirming a mechanism: a
+heavily-loaded session (three prior full syncs) produced a ~70-minute
+anomaly on two ordinary files; a lightly-loaded session (one ~48s
+discovery) re-targeting those same two files under otherwise-comparable
+conditions produced nothing unusual at all. Correlation, not yet causation
+- no source-level explanation for *why* session load would do this has
+been proposed or checked (a leaked Playwright resource accumulating across
+crawls? something OPAL-side reacting to sustained traffic from one
+session?). Deliberately not chased this cycle - confirming it costs
+another 3-4 full live syncs run back-to-back in one session, which is
+expensive enough to warrant picking it up as its own dedicated cycle
+rather than folding it into this report.
+
+**Recommendation: keep going.** Nothing above is a dead end - the
+mutex-contention thread has a real, measured answer and a scoped-but-
+undecided fix; the anomaly, while unresolved as a *mechanism*, is no
+longer an open landmine for the maintainer's own account (it didn't
+reproduce under comparable single-course conditions, and the two named
+files are cleared). The session-load question is the one item worth a
+dedicated cycle before this campaign moves on - it is the only thread from
+this batch that could still be a real, unbounded risk on the maintainer's
+own machine (which does run several `opal-downloader` invocations across a
+day) rather than a closed or currently-inert finding.
 
 ### 2026-08-19 (autopilot): five cycles since the last report, a second shipped-and-live-verified fix, a real correctness bug found along the way - keep going, but pace the live-crawl load
 

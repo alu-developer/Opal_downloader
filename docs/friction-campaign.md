@@ -1912,6 +1912,12 @@ lift-and-restore approach to a path-shaped pattern in addition to
 placeholder-protected way URLs already are before it ever reaches
 `logging.Detail`. Filed to `docs/BACKLOG.md`.
 
+**Fixed 2026-08-20 (autopilot, next run's phase 1):** took the second option
+- `logging.ProtectPath` (`internal/logging/scrub.go`) lets a call site mark
+a value it already knows is safe, and `printSyncError` now wraps
+`targetKey` with it before the message reaches `logging.Detail`. Full
+detail in `docs/BACKLOG-archive.md`'s "Done recently".
+
 **This walk's own verdict:** one everyday CLI path (`sync` to completion
 against a real, non-trivial file set) fully exercised for the first time
 this campaign outside the first-run surface; the new error-explanation

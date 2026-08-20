@@ -12,6 +12,35 @@ import (
 // credential scrub and put back afterwards.
 var urlPattern = regexp.MustCompile(`https?://[^\s"'<>)\]]+`)
 
+// pathMarkerStart and pathMarkerEnd bracket a value wrapped by ProtectPath.
+// Control characters, so they cannot occur in a real manifest path or file
+// name and cannot be confused with the message's own text.
+const (
+	pathMarkerStart = "\x01"
+	pathMarkerEnd   = "\x02"
+)
+
+// protectedPattern finds values a call site has already wrapped with
+// ProtectPath.
+var protectedPattern = regexp.MustCompile(pathMarkerStart + `(.*?)` + pathMarkerEnd)
+
+// ProtectPath marks s so scrubForFile's token-shaped redaction skips over
+// it, the same way it already skips URLs.
+//
+// tokenLikePattern (see statuslog.SanitizeMessage) redacts any run of 32+
+// characters from the base64/hex-plus-path alphabet - right for a session
+// cookie, wrong for a manifest key like
+// "Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf",
+// whose no-spaces tail is exactly that shape and was silently eaten from the
+// one log line meant to say which download failed (friction campaign walk
+// 13). Call this only with a value the call site fully controls the origin
+// of - a manifest key, a course or file name built from data this project
+// already scraped - never with anything that could carry raw session state,
+// since wrapping it here means the scrub never looks at it again.
+func ProtectPath(s string) string {
+	return pathMarkerStart + s + pathMarkerEnd
+}
+
 // scrubForFile sanitizes a message for the diagnostic log while keeping the
 // one field that makes the log worth having.
 //
@@ -33,15 +62,20 @@ var urlPattern = regexp.MustCompile(`https?://[^\s"'<>)\]]+`)
 // The whole-message checks in SanitizeMessage still apply to what is left, so
 // a message that looks like raw session state is still discarded outright.
 func scrubForFile(msg string) string {
-	var urls []string
+	var lifted []string
 	withPlaceholders := urlPattern.ReplaceAllStringFunc(msg, func(u string) string {
-		urls = append(urls, stripQuery(u))
-		return urlPlaceholder(len(urls) - 1)
+		lifted = append(lifted, stripQuery(u))
+		return urlPlaceholder(len(lifted) - 1)
+	})
+	withPlaceholders = protectedPattern.ReplaceAllStringFunc(withPlaceholders, func(m string) string {
+		inner := m[len(pathMarkerStart) : len(m)-len(pathMarkerEnd)]
+		lifted = append(lifted, inner)
+		return urlPlaceholder(len(lifted) - 1)
 	})
 
 	scrubbed := statuslog.SanitizeMessage(withPlaceholders)
 
-	for i, u := range urls {
+	for i, u := range lifted {
 		scrubbed = strings.Replace(scrubbed, urlPlaceholder(i), u, 1)
 	}
 	// SanitizeMessage truncates at 500 characters, which can cut a

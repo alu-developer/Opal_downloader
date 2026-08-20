@@ -81,3 +81,42 @@ func TestNoPlaceholderMarkersReachTheLog(t *testing.T) {
 		t.Fatalf("a placeholder marker survived into the output: %q", got)
 	}
 }
+
+// Friction campaign walk 13: a manifest key with a no-spaces tail (course
+// name is fine, the path segment after it is 32+ chars of
+// [A-Za-z0-9+/_-]) reads as token-shaped to the general scrub and lost the
+// filename that identifies which download failed. ProtectPath is the fix a
+// call site uses to hold a known-safe path out of the scrub, the same way
+// scrubForFile already holds URLs out.
+func TestProtectedPathSurvivesTheScrub(t *testing.T) {
+	const path = "Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf"
+	msg := "download error detail for " + ProtectPath(path) + ": response is HTML (technical detail: browser fallback click did not find a downloadable link)"
+
+	got := scrubForFile(msg)
+
+	if strings.Contains(got, "[redacted]") {
+		t.Fatalf("the manifest path was redacted, which is what makes this log line useless for diagnosis:\n%s", got)
+	}
+	if !strings.Contains(got, path) {
+		t.Fatalf("scrubbed message lost the manifest path %q:\n%s", path, got)
+	}
+	if strings.ContainsAny(got, "\x01\x02") {
+		t.Fatalf("a path marker survived into the output: %q", got)
+	}
+}
+
+// Holding a protected path out of the scrub must not create a hole for a
+// real credential sitting right next to it in the same message.
+func TestNonPathCredentialsAreStillRedactedAlongsideAProtectedPath(t *testing.T) {
+	const token = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"
+	msg := "download error detail for " + ProtectPath("Course/file.pdf") + ": failed, Cookie: shibsession=" + token
+
+	got := scrubForFile(msg)
+
+	if strings.Contains(got, token) {
+		t.Fatalf("a credential next to a protected path survived the scrub:\n%s", got)
+	}
+	if !strings.Contains(got, "Course/file.pdf") {
+		t.Fatalf("the protected path was lost:\n%s", got)
+	}
+}

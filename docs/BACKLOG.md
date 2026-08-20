@@ -33,29 +33,8 @@ _Nothing currently blocking a sync/list/login on the account — checked
 2026-08-14: `~/.opal-downloader/sync.lock` does not exist. The 2026-08-13
 5.5-hour hold is closed, see `docs/BACKLOG-archive.md`._
 
-**2026-08-19 (autopilot): shipped and live-verified — closed.** A
-correctness bug found while diagnosing a sync-speed experiment
-(`docs/sync-speed-model.md`'s fourth 2026-08-19 cycle): two different
-remote files sharing a filename across different course sections (e.g.
-current-semester vs. an archived "Material aus dem Wintersemester" section)
-collided onto the same local/manifest path whenever `use_section_subfolders`
-is `false` — the shipped `config.example.yaml`'s own default. The syncer's
-job-building loop had no dedup on the resolved target path, so both files
-downloaded every sync and whichever result landed last silently overwrote
-the other on disk with no warning, forever. Fixed in
-`internal/syncer/syncer.go`'s `processRemoteFiles`: the loop now keeps the
-first remote file seen for a given target path and prints a named warning
-for every collision, naming both source URLs. Unit-tested with the real
-course/URL shape from the finding
-(`TestProcessRemoteFilesDedupesCollidingTargetPaths`). Live-verified against
-the real account (scratch `download_path`): before the fix, `downloaded=38`
-for only 19 truly distinct files (each downloaded twice, one 3x); after,
-`downloaded=19` exactly, with 21 collision warnings printed (a third course,
-`So26 Programmieren`, was also affected — not visible from the pre-fix log
-alone). The maintainer's real `config.yaml` already sets
-`use_section_subfolders: true`, so his real syncs were never exposed to this
-specific collision — but any user on the shipped default was and had no way
-to know a file was silently missing.
+_Nothing open right now — the 2026-08-19 target-path-collision fix shipped
+and live-verified; detail moved to `docs/BACKLOG-archive.md`._
 
 ---
 
@@ -166,31 +145,6 @@ maintainer. Walk detail, expectations and named causes:
 **bloat** / **question**.
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11 & 13, first-run walks 3, 7, 10 & 12)
-
-- **wrong — the diagnostic log's own credential scrub eats real filenames on
-  the one line a user would check to find out which download keeps
-  failing.** Walk 13, 2026-08-20: `printSyncError`
-  (`internal/syncer/syncer.go:656-661`) writes `"download error detail for
-  %s: %s (technical detail: %s)"` with the bare manifest key (e.g.
-  `Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf`)
-  as the first `%s`. `internal/statuslog.SanitizeMessage`'s credential scrub
-  blanks any run of 32+ characters from `[A-Za-z0-9+/_-]` (right for a
-  session cookie, wrong for a path - `/`, `-`, `_` are all in that
-  alphabet), and `internal/logging/scrub.go`'s `scrubForFile` already works
-  around this for URLs specifically (lifts every `https?://...` out before
-  the scrub, splices it back after - see that file's own doc comment,
-  written for exactly this failure mode) but the fix is keyed on the
-  `https?://` prefix, so a bare path with no scheme gets no protection. Live
-  log line: `download error detail for Softwaretechnologie (SoSe
-  26)[redacted].pdf: response is HTML, browser fallback click did not find
-  a downloadable link after 2 attempts (technical detail: ...)` - the
-  filename is gone. `grep -rn "logging\.\(Detail\|Warn\)("` across
-  `internal/`, `cmd/` found this is the only call site building a message
-  this way; every other site uses a short `%q`-quoted title or an actual
-  URL (already protected). Fix mirrors the URL one already shipped: extend
-  `scrubForFile`'s lift-and-restore to a path-shaped pattern too, or have
-  `printSyncError` wrap `targetKey` the same way before it reaches
-  `logging.Detail`. Full detail: `docs/friction-campaign.md` Walk 13.
 
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report

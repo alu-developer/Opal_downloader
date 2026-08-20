@@ -657,7 +657,11 @@ func printSyncError(targetKey string, err error) {
 	short, detail := splitTechnicalDetail(err)
 	fmt.Printf("  error: %s (%s)\n", targetKey, short)
 	if detail != "" {
-		logging.Detail("download error detail for %s: %s (technical detail: %s)", targetKey, short, detail)
+		// targetKey is a manifest key (course/section/file path), not user
+		// input or credential data - wrapped with ProtectPath so the
+		// diagnostic-log scrub's token-shaped redaction does not mistake its
+		// no-spaces tail for a session token (friction campaign walk 13).
+		logging.Detail("download error detail for %s: %s (technical detail: %s)", logging.ProtectPath(targetKey), short, detail)
 	}
 }
 

@@ -552,6 +552,54 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **The diagnostic log's credential scrub no longer eats the filename off a
+  download-error line, closing walk 13's finding (2026-08-20, autopilot).**
+  `printSyncError` (`internal/syncer/syncer.go`) built its diagnostic-log
+  line as `"download error detail for %s: %s (technical detail: %s)"` with
+  the bare manifest key first - `statuslog.SanitizeMessage`'s credential
+  scrub blanks any run of 32+ characters from `[A-Za-z0-9+/_-]` (right for a
+  session cookie, wrong for a path with no spaces in its tail, e.g.
+  `Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf`),
+  and `internal/logging/scrub.go`'s existing URL lift-and-restore only
+  triggered on an `https?://` prefix, so a bare path got no protection. Live
+  log line before the fix: `download error detail for Softwaretechnologie
+  (SoSe 26)[redacted].pdf: ...` — the filename, the one thing a user would
+  check to find out which download keeps failing, was gone. Fixed by adding
+  `logging.ProtectPath` (`internal/logging/scrub.go`): wraps a value the
+  call site already knows is safe (a manifest key, never user input or
+  credential data) in a marker `scrubForFile` lifts out and restores the
+  same way it already does for URLs, rather than widening the scrub's own
+  path-shaped heuristic — a broader "any string with slashes" rule would
+  have also protected a real base64 session token that happens to contain
+  one. `printSyncError` now calls it on `targetKey` before the message
+  reaches `logging.Detail`. Unit-tested
+  (`TestProtectedPathSurvivesTheScrub`,
+  `TestNonPathCredentialsAreStillRedactedAlongsideAProtectedPath` in
+  `internal/logging/scrub_test.go`), full repo test suite green.
+- **Target-path collisions between two remote files sharing a filename
+  across different course sections fixed and live-verified (2026-08-19,
+  autopilot).** Found while diagnosing a sync-speed experiment
+  (`docs/sync-speed-model.md`'s fourth 2026-08-19 cycle): whenever
+  `use_section_subfolders` is `false` (the shipped `config.example.yaml`'s
+  own default), two files with the same name in different sections (e.g.
+  current-semester vs. an archived "Material aus dem Wintersemester"
+  section) resolved to the same local/manifest path. The syncer's
+  job-building loop had no dedup on the resolved target path, so both
+  downloaded every sync and whichever result landed last silently
+  overwrote the other on disk with no warning, forever. Fixed in
+  `internal/syncer/syncer.go`'s `processRemoteFiles`: the loop now keeps the
+  first remote file seen for a given target path and prints a named warning
+  for every collision, naming both source URLs. Unit-tested with the real
+  course/URL shape from the finding
+  (`TestProcessRemoteFilesDedupesCollidingTargetPaths`). Live-verified
+  against the real account (scratch `download_path`): before the fix,
+  `downloaded=38` for only 19 truly distinct files (each downloaded twice,
+  one 3x); after, `downloaded=19` exactly, with 21 collision warnings
+  printed (a third course, `So26 Programmieren`, was also affected — not
+  visible from the pre-fix log alone). The maintainer's real `config.yaml`
+  already sets `use_section_subfolders: true`, so his real syncs were never
+  exposed to this specific collision — but any user on the shipped default
+  was and had no way to know a file was silently missing.
 - **Fixed a near-miss in the friction campaign's own scratch-environment
   recipe (found live 2026-08-19, autopilot, while preparing a CLI walk).**
   `docs/friction-campaign.md`'s "Breaking things safely" section only ever

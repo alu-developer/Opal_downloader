@@ -3082,6 +3082,50 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-08-20 (autopilot, third cycle today, after a friction walk):
+does browser-fallback contention (the previous cycle's own new ranked
+question) actually happen in a real sync, or is it a theoretical risk that
+never fires in practice?**
+
+**Design, written before running, per Rule 1.** Add a cheap, `--debug-clicks`
+-gated audit line around `s.browserDownloadMu` in `DownloadFile`
+(`internal/scraper/download.go:132-134`): record `time.Now()` immediately
+before `Lock()`, log the wait duration via the existing `s.auditLog` helper
+(same convention this file already uses for every other click/selector
+audit line) right after the lock is actually acquired, and log the hold
+duration right before `Unlock()`. No behavior change - purely an added log
+line gated behind a flag that is already off by default, so this needs no
+env-flag wrapper of its own (unlike a discovery-path change, this cannot
+affect which files are found or downloaded). Then run `sync --debug-clicks`
+against a **fresh** scratch manifest (own `download_path`, never synced
+before) on the real account, so all ~50 known-flaky files are live
+candidates in the same run rather than sitting behind Question 44's own
+backoff policy - the exact condition the question asked about.
+
+*Expected numbers.* `download_concurrency: 3`, and `processRemoteFiles`
+sorts the job list by `Path` before handing it to the worker pool
+(`syncer.go:674`) - files in the same course/section are therefore adjacent
+in the queue, and the known-flaky population is concentrated in exactly 2-3
+sections (`Softwaretechnologie`'s `Part-1`/`Part-2`/`Part-3`,
+`Algorithmen und Datenstrukturen/Vorlesung`). With 3 concurrent workers
+pulling from a path-sorted queue, multiple flaky files from the *same*
+section are structurally likely to be in-flight on different workers around
+the same time, not just by chance collision - so I expect **some** real
+wait time on a non-trivial fraction of the ~50 fallback acquisitions
+(rough guess: 15-40% show a wait of several seconds to a couple of minutes,
+since a fallback resolution itself runs ~20-300s), not the near-universal
+zero-wait a purely-random, low-probability-collision model would predict.
+
+**Kill criterion.** If every (or nearly every) lock acquisition shows
+near-zero wait, contention essentially never happens in practice and
+option (c) from the previous cycle ("do nothing further") is sufficient by
+itself - closes this question without building (a) or (b). If a meaningful
+fraction show real wait time, that's the evidence needed to justify
+building (a) or (b) in a future cycle, and this run's own numbers name
+which files/sections are the ones actually colliding.
+
+---
+
 **Cycle, 2026-08-20 (autopilot, second cycle today): the 2026-08-19
 decision's item 2 - "the slow path must be visible" - implemented and
 live-verified; item 3 - "must never block anything else" - precisely

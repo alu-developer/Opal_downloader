@@ -165,7 +165,32 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9 & 11, first-run walks 3, 7, 10 & 12)
+### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11 & 13, first-run walks 3, 7, 10 & 12)
+
+- **wrong — the diagnostic log's own credential scrub eats real filenames on
+  the one line a user would check to find out which download keeps
+  failing.** Walk 13, 2026-08-20: `printSyncError`
+  (`internal/syncer/syncer.go:656-661`) writes `"download error detail for
+  %s: %s (technical detail: %s)"` with the bare manifest key (e.g.
+  `Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf`)
+  as the first `%s`. `internal/statuslog.SanitizeMessage`'s credential scrub
+  blanks any run of 32+ characters from `[A-Za-z0-9+/_-]` (right for a
+  session cookie, wrong for a path - `/`, `-`, `_` are all in that
+  alphabet), and `internal/logging/scrub.go`'s `scrubForFile` already works
+  around this for URLs specifically (lifts every `https?://...` out before
+  the scrub, splices it back after - see that file's own doc comment,
+  written for exactly this failure mode) but the fix is keyed on the
+  `https?://` prefix, so a bare path with no scheme gets no protection. Live
+  log line: `download error detail for Softwaretechnologie (SoSe
+  26)[redacted].pdf: response is HTML, browser fallback click did not find
+  a downloadable link after 2 attempts (technical detail: ...)` - the
+  filename is gone. `grep -rn "logging\.\(Detail\|Warn\)("` across
+  `internal/`, `cmd/` found this is the only call site building a message
+  this way; every other site uses a short `%q`-quoted title or an actual
+  URL (already protected). Fix mirrors the URL one already shipped: extend
+  `scrubForFile`'s lift-and-restore to a path-shaped pattern too, or have
+  `printSyncError` wrap `targetKey` the same way before it reaches
+  `logging.Detail`. Full detail: `docs/friction-campaign.md` Walk 13.
 
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report

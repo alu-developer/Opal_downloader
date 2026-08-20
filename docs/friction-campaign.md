@@ -72,8 +72,8 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a session with a
-browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
+**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for
+a session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
 walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
@@ -84,22 +84,24 @@ two findings), walk 10 first-run-from-zero again (CLI angle, two findings),
 walk 11 the CLI again (everyday use, two findings - mojibake truncation and
 visit-report noise), walk 12 first-run-from-zero again (reached a completed
 first `sync` for the first time this campaign; one friction finding, one
-finding fed directly into the active sync-speed cycle) — GUI has had four
-looks, CLI five, first-run-from-zero three; GUI is due *by count*, but see
-below for why an unattended run can't take it.
+finding fed directly into the active sync-speed cycle), walk 13 the CLI
+again (everyday use, `sync` itself run to completion for the first time on
+this surface; one "wrong" finding in the diagnostic log's own credential
+scrub) — GUI has had four looks, CLI six, first-run-from-zero three; GUI is
+due *by count*, but see below for why an unattended run can't take it.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, and 12 all landed on CLI or
-first-run-from-zero instead for this same reason, whether or not they said
-so explicitly at the time. An unattended run should treat CLI/first-run as
-the only two surfaces actually in rotation for it and pick whichever of
-those is due (of the two, CLI is due next: last touched walk 11, vs
-first-run-from-zero's walk 12, both 2026-08-19 but walk 12 more recent) -
-the GUI slot stays reserved for a session with an interactive browser tool
-(or a human) to pick up - it is not skipped, just not reachable from here.
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, and 13 all landed on
+CLI or first-run-from-zero instead for this same reason, whether or not
+they said so explicitly at the time. An unattended run should treat
+CLI/first-run as the only two surfaces actually in rotation for it and pick
+whichever of those is due (of the two, first-run-from-zero is due next:
+last touched walk 12, 2026-08-19, vs CLI's walk 13, 2026-08-20) - the GUI
+slot stays reserved for a session with an interactive browser tool (or a
+human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -1817,5 +1819,118 @@ real DOM tree over HTTP) or is a real DOM diff not worth the added
 complexity if the aggregate cost measured this session turns out to be
 small? Not answered by this walk - the sync-speed-model cycle's live result
 decides which way this question even needs to go.
+
+### Walk 13 — 2026-08-20, CLI everyday use (autopilot, phase 2)
+
+Rotation note (updated after Walk 11) said CLI is due next for an
+unattended session once the earlier phase-1 work in this same run finished
+(GUI stays unreachable here; Walk 12 took first-run-from-zero). Walks 2, 6,
+8, 9, and 11 had already covered `--help`/`status`/`list`/`smoke-check`
+territory thoroughly with nothing left wrong on those paths, so this walk
+deliberately picked the one everyday CLI action no prior CLI walk had
+actually run to completion against a real, non-trivial file set: `sync`
+itself, as a returning user checking in after `list`.
+
+**Setup:** the same scratch config this run's own phase-1 work had already
+built and proven safe (`config.scratch.yaml`, `download_path` redirected
+under this worktree's `tmp/`, no absolute `course_folders`/
+`default_course_folder`/`subfolder_destinations` entries to worry about
+since the scratch config never carries them - the real `config.yaml`'s
+per-course absolute paths were deliberately left out rather than redirected
+one by one). Real session state via the shared login profile, matching this
+project's own intended one-login-reuses-everywhere design.
+
+**Expectation registered before running `sync`:** as a returning user who'd
+just seen `list` report new files, I'd run `sync` next expecting it to
+download what's new, show live per-file progress, and finish with a clear
+summary - and per the 2026-08-19 fix (`docs/BACKLOG-archive.md`), if
+anything errors out I now expect a line explaining that it is not my fault.
+
+**Confirmed working, no finding:** the explanatory line does exactly what it
+was built for - `downloaded=298 skipped=0 errors=51` was immediately
+followed by "51 file(s) above failed to download - this is usually a
+transient server-side issue, not something wrong with your setup. They'll
+be retried on future syncs automatically, with increasing backoff if they
+keep failing, so they won't slow down every run." Reads exactly like the
+2026-08-19 commit intended. Live per-file `downloaded: <path>` lines
+streamed the whole way through - never looked hung.
+
+#### Finding — the diagnostic log's own credential scrub eats real filenames on the one line a user would check to find out which file keeps failing
+
+**Expectation:** having just seen "51 file(s) failed," and knowing (from the
+CLI's own `--help` text) that "everything is written to
+`...\opal-downloader.log` on every run anyway," I'd tail that file expecting
+to see which files those 51 were - the same kind of curiosity walk 8's
+`--verbose`/log-split check already confirmed was a supported, working path.
+
+**Reality:** the exact line meant to answer that question reads `download
+error detail for Softwaretechnologie (SoSe 26)[redacted].pdf: response is
+HTML, browser fallback click did not find a downloadable link after 2
+attempts (technical detail: ...)` - the filename itself, the one piece of
+information this line exists to carry, is gone, replaced with the literal
+string `[redacted]`.
+
+*Break from persona, for diagnosis only:* `internal/logging/scrub.go`'s own
+doc comment already describes this exact failure mode - `SanitizeMessage`
+(`internal/statuslog/statuslog.go`) treats any run of 32+ characters from
+`[A-Za-z0-9+/_-]` as a token/credential and blanks it, which is right for a
+session cookie and wrong for anything URL- or path-shaped, because `/` (and
+in practice `-`/`_`, near-universal in real filenames) are in that alphabet
+too. `scrubForFile` (`scrub.go`) already works around this for URLs
+specifically - it lifts every `https?://...` substring out before the scrub
+runs and splices it back in afterward, with its own regression test
+(`TestSectionURLsSurviveTheScrub`, `internal/logging/scrub_test.go`) - but
+that protection is keyed on the `https?://` prefix. The line above never
+had one: `printSyncError` (`internal/syncer/syncer.go:656-661`) builds it as
+`"download error detail for %s: %s (technical detail: %s)"` with the bare
+manifest `targetKey` (`"<Course>/<Section>/<filename>"`, no scheme) as the
+first `%s` - a path, not a URL, so it gets no protection at all and hits
+the exact same collateral damage the URL fix's own doc comment predicted
+for "anything" URL- or path-shaped. Confirmed against the real account: the
+failing file's manifest key was
+`Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf`
+- 46 characters of `/Part-3/37-st-analysis-eu-rent-example_slides` (all in
+the token alphabet, no interior spaces) before the `.pdf` breaks the run,
+comfortably past the 32-character threshold. `grep -rn "logging\.\(Detail\|
+Warn\)("` across `internal/`, `cmd/` found exactly one other call site
+building a message this way (`printSyncError` itself is the only one); every
+other `Detail`/`Warn` call either uses a short `%q`-quoted course/section
+title (rarely 32+ contiguous non-space characters) or an actual URL (already
+covered by the existing fix) - so the blast radius is this one line, but it
+is the specific line a user reaches for exactly when something has gone
+wrong and they want to know what.
+
+Tag: **wrong** - the diagnostic log advertises itself (via `--help`'s own
+text) as the place to look for detail the console doesn't show, and on the
+one call site that embeds a bare file path instead of a URL, it silently
+destroys the exact detail it exists to carry, every time the path is long
+enough (which real OPAL filenames routinely are). Not fixed this walk (Rule
+5/phase-2 scope: file it, a later run's phase 1 does the fix) - the shape of
+the fix mirrors the URL one already shipped: either extend `scrubForFile`'s
+lift-and-restore approach to a path-shaped pattern in addition to
+`https?://`, or have `printSyncError` wrap `targetKey` the same
+placeholder-protected way URLs already are before it ever reaches
+`logging.Detail`. Filed to `docs/BACKLOG.md`.
+
+**This walk's own verdict:** one everyday CLI path (`sync` to completion
+against a real, non-trivial file set) fully exercised for the first time
+this campaign outside the first-run surface; the new error-explanation
+feature confirmed working exactly as designed; one real, source- and
+live-confirmed "wrong" finding in the diagnostic log's own credential scrub,
+found by doing exactly what the CLI's own help text told a confused user to
+do.
+
+#### New question this walk leaves (Rule 3)
+
+This run's `sync` took `Total: 2185.1s` (~36 min, `download phase 2044.5s`)
+for `downloaded=298 errors=51` against the same account Walk 12 synced one
+day earlier at `Total: 1223.9s` (~20 min) for `downloaded=299 errors=50` -
+nearly identical workloads, roughly **1.8x** the wall-clock time. Not
+chased here; this is squarely `docs/sync-speed-model.md`'s territory (the
+download phase, and specifically Question 44's known-flaky-file cluster,
+which this run's own `[redacted]`-obscured log lines show retried the same
+`Part-3` file repeatedly at ~21-22s intervals) rather than a UX finding this
+walk should own - handed to phase 3 as a fresh data point rather than
+re-investigated twice.
 
 Rotation note updated at the top of this file (`Next surface`).

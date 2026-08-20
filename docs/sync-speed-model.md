@@ -3121,6 +3121,93 @@ discovery, that reopens discovery-phase speed (already covered by
 Questions 8/9/22/25/etc.) as the actually-relevant thread for the
 maintainer's own routine-sync target, not Question 44.
 
+**Result: kill criterion hit hard, and not for the reason predicted - a new,
+higher-priority anomaly found instead, reported with a heavy-load caveat
+rather than as a confirmed conclusion.** `sync --config
+config.scratch-noop.yaml --profile` was **killed after 76 minutes, still
+running** (`tmp/q-noop-run.log`, partial) - nowhere near the predicted
+50-90s band, and discovery was not the cause: course-link discovery alone
+was `3.8s`, exactly as fast as walk 12/14's own numbers. What actually
+happened: this was not a clean no-op at all (the real course content has
+genuinely changed since the manifest's 2026-08-19 snapshot - 85 real new
+files downloaded, e.g. new `Ma-Prog` exercise notebooks, matching the
+account being a live, ongoing course), plus 87 `needsContentVerification`
+jobs (2026-08-19's own finding that this population is near-100% under
+HTTP-first discovery, confirmed live again here) and 15 outright failures
+matching the familiar known-flaky cluster (`AlgData/Vorlesung`,
+`SoTech/Part-1`/`Part-2` - same shape as every prior scratch run).
+
+**The actual outlier: two of the 87 verify jobs
+(`SoTech/Part-2/21-Bestellung-Listen.zip`,
+`SoTech/Part-2/23-st-connectors-iterators-channels_notes.pdf`) each took
+**over an hour** (`1h10m12s` and `1h9m52s`, 20s apart - consistent with two
+workers stuck on the same kind of operation concurrently) before finally
+succeeding via the browser-fallback path - not failing, not retrying
+visibly (only one "resolving it the slow way" line each, no repeated
+messages), just taking roughly **200x** the ~21.5s hold time the previous
+cycle measured for the same code path on different files. Killed at that
+point rather than let it run further, both because it was already
+grossly over budget and because it was holding the real, shared
+`sync.lock` (stale-PID reclaim in `internal/synclock` means the next
+session's `Acquire` cleans this up automatically - confirmed no
+`chrome-headless-shell.exe`/`main.exe` processes survived the kill, so
+nothing needs manual cleanup).
+
+**Reported with the same caveat the campaign already learned to apply
+(Walk 9, 2026-08-18): this session had already run three live crawls
+against the real account before this one** (walk 14's fresh-clone sync,
+the browser-fallback-contention cycle's sync, this one), on top of
+whatever the concurrent session's own two cycles earlier today already
+added - stacking a heavy same-day load this campaign has previously seen
+produce an unexplained anomaly on its own. No corroborating evidence of
+concurrent contention was found (no other `main.exe`/
+`chrome-headless-shell.exe` processes were running during this specific
+window, and the two prior sessions' own live work had already finished and
+been pushed before this one started), but that only rules out *this
+specific* confound, not others (network conditions, OPAL-side load,
+Windows resource pressure from three sequential Chromium launches in one
+session). **Not confidently attributed to a specific mechanism this
+cycle** - reported as a real, measured, alarming number rather than
+diagnosed.
+
+**Why this matters beyond one anomalous run:** this scratch reproduction
+used the *real* manifest and *real* course files, so if this is real and
+reproducible rather than a same-day-load artifact, **the maintainer's own
+next real routine sync could hit the same multi-hour stall** on these same
+two files - a far bigger problem than anything Question 44 has measured to
+date, and the opposite of "cheap in aggregate." The real scheduled task's
+last recorded run (`Get-ScheduledTaskInfo`: `LastRunTime 2026-08-19
+11:06:13, LastTaskResult 0`) completed successfully with no sign of a
+multi-hour stall, which is at least mild evidence against "this always
+happens" - but that run may simply not have reached these two specific
+files' verify path yet (the manifest snapshot used here is from later the
+same day).
+
+**New open question, ranked #1 (Rule 5) - ahead of everything else on this
+list:** does `SoTech/Part-2/21-Bestellung-Listen.zip` and/or
+`23-st-connectors-iterators-channels_notes.pdf` reproduce a multi-hour
+`needsContentVerification` stall in an isolated run with no other same-day
+live traffic? Cheapest next check: a **different session, ideally a
+different day**, running `sync --config config.scratch-noop.yaml
+--debug-clicks --profile` against a **fresh copy** of this same scratch
+setup (files still in `tmp/q-noop/root` before cleanup below is
+reproduced, or re-copied the same way) with nothing else touching the real
+account first - `--debug-clicks` this time, so a real anomaly leaves a full
+click/selector audit trail instead of the single "resolving it the slow
+way" line this run had. If it reproduces cleanly in isolation, this becomes
+the campaign's most urgent open item by a wide margin, over Question 44's
+existing framing entirely. If it does not reproduce, this run's own
+same-day load is the more likely explanation and the anomaly can be
+downgraded to a documented one-off, matching how Walk 9's own dropout was
+eventually treated.
+
+**Session-level decision, following the 2026-08-19 report's own
+precedent:** this cycle is where this session stops running new live
+crawls against the real account (three run already: walk 14, the
+contention cycle, this one), for the same reason that report gave -
+stacking a fourth in the same session makes any future anomaly (including
+this one) harder to attribute, not easier.
+
 ---
 
 **Cycle, 2026-08-20 (autopilot, third cycle today, after a friction walk):
@@ -3260,8 +3347,18 @@ them **before `DownloadFile` is ever called** - they never reach
 `browserDownloadMu`, on the real account, at all.
 
 **This means the 1059.5s/98%-contention tax this cycle measured does not
-currently cost the maintainer's own routine syncs anything** - it is a
-fresh-manifest-only cost. It is real, and it is exactly what a genuine new
+currently cost the maintainer's own routine syncs anything from *these
+specific already-succeeded files*** - it is a fresh-manifest-only cost for
+*this* population. **Correction, same day, from the fourth cycle below:**
+this claim does not generalize to every file - the `needsContentVerification`
+population (files OPAL reports no reliable remote size/date for, near-100%
+under HTTP-first discovery per the 2026-08-19 finding) *does* re-attempt
+`DownloadFile` on every routine sync regardless of manifest history, and
+the fourth cycle's real-manifest reproduction found two such files taking
+over an hour each via that exact path - a bigger, still-unconfirmed
+finding that supersedes this paragraph's confidence for that population.
+This paragraph's narrower claim (already-succeeded, non-verify-needing
+files skip cleanly) still holds. It is real, and it is exactly what a genuine new
 user hits on their first sync (matching walk 12 and walk 14's own "20-minute
 first impression, 49-50 unexplained-until-recently errors" finding) - a
 first-run UX problem this campaign had been implicitly treating as a

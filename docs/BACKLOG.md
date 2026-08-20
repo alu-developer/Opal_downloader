@@ -33,24 +33,10 @@ _Nothing currently blocking a sync/list/login on the account — checked
 2026-08-14: `~/.opal-downloader/sync.lock` does not exist. The 2026-08-13
 5.5-hour hold is closed, see `docs/BACKLOG-archive.md`._
 
-_Nothing open right now — the 2026-08-19 target-path-collision fix shipped
-and live-verified; detail moved to `docs/BACKLOG-archive.md`._
-
-**Weekly review (Part B), 2026-08-20: `DownloadFile`'s browser-fallback mutex
-is no longer panic-safe.** `internal/scraper/download.go`'s
-`DownloadFile` (lines ~138-149, added this window for the lock-wait/-hold
-audit instrumentation) replaced the previous `s.browserDownloadMu.Lock();
-defer s.browserDownloadMu.Unlock()` with a manual `Lock()` ...
-`s.downloadFileViaBrowser(...)` ... `Unlock()` sequence with no `defer`. If
-`downloadFileViaBrowser` ever panics — it drives a shared Playwright page
-through a multi-step, multi-page click/navigation search, not a pure
-computation — `browserDownloadMu` is never released. That mutex is
-scraper-wide, not per-file (confirmed by this same window's own contention
-finding, `docs/sync-speed-model.md`'s 2026-08-20 third cycle), so every
-subsequent `DownloadFile` call for the rest of the sync would deadlock
-waiting on a lock nothing will ever free. Fix: wrap the hold-duration audit
-log and `Unlock()` in a `defer` right after `Lock()` succeeds, the same
-shape the code had before this window's instrumentation.
+_Nothing open right now — the 2026-08-19 target-path-collision fix and the
+2026-08-20 weekly-review Part B panic-safety fix (`DownloadFile`'s
+browser-fallback mutex) both shipped and are live/test-verified; detail
+moved to `docs/BACKLOG-archive.md`._
 
 ---
 

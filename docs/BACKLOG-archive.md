@@ -552,6 +552,23 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **`DownloadFile`'s browser-fallback mutex is panic-safe again (2026-08-20,
+  autopilot), closing the weekly review Part B finding.** The 2026-08-20
+  hold-duration audit instrumentation (`internal/scraper/download.go`,
+  `DownloadFile`) had replaced the previous `s.browserDownloadMu.Lock();
+  defer s.browserDownloadMu.Unlock()` with a manual `Lock()` ...
+  `downloadFileViaBrowser(...)` ... `Unlock()` sequence with no `defer` — a
+  panic inside `downloadFileViaBrowser` (which drives a shared Playwright
+  page through a multi-step click/navigation search, not a pure
+  computation) would have left `browserDownloadMu` locked forever, and
+  since that mutex is scraper-wide rather than per-file, every subsequent
+  `DownloadFile` call for the rest of the sync would deadlock waiting on a
+  lock nothing would ever release. Fixed by moving the hold-duration audit
+  log and `Unlock()` into a `defer` set immediately after `Lock()`
+  succeeds, restoring the pre-instrumentation panic safety while keeping
+  the hold-duration measurement. `go build ./...` and
+  `go test ./internal/scraper/...` both green; no behavior change on the
+  non-panic path (same audit log, same lock/unlock ordering).
 - **The diagnostic log's credential scrub no longer eats the filename off a
   download-error line, closing walk 13's finding (2026-08-20, autopilot).**
   `printSyncError` (`internal/syncer/syncer.go`) built its diagnostic-log

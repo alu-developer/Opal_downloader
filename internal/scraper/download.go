@@ -141,12 +141,13 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 		s.auditLog("browser-fallback-lock-wait", nil, fileURL, fmt.Sprintf("waited %s for browserDownloadMu", wait))
 	}
 	holdStart := time.Now()
-	result := s.downloadFileViaBrowser(fileURL, localPath, plainURLServesHTML)
-	if s.debugClicks {
-		s.auditLog("browser-fallback-lock-hold", nil, fileURL, fmt.Sprintf("held browserDownloadMu for %s", time.Since(holdStart)))
-	}
-	s.browserDownloadMu.Unlock()
-	return result
+	defer func() {
+		if s.debugClicks {
+			s.auditLog("browser-fallback-lock-hold", nil, fileURL, fmt.Sprintf("held browserDownloadMu for %s", time.Since(holdStart)))
+		}
+		s.browserDownloadMu.Unlock()
+	}()
+	return s.downloadFileViaBrowser(fileURL, localPath, plainURLServesHTML)
 }
 
 // attemptDirectDownload performs a stateless HTTP GET against requestURL

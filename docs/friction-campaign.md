@@ -72,8 +72,8 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a session with a
-browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
+**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for a
+session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
 walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
@@ -89,22 +89,25 @@ again (everyday use, `sync` itself run to completion for the first time on
 this surface; one "wrong" finding in the diagnostic log's own credential
 scrub), walk 14 first-run-from-zero again (README's own Commands table
 found missing two real, `--help`-documented commands; one live-verified
-follow-on to walk 13's fix, still open in the technical-detail field) — GUI
-has had four looks, CLI seven, first-run-from-zero four; GUI is due *by
-count*, but see below for why an unattended run can't take it.
+follow-on to walk 13's fix, still open in the technical-detail field), walk
+15 the CLI again (`smoke-check --full-sync`, walk 8's own leftover open
+question, finally run to completion - one **blocker**, a 100%-reproducible
+self-deadlock) — GUI has had four looks, CLI eight, first-run-from-zero
+four; GUI is due *by count*, but see below for why an unattended run can't
+take it.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, and 14 all landed
-on CLI or first-run-from-zero instead for this same reason, whether or not
-they said so explicitly at the time. An unattended run should treat
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, and 15 all
+landed on CLI or first-run-from-zero instead for this same reason, whether
+or not they said so explicitly at the time. An unattended run should treat
 CLI/first-run as the only two surfaces actually in rotation for it and pick
-whichever of those is due (of the two, CLI is due next: last touched walk
-13, 2026-08-20, vs first-run's walk 14, same day but later) - the GUI
-slot stays reserved for a session with an interactive browser tool (or a
-human) to pick up - it is not skipped, just not reachable from here.
+whichever of those is due (of the two, first-run-from-zero is due next:
+last touched walk 14, 2026-08-20, vs CLI's walk 15, same day but later) -
+the GUI slot stays reserved for a session with an interactive browser tool
+(or a human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
 this campaign to quietly stop finding anything. **This line went stale once
@@ -2072,5 +2075,159 @@ enough for a clean, scoped finding; a future walk or a source-reading pass
 could diff `printHelp`'s per-command flag lines against each `run*`
 function's actual flag-parsing loop the same way this walk diffed the
 command list against README.
+
+Rotation note updated at the top of this file (`Next surface`).
+
+### Walk 15 — 2026-08-20, CLI everyday use (autopilot, phase 2, third walk this calendar day from a different run)
+
+Rotation note (updated after walk 12) said CLI is due next for an
+unattended session, last touched walk 13 (2026-08-20); walk 14 (same day, an
+earlier run) took first-run-from-zero. This run's own phase 1 had already
+shipped both of walk 14's fixes (README docs, the second `ProtectPath`
+gap - see `docs/BACKLOG-archive.md`), so rather than re-walk ground walks
+2/6/8/9/11/13 had already covered thoroughly (`--help`/`status`/`list`/
+`schedule status`/`sync`-to-completion, all clean), this walk picked up
+walk 8's own leftover open question, still unanswered after seven more CLI
+walks: *"Does `smoke-check --full-sync` ... behave as cleanly as [the six
+commands walk 8 already checked], or is that untrodden ground for a
+reason?"*
+
+**Setup:** the real `config.yaml`, copied unmodified into this run's
+worktree (no absolute-path fields needed redirecting - `--full-sync`'s own
+`--help` text and its own doc comment in `runSmokeCheckFullSync`
+(`cmd/opal-downloader/root.go`) both promise it downloads into a disposable
+`os.MkdirTemp` scratch directory, never `download_path` or any
+`course_folders`/`subfolder_destinations` entry, which source-reading
+confirmed before running anything live - `scratchCfg` in that function
+deliberately leaves those fields unset). Real session state via the shared
+login profile. `sync.lock` had one stale entry (a dead PID from an earlier
+killed run, reclaimed automatically by `synclock.Acquire`'s own
+liveness check - not touched by hand) and was otherwise free.
+
+**Expectation registered before running:** having just read `--full-sync`'s
+own `--help` line - "Also run a real sync into a disposable scratch
+directory, to test file-download reachability in addition to discovery" - I
+expected it to behave like an ordinary `sync` run: crawl, download into
+that scratch directory, print a `downloaded`/`skipped`/`errors` summary, and
+touch nothing on my real `download_path` or manifest, exactly as
+"disposable" promises.
+
+#### Finding — `smoke-check --full-sync` cannot ever succeed: it deadlocks against its own already-held lock, on every single invocation
+
+**Reality:** discovery ran cleanly (8 courses, 349 files, ~47s, matching
+every prior walk's numbers), printed its `Login/session`/`Discovery`
+summary exactly as designed, then immediately failed entering the
+full-sync half:
+
+> Running a real sync into a scratch directory
+> (C:\Users\alois\AppData\Local\Temp\opal-smoke-check-3920295089) - --full-sync
+> was requested...
+> Error: smoke-check: --full-sync failed: a sync is already running (PID
+> 1840, started at 2026-08-20T13:16:34Z) - likely today's scheduled sync or
+> another opal-downloader command; wait for it to finish and try again
+
+**PID 1840 was this exact process's own PID**, confirmed two ways: no other
+opal-downloader process existed at the time (checked `sync.lock` immediately
+before and after - empty, then this run's own file, then empty again on
+exit), and a second run launched deliberately via PowerShell's
+`Start-Process -PassThru` (to capture the PID independently of the app's own
+report) printed `Started PID: 1840` before the run, then hit the identical
+error citing `PID 1840` as its own blocker. Not a race, not contention with
+a real concurrent sync (the first run's PID, 1840, coincidentally repeated
+across both attempts simply because Windows reused the number - each run's
+*own* PID matched its *own* error every time) - `--full-sync` fails against
+itself, deterministically, whether or not anything else is running.
+
+*Break from persona, for diagnosis only (Rule 4):* read
+`cmd/opal-downloader/root.go`'s `runSmokeCheck` and `internal/synclock/
+synclock.go` once the self-referential PID match was already visibly
+suspicious.
+
+**Cause, named sharply enough to predict where else it shows up.**
+`runSmokeCheck` (`cmd/opal-downloader/root.go:1285-1289`) acquires
+`synclock`'s cross-process overlap lock once, at the top of the function,
+specifically so its own discovery crawl (`smokecheck.Run`, a `list`-style
+account crawl) contends properly with a concurrent `sync`/`list`/`login` -
+this is exactly the fix walk 10 shipped 2026-08-19 for the *"smoke-check
+never takes sync.lock"* finding, and it works correctly for that half.
+`release` is `defer`-scheduled to fire only when `runSmokeCheck` itself
+returns (line 1289) - which is *after* the `if fullSync` block
+(line 1336-1341), not before it. `runSmokeCheckFullSync` calls
+`syncer.SyncCourses` → `SyncCoursesWithProgress`
+(`internal/syncer/syncer.go:510`), which - per its own doc comment and
+`docs/OPERATIONS.md`'s lock table ("sync locks one layer down") -
+independently acquires the *identical* `~/.opal-downloader/sync.lock` via
+the same `synclock.AcquireDefault`. `synclock.Acquire`
+(`internal/synclock/synclock.go:89-146`) is a plain `O_CREATE|O_EXCL`
+file lock with no reentrancy: a second acquisition attempt from the *same*
+process finds its own still-live PID already written to the file
+(`lockHolderStillRunning` reports `true` for a PID that is, trivially,
+itself still running) and refuses exactly as if a genuine stranger held it
+- the error message has no way to distinguish "held by someone else" from
+"held by me, earlier in this same call stack," so it prints the same
+generic "a sync is already running" text, self-referentially.
+
+This predicts precisely where else the same shape could recur: **any
+cmd-level function that pre-acquires the overlap lock for its own crawl and
+then, without releasing it first, calls into `syncer.SyncCourses`/
+`SyncCoursesWithProgress`** would hit the identical self-deadlock. Checked
+immediately (Rule 2's "check the prediction where checking is cheap"):
+`runSync` (the real `sync` command) never pre-acquires the lock at the cmd
+layer at all - it relies entirely on `SyncCoursesWithProgress`'s own
+internal acquisition, matching `docs/OPERATIONS.md`'s documented design -
+so it has no double-acquire and is unaffected; `runList`/`runLogin`
+pre-acquire the lock but never call into `syncer.SyncCourses` at all, so
+they don't either. `smoke-check --full-sync` is currently the *only* code
+path combining both halves, which is exactly why walk 10's otherwise-correct
+fix introduced this without anyone noticing - nothing exercised the
+combination until this walk actually ran `--full-sync` for the first time
+since that fix landed, nine days and five more CLI walks later.
+
+Tag: **blocker** - not intermittent, not a rare race: every single
+`smoke-check --full-sync` invocation, on any machine, under any load,
+fails at the exact same line, always citing its own PID. A user or a script
+that reads `--help`'s promise and runs it gets 100% failure, permanently,
+until this is fixed. Not fixed this walk (Rule 5/phase-2 scope: file it, a
+later run's phase 1 does the fix) - filed to `docs/BACKLOG.md`.
+
+**Fix direction, sized to the actual cause:** `runSmokeCheck` doesn't need to
+hold its own overlap lock continuously across both phases - it only needs
+one at a time, the same way `list` (discovery only) and `sync` (its own
+internal acquisition) each already do separately. Release the outer lock
+explicitly right after `smokecheck.Run` finishes (line ~1319, before the
+`if fullSync` block), instead of only via the function-end `defer` -
+`synclock`'s own `release` closure is already idempotent (a `released`
+bool guards a double-call), so the deferred call becomes a safe no-op once
+this fires early. This reopens a narrow window between the two phases where
+a different process could grab the lock first - acceptable, since that's
+already the exact, already-accepted behavior of running `list` followed by
+`sync` as two separate commands back-to-back, not a new risk category.
+
+**This walk's own verdict:** one finding, source- and twice-live-confirmed
+(two independent runs, two different captured PIDs, both self-referential),
+closing walk 8's seven-walk-old open question with a real answer: no,
+`--full-sync` was not untrodden ground for a boring reason - it has been
+completely broken since the moment walk 10's own lock fix shipped, and
+nothing since had actually run it to notice.
+
+**Checked while cheap (Rule 2):** walk 10 also gave `dump-links` the
+identical cmd-level `acquireCrawlOverlapLock` treatment ("the fix below
+should cover both commands, not just `smoke-check`" - see that walk's own
+text), raising the same question for it. `grep -n "func runDumpLinks" -A 60
+cmd/opal-downloader/root.go | grep "syncer\."` returns nothing -
+`runDumpLinks` never calls into the `syncer` package at all, so it cannot
+share this specific self-deadlock. Confirmed clear, not left open.
+
+#### New question this walk leaves (Rule 3)
+
+The fix direction above (release the outer lock right after discovery,
+before `--full-sync`'s own nested acquisition) removes today's guaranteed
+100% failure but reopens a real, if narrow, race window between the two
+phases. Is that window actually safe in practice, or could a scheduled
+sync's own typical multi-minute duration make it likely enough to matter
+for an automated `--full-sync` (e.g. a future CI/monitoring use) rather
+than just a manual one-off? Not answered this walk - worth a live
+back-to-back timing check once the fix lands, rather than assumed safe
+purely by analogy to `list`-then-`sync`.
 
 Rotation note updated at the top of this file (`Next surface`).

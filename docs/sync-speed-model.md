@@ -3082,6 +3082,111 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-08-20 (autopilot, second cycle today): the 2026-08-19
+decision's item 2 - "the slow path must be visible" - implemented and
+live-verified; item 3 - "must never block anything else" - precisely
+diagnosed, not fixed this cycle.**
+
+*Item 2, shipped.* `downloadFileViaBrowser` (`internal/scraper/download.go`)
+now calls `logging.User("%s is not available as a direct link - resolving
+it the slow way (this can take a minute or two)", localPath)` once, right
+before entering its multi-attempt click-search loop - after every cheaper
+option (direct GET, counter-refresh, and the plain navigate-and-hope
+attempt unless `plainURLServesHTML` already ruled it out) has missed, and
+before the loop that can legitimately run for minutes. Said once per file,
+not per attempt/page/click, so a real sync shows one explanatory line
+instead of either silence (looks hung, the exact complaint this campaign's
+target - "~30s for a routine sync" - was defined against) or a wall of
+internals.
+
+*Prediction, written before the verification run, per Rule 1.* Resetting
+one known-flaky file's manifest entry (`fail_count`/`failed_at` cleared,
+`size`/`modified` left `null`) so it alone bypasses Question 44's backoff
+window, then running `sync` against the otherwise-untouched scratch
+manifest from Walk 13's own run, should print the new line for that one
+file and no other (348 of 349 files are clean skips or still within their
+backoff window), keeping this a cheap, targeted check rather than another
+full-account crawl.
+
+**Result: CONFIRMED, live, real account.** `sync --config
+config.scratch.yaml` (`Total: 206.3s` - a bounded, deliberately cheap check,
+not a full 34-minute resync): the new line printed exactly once, in the
+right place - `...Part-3\37-st-analysis-eu-rent-example_slides.pdf is not
+available as a direct link - resolving it the slow way (this can take a
+minute or two)` - immediately before the file's own `error:` line
+(`downloaded=0 skipped=348 errors=1 backing_off=50`). The file itself
+failed again on this attempt (consistent with this campaign's own
+established flakiness for this known cluster - not a new failure, not
+something this change was scoped to fix), which is exactly the scenario
+item 2 was written for: the wait is no longer silent, whether the eventual
+outcome is success or another failure. Not unit-tested -
+`downloadFileViaBrowser` needs a real `playwright.Page` and this file's
+existing tests (`internal/scraper/download_test.go`'s own doc comments)
+already establish that behavior at this level is verified live against the
+real account, not mocked; this cycle follows that same convention rather
+than forcing an artificial seam.
+
+*Item 3, diagnosed, not fixed.* Read `s.browserDownloadMu`'s own doc
+comment and every call site (`scraper.go:242-250`, `download.go:131-133`)
+to check what "never block anything else" actually requires here. **The
+mutex is a single, scraper-wide lock, not one scoped per file or per
+worker**: `s.page` is one shared Playwright page/tab, so *every* file that
+reaches the browser-fallback stage - not just a specific slow one -
+serializes behind this same mutex, because the fast HTTP path
+(`APIRequestContext`, safe for concurrent use per playwright-go's own
+connection dispatch) is the only part of `DownloadFile` that actually runs
+concurrently across `download_concurrency` workers. Concretely: if this
+account's ~50 known-flaky files ever line up so that two of them are both
+in-flight at once under `download_concurrency: 3`, the second one's worker
+sits idle waiting for the first's ~200-350s browser-fallback chain to
+finish, even though a third, unrelated worker two files ahead of both of
+them could otherwise be well into its own fast-path download - it is only
+worker slots trying the *fallback* path specifically that queue behind each
+other, not the whole download phase, but that is still exactly the
+"waiting on one file's browser-fallback chain" the maintainer's item 3
+names.
+
+**Not fixed this cycle - correctly scoped as a separate, larger design
+question, not a quick follow-on to item 2.** `s.page` being single and
+shared is a load-bearing constraint this campaign has repeatedly had
+to respect carefully (Questions 16/17/22/25's whole correctness thread was
+about *browser* concurrency hazards on this exact page), so the honest
+options are named here for a future cycle's own judgment rather than
+picked under this cycle's momentum: (a) give the fallback path its own
+second browser tab/page so it stops sharing `s.page` with normal
+navigation, letting `browserDownloadMu` shrink to protecting only that
+second tab - the shape closest to "just increase concurrency," but the
+biggest change and the one most likely to reopen an old hazard class
+without careful, deliberate re-verification; (b) collect files that miss
+the fast path into a list and resolve all of them via the browser
+*after* the rest of the download phase finishes, rather than inline
+per-worker - matches the maintainer's own "moving it to the end after
+everything else" framing exactly, and is architecturally the smallest
+change (no new page, no new mutex semantics - just a second, sequential
+pass over a short list) at the cost of the *total* sync only finishing
+once every one of the (typically ~1-2 concurrently unlucky) slow files has
+resolved or been given up on - still a wall-clock cost, just no longer
+serialized *against unrelated fast files*; (c) do nothing further, on the
+grounds that two flaky files colliding in-flight at once is already rare
+given `download_concurrency: 3` against a ~50-file flaky population out of
+~350, and the backoff policy (2026-08-18) already means a file only pays
+this cost once before going quiet for hours - a measurement of how often
+this actually happens in practice, not assumed, would be the cheap first
+step before choosing (a) or (b) over (c).
+
+**New open question, ranked:** how often do two-or-more browser-fallback
+resolutions actually overlap in a real sync, given the backoff policy
+already suppresses repeat attempts on the same ~50 files? A live run
+counting concurrent `browserDownloadMu` acquisitions (e.g. a
+`--debug-clicks`-style counter, or a deliberately-cheap `time.Now()` log
+around the lock/unlock pair) against a *fresh* manifest (so all ~50 known
+failures are live candidates in the same run, not backed off) would answer
+whether (c) is already sufficient or whether (a)/(b) is worth building -
+cheaper to answer with instrumentation than to guess from first
+principles, and answers the question (c) itself depends on.
+
+---
+
 **Cycle, 2026-08-20 (autopilot, first cycle since the 2026-08-19 `/decide`
 round): the retry-budget decision's item 1 - "does the fast-path miss carry
 a cheap unchanged-file signal?" - CLOSED, no live crawl needed, by

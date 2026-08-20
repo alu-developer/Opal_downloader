@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/alu-developer/opal-downloader/internal/logging"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -226,6 +227,21 @@ func (s *OpalScraper) downloadFileViaBrowser(fileURL, localPath string, plainURL
 	if !hasCandidate {
 		return errors.New("response is HTML, not a direct file download, and no download candidate was recorded for it during discovery")
 	}
+
+	// This is the point of no return to the slow path: every cheaper option
+	// (a direct GET, the counter-refresh retry, and - unless plainURLServesHTML
+	// already ruled it out - the plain navigate-and-hope attempt above) has
+	// already missed, and everything left is a serialized, multi-page,
+	// multi-click search that can legitimately run for minutes (see
+	// browserFallbackMaxAttempts's own arithmetic in docs/sync-speed-model.md's
+	// "Next experiment" - 2 outer attempts x up to 3 candidate pages x 2 click
+	// strategies, each with its own multi-second timeout). Said once here
+	// rather than per attempt/page/click so a real user sees one line
+	// explaining the wait instead of either silence (looks hung) or a stream
+	// of internals (2026-08-19 maintainer decision, item 2 - this must be
+	// visible, not just eventually explained after the fact the way a
+	// download error already is).
+	logging.User("%s is not available as a direct link - resolving it the slow way (this can take a minute or two)", localPath)
 
 	var lastErr error
 	for attempt := 1; attempt <= browserFallbackMaxAttempts; attempt++ {

@@ -3082,6 +3082,93 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-08-20 (autopilot, first cycle since the 2026-08-19 `/decide`
+round): the retry-budget decision's item 1 - "does the fast-path miss carry
+a cheap unchanged-file signal?" - CLOSED, no live crawl needed, by
+cross-referencing evidence already on record plus one architectural read.**
+
+The 2026-08-19 maintainer decision (below) asked, before anything else on
+this thread: does `plainURLServesHTML`'s HTML response, or whatever the
+plain-GET path already sees, carry a cheap signal (`Last-Modified`/`ETag`/
+`Content-Length`) that would let a verify job skip the expensive
+browser-fallback chain for a file that turns out to be unchanged? Per this
+file's own Rule 2 ("reading source beats probing a live server where it
+can"), checked against what is already recorded rather than launching a new
+live probe first.
+
+*Prediction, written before checking, per Rule 1.* If `DownloadFile`'s doc
+comment (`internal/scraper/download.go:20-51`, written from a live
+investigation on 2026-07-12) already established that the plain
+discovery-time file URL *always* 302-redirects to a **generic** HTML
+interstitial regardless of freshness, then that response cannot carry a
+file-specific freshness signal by construction - it isn't describing the
+file at all. And if `downloadFileViaBrowser` (the stage this question is
+actually about, since the fast-path GET and the counter-refresh retry
+already succeed cheaply for most signal-less files per the 2026-08-19
+cycle) only ever operates by clicking links on *section* pages rather than
+querying a direct file URL, there should be no direct-file resource to send
+a conditional request against even in principle, at the one stage where
+this would matter.
+
+*Check:* both hold, confirmed by re-reading the exact source already on
+disk. (1) `DownloadFile`'s doc comment, in its own words: "requesting
+[the plain URL] directly - confirmed live both via a raw HTTP GET *and* via
+a real `page.Goto()` navigation - always 302-redirects to a counter-suffixed
+URL that serves **a generic HTML page**, never the file, regardless of how
+'fresh' the request is." A generic, file-independent interstitial has no
+`Last-Modified`/`ETag` for the target file to leak - there is nothing
+file-specific to read. (2) `downloadFileViaBrowser` (`download.go:205-250`)
+takes a `candidate` (`s.downloadCandidates[fileURL]`) whose fields
+(`SourceURL`, `ShowAllURL`, `ExpandedPageURL` - see `tryCandidatePagesInOrder`'s
+doc comment) are all **section page** URLs to click through, never a direct
+file resource URL; `attemptDirectDownload` (the one place that *does* GET a
+direct, headers-bearing file URL, via `refreshCounterURL`'s fibercode URL)
+already runs *before* the browser-fallback stage and already succeeds for
+the large majority of signal-less files (2026-08-19 cycle: 261 of the
+~299-file sample resolved this way, cheaply). A file only reaches
+`downloadFileViaBrowser`'s click-search loop once every URL-based attempt -
+including the one that *would* carry real file headers - has already
+failed. There is no direct file URL left, at that stage, to send a cheap
+header check against.
+
+**CONFIRMED (source-only): no.** The premise doesn't apply to the
+population it was aimed at. Files that resolve via the fast-path GET or the
+counter-refresh retry already get the cheapest possible path (a single
+direct GET, whose headers - if this were ever worth adding - could in
+principle be inspected then, though at that point the file is already
+being fetched, so there's nothing left to skip). Files that miss *both* and
+reach `downloadFileViaBrowser` do so precisely because no queryable direct
+URL for them exists yet - the browser-click search is what *produces* one,
+not something to be short-circuited by inspecting a URL that was never
+findable in the first place. **Closes item 1 of the 2026-08-19 decision as
+answered, not just deprioritized** - there is no cheap-signal shortcut to
+build here, and no further live experiment would change that conclusion,
+since the answer follows from what these URLs structurally are, not from
+anything that could vary run to run.
+
+*Side evidence, same cycle, one minimal live check (not the section
+crawl this closure needed, done anyway to sanity-check "which folder" for
+the visibility item below):* `dump-links` against the exact `Part-3`
+section URL a real 2026-08-20 sync error named
+(`docs/friction-campaign.md` Walk 13's own live sync run) returned 112
+entries but never surfaced `37-st-analysis-eu-rent-example_slides.pdf` -
+confirming this is one of the large, *paginated* folders (Question 44's
+long-standing Part-1/2/3 pattern) where the file in question sits past
+whatever `dump-links`'s single fetch reaches, consistent with everything
+this campaign already knows about why these specific folders are the ones
+that fail. Not chased further - confirms the existing picture rather than
+adding a new one.
+
+**This leaves items 2 and 3 of the 2026-08-19 decision as the live thread**
+- both are concrete engineering work (make the slow path visible; make sure
+it never blocks anything else), not more research. Genuinely new relative
+to the last 16+ investigation-only commits on this file, per the
+maintainer's own instruction to try something other than another
+source-reading pass of the *cause* hunt - this cycle answered a *policy*
+question source-only instead, and the next two are implementable.
+
+---
+
 **Updated 2026-08-18 (autopilot): Question 44's policy half, shipped —
 prediction registered before the live verification run, per Rule 1.**
 

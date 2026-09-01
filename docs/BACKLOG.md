@@ -113,24 +113,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15 & 17, first-run walks 3, 7, 10, 12, 14 & 16)
 
-- **wrong — `init`/`setup`'s printed "Next steps" and `status`'s "not logged
-  in" line hardcode `config.yaml` and bare `opal-downloader login`/`sync`,
-  ignoring the `--config <path>` the user actually passed.** Walk 17,
-  2026-09-01. Ran `init --config tmp/friction/init-test.yaml` and got "Edit
-  config.yaml... Run: opal-downloader login... Run: opal-downloader sync" -
-  a file that doesn't exist and commands that, run as printed, would
-  create/touch a different, default-path config instead of the one just
-  initialized. Source-confirmed at four `fmt.Println`/`fmt.Printf` call
-  sites in `cmd/opal-downloader/root.go`: `runInit` (313-320), `runSetup`
-  (371-377), `printLoginStatus` (441), and a fourth at line 576 - all sit
-  right next to a `configPath` variable already in scope but print a
-  literal string instead of interpolating it. Anyone running more than one
-  config (a second OPAL account, a scratch/test config, or simply following
-  the README's own `--config` examples) gets instructions pointing at the
-  wrong file. Open question this walk left: whether every site is a
-  mechanical interpolate-`configPath` fix, or one of the four needs the
-  variable threaded through first - not checked yet, read all four sites
-  before assuming. Full detail: `docs/friction-campaign.md` Walk 17.
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
   a new file.** Walk 11, 2026-08-19. **Partially shipped and live-verified,
@@ -164,15 +146,40 @@ maintainer. Walk detail, expectations and named causes:
   other ~96% (`Hausaufgabe N`-shaped per-item leaves, matching Walk 11's
   `Vorlesung`/`Woche` examples) are genuine leaves with no children, and
   whether *that* is "structurally guaranteed, ignore it" or "a real gap
-  worth a human's attention" is a real OPAL-course-content question this
-  session has no grounds to answer from the crawl structure alone - a
-  `Hausaufgabe N` page being empty could mean "this node is just a
-  container for other things" or "the assignment isn't posted yet", and
-  those look identical to the crawler. Chasing further needs either
-  maintainer input on what these leaf pages are supposed to contain, or
-  cross-referencing enough real course pages by hand to find a second
-  structural signal - not more source-reading. Full detail:
-  `docs/friction-campaign.md` Walk 11.
+  worth a human's attention" is a real OPAL-course-content question that
+  cannot be answered from the crawl structure alone - a `Hausaufgabe N`
+  page being empty could mean "this node is just a container for other
+  things" or "the assignment isn't posted yet", and those look identical to
+  the crawler.
+
+  **Blocked on a product call. Three options, recommendation first:**
+
+  - **(A, recommended) Ship the report as-is and close this finding.** The
+    container label already covers the one case a reader could not
+    otherwise diagnose (a course root or folder that *should* have surfaced
+    files). Every remaining always-empty row is a known per-item leaf whose
+    emptiness is expected the vast majority of the time; a label there would
+    fire on ~96% of rows and train the reader to ignore it, which is worse
+    than no label. The residual risk - a genuinely missing file on a leaf
+    page that looks the same as an unposted assignment - is already covered
+    by the byte-diff ground truth and the discovery-count smoke check, not
+    by this human-readable report. Cost: none. Downside: a reader who wants
+    "is *every* empty page really supposed to be empty" still has to check
+    OPAL by hand.
+  - **(B) Add a collapsed-by-default "N always-empty leaves (expand to
+    list)" footer.** Keeps the signal reachable without burying the report.
+    Cost: ~half a day in `visitlog.FormatReport` plus a flag to expand.
+    Downside: still no way to tell "expected empty" from "missing file", so
+    the expanded list is only a manual-check worklist.
+  - **(C) Find a second structural signal by hand.** Cross-reference ~20-30
+    real leaf pages against what the course actually shows a logged-in
+    student, looking for something the crawler sees on a "really has content
+    coming" page that it does not see on a "just a container" page (a
+    date-gated element, a submission widget, an empty-state string). Cost:
+    an hour of live crawling plus analysis, no guarantee a signal exists.
+    Only worth doing if (A) is rejected.
+
+  Full detail: `docs/friction-campaign.md` Walk 11.
 - **wrong — `/schedule`'s on-logon catch-up promise is false for the real
   task, and cannot become true until the app is installed somewhere
   permanent.** Walk 6, 2026-08-13: the page states as fact that a missed run
@@ -247,15 +254,6 @@ maintainer. Walk detail, expectations and named causes:
   tooling gap, not a persona finding, and the second unattended run in a row
   to hit it. Needs either Inno Setup installed on this machine or a live
   session with it available.
-- **Fixed, 2026-09-01 (autopilot):** the README's "Quick Start (Web UI)"
-  section now describes the real Windows behavior (auto-opens a native
-  WebView2 window, blocks until closed) and names the non-Windows fallback
-  (prints the URL, waits for Ctrl-C) explicitly, instead of stating the old
-  print-and-wait flow as universal fact. `docs/gui-concept.md`'s matching
-  staleness (`:137`, `:346`) needed no edit - the file already opens with a
-  "superseded... treat every open question past this point as historical
-  framing" banner, so it doesn't mislead a reader the way the README did.
-  Full detail: `docs/friction-campaign.md` Walk 16.
 
 ---
 
@@ -266,17 +264,10 @@ only in one session's context window. Not commitments. An entry leaves in one
 of two directions: up into the work above, or into `docs/BACKLOG-archive.md`
 once it is done, decided, or shown not to matter.
 
-- **`TestSyncScheduledSkipsWhenAlreadySucceededToday` non-hermeticity: three
-  mechanisms tried, all three ruled out — most likely explanation is now a
-  misattributed real concurrent session, not a guard bug.** See
-  `docs/BACKLOG-archive.md` "Settled" for the full trail (same-test
-  contention, other-package live probes, and — 2026-08-19 (autopilot,
-  live-verified) — a real background `sync` genuinely holding `sync.lock`,
-  none of which make the test fall through). **Not fully closed:** no PID was
-  captured for the process actually inside the original incident's run, so
-  the misattribution explanation is well-evidenced, not proven. Downgraded
-  from "real risk" to a documentation-only follow-up: nothing left to fix in
-  the test unless it recurs with a captured PID.
+_Nothing currently._ (The `TestSyncScheduledSkipsWhenAlreadySucceededToday`
+non-hermeticity note moved to `docs/BACKLOG-archive.md` "Settled" on
+2026-09-01 — three mechanisms ruled out, nothing left to fix in the test's
+own guard logic unless it recurs with a captured PID.)
 ---
 
 ## Standing work

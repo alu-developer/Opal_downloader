@@ -585,6 +585,28 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Walk 17's `--config`-ignoring instructions finding, fixed and verified
+  (2026-09-01, commit `199e20d`; backlog entry retired 2026-09-01,
+  autopilot).** `init`/`setup`/`status`/`login` printed follow-up commands
+  that hardcoded `config.yaml` and bare `opal-downloader login`/`sync`,
+  ignoring a real `--config <path>`. Fixed by adding `configFlagSuffix()` /
+  `defaultConfigPath()` to `cmd/opal-downloader/root.go` and threading
+  `configPath` through all five affected call sites (`runInit`, `runSetup`,
+  `printLoginStatus`, `runLogin`, `checkLoginProfileHealth` — the last two
+  needed the parameter added, so the walk's open "is it mechanical at every
+  site" question is answered: mostly yes, two sites needed threading). The
+  suffix is empty for the default config so the common case still prints the
+  bare command. `go build ./...` green; grep-confirmed no bare
+  `opal-downloader login`/`sync` or literal-`config.yaml` follow-up strings
+  remain outside `printHelp`'s deliberately context-free help text.
+- **Walk 16's README "Quick Start (Web UI)" staleness, fixed (2026-09-01,
+  commit `b4061f8`; backlog entry retired 2026-09-01, autopilot).** The
+  section stated the old print-URL-and-wait flow as universal fact; it now
+  describes the real Windows behavior (auto-opens a native WebView2 window,
+  blocks until closed) and names the non-Windows print/Ctrl-C fallback
+  explicitly. `docs/gui-concept.md`'s matching staleness (`:137`, `:346`)
+  needed no edit — that file already opens with a "superseded, treat every
+  open question past this point as historical framing" banner.
 - **Walk 14's two doc/redaction findings, both shipped and verified
   (2026-08-20, autopilot).**
   - README's "Commands" table now lists `schedule enable|disable|status` and

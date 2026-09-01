@@ -2445,4 +2445,15 @@ sit somewhere `configPath` isn't actually in scope yet and need threading
 through first? Not checked this walk - next session picking up this backlog
 entry should read all four sites before assuming a one-line fix at each.
 
+**Answered by the fix itself (commit `199e20d`, same day):** mostly
+mechanical - a `configFlagSuffix(configPath)` helper (empty for the default
+config, `" --config <path>"` otherwise) dropped into each message. Two of
+the sites, `printLoginStatus` and `checkLoginProfileHealth`, did *not* have
+`configPath` in scope and needed it added as a parameter first; the other
+three interpolated directly. Five call sites in the end, not four - `runLogin`'s
+"You can now run: opal-downloader sync" was a fifth instance the walk's
+source scan missed. `go build ./...` green, `init --config <path>`
+live-verified to echo that exact path in every follow-up command. Backlog
+finding retired 2026-09-01 (autopilot); detail in `docs/BACKLOG-archive.md`.
+
 Rotation note updated at the top of this file (`Next surface`).

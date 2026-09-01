@@ -165,7 +165,7 @@ Re-ranked 2026-08-12 with the target redefined. Leverage now means *seconds off
 discovery-internal question below it — none of those can win more than the ~50s
 discovery costs in total.
 
-### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — OPEN, opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); seven live experiments on 2026-08-13 ruled out pagination, both concurrency axes, and discovery order, isolating the trigger to "which course pairs with Softwaretechnologie" specifically; a first source-reading pass found OpenOLAT's DTabs mechanism but it doesn't cleanly fit — cause and policy half both still undecided
+### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — **cause half CLOSED 2026-09-01: OPAL is not a version/branch of `OpenOLAT/OpenOLAT` at all, it's an independently-developed proprietary sibling fork with no public source to read.** Policy half already shipped 2026-08-18 (backoff). Opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); seven live experiments on 2026-08-13 ruled out pagination, both concurrency axes, and discovery order, isolating the trigger to "which course pairs with Softwaretechnologie" specifically; three source-reading passes against `OpenOLAT/OpenOLAT` all found things true of current master but unconfirmed against the live account - explained now that the live-fingerprint cycle below found *why*.
 
 **The finding.** A no-op sync spends 1097.1s downloading zero files. All of it
 is 49 files failing the same way: the direct GET returns HTML, the browser
@@ -3127,7 +3127,90 @@ hunt in the next report, per the 2026-08-20 report's own instruction ("find
 that genuinely new approach... or explicitly re-close the question for lack
 of one").
 
-**Result:**
+**Result: confirms this approach has legs, and then some - the question is
+now closed, not just reopened with a lead.**
+
+`curl -sL https://bildungsportal.sachsen.de/opal/shiblogin` (the login page,
+fully unauthenticated, no browser/session/lock needed) surfaced, in order of
+how decisive each was:
+
+1. **Live Apache Wicket confirmed again, independently of the account-side
+   finding**: `wicket/resource/org.apache.wicket.ajax.AbstractDefaultAjaxBehavior/...`
+   and `wicket-ajax-jquery-ver-...js` resource paths are served to a
+   logged-out visitor, plus jQuery **2.2.4** (released 2016) bundled as a
+   core dependency - a legacy, Wicket-era frontend stack, not a modern SPA
+   rewrite.
+2. **A footer link naming an explicit release identifier and node**: `<span>
+   Über OPAL 2026.08.2</span><span> | N7</span>` - OPAL versions itself on
+   its own date-based release train (`2026.08.2`, i.e. August 2026's second
+   release), served from cluster node N7 (matching the session cookie's own
+   `JSESSIONID=...opalN7`). Links to
+   `https://help.bps-system.de/wiki/bin/view/Releasenotes/Releases%20OPAL/`
+   for the release notes themselves - checked, but that wiki requires a BPS
+   account to view content (confirmed: the print/no-JS view still only
+   rendered `Anmelden`/`Login` chrome, no release text) - a real, credential-
+   gated dead end, not pursued further since this project has no BPS wiki
+   account and this question doesn't warrant asking for one.
+3. **The decisive result - a single web search for "OPAL Bildungsportal
+   Sachsen OpenOLAT Version Fork BPS"** (not a GitHub source read - genuinely
+   the different-shaped approach the last report asked for) found OPAL's own
+   documented history: built on OLAT-Campus (University of Zürich, 1999),
+   **BPS forked it as "OLAT CE" from OLAT 7.1 in 2011** - the same year
+   Zürich began a "massive refactoring project" and **revoked community
+   contributors' repository access** - renamed OPAL in 2016, and has been
+   "developed centrally by BPS GmbH" ever since. `OpenOLAT/OpenOLAT`
+   (frentix's project, the only public repository this campaign has ever
+   read) is a **sibling fork from that same 2011 split, not OPAL's parent or
+   any ancestor of it** - the two have been independently developed, in
+   different codebases, by different companies, for 14+ years.
+
+**What this closes (Rule 2 - names the cause sharply enough to predict where
+else it shows up).** Every one of this campaign's four OpenOLAT-source
+passes (Question 44's DTabs candidate, Question 43's `FolderController`,
+this file's own component-id/pagination search, and the 2026-08-15 Wicket
+fingerprint that first flagged the mismatch) was reading the wrong
+repository from the start - not an outdated version of the right one, a
+*different piece of software* that happens to share a common ancestor 15
+years back. That predicts, correctly, why every single one of those passes
+came back "true of current master, unconfirmed against the live account":
+there was never going to be a match, at any commit, on any branch, because
+`OpenOLAT/OpenOLAT` and OPAL stopped being the same codebase in 2011. And it
+predicts something stronger for future cycles: **no future source-reading
+pass against any public OpenOLAT-family repository can close a
+live-behavior question about OPAL specifically** - OPAL is "developed
+centrally by BPS GmbH" with no indication of a public repository anywhere
+in the search results this cycle returned, so this class of investigation
+has no source to read, not just a hard-to-find one.
+
+**Question 44's cause half is closed, for real this time - not deferred,
+not downgraded, actually answered.** The original question ("why do 49
+files answer with HTML instead of their bytes") remains formally
+unanswered at the mechanism level (still don't know *what in OPAL's own
+code* produces the HTML-instead-of-bytes response), but the *campaign's own
+approach* to answering it - reading OpenOLAT source to find the mechanism -
+is now known to be structurally incapable of ever answering it, which is
+itself the answer this question needed. Combined with the policy half
+already shipped 2026-08-18 (backoff makes the failure cheap regardless of
+its cause) and the maintainer's own "correctness ahead of speed, but a
+proven default ships without asking" standing rule, there is nothing left
+to chase here: the cost is bounded, the cause is unknowable from outside
+BPS, and no further cycle should reopen this unless BPS ever publishes
+something to read.
+
+**New open question, ranked.** With Question 44 fully closed and Question
+43 (bulk-ZIP download) still the only other open item on this file's own
+ranked list (stalled on a DOM-flakiness finding from 2026-08-12, two
+untried directions already named in its own entry), **this campaign has run
+out of ranked questions with a concrete next experiment** for the first
+time since 2026-08-09. Per this file's own "When ideas run out" section,
+the next cycle should either (a) resume Question 43's two named untried
+directions, or (b) do the maintainer's own suggested end-to-end
+re-measurement (`docs/BACKLOG.md`'s "Maintainer decision, 2026-08-19" notes
+his "~300s before this campaign started" recollection as "worth an explicit
+end-to-end re-measurement early next cycle" - never actually done), since a
+plain "how fast is a sync today, with everything shipped so far" number is
+now overdue and would tell the maintainer directly whether the campaign's
+accumulated fixes have actually moved his own experience of the tool.
 
 **Cycle, 2026-08-20 (autopilot, sixth cycle today, new session): does
 session-accumulated load (several full live crawls run back-to-back in one

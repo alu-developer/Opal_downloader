@@ -22,6 +22,39 @@ option; a few carry a "if this recurs, check X" note. Nothing here is work.
 Moved out of `docs/BACKLOG.md`'s "Noticed" section on 2026-08-12, when that
 file was cut back to open work only.
 
+- **Question 44's cause half CLOSED 2026-09-01 (autopilot) — OPAL is not a
+  version or branch of `OpenOLAT/OpenOLAT`, it's an independently-developed
+  proprietary sibling fork with no public source to read.** Four prior
+  passes reading `OpenOLAT/OpenOLAT` GitHub source (Question 44's DTabs
+  candidate, Question 43's `FolderController`, a component-id/pagination
+  search, and a 2026-08-15 live Wicket fingerprint) had all found things
+  true of current master but unconfirmed against the live account - treated
+  as "a version/fork gap, not a dead end" and left open since 2026-08-15.
+  This cycle tried a genuinely different approach instead of a fourth source
+  read: fetched OPAL's own unauthenticated login page
+  (`curl https://bildungsportal.sachsen.de/opal/shiblogin`, no
+  session/browser/lock needed) and found a footer link reading "Über OPAL
+  2026.08.2 | N7" (OPAL's own date-based release train and cluster node,
+  matching the session cookie's `JSESSIONID=...opalN7`) plus confirmation
+  that Apache Wicket and jQuery 2.2.4 are live dependencies even for a
+  logged-out visitor. A single web search on that release name
+  ("OPAL Bildungsportal Sachsen OpenOLAT Version Fork BPS") found OPAL's
+  documented history: built on OLAT-Campus (Zürich, 1999), **BPS forked it
+  as "OLAT CE" from OLAT 7.1 in 2011** (the same year Zürich revoked
+  community contributors' repository access during a refactor), renamed
+  OPAL in 2016, "developed centrally by BPS GmbH" ever since - no indication
+  of any public repository. `OpenOLAT/OpenOLAT` (the only repo this
+  campaign ever read) is a **sibling fork from that same 2011 split, not
+  OPAL's ancestor** - the two codebases have been independently developed
+  for 14+ years. That closes the *approach*, not just the question: no
+  future source-reading pass against any public OpenOLAT-family repository
+  can answer a live-behavior question about OPAL specifically, since there
+  is no shared code to find the answer in. Policy half already shipped
+  2026-08-18 (backoff makes the failure's cost bounded regardless of cause).
+  A linked release-notes wiki (`help.bps-system.de`) was checked and found
+  gated behind a BPS account login - a real, credential-gated dead end, not
+  pursued further. Full detail: `docs/sync-speed-model.md`'s "Next
+  experiment", cycle 2026-09-01, and Question 44's own entry.
 - **`TestSyncScheduledSkipsWhenAlreadySucceededToday`
   (`cmd/opal-downloader/root_test.go`) non-hermeticity, three mechanisms
   tried and ruled out (2026-08-19, autopilot) — likely a misattributed real

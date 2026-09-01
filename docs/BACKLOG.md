@@ -44,81 +44,36 @@ to `docs/BACKLOG-archive.md`._
 
 `docs/sync-speed-model.md` holds the ranked list, re-ranked 2026-08-12 when
 the maintainer redefined the speed target from "discovery" to "the whole
-sync, start to `Done.`" **Question 44 is still the top item.** Seven live
-experiments on 2026-08-13 fully excluded every concurrency- and order-based
-lever this project controls (download-side concurrency, discovery-side
-course concurrency, and discovery order all tried and ruled out) and
-isolated the trigger to **which course is paired with Softwaretechnologie
-in the same session** - Algorithmen und Datenstrukturen reproduces all 49
-original failures (including its own `Vorlesung` folder), Analysis
-reproduces the two largest (Part-3: 33, Part-1: 6) but not the smaller
-Part-2 (4), independent of which course is discovered first. A first
-source-reading pass the same day (`gh search code --repo OpenOLAT/OpenOLAT`)
-found a real candidate mechanism (OpenOLAT's `DTabs` per-session tab cap)
-but it does not cleanly fit the evidence - checked and registered as
-inconclusive, not confirmed. **A second source-reading pass (2026-08-15)
-found why: the account's live folder-browser HTML fires genuine Apache
-Wicket AJAX (`Wicket.Ajax.ajax`, class `pager-showall`), but current
-`OpenOLAT/OpenOLAT` master has zero trace of Apache Wicket anywhere -
-neither the legacy `Table` component nor the modern `FolderController`
-matches what's actually served.** Every OpenOLAT-source finding on this
-question to date (DTabs, Question 43's `FolderController`, this pass's own
-component-id/pagination search) is true of current master but unconfirmed
-against whatever OPAL actually runs - a version/fork gap, not a dead end.
-**Next step is finding which version/fork is actually deployed** (see
-`docs/sync-speed-model.md`'s "Next experiment" for the checked-but-
-inconclusive commit-search attempt and the cheaper follow-ups it names)
-before more time goes into reading master for mechanisms that may not exist
-in the running code. Question 43
-(bulk-download-as-ZIP) sits second, still stalled on the same DOM-flakiness
-finding from 2026-08-12's Step B — two untried directions are named in its
-own entry. **Nothing on this list is blocked on the maintainer** — Question
-39 is decided and built, and Question 5 is fully closed (all three halves —
-see `docs/BACKLOG-archive.md`). Nothing further is planned on the
-course-level HTTP concurrency thread — Question 41 closed 2026-08-11 as a
-no-go.
+sync, start to `Done.`"
 
-**Weekly review finding (self-imposed, 2026-08-17):** Question 44's cause
-half has now run at least 16 investigation-only commits since 2026-08-13
-(seven live experiments, three OpenOLAT source-reading passes, a live-server
-Wicket fingerprint, a branch/tag sweep, a mirror check) with nothing
-shipped — past the line `docs/work-quality.md` ("The sync-speed campaign,
-measured") draws for itself: *"a campaign that reaches five investigation
-commits with nothing shipped is failing — say so rather than continuing to
-measure."* The chase is now for which OpenOLAT/Wicket fork Sachsen runs, and
-`docs/sync-speed-model.md`'s own "Next experiment" section admits a real
-dead end is possible (a private, unpublished fork with no public source).
-Question 44's *policy* half — a negative-manifest-entry-with-backoff for a
-file that fails the same way every time — has been named "unblocked by any
-of the above" and sufficient by itself to hit the question's own kill line
-(~120s no-op sync, down from 1097s) at least three times in
-`docs/sync-speed-model.md`, and was never implemented. Nothing breaks by
-dropping the version/fork hunt tomorrow: the policy half reaches the
-measured target on its own, regardless of whether the cause is ever found.
-Ship the policy half next, ranked above resuming the cause hunt.
+**Question 44 CLOSED 2026-09-01 (autopilot), both halves.** Policy half
+shipped 2026-08-18 (a failed download now backs off instead of retrying
+forever - see `docs/BACKLOG-archive.md` for the shipped mechanism). Cause
+half closed 2026-09-01 by a genuinely different approach than the four prior
+GitHub-source-reading passes: OPAL's own login page names its release
+("OPAL 2026.08.2"), and a single web search on that turned up OPAL's
+documented history - **it's an independently-developed proprietary fork BPS
+split from OLAT 7.1 in 2011, not any version of `OpenOLAT/OpenOLAT`** (the
+only repo this campaign ever read). No public OPAL source exists to read,
+so this class of investigation is closed for good, not just deferred - see
+`docs/BACKLOG-archive.md`'s "Settled" for the full finding and
+`docs/sync-speed-model.md`'s Question 44 entry.
 
-**2026-08-18 (autopilot): shipped and live-verified — closed.** A failed
-download now writes a `FileRecord` with `FailCount`/`FailedAt` instead of no
-manifest entry at all, and the next sync skips a file still inside its
-backoff window (6h / 24h / 3d / capped at 7d) without attempting it — see
-`internal/syncer/syncer.go`'s `downloadRetryAt`/`recordDownloadFailure`.
-`force` still bypasses everything, the same escape hatch it already was.
-This is a download-phase policy change, not a discovery change, so it
-shipped directly rather than behind a flag.
-
-Two live runs against a scratch `download_path` on the real account
-confirmed the mechanism exactly: run 1 (fresh manifest) reproduced the
-known 49 failures plus one new one (50 total, all recorded as negative
-manifest entries); run 2 (same manifest, run immediately after) skipped all
-50 via backoff — `downloaded=1 skipped=348 errors=0 backing_off=50` — cutting
-the download phase from 1374.2s to 346.7s (~75%, right-sized for removing
-~50 retries at ~20s each). **The ~120s total-wall-clock kill line was
-missed anyway** (517.1s), but for two separate, already-known reasons this
-change was never scoped to fix, not because the backoff failed — see
-`docs/sync-speed-model.md`'s "Next experiment" for the full diagnosis and
-the two new open questions it left (discovery-time variance; the
-signal-less-file verify path's own cost when it needs the browser
-fallback).
+**Question 43** (bulk-download-as-ZIP) is now the only ranked item with an
+open experiment, still stalled on a DOM-flakiness finding from 2026-08-12's
+Step B — two untried directions are named in its own entry in
+`docs/sync-speed-model.md`. With Question 44 closed, the ranked list has no
+other item with a concrete next experiment for the first time since
+2026-08-09 — `docs/sync-speed-model.md`'s "Next experiment" section
+recommends either resuming Question 43, or (recommended first) an
+end-to-end re-measurement of a real sync now that this campaign's fixes are
+shipped, since the maintainer's own "~300s before this campaign started"
+recollection (`docs/BACKLOG.md`'s 2026-08-19 `/decide` round) was flagged as
+worth checking directly and never actually was. **Nothing on this list is
+blocked on the maintainer** — Question 39 is decided and built, and
+Question 5 is fully closed (see `docs/BACKLOG-archive.md`). Nothing further
+is planned on the course-level HTTP concurrency thread — Question 41 closed
+2026-08-11 as a no-go.
 
 **Maintainer decision, 2026-08-19 (`/decide` round): keep going, resume the
 version/fork cause hunt** (deprioritized since 2026-08-17, unblocked now

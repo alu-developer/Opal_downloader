@@ -64,12 +64,17 @@ no-op sync against a fresh scratch manifest, real account, all 6 courses -
 `downloaded=0 skipped=349 errors=0 backing_off=49`, **Total 223.2s**. Below
 the maintainer's own "~300s before this campaign started" recollection for
 the first time this campaign has had a real number to check it against, but
-still well above the ~30s target: **151.3s of that 223.2s is the download
-phase doing nothing but browser-fallback verification of 349 unchanged
-files that don't need downloading** - live-sizes the "signal-less-file
-verify path" cost flagged as an open question 2026-08-18 and never picked
-up since. At ~68% of a no-op sync, **that cost is now the top-ranked item**,
-above Question 43. Full numbers and the new question's exact framing:
+still well above the ~30s target: **151.3s of that 223.2s comes from just 7
+signal-less files** (`needsContentVerification` -
+`internal/syncer/syncer.go:376`) whose byte-level verify has no direct link
+and hits the same ~21.5s browser-fallback path as a failed download (7 ×
+~21.5s ≈ 150.5s, matching the phase almost exactly) - the other 342 skip in
+a fraction of a second each. Live-sizes the "signal-less-file verify path"
+cost flagged as an open question 2026-08-18 and never picked up since, and
+unlike the backed-off cluster this cost can't be reduced by backoff (these
+files must be re-checked every sync, by definition). At ~68% of a no-op
+sync from 2% of the files, **that cost is now the top-ranked item**, above
+Question 43. Full numbers and the new question's exact framing:
 `docs/sync-speed-model.md`'s "Next experiment".
 
 **Question 43** (bulk-download-as-ZIP) sits second, still stalled on a

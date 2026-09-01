@@ -3143,13 +3143,17 @@ already below the maintainer's own "~300s before this campaign started"
 recollection** (`docs/BACKLOG.md`'s 2026-08-19 `/decide` round) - the first
 time this campaign has had a same-units number to actually compare against
 that recollection instead of citing it as untested. Still well above the
-~30s target: **151.3s of the 223.2s total is the download phase doing
-nothing but confirming 349 unchanged files need no action** (0 downloaded),
-which live-confirms the "signal-less-file verify path's own cost when it
-needs the browser fallback" open question 2026-08-18 already flagged and
-left open - this run's own log shows the same `.opalverify.pdf`-style
-signal-less files still resolving via the slow browser-fallback path even
-though nothing downloads, exactly the mechanism that question named. The
+~30s target, and precisely attributable: this run's log shows exactly
+**7** `.opalverify.pdf`-style signal-less files (`needsContentVerification`,
+`internal/syncer/syncer.go:376`) hitting "not available as a direct link -
+resolving it the slow way" - the same ~21.5s-median `browserDownloadMu`
+click-based fallback path Question 44's own cycles measured, not a plain
+HTTP GET. 7 × ~21.5s ≈ 150.5s, matching the download phase's own 151.3s
+almost exactly - **nearly the entire download phase of a 349-file no-op
+sync is these 7 files**, not the other 342, which skip in a small fraction
+of a second each. This live-confirms and precisely sizes the
+"signal-less-file verify path's own cost when it needs the browser
+fallback" open question 2026-08-18 already flagged and left open. The
 remaining ~72s is discovery, in the range Question 38 already measured.
 
 **What this closes and what it doesn't.** Confirms the campaign's shipped
@@ -3158,16 +3162,20 @@ real number meaningfully, and gives the maintainer a real, current
 comparison point against his own recollection for the first time. Does not
 close anything new - the signal-less-file verify cost was already an open
 question, not answered here, just freshly confirmed still present and now
-sized (~151s of a ~223s no-op sync, i.e. most of it) rather than only
-theorized.
+sized (a small, fixed population of files, each paying the full ~21.5s
+browser-fallback cost every single sync forever, with no backoff available
+since these aren't failures) rather than only theorized.
 
 **New open question, ranked.** The signal-less-file verify path's browser-
 fallback cost is now the single largest measured component of a steady-
-state sync (151.3s of 223.2s, ~68%) - larger than discovery, larger than
-the backed-off cluster's own overhead. It was left open 2026-08-18 as one
-of two new questions from that cycle's diagnosis but never picked up since;
-this measurement makes the case that it, not Question 43's bulk-ZIP idea,
-is now the top-leverage open item. Next cycle should read
+state sync (~151s of 223.2s, ~68%, from just 7 files) - larger than
+discovery, larger than the backed-off cluster's own overhead, and unlike
+that cluster it can never be reduced by backoff (these files are correctly
+suspected of maybe having changed, every single run, forever, by
+definition). It was left open 2026-08-18 as one of two new questions from
+that cycle's diagnosis but never picked up since; this measurement makes
+the case that it, not Question 43's bulk-ZIP idea, is now the top-leverage
+open item. Next cycle should read
 `internal/scraper`'s signal-less-file verify path (whatever code decides a
 file needs `needsContentVerification` and routes it through the browser
 fallback even when unchanged) and ask specifically: can an unchanged

@@ -3082,6 +3082,53 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-01 (autopilot, first cycle this session): does the live
+OPAL server itself disclose which OpenOLAT version/fork it's running,
+directly - a genuinely different approach from the three prior
+GitHub-source-reading passes the 2026-08-20 report named as exhausted?**
+
+**Design, written before running, per Rule 1.** The version/fork question
+has been stuck since 2026-08-15 because every source-reading pass answers
+"what does current `OpenOLAT/OpenOLAT` master do" rather than "what does
+Sachsen's actual deployment do" - the two have already been shown to
+diverge (current master has zero trace of Apache Wicket; the live account's
+folder browser fires genuine `Wicket.Ajax.ajax` calls). Rather than a fourth
+source-reading pass, ask the live server directly: OpenOLAT deployments
+conventionally disclose their version in one or more of a public login
+page's `<meta name="generator">` tag, an HTML comment, a footer copyright
+string, or asset URLs/query-strings carrying a version or build number
+(e.g. `/raw/18.0.x/...`) - all visible on the **unauthenticated** login
+page, so this needs no session, no browser, no lock, and runs safely
+alongside the sync already in progress in this same worktree. Plan:
+`curl -s -D headers.txt https://bildungsportal.sachsen.de/opal/` into a
+scratch file under `tmp/`, then grep the headers for `Server`/`X-Powered-By`
+and the body for `OpenOLAT`, `generator`, `version`, `Wicket`, `Build`, and
+any `\d+\.\d+(\.\d+)?` pattern near those words.
+
+**Expected numbers.** OpenOLAT's own upstream project is known to ship a
+visible version string on stock installs (e.g. a login-page footer reading
+something like "powered by OpenOLAT x.y"), so I expect a real chance
+(better than the source-reading approach's demonstrated near-zero hit rate)
+of finding at least one explicit version number. A large custom institution
+deployment (Sachsen's Bildungsportal, branded and reskinned) may have that
+footer removed or replaced - a real possibility, not a surprise if it
+happens.
+
+**Kill criterion.** *Confirms this approach has legs*: the fetch surfaces
+any explicit version number, build identifier, or a distinctive asset path
+(a version-stamped JS/CSS URL) attributable to OpenOLAT. That reopens the
+version/fork question with a concrete lead instead of a guess. *Refutes
+it, closes the question for lack of a next approach*: the login page's
+headers and body carry no version-identifying string at all (a generic
+`Server: nginx`/no `generator` tag, no OpenOLAT-branded footer, no
+version-stamped assets) - in that case, record it as the fourth checked,
+exhausted approach and explicitly recommend closing the version/fork cause
+hunt in the next report, per the 2026-08-20 report's own instruction ("find
+that genuinely new approach... or explicitly re-close the question for lack
+of one").
+
+**Result:**
+
 **Cycle, 2026-08-20 (autopilot, sixth cycle today, new session): does
 session-accumulated load (several full live crawls run back-to-back in one
 session) actually degrade `browserDownloadMu` hold times over the

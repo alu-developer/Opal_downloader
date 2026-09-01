@@ -2541,6 +2541,17 @@ there is no single "field description" source and every surface reinvents
 it. Not checkable from an unattended session (no browser tool); needs a GUI
 walk or a source read of `internal/gui`'s settings form.
 
+**Answered 2026-09-02 (autopilot, Phase 1 fix, source read):**
+`internal/gui/settings.go:182-183` states plainly the settings form "has no
+inputs for" `DownloadConcurrency` / `CourseConcurrency` - they are carried
+through untouched on save. So the GUI-recommended path never shows the
+changelog prose, and the cause is confined to `config.example.yaml`. Fix
+applied: both advanced-key comments cut to "what it does + safe default +
+see `internal/config/config.go` for the why" (file ~106 -> ~82 lines); the
+dated history stays only in `config.go`'s `DefaultCourseConcurrency` /
+`DefaultDownloadConcurrency` doc comments. Backlog finding retired to
+`docs/BACKLOG-archive.md`.
+
 **Next surface: 2 (CLI) for an unattended run** - of the two surfaces an
 unattended run can reach, CLI is now due (last walked walk 17, 2026-09-01
 earlier today; first-run-from-zero just walked here as walk 18). GUI still

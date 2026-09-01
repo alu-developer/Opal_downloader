@@ -50,41 +50,17 @@ courses:
 sync: true
 
 # (Optional) Maximum number of files downloaded concurrently during sync via
-# the fast HTTP path. Live-tested 2026-07-12: no rate-limiting/bot-detection
-# signal observed at 3, but higher values weren't cleanly comparable due to
-# an unrelated bug (some files fail the fast path and the browser fallback
-# both). Can also be set with --concurrency on the sync command. Defaults to 3.
+# the fast HTTP path. Also settable with --concurrency on the sync command.
+# Safe default is 3; see DefaultDownloadConcurrency in
+# internal/config/config.go for the tuning history.
 download_concurrency: 3
 
 # (Optional) Maximum number of courses crawled concurrently during discovery,
-# each on its own browser tab. Several real AJAX-render race bugs were found
-# and fixed here over multiple investigations (2026-07-13, 2026-07-16,
-# 2026-07-19) - see DefaultCourseConcurrency's doc comment in
-# internal/config/config.go for the full root-cause writeup. The 2026-07-19
-# fix (a "show all" pagination click's AJAX response getting silently
-# dropped when the page's JS execution context was torn down mid-flight
-# under concurrent-tab contention) is live-verified byte-for-byte safe at
-# concurrency 2 and 3 across 6 repeated full-account runs - this setting is
-# safe to raise. It is now also a speed win: until 2026-07-21 concurrency>1
-# was measurably SLOWER than serial, because every section paid a fixed
-# patience tax whenever concurrency>1, contended or not. That tax accounted
-# for essentially the entire slowdown and has been replaced with per-section
-# evidence.
-#
-# History note, because this comment has flip-flopped: the default went back
-# to 1 on 2026-07-26 (a re-measurement found concurrency 2 no faster AND
-# losing 9 files in one run of five), and back to 2 on 2026-08-10. What
-# changed the second time is that the file loss was finally explained rather
-# than just re-measured - it came from the concurrent settle *debounce*, and
-# shortening that while leaving the 6000ms hard cap alone gave three
-# consecutive full-account runs with all 349 files, empty byte-diff, and ~36%
-# less wall-clock than serial. See DefaultCourseConcurrency's doc comment in
-# internal/config/config.go for the numbers.
-#
-# Raising it further is NOT covered by that: 3 has not been re-measured since
-# any of the 2026-08 work, and 4 lost 9 files when it was last measured. Can
-# also be set with --course-concurrency on the list/sync commands. Defaults
-# to 2.
+# each on its own browser tab. Also settable with --course-concurrency on the
+# list/sync commands. Safe default is 2, verified byte-for-byte against the
+# full-account ground truth; raising it past 2 is not verified and has lost
+# files before. See DefaultCourseConcurrency in internal/config/config.go for
+# the full root-cause and measurement history.
 course_concurrency: 2
 
 # (Optional) OPAL instance URL. Defaults to TU Dresden OPAL.

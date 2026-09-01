@@ -585,6 +585,23 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Walk 18's `config.example.yaml` advanced-key-comment bloat, fixed
+  (2026-09-02, autopilot).** `init`/`setup` copy `config.example.yaml`
+  verbatim as the user's starter `config.yaml`; its `course_concurrency`
+  comment had grown to ~37 lines of dated tuning history ("History note,
+  because this comment has flip-flopped", "lost 9 files when it was last
+  measured") and `download_concurrency` carried an "unrelated bug" aside —
+  content that reads as "this tool is buggy" to a first-time user editing
+  the file. Both comments cut to "what it does + safe default + see
+  config.go for the why" (`config.example.yaml` now ~82 lines, down from
+  ~106). The dated history already lives in its proper home —
+  `internal/config/config.go`'s `DefaultCourseConcurrency` (lines 37–383)
+  and `DefaultDownloadConcurrency` (26–35) doc comments — and the
+  example-file comments now just point there. `init` is a straight
+  `copyFile` of the on-disk example (`cmd/opal-downloader/root.go:307`,
+  `:360`), no embedded copy; `scripts/test-fresh-install.ps1` only checks
+  the copy is byte-identical to the source, no test asserts on the file's
+  content. Full detail: `docs/friction-campaign.md` Walk 18.
 - **Walk 17's `--config`-ignoring instructions finding, fixed and verified
   (2026-09-01, commit `199e20d`; backlog entry retired 2026-09-01,
   autopilot).** `init`/`setup`/`status`/`login` printed follow-up commands

@@ -72,7 +72,7 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a
+**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for a
 session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
@@ -105,8 +105,11 @@ instructions, ignoring a real `--config` path; fixed same day). Walk 18
 first-run-from-zero again (fresh clone through `init`; one **bloat** finding
 - `init` copies `config.example.yaml` verbatim and its advanced-key
 comments have grown into a dated tuning changelog that reads as "loses
-files" to a first-time reader) — CLI nine, first-run-from-zero six, GUI
-still four.
+files" to a first-time reader; fixed 2026-09-02). Walk 19 the CLI again
+(everyday use; one **friction** finding - no per-invocation course selector
+on `sync`/`list`, so "grab just this one course now" forces a persistent
+`config.yaml` edit; same all-or-nothing shape on `--force` and in the GUI)
+— CLI ten, first-run-from-zero six, GUI still four.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
@@ -2552,10 +2555,81 @@ dated history stays only in `config.go`'s `DefaultCourseConcurrency` /
 `DefaultDownloadConcurrency` doc comments. Backlog finding retired to
 `docs/BACKLOG-archive.md`.
 
-**Next surface: 2 (CLI) for an unattended run** - of the two surfaces an
-unattended run can reach, CLI is now due (last walked walk 17, 2026-09-01
-earlier today; first-run-from-zero just walked here as walk 18). GUI still
-reserved for a session with an interactive browser tool: it has had four
-looks, CLI nine, first-run-from-zero six.
+**Next surface: 3 (first-run-from-zero) for an unattended run** - CLI just
+walked here as walk 19 (2026-09-02); of the two surfaces an unattended run
+can reach, first-run-from-zero is now due (last walked walk 18, 2026-09-01).
+GUI still reserved for a session with an interactive browser tool: it has
+had four looks, CLI ten, first-run-from-zero six.
 
 Rotation note also updated at the top of this file (`Next surface`).
+
+---
+
+### Walk 19 — 2026-09-02, CLI everyday use (autopilot, phase 2)
+
+GUI still unreachable unattended (walk 9's `preview_start` refusal). CLI was
+due (walk 17 vs first-run walk 18, both 2026-09-01, walk 18 later). Persona:
+a student mid-semester who wants **just one course's files right now** - a
+new Analysis exercise sheet was posted, I want it, I don't want to sit
+through a crawl of all six configured courses. Ran a fresh `go build`, read
+`opal-downloader --help`, ran `status --config tmp/friction/config.yaml`.
+
+**Persona breaks logged:** (1) after finding the gap in `--help` I read
+`cmd/opal-downloader/root.go`'s `runSync`/`runList` arg loops and
+`internal/gui/sync.go` to confirm no course selector exists anywhere - a
+diagnosis break on a finding already in hand (Rule 4), not a break to find
+one. (2) grepped `docs/` for any prior `--course`/`--only` discussion
+(none) to be sure this wasn't a settled decision.
+
+**Expectation, "sync one course":** `sync` has a per-run scope flag -
+`sync --course "Analysis"`, or a positional `sync Analysis`, or at least
+`--help` points me at "edit `courses:` in config.yaml". A tool that already
+understands per-course *folders* and a per-course *list* should let me say
+"just this one" for one run.
+**Result - finding (friction):** there is **no** per-invocation course
+selector on `sync` or `list`. `sync`'s options are `--force --dev --profile
+--debug-clicks --concurrency --course-concurrency --section-concurrency
+--no-skip-enrollment-sections --scheduled`; anything else is
+`unknown option for sync`. `--course-concurrency` is a false friend - it
+reads like a course picker but is a parallelism knob. The **only** way to
+sync one course is to hand-edit `config.yaml`'s `courses:` list and remember
+to revert it (and not commit the temp edit). `--help` gives no hint that
+this is the workflow. Filed **friction** in `docs/BACKLOG.md`.
+
+**Named cause (Rule 2):** the configured `courses:` list is the *only*
+expression of "which courses", and it lives in a persistent settings file -
+no surface has a per-run scope override. "Sync everything I follow" and
+"grab this one course now" are forced through the same wide door, and the
+second costs a settings edit plus a mental note to undo it.
+**Predictions, both checked cheap:**
+- `list` has the identical gap - confirmed from `--help` (`list` takes no
+  course argument either), so "preview just one course before syncing it"
+  is equally unavailable.
+- The pattern repeats on `--force`: it is also all-or-nothing. "Re-download
+  just this one file/course" has the same shape - `--force` takes no path
+  or course argument (confirmed from `--help` and `runSync`), so a single
+  corrupted file means re-forcing the whole sync.
+- The GUI is not an escape hatch: `/sync` calls
+  `syncer.SyncCoursesWithProgress(ctx, sc, loaded.App, ...)` on the whole
+  config; "Sync now" is whole-config, there is no per-course button
+  (`internal/gui/sync.go:196`). The gap is tool-wide, not CLI-specific.
+
+**Not a finding:** `status --config tmp/friction/config.yaml` on the scratch
+env is clean and reassuring - `Config ... (OK)`, `Download path ... (OK)`,
+`Logged in: saved session expired on Fri 14 Aug ... The next sync just logs
+in again on its own.` The `Download path (OK)` here is the
+validates-existence-not-substance case the 2026-08-11 breaking-things pass
+already filed; the path exists in this scratch env so `(OK)` is correct,
+nothing new.
+
+#### New question this walk leaves (Rule 3)
+
+Is a per-run `--course <pattern>` selector actually *wanted*, or does the
+maintainer hold "the config's `courses:` list is the source of truth, edit
+it" as the intended workflow? It is a product call, and it splits into two
+if the answer is "wanted": (a) should the flag reuse the existing
+`course_folders`-style glob matching, or the exact-match rule the config's
+`courses:` list uses, and (b) does it also imply a `--force <course>` /
+`--force <file>` narrowing, since the prediction above shows `--force` has
+the same all-or-nothing shape. Not answerable from source - it is a
+question about how the maintainer actually uses the tool day to day.

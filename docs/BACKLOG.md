@@ -135,8 +135,32 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15 & 17, first-run walks 3, 7, 10, 12, 14, 16 & 18)
+### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15, 17 & 19, first-run walks 3, 7, 10, 12, 14, 16 & 18)
 
+- **friction — no per-invocation course selector on `sync` or `list`, so
+  "grab just this one course right now" forces a persistent `config.yaml`
+  edit.** Walk 19, 2026-09-02 (CLI everyday use). Persona: a student who
+  wants only the new Analysis exercise sheet, not a crawl of all six
+  configured courses. `sync`'s flags are `--force --dev --profile
+  --debug-clicks --concurrency --course-concurrency --section-concurrency
+  --no-skip-enrollment-sections --scheduled`; anything else is
+  `unknown option for sync`. `--course-concurrency` is a false friend (a
+  parallelism knob, not a picker). The only way to scope to one course is
+  editing `config.yaml`'s `courses:` list and remembering to revert it;
+  `--help` gives no hint that this is the workflow. **Named cause:** the
+  configured `courses:` list is the sole expression of "which courses" and
+  it lives in a persistent settings file - no surface has a per-run scope
+  override. **Predictions, all confirmed cheap:** `list` has the identical
+  gap; `--force` is also all-or-nothing (no path/course argument, so one
+  corrupt file means re-forcing the whole sync); the GUI is not an escape
+  hatch either - `/sync` runs `syncer.SyncCoursesWithProgress(..., loaded.App, ...)`
+  on the whole config (`internal/gui/sync.go:196`), no per-course button.
+  The gap is tool-wide. **Open question (needs a maintainer product call):**
+  is a per-run `--course <pattern>` selector wanted, or is "edit the
+  config's `courses:` list" the intended source-of-truth workflow? If
+  wanted: (a) glob match like `course_folders` or exact match like the
+  config list, and (b) does it imply `--force <course>`/`--force <file>`
+  narrowing too. Full detail: `docs/friction-campaign.md` Walk 19.
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
   a new file.** Walk 11, 2026-08-19. **Partially shipped and live-verified,

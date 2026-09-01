@@ -106,10 +106,15 @@ Once built (see "Build from source" above), just run the binary with no argument
 ./opal-downloader
 ```
 
-This starts a local web server bound to `127.0.0.1` and prints the URL to
-open in your browser (default `http://127.0.0.1:<port>/`, an available port
-is picked automatically unless `--port` is given) - equivalent to running
-`./opal-downloader gui` explicitly. From there:
+This starts a local web server bound to `127.0.0.1` (default
+`http://127.0.0.1:<port>/`, an available port is picked automatically unless
+`--port` is given) - equivalent to running `./opal-downloader gui` explicitly.
+**On Windows** (this project's only supported install target) it then opens
+that address in a native WebView2 window automatically, and the process runs
+until you close the window. **On other platforms** there is no native window
+support yet, so it instead prints the URL and waits: "Opal Downloader GUI
+running at `<url>`. Open that address in your browser. Press Ctrl-C to stop."
+Either way, from there:
 
 1. **Settings** - a form covering every `config.yaml` field described below,
    including an add/remove row editor for `course_folders`. If no

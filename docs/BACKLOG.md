@@ -264,35 +264,15 @@ maintainer. Walk detail, expectations and named causes:
   tooling gap, not a persona finding, and the second unattended run in a row
   to hit it. Needs either Inno Setup installed on this machine or a live
   session with it available.
-- **wrong — the README's "Quick Start (Web UI)" section describes the old
-  print-the-URL-and-wait-for-Ctrl-C flow; current Windows behavior (this
-  project's only supported install target) auto-opens a native WebView2
-  window instead and never prints that line.** Walk 16, 2026-08-20.
-  `internal/gui/gui.go:215-232`: `hasNativeWindow` is a hardcoded compile-time
-  `const`, `true` on Windows (`window_windows.go:26`), `false` elsewhere
-  (`window_other.go:15`) - no flag or config toggles it. When true, the
-  actual printed line is `Opal Downloader GUI opening in a native window
-  (<url>)...`, and the process blocks until the window is closed by hand;
-  the README's quoted "prints the URL to open in your browser... Press
-  Ctrl-C to stop" text is the `hasNativeWindow == false` branch
-  (`gui.go:234-235`), which only non-Windows platforms reach. Live-confirmed
-  as a real window, not just a log line: `tasklist` showed the test process
-  still running (blocked on the window) plus ~24 new `msedgewebview2.exe`
-  child processes (WebView2's normal multi-process model) that were not
-  present before the run; cleaned up afterward with `taskkill /F` rather
-  than leaving a stray window/process cluster from an unattended session.
-  The rest of the section is accurate - `curl`'d `/` and `/settings`
-  directly and confirmed the settings form really is pre-filled with
-  sensible defaults (`download_path` → `./downloads`) with no `config.yaml`
-  present, exactly as documented. Same staleness also present in
-  `docs/gui-concept.md:137` and `:346` (a design-doc open question the
-  shipped code already answers) - lower priority than the README since it's
-  not user-facing, but the same fix applies. Fix direction: update the
-  README's Quick Start section to describe the native-window behavior on
-  Windows and name the non-Windows fallback explicitly, rather than stating
-  the old flow as universal fact. Tag: **wrong**, not **blocker** - the
-  feature itself works fine, arguably better than what's documented; only
-  the doc is out of date. Full detail: `docs/friction-campaign.md` Walk 16.
+- **Fixed, 2026-09-01 (autopilot):** the README's "Quick Start (Web UI)"
+  section now describes the real Windows behavior (auto-opens a native
+  WebView2 window, blocks until closed) and names the non-Windows fallback
+  (prints the URL, waits for Ctrl-C) explicitly, instead of stating the old
+  print-and-wait flow as universal fact. `docs/gui-concept.md`'s matching
+  staleness (`:137`, `:346`) needed no edit - the file already opens with a
+  "superseded... treat every open question past this point as historical
+  framing" banner, so it doesn't mislead a reader the way the README did.
+  Full detail: `docs/friction-campaign.md` Walk 16.
 
 ---
 

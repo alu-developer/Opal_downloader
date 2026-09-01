@@ -77,13 +77,37 @@ sync from 2% of the files, **that cost is now the top-ranked item**, above
 Question 43. Full numbers and the new question's exact framing:
 `docs/sync-speed-model.md`'s "Next experiment".
 
+**Diagnosed 2026-09-01 (autopilot, source-read cycle) - now Question 45,
+and it needs a maintainer product call.** Traced the full path: the verify
+job already calls the same `DownloadFile` a normal download does (so
+HTTP-first, counter-refresh, and conditional-header shortcuts are all
+already attempted and already ruled out across three cycles), and these 7
+files are structurally in Question 44's paginated-section cluster whose
+bytes HTTP simply cannot serve. So there is **no URL-based way** to make
+the fetch cheap - the only lever left is *not fetching every sync*.
+`syncer.go:839-843` currently re-verifies a byte-identical signal-less file
+on every run by explicit choice, made before the ~151s cost was measured.
+Proposed fix (**option A, recommended**): persist a `VerifiedAt` field on
+the manifest entry, gate the verify job behind a 7-day TTL, and run any due
+verify jobs only after the sync prints `Done.` so they never block the
+reported wall clock. Cost: an upstream edit to one of these ~7
+already-poorly-tracked files is noticed up to 7 days late - same risk class
+as the 2026-08-18 backoff policy the maintainer already approved. Options B
+(visibility/non-blocking only, no TTL) and C (accept the 151s) are the
+fallbacks. **Blocked on the maintainer**: is up-to-a-week staleness on
+these files acceptable? It touches `internal/syncer`, a path that has
+silently frozen change detection before
+(`project_filechanged_nil_guard_trap`), so it does not ship unattended.
+Full design: `docs/sync-speed-model.md` Question 45 + "Next experiment"
+(cycle 2026-09-01, third cycle).
+
 **Question 43** (bulk-download-as-ZIP) sits second, still stalled on a
 DOM-flakiness finding from 2026-08-12's Step B — two untried directions are
-named in its own entry in `docs/sync-speed-model.md`. **Nothing on this
-list is blocked on the maintainer** — Question 39 is decided and built, and
-Question 5 is fully closed (see `docs/BACKLOG-archive.md`). Nothing further
-is planned on the course-level HTTP concurrency thread — Question 41 closed
-2026-08-11 as a no-go.
+named in its own entry in `docs/sync-speed-model.md`. It is the top item
+**not** waiting on the maintainer (Question 45 above now is). Question 39 is
+decided and built, and Question 5 is fully closed (see
+`docs/BACKLOG-archive.md`). Nothing further is planned on the course-level
+HTTP concurrency thread — Question 41 closed 2026-08-11 as a no-go.
 
 **Maintainer decision, 2026-08-19 (`/decide` round): keep going, resume the
 version/fork cause hunt** (deprioritized since 2026-08-17, unblocked now

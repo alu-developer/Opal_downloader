@@ -509,6 +509,28 @@ the cause above. A negative-manifest-entry-with-backoff would cap that cost
 regardless of whether the cause is ever found, and does not need to wait for
 it.
 
+### 45. Should signal-less re-verification be gated by a manifest-persisted cadence instead of running every sync? — OPEN, top of the ranked list as of 2026-09-01. Needs a maintainer product call on acceptable staleness; touches `internal/syncer`, so it does not ship unattended.
+
+The single largest measured component of a steady-state no-op sync:
+`downloaded=0 skipped=349` still costs `Total: 223.2s`, and ~151s of that
+(~68%) is **7 signal-less files** (`needsContentVerification`,
+`syncer.go:377` - manifest entry with `Size == nil && Modified == nil`)
+each paying the full ~21.5s `browserDownloadMu` browser-fallback cost, every
+sync, forever. Three cycles (2026-08-19, 2026-08-20, 2026-09-01) have now
+ruled out every URL-based way to make that fetch cheap: the verify job
+already calls the same `DownloadFile` a download does (so HTTP-first,
+counter-refresh, and conditional headers are all already tried), and these
+7 are structurally in Question 44's paginated-section cluster whose bytes
+HTTP *cannot* serve. The only remaining lever is not fetching every sync.
+`syncer.go:839-843` currently, by explicit comment, leaves a
+verified-unchanged file "a verify candidate next run" - a choice made when
+this was framed as a narrow 4% fast-path-unaffected case, before the ~151s
+cost was measured. Full design and three options (A: persist `VerifiedAt`,
+7-day TTL, run due jobs after `Done.`; B: visibility + non-blocking only, no
+TTL; C: accept it) with recommendation (A) in "Next experiment", cycle
+2026-09-01 third cycle. Blocks on: the maintainer answering whether up-to-a-
+week staleness on these ~7 already-poorly-tracked files is acceptable.
+
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
 
 **Why this is a live lever and not old ground.** Every question on this list so
@@ -3126,6 +3148,113 @@ HTTP path (e.g. the routing is buried in a shared code path that also
 serves genuine failures, and telling them apart needs a live run). Recording
 "still don't know why HTTP is skipped" is a valid, reportable outcome;
 guessing is not.
+
+**Result: prediction confirmed - World 1. The verify job is not skipping any
+HTTP path; the 7 files structurally cannot be served by one. The lever is a
+re-verification *cadence* gate, and that is a maintainer product call.**
+
+Traced the full path, source only, no live run:
+
+1. **A signal-less file** is a manifest entry with `Size == nil &&
+   Modified == nil` - `needsContentVerification` (`syncer.go:377`) is
+   literally `hasPrevious && remote.Size == nil && remote.Modified == nil`.
+   OPAL disclosed no size and no date at discovery, so `fileChanged` can
+   only ever say "unchanged" and the file is queued as a *verify* job
+   instead of skipped (`syncer.go:748-761`).
+2. **The verify job calls the identical `downloadFn`.** `runVerifyJob`
+   (`syncer.go:447,794`) is handed the same `downloadFn` a plain download
+   job gets (`syncer.go:547` wires it to `sc.DownloadFile`; the worker at
+   `syncer.go:793-799` branches only on *where the bytes go*, not on which
+   function fetches them). So the HTTP-first attempt in `DownloadFile`
+   (`download.go:69-80`), the counter-refresh retry (`download.go:91-104`),
+   and only then the browser fallback (`download.go:139-150`) all run for a
+   verify job exactly as for a download. **The syncer does not skip HTTP for
+   verification** - the ~40% alternative hypothesis is refuted outright.
+3. **These 7 reach the browser fallback because HTTP structurally cannot
+   serve them.** `DownloadFile`'s HTTP GET returns `text/html`
+   (`download.go:74` rejects it), and the counter-refresh retry also misses
+   - the exact structural class named at `download.go:185-189`: *"files past
+   the first pagination page of a click-expanded ('Alle anzeigen') section
+   ... can never be served by the fast HTTP path or the counter-refresh, so
+   for them this browser-click fallback is not a safety net, it is the only
+   path."* That is the **same population as Question 44's HTML-instead-of-
+   bytes cluster** ("33 in Part-3 alone", Part-3 = the biggest paginated
+   folder). The 7 are the subset of that population that (a) *succeeded* via
+   the browser fallback on a seeding run, so they have a local file + a
+   manifest entry, and (b) are signal-less, so every later sync re-verifies
+   them. This also re-confirms, from a third independent angle, the
+   2026-08-20 closure of the 2026-08-19 decision's item 1: there is no cheap
+   HTTP header signal to read, because at the browser-fallback stage there is
+   no queryable direct file URL at all - the click search is what *produces*
+   one.
+4. **The re-verify-every-sync cadence is a deliberate choice, made before
+   its cost was known.** `syncer.go:839-843`, on a verify job that came back
+   byte-identical: *"The manifest entry is deliberately left as it is - there
+   is still no remote signal to record, so it stays a verify candidate next
+   run."* No `VerifiedAt`/`LastVerified` field is persisted. Written when
+   `needsContentVerification` was "~4% of files, narrow, fast path
+   unaffected" - before this session's prior cycle measured that the 7 that
+   land on the browser fallback cost ~151s, ~68% of a 223.2s no-op sync.
+
+**What this closes.** The cycle's own question - "can an unchanged
+signal-less file be confirmed unchanged without a browser navigation, the
+way HTTP-first replaced the browser walk for discovery?" - is answered:
+**no, not by any URL-based path.** HTTP-first worked for discovery because
+the section pages *were* fetchable over HTTP; these files' bytes are not,
+for the same unknowable-OPAL-internal reason Question 44 closed on. Every
+URL-based avenue (fast GET, counter-refresh, conditional headers) has now
+been checked and ruled out across three cycles. The only remaining lever is
+**not fetching the bytes every sync** - a cadence gate.
+
+**New open question, ranked #1 (this is the top item on the campaign's
+list).** *Should signal-less re-verification be gated by a manifest-
+persisted cadence instead of running every sync?* This is where the
+2026-08-19 decision's items 2 ("make the slow path visible") and 3 ("it must
+never block anything else in the sync") actually lead once you see the
+cadence: the cheapest way to stop 151s of serialized browser time from
+blocking the sync is to not do most of it. Concrete design and three
+options, recommendation first - **this needs a maintainer product call on
+acceptable staleness, and it touches `internal/syncer`, a file-loss-
+sensitive path (`project_filechanged_nil_guard_trap`), so it does not ship
+unattended:**
+
+- **(A, recommended) Persist `VerifiedAt` on a byte-identical verify, gate
+  the verify job behind a TTL (proposed 7 days), and run any *due* verify
+  jobs only after the sync has printed `Done.` and released the user-facing
+  wall clock.** Field added to `FileRecord` as `verified_at,omitempty`,
+  exactly mirroring `FailCount`/`FailedAt` (round-trips byte-identical for
+  manifests that predate it). Effect: 6 of 7 syncs in a week drop ~151s to
+  ~0; the 7th pays it, detached from the reported sync time. Staleness cost:
+  an upstream edit to one of these ~7 files is noticed up to 7 days late -
+  weighed against the fact that these files are *already* the least-tracked
+  in the manifest (no size, no date, invisible to `fileChanged`), and that
+  "every sync" was never chosen, it fell out of the gate being re-evaluated
+  each run. Same risk class and roughly the same shape as the backoff
+  policy the maintainer already approved 2026-08-18. Byte-diff note: a
+  cadence change can't be validated by the 345-file discovery ground truth;
+  proof here is a two-run test (run A verifies + stamps; run B within the
+  TTL skips the 7 and still `skipped=349`; run C with the clock advanced
+  past the TTL re-verifies) plus a forced-edit test (edit one signal-less
+  file's local copy, confirm the next *due* verify still replaces it).
+- **(B) Visibility + non-blocking only, no TTL.** Keep verifying every sync
+  but move the whole verify pass to after `Done.`, print a distinct
+  "checking N files OPAL gives no change signal for - this can take a
+  minute" line, and hold `browserDownloadMu` only during that tail. Removes
+  the 151s from the *reported* sync time and from blocking a concurrent GUI
+  action for the first ~72s, but the machine still spends 151s every sync
+  and a scheduled run's total wall time is unchanged. This is items 2+3 of
+  the 2026-08-19 decision taken literally, with none of the staleness
+  question.
+- **(C) Do nothing / accept it.** 7 files × ~21.5s is a fixed ~151s tax on
+  every sync forever. Only defensible if the maintainer wants zero added
+  staleness risk on these files and treats ~150s as acceptable. Given the
+  ~30s target, it isn't - but it's the honest baseline the other two are
+  measured against.
+
+Recommendation: **(A)**. It is the only option that moves the end-to-end
+number toward the target, it reuses an approved pattern, and its one real
+cost (bounded staleness on a handful of already-poorly-tracked files) is a
+narrow, well-scoped question the maintainer can answer yes/no.
 
 **Cycle, 2026-09-01 (autopilot, second cycle this session): with Question 44
 closed and nothing else ranked with an open experiment, what does a routine

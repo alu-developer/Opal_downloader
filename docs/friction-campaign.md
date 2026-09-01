@@ -72,8 +72,8 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a session with a
-browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
+**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for a
+session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
 walk 7 first-run-from-zero again (a GUI-specific angle walk 3 never
@@ -98,19 +98,24 @@ followed the README's own "Quick Start (Web UI)" flow for the first time
 this campaign - one "wrong" finding, the README describes the pre-native-
 window print-URL flow that Windows no longer uses) — GUI has had four
 looks, CLI eight, first-run-from-zero five; GUI is due *by count*, but see
-below for why an unattended run can't take it.
+below for why an unattended run can't take it. Walk 17 the CLI again
+(everyday use, one "wrong" finding - `init`/`setup`/`status` hardcode
+`config.yaml` and bare `opal-downloader login`/`sync` in their own printed
+instructions, ignoring a real `--config` path) — CLI nine, GUI still four,
+first-run-from-zero still five.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, and 16 all
-landed on CLI or first-run-from-zero instead for this same reason, whether
-or not they said so explicitly at the time. An unattended run should treat
-CLI/first-run as the only two surfaces actually in rotation for it and pick
-whichever of those is due (of the two, CLI is due next: last touched
-walk 15, 2026-08-20, vs first-run-from-zero's walk 16, same day but later) -
-the GUI slot stays reserved for a session with an interactive browser tool
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, 16, and 17
+all landed on CLI or first-run-from-zero instead for this same reason,
+whether or not they said so explicitly at the time. An unattended run
+should treat CLI/first-run as the only two surfaces actually in rotation
+for it and pick whichever of those is due (of the two, first-run-from-zero
+is due next: last touched walk 16, 2026-08-20, vs CLI's walk 17,
+2026-09-01) - the GUI slot stays reserved for a session with an interactive
+browser tool
 (or a human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
@@ -2363,5 +2368,81 @@ independently confirmed unaffected (`internal/scheduler/scheduler_windows.go:194
 always passes an explicit `sync --scheduled` argument, never bare no-args),
 so this is a hypothetical-automation question, not an operational risk
 today.
+
+Rotation note updated at the top of this file (`Next surface`).
+
+### Walk 17 — 2026-09-01, CLI everyday use (autopilot, phase 2)
+
+GUI still unreachable from this unattended session - re-checked this walk:
+`preview_start` with a bare external URL succeeds (opens a tab), but
+`preview_start` naming the project's own dev-server launch config still
+gets the same refusal walk 9 first found ("Dev servers can't be started
+from unattended sessions... nobody is present to approve the command").
+So CLI stays the only reachable surface here, as documented at the top of
+this file; that note needed no further edit.
+
+Built a scratch environment per this file's own recipe
+(`tmp/friction/config.yaml` with `download_path`/`session_state_file`
+redirected under `tmp/friction/`, `session_state.json` copied in from the
+real one) and used the CLI as a normal user would: `--help` first (to learn
+the commands, not from reading source), then `status`, `list --visit-report`,
+a real `sync`, a deliberate typo (`synch`), and `list` again while `sync`
+was still running.
+
+**Expectation, `status`/`list --visit-report`:** clear, fast, offline.
+**Result:** matched - `status` named the expired session and said the next
+sync just logs in again; `list --visit-report` on a brand-new scratch
+environment said plainly "No section visits recorded yet." No finding.
+
+**Expectation, running `list` while a `sync` is already running against the
+same account:** either it queues, or it fails with a clear reason.
+**Result:** matched - "a sync is already running (PID ..., started at ...) -
+likely today's scheduled sync or another opal-downloader command; wait for
+it to finish and try again", exit code 4. No finding - this is the
+`sync.lock` overlap guard working as documented
+(`docs/BACKLOG.md`/`project_crawl_overlap_lock` memory).
+
+**Expectation, `synch` (typo):** either an "unknown command" error, or a
+"did you mean sync?" suggestion. **Result:** plain "Error: unknown command:
+synch", no suggestion. Minor - most CLIs without a fuzzy-matcher behave the
+same way - not filed as its own backlog entry.
+
+**Finding (wrong) - `init`/`setup`'s printed "Next steps", and `status`'s
+"not logged in" line, hardcode `config.yaml` and bare `opal-downloader
+login`/`sync`, ignoring the `--config <path>` the user actually passed.**
+Ran `init --config tmp/friction/init-test.yaml` (a custom path, exactly the
+pattern this campaign's own scratch-environment recipe uses) and got back
+"Next steps: 1. Edit config.yaml with your download path... 3. Run:
+opal-downloader login 4. Run: opal-downloader sync" - naming a file
+(`config.yaml`) that was never created and commands that, run as printed,
+would create-or-touch a *different*, default-path config instead of the one
+just initialized. Source-confirmed, not just observed:
+`cmd/opal-downloader/root.go` - `runInit` (lines 313-320) and `runSetup`
+(lines 371-377) both build `configPath` from the parsed `--config` flag but
+then `fmt.Println` a literal string instead of interpolating it; the same
+pattern is a third time at line 441 (`printLoginStatus`: "Not logged in yet.
+Run: opal-downloader login") and a fourth at line 576. Predicts exactly
+where it shows up, per Rule 2 - anyone running more than one config (a
+second OPAL account, a test/scratch config like this campaign's own, or
+simply following the README's own `--config` examples) gets instructions
+that point at the wrong file. Tag: **wrong**, not blocker/friction - the
+tool itself works fine, only its own follow-up instructions mislead.
+
+**This walk's own verdict:** one finding filed (`docs/BACKLOG.md`), source-
+confirmed at four call sites. The live `sync` run started during this walk
+(scratch `download_path`, real account, fresh session after TU-Fast
+auto-login) is separate live-verification of the crawl staying healthy, not
+part of this finding.
+
+#### New question this walk leaves (Rule 3)
+
+All four hardcoded-`config.yaml` call sites are `fmt.Println`/`fmt.Printf`
+with literal strings sitting right next to a `configPath` variable already
+in scope - is the fix as mechanical as it looks (interpolate `configPath`
+into each message, falling back to bare `opal-downloader login`/`sync` only
+when `configPath` equals the default), or does one of the four call sites
+sit somewhere `configPath` isn't actually in scope yet and need threading
+through first? Not checked this walk - next session picking up this backlog
+entry should read all four sites before assuming a one-line fix at each.
 
 Rotation note updated at the top of this file (`Next surface`).

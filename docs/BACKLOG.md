@@ -146,8 +146,26 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13 & 15, first-run walks 3, 7, 10, 12, 14 & 16)
+### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15 & 17, first-run walks 3, 7, 10, 12, 14 & 16)
 
+- **wrong — `init`/`setup`'s printed "Next steps" and `status`'s "not logged
+  in" line hardcode `config.yaml` and bare `opal-downloader login`/`sync`,
+  ignoring the `--config <path>` the user actually passed.** Walk 17,
+  2026-09-01. Ran `init --config tmp/friction/init-test.yaml` and got "Edit
+  config.yaml... Run: opal-downloader login... Run: opal-downloader sync" -
+  a file that doesn't exist and commands that, run as printed, would
+  create/touch a different, default-path config instead of the one just
+  initialized. Source-confirmed at four `fmt.Println`/`fmt.Printf` call
+  sites in `cmd/opal-downloader/root.go`: `runInit` (313-320), `runSetup`
+  (371-377), `printLoginStatus` (441), and a fourth at line 576 - all sit
+  right next to a `configPath` variable already in scope but print a
+  literal string instead of interpolating it. Anyone running more than one
+  config (a second OPAL account, a scratch/test config, or simply following
+  the README's own `--config` examples) gets instructions pointing at the
+  wrong file. Open question this walk left: whether every site is a
+  mechanical interpolate-`configPath` fix, or one of the four needs the
+  variable threaded through first - not checked yet, read all four sites
+  before assuming. Full detail: `docs/friction-campaign.md` Walk 17.
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
   a new file.** Walk 11, 2026-08-19. **Partially shipped and live-verified,

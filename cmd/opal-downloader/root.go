@@ -310,14 +310,15 @@ func runInit(args []string) error {
 		}
 		fmt.Printf("created: %s\n", configPath)
 	}
+	flagSuffix := configFlagSuffix(configPath)
 	fmt.Println("\nNext steps:")
-	fmt.Println("  1. Edit config.yaml with your download path and course patterns")
+	fmt.Printf("  1. Edit %s with your download path and course patterns\n", configPath)
 	fmt.Println("  2. Optional but recommended: install TU-Fast for automatic 2FA on every")
 	fmt.Println("     login (one-time, one click) - open the GUI's Settings -> \"Set up TU-Fast\"")
 	fmt.Println("     (/tufast-setup) page, or see docs/browser-profile-strategy.md. Skipping")
 	fmt.Println("     this is fine too - login just needs manual 2FA each time instead.")
-	fmt.Println("  3. Run: opal-downloader login")
-	fmt.Println("  4. Run: opal-downloader sync")
+	fmt.Printf("  3. Run: opal-downloader login%s\n", flagSuffix)
+	fmt.Printf("  4. Run: opal-downloader sync%s\n", flagSuffix)
 	return nil
 }
 
@@ -369,12 +370,12 @@ func runSetup(args []string) error {
 	fmt.Println("  go build -o opal-downloader .        (Linux/macOS)")
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  1. Edit config.yaml with your download path and course patterns")
+	fmt.Printf("  1. Edit %s with your download path and course patterns\n", configPath)
 	fmt.Println("  2. Optional but recommended: install TU-Fast for automatic 2FA on every")
 	fmt.Println("     login (one-time, one click) - open the GUI's Settings -> \"Set up TU-Fast\"")
 	fmt.Println("     (/tufast-setup) page, or see docs/browser-profile-strategy.md. Skipping")
 	fmt.Println("     this is fine too - login just needs manual 2FA each time instead.")
-	fmt.Println("  3. Run: opal-downloader login")
+	fmt.Printf("  3. Run: opal-downloader login%s\n", configFlagSuffix(configPath))
 	return nil
 }
 
@@ -415,10 +416,10 @@ func runStatus(args []string) error {
 		fmt.Printf("Download path: %s (OK)\n", loaded.App.DownloadPath)
 	}
 
-	checkLoginProfileHealth()
+	checkLoginProfileHealth(configPath)
 
 	fmt.Println()
-	printLoginStatus(loaded.Credentials.StateFile)
+	printLoginStatus(loaded.Credentials.StateFile, configPath)
 	return nil
 }
 
@@ -434,11 +435,11 @@ func runStatus(args []string) error {
 // design) since 2026-08-03. Phrasing mirrors the GUI's four states
 // (internal/gui/gui.go's status div) so the two front ends read as one
 // product rather than two separately-worded tools.
-func printLoginStatus(stateFile string) {
+func printLoginStatus(stateFile string, configPath string) {
 	sess := sessionstate.Inspect(stateFile)
 	switch {
 	case !sess.Present:
-		fmt.Println("Not logged in yet. Run: opal-downloader login")
+		fmt.Printf("Not logged in yet. Run: opal-downloader login%s\n", configFlagSuffix(configPath))
 	case !sess.KnownExpiry:
 		fmt.Printf("Logged in: session saved %s. How long it stays valid could not be read from the saved session.\n",
 			sess.Saved.Local().Format("Mon 2 Jan, 15:04"))
@@ -485,7 +486,7 @@ func humanizeDuration(d time.Duration) string {
 // profile is the only login path opal-downloader has (queue task
 // chromium-only-login-remove-real-browser). No browser is launched; this
 // only stats a few paths, keeping `status` fast and offline.
-func checkLoginProfileHealth() {
+func checkLoginProfileHealth(configPath string) {
 	profileDir, err := scraper.LoginProfileDir()
 	if err != nil {
 		fmt.Println()
@@ -503,7 +504,7 @@ func checkLoginProfileHealth() {
 	preferencesPath := filepath.Join(profileDir, "Default", "Preferences")
 	if _, err := os.Stat(preferencesPath); err != nil {
 		fmt.Println()
-		fmt.Printf("%s exists but %s wasn't found, so this doesn't look like a real browser profile yet. Run `opal-downloader login` (or use the GUI's /tufast-setup page) to initialize it.\n", profileDir, preferencesPath)
+		fmt.Printf("%s exists but %s wasn't found, so this doesn't look like a real browser profile yet. Run `opal-downloader login%s` (or use the GUI's /tufast-setup page) to initialize it.\n", profileDir, preferencesPath, configFlagSuffix(configPath))
 		return
 	}
 
@@ -573,7 +574,7 @@ func runLogin(args []string) error {
 	fmt.Println("Login successful! Session state saved.")
 	fmt.Printf("Session state file: %s\n", credentials.StateFile)
 	fmt.Println()
-	fmt.Println("You can now run: opal-downloader sync")
+	fmt.Printf("You can now run: opal-downloader sync%s\n", configFlagSuffix(configPath))
 	printUpdateFooter()
 	return nil
 }
@@ -1597,6 +1598,22 @@ func projectDir() string {
 		return "."
 	}
 	return wd
+}
+
+func defaultConfigPath() string {
+	return filepath.Join(projectDir(), "config.yaml")
+}
+
+// configFlagSuffix returns "" for the default config.yaml (so printed
+// commands stay the bare, familiar form most users see) and " --config
+// <path>" otherwise, so a command copied out of another command's own
+// follow-up instructions actually points at the config that command just
+// used - see docs/BACKLOG.md's friction-campaign walk 17 finding.
+func configFlagSuffix(configPath string) string {
+	if configPath == defaultConfigPath() {
+		return ""
+	}
+	return fmt.Sprintf(" --config %s", configPath)
 }
 
 // logHelpPath names the diagnostic log in help output. Falls back to a

@@ -3104,6 +3104,62 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-02 (autopilot): Question 43, direction (a). Does a periodic
+Wicket XHR correlate with the row-selection column appearing/disappearing on
+the folder-browser page - the flake that blocked Step B on 2026-08-12?**
+
+**Why this cycle.** Question 45 (the #1 ranked item) is blocked on a
+maintainer product call. Question 43 is the top item that is not. Its Step B
+stalled because the multi-select checkbox column "exists on one read and not
+the next, on a page `waitForStableSectionContent` otherwise treats as
+settled" - and the last cycle named two untried directions before any more
+blind retries: **(a)** watch the network during navigation for a periodic
+XHR/AJAX that rebuilds the table on a timer separate from user interaction;
+**(b)** a human watching the real browser window. (b) needs a person, so
+this unattended cycle takes (a).
+
+**Design, written before running, per Rule 1.** Extend
+`internal/scraper/bulkzip_probe_test.go` with a trace-only mode
+(`OPAL_BULKZIP_NETTRACE=1`, runs instead of the select-and-click steps):
+after `gotoPolitely` + the production `waitForInteractiveLinks` /
+`waitForStableSectionContent`, attach `page.On("request", ...)` and
+`page.On("response", ...)`, then poll `document.querySelectorAll('tbody
+td:first-child input[type=checkbox]').length` **and** the header
+`th [class*="table-select"]` presence every 500ms for 30s, logging every
+request URL + method and every column-count transition on one monotonic
+timeline (ms since nav-settle). One live navigation, no account writes, no
+downloads - strictly cheaper than the 10-navigation grind the last cycle
+already did.
+
+**Prediction (Rule 1 + Rule 2 named cause).** ~55%: there is a periodic
+background request on a timer (a Wicket `AjaxSelfUpdatingTimerBehavior` /
+heartbeat poll, URL containing `wicket` or a `IPollService`-style path), and
+the selection-column count flips within ~1 poll interval of one of those
+responses landing - i.e. the table markup is re-rendered wholesale on each
+timer tick and a separate JS pass that adds the multi-select column loses a
+race with the re-render. Named cause if so: *the folder browser mounts the
+file table under a self-updating Wicket timer, so any DOM the crawler adds
+or reads between two ticks is on borrowed time* - which predicts the same
+instability on `list --visit-report`'s own re-reads of these pages and on
+any future feature that scripts this table. ~30%: the flips instead track
+*my own* `page.Evaluate` calls (querying perturbs Wicket), in which case the
+fix is one atomic evaluate that selects rows and clicks the button with no
+intermediate reads. ~15%: neither - no periodic request, no correlation,
+the column just never stabilizes from an unattended headless/automation
+context, and direction (b) is the only path left.
+
+**Kill criterion.** Success = being able to state, request log and
+column-presence timeline side by side, which of the three worlds holds and
+therefore what Step B's next move is. Stays **open with the hole named** if
+the navigation doesn't come up clean, or the column never appears at all
+this run (nothing to correlate) - that is exactly where 2026-08-12 left it
+and recording "still can't characterize the trigger" is the honest result,
+not a guess at one.
+
+**Result:** _pending - probe written, run next._
+
+---
+
 **Cycle, 2026-09-01 (autopilot, third cycle this session): can an unchanged
 "signal-less" file be confirmed unchanged without a browser navigation - the
 same move HTTP-first discovery made against the browser tree walk? Source

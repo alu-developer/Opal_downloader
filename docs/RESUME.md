@@ -18,4 +18,17 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**Phase 3 sync-speed cycle in flight (2026-09-02 autopilot).** Question 43
+direction (a): extend `internal/scraper/bulkzip_probe_test.go` (env
+`OPAL_BULKZIP_PROBE=1`, new `OPAL_BULKZIP_NETTRACE=1` mode) to attach a
+`page.On("request")` listener and a 500ms selection-column-presence poll
+after navigation, log both on one timeline, and see whether a periodic
+Wicket XHR correlates with the row-selection `<td>`/`<th>` column
+appearing/disappearing. Prediction + kill criterion already committed to
+`docs/sync-speed-model.md` "Next experiment". If killed mid-run: the probe
+change is committed; re-run
+`OPAL_BULKZIP_PROBE=1 OPAL_BULKZIP_NETTRACE=1 go test ./internal/scraper/ -run TestBulkZipProbe -count=1 -v -timeout 15m`
+and read the timeline, then diagnose per the kill criterion.
+
+Phase 1 (Walk 18 config bloat) and Phase 2 (Walk 19 CLI course-selector
+friction) already committed + pushed this run.

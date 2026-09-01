@@ -3125,7 +3125,54 @@ backoff figures (which would mean something shipped since regressed), or if
 windows have all expired and the files are being re-attempted at full
 cost again - itself worth its own cycle if it happens).
 
-**Result:**
+**Result: lands exactly in the predicted band - no anomaly, and already
+below the maintainer's own recollected pre-campaign baseline.**
+
+Run 1 (the friction walk's own warm-up, fresh scratch manifest, all 6 real
+courses): `downloaded=300 skipped=0 errors=49`, `Total: 1270.9s`. Run 2
+(this experiment's measured step, same scratch config/manifest, no
+`--force`, run immediately after): **`downloaded=0 skipped=349 errors=0
+backing_off=49`, Download phase 151.3s, `Total: 223.2s`.**
+
+That is inside the 120-350s band this cycle predicted from the 2026-08-18
+prior measurements, not an anomaly in either direction: `backing_off=49`
+confirms the known cluster is still being skipped rather than re-attempted
+(the "near-zero backing_off" anomaly flag did not trigger), and 223.2s is
+comfortably below the original pre-backoff 1097-1374s figures. **It is also
+already below the maintainer's own "~300s before this campaign started"
+recollection** (`docs/BACKLOG.md`'s 2026-08-19 `/decide` round) - the first
+time this campaign has had a same-units number to actually compare against
+that recollection instead of citing it as untested. Still well above the
+~30s target: **151.3s of the 223.2s total is the download phase doing
+nothing but confirming 349 unchanged files need no action** (0 downloaded),
+which live-confirms the "signal-less-file verify path's own cost when it
+needs the browser fallback" open question 2026-08-18 already flagged and
+left open - this run's own log shows the same `.opalverify.pdf`-style
+signal-less files still resolving via the slow browser-fallback path even
+though nothing downloads, exactly the mechanism that question named. The
+remaining ~72s is discovery, in the range Question 38 already measured.
+
+**What this closes and what it doesn't.** Confirms the campaign's shipped
+fixes (HTTP-first discovery, the 2026-08-18 backoff policy) have moved the
+real number meaningfully, and gives the maintainer a real, current
+comparison point against his own recollection for the first time. Does not
+close anything new - the signal-less-file verify cost was already an open
+question, not answered here, just freshly confirmed still present and now
+sized (~151s of a ~223s no-op sync, i.e. most of it) rather than only
+theorized.
+
+**New open question, ranked.** The signal-less-file verify path's browser-
+fallback cost is now the single largest measured component of a steady-
+state sync (151.3s of 223.2s, ~68%) - larger than discovery, larger than
+the backed-off cluster's own overhead. It was left open 2026-08-18 as one
+of two new questions from that cycle's diagnosis but never picked up since;
+this measurement makes the case that it, not Question 43's bulk-ZIP idea,
+is now the top-leverage open item. Next cycle should read
+`internal/scraper`'s signal-less-file verify path (whatever code decides a
+file needs `needsContentVerification` and routes it through the browser
+fallback even when unchanged) and ask specifically: can an unchanged
+signal-less file be confirmed unchanged without a browser navigation at
+all, the same way HTTP-first replaced the browser walk for discovery?
 
 **Cycle, 2026-09-01 (autopilot, first cycle this session): does the live
 OPAL server itself disclose which OpenOLAT version/fork it's running,

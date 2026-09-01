@@ -59,18 +59,23 @@ so this class of investigation is closed for good, not just deferred - see
 `docs/BACKLOG-archive.md`'s "Settled" for the full finding and
 `docs/sync-speed-model.md`'s Question 44 entry.
 
-**Question 43** (bulk-download-as-ZIP) is now the only ranked item with an
-open experiment, still stalled on a DOM-flakiness finding from 2026-08-12's
-Step B — two untried directions are named in its own entry in
-`docs/sync-speed-model.md`. With Question 44 closed, the ranked list has no
-other item with a concrete next experiment for the first time since
-2026-08-09 — `docs/sync-speed-model.md`'s "Next experiment" section
-recommends either resuming Question 43, or (recommended first) an
-end-to-end re-measurement of a real sync now that this campaign's fixes are
-shipped, since the maintainer's own "~300s before this campaign started"
-recollection (`docs/BACKLOG.md`'s 2026-08-19 `/decide` round) was flagged as
-worth checking directly and never actually was. **Nothing on this list is
-blocked on the maintainer** — Question 39 is decided and built, and
+**End-to-end re-measurement done 2026-09-01 (autopilot):** a steady-state
+no-op sync against a fresh scratch manifest, real account, all 6 courses -
+`downloaded=0 skipped=349 errors=0 backing_off=49`, **Total 223.2s**. Below
+the maintainer's own "~300s before this campaign started" recollection for
+the first time this campaign has had a real number to check it against, but
+still well above the ~30s target: **151.3s of that 223.2s is the download
+phase doing nothing but browser-fallback verification of 349 unchanged
+files that don't need downloading** - live-sizes the "signal-less-file
+verify path" cost flagged as an open question 2026-08-18 and never picked
+up since. At ~68% of a no-op sync, **that cost is now the top-ranked item**,
+above Question 43. Full numbers and the new question's exact framing:
+`docs/sync-speed-model.md`'s "Next experiment".
+
+**Question 43** (bulk-download-as-ZIP) sits second, still stalled on a
+DOM-flakiness finding from 2026-08-12's Step B — two untried directions are
+named in its own entry in `docs/sync-speed-model.md`. **Nothing on this
+list is blocked on the maintainer** — Question 39 is decided and built, and
 Question 5 is fully closed (see `docs/BACKLOG-archive.md`). Nothing further
 is planned on the course-level HTTP concurrency thread — Question 41 closed
 2026-08-11 as a no-go.

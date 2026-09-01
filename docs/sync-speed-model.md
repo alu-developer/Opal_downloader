@@ -3082,6 +3082,51 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-01 (autopilot, second cycle this session): with Question 44
+closed and nothing else ranked with an open experiment, what does a routine
+(second-run, steady-state) sync actually cost today, against everything
+this campaign has shipped so far?**
+
+**Design, written before running, per Rule 1.** This session's phase-2
+friction walk (Walk 17, `docs/friction-campaign.md`) already has a `sync`
+in flight in this same worktree, against a scratch config
+(`tmp/friction/config.yaml`, all 6 real courses, real account, fresh
+manifest) - that run is warming the manifest, not this experiment's
+measured run, so it does not itself need a pre-registered prediction. Once
+it finishes, this experiment's actual measured step is a **second** `sync`
+against the same scratch config and manifest, no `--force` - a genuine
+no-op/steady-state sync, the shape the maintainer's own ~30s target and his
+"~300s before this campaign started" recollection
+(`docs/BACKLOG.md`'s 2026-08-19 `/decide` round) are both about. Reading
+the printed `Total:` wall-clock line and the `downloaded=`/`skipped=`/
+`errors=`/`backing_off=` summary is the whole experiment - no new code, no
+new instrumentation, just the number itself, which this campaign has
+recommended taking since 2026-08-19 and never has.
+
+**Expected number.** The known ~49-62-file HTML-instead-of-bytes cluster
+should all show as `backing_off` (shipped 2026-08-18, live-confirmed
+2026-08-18 at `downloaded=1 skipped=348 errors=0 backing_off=50`, ~223-347s
+range in that prior measurement) rather than being re-attempted, so this
+run should land closer to the ~120-350s band those two prior no-op
+measurements found than to the original 1097-1374s no-op figure that opened
+Question 44. I do not expect it to hit the maintainer's ~30s target - no
+work has shipped that targets discovery's own ~50-90s floor or the
+remaining per-file match/verify cost for ~300 unchanged files - so the
+honest prediction is "meaningfully faster than a year ago, still not at the
+~30s target," not "target met."
+
+**Kill criterion.** *Informative either way* - this is a measurement cycle,
+not a hypothesis test with a pass/fail line, so there is no "refuted"
+outcome, only a number to record and compare against the 2026-08-18 prior
+no-op measurements and the maintainer's recollection. Flag it as a genuine
+anomaly only if the number is *worse* than the original 1097-1374s pre-
+backoff figures (which would mean something shipped since regressed), or if
+`backing_off` is near-zero (which would mean the known cluster's backoff
+windows have all expired and the files are being re-attempted at full
+cost again - itself worth its own cycle if it happens).
+
+**Result:**
+
 **Cycle, 2026-09-01 (autopilot, first cycle this session): does the live
 OPAL server itself disclose which OpenOLAT version/fork it's running,
 directly - a genuinely different approach from the three prior

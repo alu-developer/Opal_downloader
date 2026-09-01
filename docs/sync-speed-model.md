@@ -3082,6 +3082,51 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-01 (autopilot, third cycle this session): can an unchanged
+"signal-less" file be confirmed unchanged without a browser navigation - the
+same move HTTP-first discovery made against the browser tree walk? Source
+read only, no live run.**
+
+**Design, written before running, per Rule 1.** The prior cycle this session
+sized the target: ~151s of a 223.2s steady-state no-op sync is 7 signal-less
+files (`needsContentVerification`, `internal/syncer/syncer.go:376`) each
+paying the full ~21.5s `browserDownloadMu` click-based browser-fallback
+cost, every sync, with no backoff possible because they are not failures.
+This cycle is the follow-up that cycle's own new question named: read the
+path from `needsContentVerification` through to whatever routes these files
+into the browser fallback, and decide which of two worlds we are in. The
+experiment is entirely `internal/syncer` + `internal/scraper` source
+reading - cheaper than any live probe, and the live number it would check
+against is already in hand from the prior cycle.
+
+**Prediction (Rule 1).** I expect to find that a "signal-less" file is one
+whose manifest entry (or discovery metadata) carries neither a usable size
+nor a modification timestamp, so `needsContentVerification` returns true
+because there is no cheap field left to compare - verification then needs
+the actual content. My leading hypothesis (~60%) is that these 7 route to
+the *browser* fallback for the same reason Question 44's 49 do: their direct
+download URL returns HTML rather than bytes, the HTTP GET path rejects that,
+and the code falls back to the click. If so, "confirm unchanged without a
+browser" is blocked by the same unknowable-OPAL-internal cause as Question
+44, and the real lever is a **policy** one - cache a signal-less file's
+verified-unchanged result with a TTL, or persist the browser-fetched hash
+and only re-verify on a schedule rather than every sync - not an
+HTTP-replacement one. The alternative (~40%): the 7 are unrelated to
+Question 44's cluster, their HTTP GET would actually succeed, and the code
+just never tries HTTP for a `needsContentVerification` file - routing it
+straight to the browser. That would be a direct, cheap win: try the HTTP
+GET (or a HEAD / Range: bytes=0-0) first for verification too.
+
+**Kill criterion.** This is a source-read triage cycle, so "success" is
+being able to state, with the exact call path cited, which of the two
+worlds above holds - and therefore whether the next step is a policy/cache
+change or an HTTP-path change. It stays **open with the hole named** if the
+source does not make clear *why* a `needsContentVerification` file skips the
+HTTP path (e.g. the routing is buried in a shared code path that also
+serves genuine failures, and telling them apart needs a live run). Recording
+"still don't know why HTTP is skipped" is a valid, reportable outcome;
+guessing is not.
+
 **Cycle, 2026-09-01 (autopilot, second cycle this session): with Question 44
 closed and nothing else ranked with an open experiment, what does a routine
 (second-run, steady-state) sync actually cost today, against everything

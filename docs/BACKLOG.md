@@ -111,8 +111,41 @@ maintainer. Walk detail, expectations and named causes:
 `docs/friction-campaign.md`. Tags: **blocker** / **wrong** / **friction** /
 **bloat** / **question**.
 
-### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15 & 17, first-run walks 3, 7, 10, 12, 14 & 16)
+### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15 & 17, first-run walks 3, 7, 10, 12, 14, 16 & 18)
 
+- **bloat — `init` copies `config.example.yaml` verbatim as the user's
+  starter `config.yaml`, and that file's advanced-key comments have grown
+  into a dated tuning-decision changelog that reads as "this tool is
+  buggy" to someone seeing it for the first time.** Walk 18, 2026-09-01
+  (first-run-from-zero). Fresh clone, `go build`, `opal-downloader init`,
+  then opened the created `config.yaml` to "edit your download path and
+  course patterns" as the printed Next steps say. The file is 113 lines /
+  5535 bytes, byte-identical to `config.example.yaml`. The keys a new user
+  actually needs (`download_path`, `default_course_folder`,
+  `course_folders`, `courses`, `opal_url`, `session_state_file`) each carry
+  a friendly 2-4 line comment - fine. But `course_concurrency` carries a
+  ~37-line comment containing "History note, because this comment has
+  flip-flopped", four dated entries ("2026-07-26", "2026-08-10"), "lost 9
+  files when it was last measured", "byte-for-byte", and a pointer to
+  "DefaultCourseConcurrency's doc comment in internal/config/config.go for
+  the full root-cause writeup"; `download_concurrency` mentions "an
+  unrelated bug" where "some files fail the fast path and the browser
+  fallback both". **Named cause:** `config.example.yaml` is serving two
+  audiences - the new user who edits it, and the maintainer archiving why
+  each tuning default is what it is - and the second has crowded out the
+  first. The archive already exists in its proper home: `internal/config/
+  config.go`'s `DefaultCourseConcurrency` doc comment is ~350 lines of the
+  same dated history (verified this walk), and the example-file comment is a
+  duplicate summary that keeps pointing back to it. **Prediction:** any
+  advanced key that gets a measurement campaign grows the same way in this
+  file - `download_concurrency` already has the "unrelated bug" line, and a
+  future `use_section_subfolders` tuning pass would too. **Fix direction:**
+  shrink every advanced-key comment in `config.example.yaml` to "what it
+  does + safe default + see config.go / docs for the why", leave the dated
+  history only in `config.go`. Tag **bloat** not friction - the file works,
+  the user just wades through (and is mildly alarmed by) content that has
+  no reason to be in front of them. Full detail: `docs/friction-campaign.md`
+  Walk 18.
 - **friction/bloat — `list --visit-report`'s "always empty" signal is
   buried under leaf-page nodes that were structurally never going to report
   a new file.** Walk 11, 2026-08-19. **Partially shipped and live-verified,

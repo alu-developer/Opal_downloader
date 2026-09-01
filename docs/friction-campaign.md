@@ -72,7 +72,7 @@ likely to be sitting.
    `docs/setup-friction.md` did one pass of this in the past; this is the
    ongoing version.
 
-**Next surface: 3 (first-run-from-zero), for an unattended run; 1 (GUI) for a
+**Next surface: 2 (CLI), for an unattended run; 1 (GUI) for a
 session with a browser tool.** Walk 1 was the GUI, walk 2 the CLI, walk 3
 first-run-from-zero, walks 4 and 5 the GUI again (two concurrent sessions
 picked it independently before either had a result), walk 6 the CLI again,
@@ -101,21 +101,25 @@ looks, CLI eight, first-run-from-zero five; GUI is due *by count*, but see
 below for why an unattended run can't take it. Walk 17 the CLI again
 (everyday use, one "wrong" finding - `init`/`setup`/`status` hardcode
 `config.yaml` and bare `opal-downloader login`/`sync` in their own printed
-instructions, ignoring a real `--config` path) — CLI nine, GUI still four,
-first-run-from-zero still five.
+instructions, ignoring a real `--config` path; fixed same day). Walk 18
+first-run-from-zero again (fresh clone through `init`; one **bloat** finding
+- `init` copies `config.example.yaml` verbatim and its advanced-key
+comments have grown into a dated tuning changelog that reads as "loses
+files" to a first-time reader) — CLI nine, first-run-from-zero six, GUI
+still four.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, 16, and 17
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, 16, 17, and 18
 all landed on CLI or first-run-from-zero instead for this same reason,
 whether or not they said so explicitly at the time. An unattended run
 should treat CLI/first-run as the only two surfaces actually in rotation
-for it and pick whichever of those is due (of the two, first-run-from-zero
-is due next: last touched walk 16, 2026-08-20, vs CLI's walk 17,
-2026-09-01) - the GUI slot stays reserved for a session with an interactive
-browser tool
+for it and pick whichever of those is due (of the two, CLI is due next:
+last touched walk 17, 2026-09-01, vs first-run-from-zero's walk 18, same
+day but later) - the GUI slot stays reserved for a session with an
+interactive browser tool
 (or a human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
@@ -2457,3 +2461,90 @@ live-verified to echo that exact path in every follow-up command. Backlog
 finding retired 2026-09-01 (autopilot); detail in `docs/BACKLOG-archive.md`.
 
 Rotation note updated at the top of this file (`Next surface`).
+
+### Walk 18 — 2026-09-01, first-run-from-zero (autopilot, phase 2)
+
+GUI still unreachable from an unattended session (walk 9's `preview_start`
+refusal), so this took the other surface actually in rotation here:
+first-run-from-zero, last walked walk 16 (2026-08-20). Did a genuine fresh
+`git clone` of `master` into a scratch dir - not the worktree, not a copy -
+and followed the README as a student who wants the build-from-source path
+would: read `README.md`, ran the "Build from source" block, then `init`,
+then opened the config it told me to edit.
+
+**Persona breaks logged:** (1) after `init` I read
+`internal/config/config.go` to check the finding's named cause - a
+deliberate diagnosis break on a finding already in hand, per Rule 4, not a
+break to find one. (2) `status` reported "Logged in: valid until Fri 4 Sep"
+in the fresh clone because `session_state_file` defaults to the global
+`~/.opal_storage_state.json`, which already exists on this machine; a real
+first-run user gets "Not logged in yet." instead. Artifact of walking on a
+used machine, not a finding - noted and moved on. Did **not** run a live
+`sync` (walks 12 and 16 already took first-sync-to-completion on this
+surface; this walk's finding is upstream of it).
+
+**Expectation, `go build`:** README says Go 1.23+; expect a clean build.
+**Result:** matched - `go build -o opal-downloader.exe .` in 11s on Go
+1.26.4, 19 MB binary, no Playwright step needed for the build itself. No
+finding.
+
+**Expectation, `init`:** creates `config.yaml` and gives me a short starter
+I lightly edit - set download path, pick courses, done. The printed Next
+steps say exactly that: "Edit <path> with your download path and course
+patterns".
+**Result - finding (bloat):** the created `config.yaml` is
+`config.example.yaml` copied byte-for-byte (both 5535 bytes / 113 lines).
+The keys a newcomer needs are fine (2-4 friendly lines each), but
+`course_concurrency` carries a ~37-line comment that is a dated engineering
+changelog - "History note, because this comment has flip-flopped", entries
+tagged "2026-07-26" / "2026-08-10", "lost 9 files when it was last
+measured", "byte-for-byte", "not been re-measured" - and `download_concurrency`
+mentions "an unrelated bug" where "some files fail the fast path and the
+browser fallback both". To someone evaluating the tool for the first time
+this reads as "this thing loses files". Filed **bloat** in `docs/BACKLOG.md`.
+
+**Named cause (Rule 2):** `config.example.yaml` serves two audiences at
+once - the new user who edits it, and the maintainer recording why each
+tuning default is what it is - and the second has crowded out the first.
+The rationale already has a proper home: `internal/config/config.go`'s
+`DefaultCourseConcurrency` doc comment is ~350 lines of the same dated
+history (checked this walk, lines ~28-383), and the example-file comment is
+a lossy duplicate that literally ends by pointing back to it. **Prediction:**
+every advanced key that gets a measurement campaign grows the same changelog
+in this file; `download_concurrency` already shows the first sentence of it.
+**Cheap check of the prediction:** confirmed - the split between "short
+friendly comment" and "dated changelog comment" in the example file falls
+exactly on the line between user-facing keys and
+measured-and-tuned keys.
+
+**Minor, not filed separately:** on a *genuine* fresh machine `status` says
+nothing at all about the login profile / TU-Fast health until the first
+login creates the profile dir (`checkLoginProfileHealth` early-returns on a
+missing dir, by design), even though the README says `status` checks "the
+dedicated login profile is healthy... TU-Fast detected". A first-run user
+running `status` to see "am I set up" gets silence on the one thing they
+haven't done yet. Small doc-vs-behavior gap; the "not an error" reasoning
+is sound. Rolled into the walk record here rather than its own backlog
+entry.
+
+#### New question this walk leaves (Rule 3)
+
+The README calls the GUI's Settings page the "primary, recommended" way to
+configure, and says it pre-fills sensible defaults for a fresh setup with
+"no need to run `opal-downloader init` first". Does that form expose
+`course_concurrency` / `download_concurrency` at all, and if so with what
+help text? If the GUI shows a clean field (or hides the advanced keys
+entirely) and only `init` dumps the 113-line file, the fix is just "trim
+`config.example.yaml`" and the recommended path is already clean. If the
+GUI form *also* carries the changelog prose, the cause is one level up -
+there is no single "field description" source and every surface reinvents
+it. Not checkable from an unattended session (no browser tool); needs a GUI
+walk or a source read of `internal/gui`'s settings form.
+
+**Next surface: 2 (CLI) for an unattended run** - of the two surfaces an
+unattended run can reach, CLI is now due (last walked walk 17, 2026-09-01
+earlier today; first-run-from-zero just walked here as walk 18). GUI still
+reserved for a session with an interactive browser tool: it has had four
+looks, CLI nine, first-run-from-zero six.
+
+Rotation note also updated at the top of this file (`Next surface`).

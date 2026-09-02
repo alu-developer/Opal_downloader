@@ -509,7 +509,7 @@ the cause above. A negative-manifest-entry-with-backoff would cap that cost
 regardless of whether the cause is ever found, and does not need to wait for
 it.
 
-### 45. Should signal-less re-verification be gated by a manifest-persisted cadence instead of running every sync? — OPEN, top of the ranked list as of 2026-09-01. Needs a maintainer product call on acceptable staleness; touches `internal/syncer`, so it does not ship unattended.
+### 45. Should signal-less re-verification be gated by a manifest-persisted cadence instead of running every sync? — OPEN, top of the ranked list. **2026-09-02: a possible route that avoids the maintainer product call entirely - the per-section "Tabelle herunterladen" XLSX carries a real modification date for every file, including the signal-less ones. If that date is trustworthy and the control is universal, discovery can stop producing signal-less files at all. Needs one verification cycle before it displaces option A.**
 
 The single largest measured component of a steady-state no-op sync:
 `downloaded=0 skipped=349` still costs `Total: 223.2s`, and ~151s of that
@@ -530,6 +530,43 @@ cost was measured. Full design and three options (A: persist `VerifiedAt`,
 TTL; C: accept it) with recommendation (A) in "Next experiment", cycle
 2026-09-01 third cycle. Blocks on: the maintainer answering whether up-to-a-
 week staleness on these ~7 already-poorly-tracked files is acceptable.
+
+**New option D, found 2026-09-02 (autopilot, Question 43 follow-up #3) -
+make the files not signal-less in the first place.** A file is signal-less
+only because discovery recorded `Size == nil && Modified == nil` for it.
+The per-section **"Tabelle herunterladen"** control (an `<a>` next to the
+bulk-download button on the folder page) downloads `table.xlsx` in ~195ms:
+4 columns x one-row-per-file, and column C "Zuletzt geändert" is an Excel
+serial datetime **precise to the second** - verified this cycle to match,
+exactly, the mtime the bulk-download ZIP carried for the same file. All 57
+rows in the probed section had a populated date, including rows for files
+the browser crawl gets nothing for. If `discoverSectionsHTTP` /
+`visitSection` fetched and parsed this XLSX per section, the 7 signal-less
+files would gain a `Modified`, `needsContentVerification` would return
+false for them, and the ~151s/sync would go to ~0 - **with no staleness
+tradeoff and no product call**, because the date is a real remote signal,
+not a cached local assumption. Cost: one extra ~195ms download + a small
+XLSX parse per section (~30-40 sections), i.e. low single-digit seconds
+added to discovery, against ~151s removed from the download phase.
+
+**Option D is not yet proven. One verification cycle gates it:**
+1. **Universality** - does *every* `BCCourseNode` folder page across all 6
+   courses render a "Tabelle herunterladen" control, or only some? (Step
+   A's OpenOLAT source read says the FlexiTable export is standard, but
+   OPAL is a proprietary fork - confirm live.)
+2. **Date fidelity** - for the 7 actually-signal-less files (not just a
+   sample), does the XLSX column-C datetime equal what the file's own
+   download reports / what a byte-verify would treat as unchanged? One
+   `sync` run with the XLSX date wired into `remote.Modified` behind an env
+   flag, byte-diffed against the 345-file ground truth (the non-negotiable
+   for any discovery change), settles it.
+3. **Populated-always** - is column C ever empty (which would leave a file
+   signal-less anyway)? All 57 sampled rows had it; needs checking on the
+   sections that actually contain the 7.
+
+If all three hold, option D ships (behind the flag, byte-diff first, then
+default per the 2026-08-03 decision) and Question 45 closes without the
+maintainer call. If date fidelity fails (2), fall back to option A.
 
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, but Step B's kill criterion PASSED 2026-09-02: the bulk ZIP is real, needs only read access, and preserves per-file timestamps. The 2026-08-12 "rendering flake" was largely the probe's own `v.(float64)` bug, not OPAL. What remains is a scale + integration-design pass. Now the top-ranked *unblocked* speed item (Question 45, #1 overall, is blocked on a maintainer call).
 
@@ -737,11 +774,16 @@ none needs the maintainer):**
    mismatch, not absence (2026-08-12 also saw "Alle sichtbaren Einträge
    auswählen"). Pin down the real "select all" control so scale test #1
    isn't 48-210 individual `.click()` calls.
-3. **The `"Tabelle herunterladen"` link.** Seen next to the button as
-   `<a href=".../Part-3?842-...-downloadTableContainer-btn&antiCache=1">` -
-   a bare GET. If it returns the whole folder (or a manifest of it) with no
-   checkbox selection, it may be simpler than the bulk-download button. One
-   `page.ExpectDownload` on that href answers it.
+3. ~~**The `"Tabelle herunterladen"` link.**~~ **DONE 2026-09-02** (cycle
+   in "Next experiment"). It is not a contents path - it downloads
+   `table.xlsx` (~195ms), a per-section listing: `Name | Größe | Zuletzt
+   geändert | Lizenz`, one row per file, column C a real per-file datetime.
+   Not a Question 43 speed lever, but it turned into **Question 45 option
+   D** - a way to stop discovery producing signal-less files at all,
+   removing the ~151s/sync verify cost without the maintainer product call
+   Question 45 was blocked on. See Question 45's entry for the 3-part
+   verification cycle that gates it. This is now the highest-value
+   *unblocked* speed follow-up on the board, above Question 43 #1.
 4. **Integration design.** Does a bulk-ZIP path replace the whole download
    phase, or only the ~21.5s/file browser-fallback subset (Question 44's
    HTML-instead-of-bytes cluster + the 7 signal-less verify files)? A
@@ -3200,7 +3242,48 @@ mtimes and sizes for the signal-less files. Stays **open with the hole
 named** if the click yields no download or an HTML error page and the
 reason isn't clear from the response.
 
-**Result:** _pending - probe written, run next._
+**Result: prediction confirmed (~60% branch) and it matters more than
+expected. "Tabelle herunterladen" downloads `table.xlsx` (5476 bytes, in
+195ms) - a per-section LISTING, and it carries exactly the fields the
+signal-less files lack.** The sheet (`OPAL_BULKZIP_TABLEDL=1`, live against
+`Softwaretechnologie/Part-3`) is 4 columns x 58 rows (57 files):
+
+| col | header | example | notes |
+|---|---|---|---|
+| A | Name | `12-st-crc-analysis_notes.pdf` | exact filename |
+| B | Größe | `379,3KB`, `802 bytes`, `1,6MB` | human-rounded, not exact bytes |
+| C | Zuletzt geändert | `46069.42495877315` | **Excel serial datetime, precise to the second** |
+| D | Lizenz | (empty) | |
+
+Column C decodes cleanly: `46069.42495877315` days since 1899-12-30 =
+2026-02-16 10:11:56, which **matches to the second** the mtime the bulk
+ZIP entry for that same file carried in the prior cycle
+(`2026-02-16T10:11:56+01:00`). Every one of the 57 rows has a populated C
+value - including the rows for files that this campaign's browser crawl
+currently gets *no* date for.
+
+**Why this matters for Question 45 (the #1 ranked item, currently blocked
+on a maintainer product call).** Question 45 exists because 7 files are
+"signal-less" - `needsContentVerification` is true iff `remote.Size == nil
+&& remote.Modified == nil`, i.e. discovery got neither a size nor a date
+for them, so every sync re-verifies them at ~21.5s each (~151s/sync). This
+XLSX **is a size and a date for every file in the section, in one ~195ms
+GET.** If per-section discovery fetched and parsed it, those 7 files would
+get a `Modified` (and a coarse `Size`), stop being signal-less, and skip
+like the other 342 - collapsing the 151s **without** the up-to-7-days
+staleness tradeoff that Question 45 option A needs the maintainer to
+approve. That is a materially better answer than any of Question 45's
+three options, if the date proves trustworthy and the control proves
+universal.
+
+**Prediction scorecard:** ~60% "spreadsheet/CSV listing, not contents" -
+**hit**, and the "potentially a cheap metadata source for Question 45"
+aside in that same prediction turned out to be the main result. ~30%
+"second path to the same contents ZIP" - refuted. ~10% "errors / HTML" -
+refuted.
+
+**Result:** _done - see Question 45's entry for the new options this opens,
+and the new ranked follow-ups below._
 
 ---
 

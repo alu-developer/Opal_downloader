@@ -426,6 +426,12 @@ func runTableDownloadProbe(t *testing.T, tmpDir string, page playwright.Page) {
 	}
 	t.Logf("downloaded %q in %s, %d bytes", download.SuggestedFilename(), elapsed.Round(time.Millisecond), size)
 
+	defer func() {
+		if rmErr := os.Remove(outPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			t.Logf("cleanup: could not remove %s: %v", outPath, rmErr)
+		}
+	}()
+
 	raw, _ := os.ReadFile(outPath)
 	head := raw
 	if len(head) > 400 {
@@ -478,10 +484,7 @@ func runTableDownloadProbe(t *testing.T, tmpDir string, page playwright.Page) {
 		t.Logf("RESULT: 'Tabelle herunterladen' returned %d bytes that are neither ZIP nor obviously "+
 			"delimited text. First 400 bytes:\n%s", size, text)
 	}
-
-	if rmErr := os.Remove(outPath); rmErr != nil {
-		t.Logf("cleanup: could not remove %s: %v", outPath, rmErr)
-	}
+	// cleanup handled by the deferred os.Remove above (covers every branch).
 }
 
 // traceEvent is one entry on the correlation timeline: a network request/

@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -126,6 +127,14 @@ func TestBulkZipProbe(t *testing.T) {
 	// appearing/disappearing - the flake that blocked Step B on 2026-08-12?
 	if os.Getenv("OPAL_BULKZIP_NETTRACE") != "" {
 		runSelectionColumnNetTrace(t, page)
+		return
+	}
+
+	// Question 43 follow-up #3, cycle 2026-09-02: click the "Tabelle
+	// herunterladen" link seen beside the bulk-download button and report
+	// what it returns - folder contents, or just a listing.
+	if os.Getenv("OPAL_BULKZIP_TABLEDL") != "" {
+		runTableDownloadProbe(t, filepath.Join(repo, "tmp"), page)
 		return
 	}
 
@@ -354,6 +363,124 @@ func TestBulkZipProbe(t *testing.T) {
 	closeReader()
 	if rmErr := os.Remove(zipPath); rmErr != nil {
 		t.Logf("cleanup: could not remove %s: %v", zipPath, rmErr)
+	}
+}
+
+// runTableDownloadProbe is Question 43 follow-up #3: click the "Tabelle
+// herunterladen" control seen beside the bulk-download button and report
+// whether it returns folder contents or just a listing (and, if a listing,
+// whether it carries per-file mtimes/sizes - the fields the signal-less
+// files lack, Question 45).
+func runTableDownloadProbe(t *testing.T, tmpDir string, page playwright.Page) {
+	t.Helper()
+
+	info, err := page.Evaluate(`() => {
+		for (const el of document.querySelectorAll('a, button')) {
+			const text = (el.textContent || '').trim();
+			if (text.toLowerCase().includes('tabelle herunterladen')) {
+				return {found: true, tag: el.tagName, text: text.slice(0,80), href: el.getAttribute('href') || ''};
+			}
+		}
+		return {found: false};
+	}`)
+	if err != nil {
+		t.Fatalf("evaluate looking for the table-download control: %v", err)
+	}
+	m, _ := info.(map[string]interface{})
+	if found, _ := m["found"].(bool); !found {
+		t.Log("RESULT: no 'Tabelle herunterladen' control on this page as rendered - " +
+			"cannot probe follow-up #3 this run. Stays open.")
+		return
+	}
+	t.Logf("found table-download control: tag=%v text=%q href=%q", m["tag"], m["text"], m["href"])
+
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Fatalf("mkdir tmp: %v", err)
+	}
+	outPath := filepath.Join(tmpDir, "table-download-probe.bin")
+
+	start := time.Now()
+	download, derr := page.ExpectDownload(func() error {
+		_, e := page.Evaluate(`() => {
+			for (const el of document.querySelectorAll('a, button')) {
+				if ((el.textContent || '').trim().toLowerCase().includes('tabelle herunterladen')) { el.click(); return true; }
+			}
+			return false;
+		}`)
+		return e
+	}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(30000)})
+	elapsed := time.Since(start)
+	if derr != nil {
+		t.Logf("RESULT: clicking 'Tabelle herunterladen' produced no browser download within 30s: %v - "+
+			"either it renders inline (not a download), needs a dialog, or the Wicket page-instance URL "+
+			"did not survive the click. Stays open with that as the named hole.", derr)
+		return
+	}
+	if saveErr := download.SaveAs(outPath); saveErr != nil {
+		t.Fatalf("save download: %v", saveErr)
+	}
+	fi, _ := os.Stat(outPath)
+	var size int64
+	if fi != nil {
+		size = fi.Size()
+	}
+	t.Logf("downloaded %q in %s, %d bytes", download.SuggestedFilename(), elapsed.Round(time.Millisecond), size)
+
+	raw, _ := os.ReadFile(outPath)
+	head := raw
+	if len(head) > 400 {
+		head = head[:400]
+	}
+	// Try ZIP first (contents, or an xlsx which is also a zip).
+	if r, zerr := zip.OpenReader(outPath); zerr == nil {
+		names := make([]string, 0, len(r.File))
+		withMtime := 0
+		for i, f := range r.File {
+			if i < 15 {
+				names = append(names, fmt.Sprintf("%s (mtime %s, %d bytes)", f.Name, f.Modified.Format(time.RFC3339), f.UncompressedSize64))
+			}
+			if f.Modified.Year() > 1980 {
+				withMtime++
+			}
+		}
+		isXlsx := false
+		for _, f := range r.File {
+			if f.Name == "[Content_Types].xml" || strings.HasPrefix(f.Name, "xl/") {
+				isXlsx = true
+				break
+			}
+		}
+		r.Close()
+		if isXlsx {
+			t.Logf("RESULT: 'Tabelle herunterladen' returns an XLSX spreadsheet (%d bytes) - a LISTING export, "+
+				"not file contents. This matches the ~60%% prediction. Whether it carries per-file mtimes/sizes "+
+				"for the signal-less files needs the sheet parsed (xlsx lib); the filenames inside are: %v", size, names)
+		} else {
+			t.Logf("RESULT: 'Tabelle herunterladen' returns a ZIP with %d entries, %d carrying real mtimes - "+
+				"this looks like a CONTENTS ZIP, a second path to what the bulk-download button gives. Entries: %v",
+				len(r.File), withMtime, names)
+		}
+		return
+	}
+
+	// Not a zip: CSV / TSV / plain text listing, or an HTML error.
+	text := string(head)
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "<html") || strings.Contains(lower, "<!doctype"):
+		t.Logf("RESULT: 'Tabelle herunterladen' returned HTML, not a file (first 400 bytes below) - "+
+			"likely the Wicket page-instance URL not surviving the click context. Stays open.\n%s", text)
+	case strings.Contains(text, ",") || strings.Contains(text, ";") || strings.Contains(text, "\t"):
+		t.Logf("RESULT: 'Tabelle herunterladen' returns a delimited text LISTING (%d bytes), matching the "+
+			"~60%% prediction - not file contents. First 400 bytes (check for a modification-date and size "+
+			"column - those are the fields the signal-less files lack):\n%s", size, text)
+	default:
+		t.Logf("RESULT: 'Tabelle herunterladen' returned %d bytes that are neither ZIP nor obviously "+
+			"delimited text. First 400 bytes:\n%s", size, text)
+	}
+
+	if rmErr := os.Remove(outPath); rmErr != nil {
+		t.Logf("cleanup: could not remove %s: %v", outPath, rmErr)
 	}
 }
 

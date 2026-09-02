@@ -3158,6 +3158,52 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-02 (autopilot, 2nd cycle this run): Question 43 follow-up
+#3. What does the "Tabelle herunterladen" link next to the bulk-download
+button actually return - folder contents, or just a listing?**
+
+**Why this cycle.** The prior cycle this run resolved Question 43's flake
+and passed its kill criterion, and left four ranked follow-ups. #1
+(whole-course scale + timing) is the decider but needs the #2 select-all
+control pinned first - real probe work. #3 is the cheap one: the full probe
+this morning logged, right beside the bulk-download button, an
+`<a class="btn btn-sm" href=".../Part-3?842-1.-...-downloadTableContainer-btn&antiCache=1">`
+labelled **"Tabelle herunterladen"** ("Download table"). One
+`page.ExpectDownload` clicking that `<a>` answers what it is.
+
+**Design, written before running, per Rule 1.** New `OPAL_BULKZIP_TABLEDL=1`
+mode in `bulkzip_probe_test.go`: navigate to Part-3, wait with the
+production section-content waits, find the `<a>`/`<button>` whose text is
+"Tabelle herunterladen", click it inside `page.ExpectDownload`, save the
+result, and report suggested filename, byte size, whether it parses as a
+ZIP (and if so its entry names + whether entries carry mtimes), and
+otherwise the first ~400 bytes as text. No row selection. One live
+navigation, a small download, no account writes.
+
+**Prediction (Rule 1 + Rule 2 named cause).** ~60%: it downloads a
+**spreadsheet/CSV of the folder's file listing** - names, sizes,
+modification dates - not the file bytes. Named cause: "Tabelle" = the
+FlexiTable view, and OpenOLAT's standard table toolbox has an
+"export as Excel/CSV" action; this is that, re-labelled. If so it is *not*
+a bulk-content mechanism, but it **is** potentially a cheap structured
+metadata source - names + mtimes + sizes for a whole section in one GET -
+which is exactly what the signal-less-file problem (Question 45) lacks:
+those 7 files are signal-less because discovery got no size and no date for
+them, and a per-section listing export might carry both. ~30%: it is a
+second path to the same ZIP-of-contents the button gives (a convenience
+duplicate). ~10%: it errors, needs a dialog, or returns HTML (the Wicket
+page-instance URL not surviving the click context).
+
+**Kill criterion.** Success = stating what the download *is* (content vs
+listing), its format, and - if a listing - whether it carries per-file
+mtimes and sizes for the signal-less files. Stays **open with the hole
+named** if the click yields no download or an HTML error page and the
+reason isn't clear from the response.
+
+**Result:** _pending - probe written, run next._
+
+---
+
 **Cycle, 2026-09-02 (autopilot): Question 43, direction (a). Does a periodic
 Wicket XHR correlate with the row-selection column appearing/disappearing on
 the folder-browser page - the flake that blocked Step B on 2026-08-12?**

@@ -371,39 +371,64 @@ func runSelectionColumnNetTrace(t *testing.T, page playwright.Page) {
 	// Wicket's own AJAX calls and heartbeat go through XHR/fetch; static asset
 	// GETs (js/css/png) are noise for this question. Keep everything but label
 	// the likely-Wicket ones so the summary can focus.
+	var reqSeen, respSeen int
 	page.On("request", func(req playwright.Request) {
+		mu.Lock()
+		reqSeen++
+		mu.Unlock()
 		add("REQ", fmt.Sprintf("%s %s [%s]", req.Method(), truncURL(req.URL()), req.ResourceType()))
 	})
 	page.On("response", func(resp playwright.Response) {
+		mu.Lock()
+		respSeen++
+		mu.Unlock()
 		add("RESP", fmt.Sprintf("%d %s", resp.Status(), truncURL(resp.URL())))
 	})
+
+	// Sanity check the page handle and the listeners before the 30s window:
+	// how many resources did this page load in total, and does a bare
+	// .length evaluate (the exact shape waitForStableCheckboxCount already
+	// uses successfully in this file) come back as a number?
+	if u := page.URL(); u != "" {
+		t.Logf("trace starting on page: %s", truncURL(u))
+	}
+	if rc, e := page.Evaluate(`() => performance.getEntriesByType('resource').length`); e == nil {
+		t.Logf("page has loaded %v resources so far (performance API)", rc)
+	} else {
+		t.Logf("resource-count probe evaluate failed: %v", e)
+	}
+	if pv, e := page.Evaluate(`() => document.querySelectorAll('input[type=checkbox]').length`); e == nil {
+		t.Logf("initial all-checkboxes count: %v (%T)", pv, pv)
+	}
 
 	const (
 		pollInterval = 500 * time.Millisecond
 		budget       = 30 * time.Second
 	)
-	lastRows, lastSelAll := -1, -1
+	lastRows, lastSelAll, polls := -2, -2, 0
 	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
 		time.Sleep(pollInterval)
-		v, err := page.Evaluate(`() => ({
-			rows: document.querySelectorAll('tbody td:first-child input[type=checkbox]').length,
-			selAll: document.querySelector('th [class*="table-select"], thead [class*="table-select"]') ? 1 : 0,
-			rowsAll: document.querySelectorAll('input[type=checkbox]').length,
-		})`)
+		polls++
+		rowsV, err := page.Evaluate(`() => document.querySelectorAll('tbody td:first-child input[type=checkbox]').length`)
 		if err != nil {
-			add("COL", fmt.Sprintf("poll evaluate error: %v", err))
+			add("COL", fmt.Sprintf("row-checkbox poll evaluate error: %v", err))
 			continue
 		}
-		m, _ := v.(map[string]interface{})
-		rows := toInt(m["rows"])
-		selAll := toInt(m["selAll"])
-		rowsAll := toInt(m["rowsAll"])
+		selV, _ := page.Evaluate(`() => document.querySelector('th [class*="table-select"], thead [class*="table-select"]') ? 1 : 0`)
+		allV, _ := page.Evaluate(`() => document.querySelectorAll('input[type=checkbox]').length`)
+		rows := toInt(rowsV)
+		selAll := toInt(selV)
+		rowsAll := toInt(allV)
+		if polls == 1 || polls%10 == 0 {
+			add("COL", fmt.Sprintf("[heartbeat poll %d] row-checkboxes=%d select-all-header=%d all-checkboxes=%d", polls, rows, selAll, rowsAll))
+		}
 		if rows != lastRows || selAll != lastSelAll {
 			add("COL", fmt.Sprintf("row-checkboxes=%d select-all-header=%d (all checkboxes on page=%d)", rows, selAll, rowsAll))
 			lastRows, lastSelAll = rows, selAll
 		}
 	}
+	t.Logf("poll loop ran %d times; request events=%d response events=%d", polls, reqSeen, respSeen)
 
 	// Detach listeners before analysis so nothing appends mid-print.
 	mu.Lock()
@@ -488,10 +513,25 @@ func truncURL(u string) string {
 }
 
 func toInt(v interface{}) int {
-	if f, ok := v.(float64); ok {
-		return int(f)
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case float32:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case int32:
+		return int(n)
+	case bool:
+		if n {
+			return 1
+		}
+		return 0
+	default:
+		return -1
 	}
-	return -1
 }
 
 // waitForStableCheckboxCount polls the row-selection column's checkbox count

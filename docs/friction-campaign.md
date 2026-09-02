@@ -108,19 +108,23 @@ comments have grown into a dated tuning changelog that reads as "loses
 files" to a first-time reader; fixed 2026-09-02). Walk 19 the CLI again
 (everyday use; one **friction** finding - no per-invocation course selector
 on `sync`/`list`, so "grab just this one course now" forces a persistent
-`config.yaml` edit; same all-or-nothing shape on `--force` and in the GUI)
-— CLI ten, first-run-from-zero six, GUI still four.
+`config.yaml` edit; same all-or-nothing shape on `--force` and in the GUI).
+Walk 20 first-run-from-zero again (offline only - a second live autopilot
+held the crawl; one **friction** finding - the README's recommended "Fast
+path: `setup`" prints a "Next steps:" checklist that stops at `login` and
+never says to run `sync`, where `init`'s otherwise-identical checklist does)
+— CLI ten, first-run-from-zero seven, GUI still four.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, 16, 17, and 18
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, and 20
 all landed on CLI or first-run-from-zero instead for this same reason,
 whether or not they said so explicitly at the time. An unattended run
 should treat CLI/first-run as the only two surfaces actually in rotation
 for it and pick whichever of those is due (of the two, CLI is due next:
-last touched walk 17, 2026-09-01, vs first-run-from-zero's walk 18, same
+last touched walk 19, 2026-09-02, vs first-run-from-zero's walk 20, same
 day but later) - the GUI slot stays reserved for a session with an
 interactive browser tool
 (or a human) to pick up - it is not skipped, just not reachable from here.
@@ -2633,3 +2637,100 @@ if the answer is "wanted": (a) should the flag reuse the existing
 `--force <file>` narrowing, since the prediction above shows `--force` has
 the same all-or-nothing shape. Not answerable from source - it is a
 question about how the maintainer actually uses the tool day to day.
+
+### Walk 20 — 2026-09-02, first-run-from-zero (autopilot, phase 2)
+
+CLI was walked as walk 19 (same day), so first-run-from-zero is due, and it
+is one of the only two surfaces an unattended run can reach (GUI still needs
+an interactive browser tool, walk 9). A second live autopilot session (pid
+39804) was holding the phase-1 sync-speed item in flight in a locked
+worktree - it had committed+pushed the Question 45 option D prediction
+(`origin/master` = `4c1af93`) but produced nothing further in 3h+ - so this
+run stayed off that item entirely and off any live crawl (one crawl at a
+time, and a collision on the OPAL session was the risk). That made this a
+strictly offline first-run walk: `git clone` of current `master` into a
+scratch dir, `go build`, then the README's CLI setup path.
+
+**Persona:** a coding student who found the repo on GitHub, wants the
+build-from-source path (Linux box, or wary of the unsigned-installer
+SmartScreen warning), has Go installed, has not read `docs/`. Reads
+`README.md`, runs "Build from source", then follows the README's own
+"### Fast path: `setup`" because it is billed as the one-command way in.
+
+**Persona breaks logged:** (1) after seeing the `setup` output I read
+`cmd/opal-downloader/root.go:314-380` to establish the named cause of the
+finding already in hand - diagnosis break on a finding, per Rule 4, not a
+break to find one. (2) `status` in the fresh clone again reported "Logged
+in: valid until Sat 5 Sep" because `session_state_file` defaults to the
+global `~/.opal_storage_state.json`, which exists on this machine - walk 18
+already ruled this a used-machine artifact and moved on; noting the repeat
+and doing the same, not re-filing.
+
+**Expectation, `go build`:** README says Go 1.23+; expect a clean build.
+**Result:** matched - `go build -o opal-downloader.exe .` in 48s cold on Go
+1.26.4, 19 MB binary. No finding.
+
+**Expectation, `init`:** creates `config.yaml`, prints a short checklist of
+what to do next, ending with the thing the tool exists to do - sync.
+**Result:** matched. `init`'s "Next steps:" is four items: 1. edit config,
+2. optional TU-Fast, 3. `Run: opal-downloader login`, 4. `Run:
+opal-downloader sync`. No finding here.
+
+**Expectation, `setup` (the README's "Fast path"):** it is described as a
+superset of `init` - "installs Playwright's browser binaries, creates
+config.yaml if it doesn't exist yet, and prints what's left to do." So its
+"what's left to do" should be at least as complete as `init`'s.
+**Result - finding (friction):** `setup`'s "Next steps:" is only three
+items - 1. edit config, 2. optional TU-Fast, 3. `Run: opal-downloader
+login` - and then it stops. **It never tells the user to run `sync`.** A
+first-run user who follows the recommended fast path literally logs in and
+is left with zero files downloaded and no printed instruction to go
+further. Steps 1-3 are byte-identical to `init`'s; only `init` has the
+4th line. Filed **friction** in `docs/BACKLOG.md`.
+
+**Named cause (Rule 2):** `runInit` (`cmd/opal-downloader/root.go:314-321`)
+and `runSetup` (`root.go:372-378`) each hand-roll their own copy of the
+"Next steps:" epilogue - three identical `fmt.Print` lines duplicated
+verbatim - instead of sharing one helper. They have drifted, and the drift
+landed on the single most important line.
+
+**Prediction, and the cheap check of it:** any command that hand-rolls a
+multi-step "what next" epilogue will drift from the others the same way.
+Checked by grep across `cmd/` + `internal/`: there are exactly two
+multi-step epilogues (`init`, `setup`) and they have drifted on the `sync`
+step; the other onward-pointers are all single lines
+(`root.go:442` status -> login, `root.go:577` login success -> sync,
+`root.go:507`, `scraper/profile.go:197`) and are individually correct. So
+the problem is real but bounded: two copies, one drift, obvious fix (one
+shared epilogue). Notably `login`'s own success message
+(`root.go:577`: "You can now run: opal-downloader sync") means the gap is
+*recoverable* - a `setup` user who reaches `login` is told to sync at the
+end of it - which is why this is friction, not a blocker: you get unstuck
+only because a different command happens to print the step `setup` dropped.
+
+**Not a finding:** the `config.yaml` `init`/`setup` produce ships with
+`course_folders` example globs (`"*Programmierung*"`, `"*Analysis*"`) and
+`default_course_folder: "default"` *active*, so a student with a course
+named "Analysis" (common at TU Dresden - it is in the maintainer's own
+config) gets those files silently redirected under `Mathematik/Analysis/`
+from rules they never wrote. Held back rather than filed: it overlaps
+walk 18's `config.example.yaml` territory and the example values are
+plausibly deliberate documentation-by-example. Flag for a future walk to
+decide, not a new backlog item.
+
+#### New question this walk leaves (Rule 3)
+
+Same shape as walk 18's, now with a second reason to care. The README calls
+the GUI Settings page the "primary, recommended" way to configure and says
+it bootstraps a fresh setup with "no need to run `opal-downloader init`
+first". Does the GUI's post-save flow tell the user to sync? If `init` says
+"...sync", `setup` forgets to, and the GUI is a third hand-rolled "what
+next" that may say something else again, then the cause is one level up:
+there is no single source for "the first-run checklist" and every surface
+reinvents it. Not checkable from an unattended session (no browser tool) -
+needs a GUI walk or a source read of `internal/gui`'s settings-save handler.
+
+**Next surface: 2 (CLI everyday use) for an unattended run** - first-run
+was just walked here as walk 20 (2026-09-02); of the two surfaces an
+unattended run can reach, CLI is now due (last walked walk 19, 2026-09-02,
+earlier same day). GUI slot still reserved for an interactive session.

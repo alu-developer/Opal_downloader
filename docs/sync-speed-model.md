@@ -7039,6 +7039,65 @@ decision is the maintainer's, not a counter's — no cap on the campaign, the ki
 sits per experiment (decision of 2026-07-31; counter-arguments noted in the same session:
 every abort condition this repo ever had became the thing the work stopped at).
 
+### 2026-09-02 (autopilot): five cycles since the last report, a first real end-to-end number, Question 44 closed for good, and a route around Question 45's maintainer block - keep going
+
+Five cycles since 2026-08-20's report: three on 2026-09-01, two on
+2026-09-02.
+
+- **2026-09-01 #1 - Question 44 cause closed for good.** A genuinely new
+  approach after four GitHub-source-reading passes: OPAL's own login page
+  names its release ("OPAL 2026.08.2"), one web search on that showed OPAL
+  is an independently-developed proprietary fork BPS split from OLAT 7.1 in
+  2011 - **not** any version of `OpenOLAT/OpenOLAT`, the only repo the
+  campaign ever read. No public source exists, so that whole class of
+  investigation is shut, not deferred.
+- **2026-09-01 #2 - the first real end-to-end number.** A steady-state
+  no-op sync: `downloaded=0 skipped=349 errors=0 backing_off=49`,
+  **Total 223.2s**. Below the maintainer's "~300s before this campaign"
+  recollection for the first time the campaign has had a number to check it
+  against - but **151s of that 223s (~68%) is 7 signal-less files** each
+  paying the full ~21.5s browser-fallback cost, every sync.
+- **2026-09-01 #3 - the signal-less cost has no URL-based fix.** Traced the
+  path: the verify job already calls the same `DownloadFile` a download
+  does, and these 7 are in Question 44's HTTP-can't-serve cluster. Lever is
+  cadence or don't-produce-them. Filed as Question 45, options A/B/C, A
+  (persist `VerifiedAt` + 7-day TTL) recommended but **blocked on a
+  maintainer staleness call**.
+- **2026-09-02 #1 - Question 43's "flake" was the instrument.**
+  `bulkzip_probe_test.go` asserted `v.(float64)` on JS `.length` reads that
+  `playwright-go` returns as `int` - three sites, all silently 0. Fixed. A
+  30s network trace found the folder page makes **zero** requests
+  post-settle (no Wicket timer). The corrected probe found the
+  row-selection column present and byte-stable, selected 5 rows, and one
+  click on "Gewählte Dateien herunterladen." returned a real ZIP with
+  **5/5 real per-file mtimes** - Step B's kill criterion **passed**.
+- **2026-09-02 #2 - "Tabelle herunterladen" = Question 45 option D.** That
+  control downloads a per-section `table.xlsx` (~195ms) with `Name / Größe
+  / Zuletzt geändert` per file; column C is a datetime precise to the
+  second, verified to match the file's own mtime. A file is signal-less
+  only because discovery got no size/date for it - so if discovery parsed
+  this XLSX, the ~151s cost drops to ~0 **with no staleness tradeoff and no
+  maintainer call**. Gated on one 3-part verification cycle (universality,
+  date fidelity vs byte-verify, column-always-populated).
+
+**What is known now that was not five cycles ago:** the end-to-end cost is
+223s and where it goes (151s = 7 files); Question 44 is permanently closed;
+Question 43's blocker was self-inflicted and its mechanism is viable; and
+there is a concrete, unblocked path (option D) at the single biggest
+measured cost that sidesteps the product call Question 45 was stuck on.
+
+**Still open:** Question 45 option D verification (top unblocked item) or
+option A (needs the maintainer) if D fails; Question 43 scale+timing,
+select-all control, and integration design (all unblocked, one live cycle
+each). Nothing shipped this window - both 09-02 cycles were investigation -
+but both ended with a diagnosis and a ranked next step, which is the
+campaign's own definition of a successful cycle.
+
+**Recommendation: keep going.** The campaign just converted its biggest
+measured cost from "blocked on a maintainer decision" to "one verification
+cycle away from a fix that needs no decision." That is the opposite of out
+of ideas. The maintainer makes the stop call.
+
 ### 2026-08-20 (autopilot): five cycles since the last report, the mutex-contention mechanism confirmed and quantified, a real 70+ minute anomaly found then not reproduced - keep going, with one clearly-named open question
 
 Five cycles since 2026-08-19's report, all 2026-08-20: (1) the maintainer's

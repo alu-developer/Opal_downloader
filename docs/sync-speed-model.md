@@ -531,7 +531,7 @@ TTL; C: accept it) with recommendation (A) in "Next experiment", cycle
 2026-09-01 third cycle. Blocks on: the maintainer answering whether up-to-a-
 week staleness on these ~7 already-poorly-tracked files is acceptable.
 
-### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, Step B partially run 2026-08-12: button existence CONFIRMED live; selection/timestamp/timing sub-questions blocked by an unexplained rendering flake, not yet answered
+### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, but Step B's kill criterion PASSED 2026-09-02: the bulk ZIP is real, needs only read access, and preserves per-file timestamps. The 2026-08-12 "rendering flake" was largely the probe's own `v.(float64)` bug, not OPAL. What remains is a scale + integration-design pass. Now the top-ranked *unblocked* speed item (Question 45, #1 overall, is blocked on a maintainer call).
 
 **Why this is a live lever and not old ground.** Every question on this list so
 far attacks *discovery* (finding out what files exist) - HTTP-first
@@ -694,6 +694,60 @@ much longer-observed session, not just more polls) watching the real browser
 window `SetDeveloperMode(true)` opens, to see with their own eyes whether the
 checkbox column visibly flickers or the click targets something that then
 silently no-ops. Both are cheap; neither was tried this cycle.
+
+**Step B resumed and largely resolved 2026-09-02 (autopilot), direction
+(a) + a corrected full probe.** Detail and the two live-run logs are in
+"Next experiment" above; the short version:
+
+- **Direction (a) - no timer.** A 30s `page.On("request"/"response")` trace
+  post-settle caught **zero** requests. The page is completely quiescent
+  after its initial 42-resource load. There is no self-updating Wicket
+  timer behaviour on this folder page, so "the table is rebuilt on a timer
+  separate from user interaction" is refuted.
+- **The flake was mostly the instrument.** `bulkzip_probe_test.go` asserted
+  `v.(float64)` on three JS `.length`/counter reads; `playwright-go` returns
+  those as Go `int`, so every assertion silently yielded 0 -
+  `waitForStableCheckboxCount` always returned 0 and step 2 always "selected
+  0 rows". With that fixed (`toInt`), two runs minutes apart both found the
+  row-selection column **present and byte-stable for 30s** (`row-checkboxes=20`,
+  `select-all-header=1`). Genuine render timing may have contributed to some
+  of 2026-08-12's reads, but "renders unreliably across 10 navigations" does
+  not survive the corrected measurement.
+- **Kill criterion PASSED.** One button click on "Gewählte Dateien
+  herunterladen." after selecting 5 rows returned a real ZIP,
+  **5/5 entries with real per-file mtimes** (not the 1980 zip epoch), in
+  413ms (~83ms/file at n=5). `internal/syncer`'s incremental skip depends on
+  per-file mtimes and the ZIP carries them, so this is **not** the "real but
+  not a net win" outcome the prediction registered.
+
+**Ranked open questions for Question 43 now (all need one more live cycle,
+none needs the maintainer):**
+
+1. **Scale + timing.** Select *all* files in `Part-3` (48) and then a whole
+   multi-section course, download as one ZIP each, confirm every entry still
+   carries an mtime, and time the bulk path against today's HTTP-first
+   discovery (~64s) + per-file download for the same fileset. This is the
+   number that decides whether Question 43 is worth building. *Counts as a
+   win:* whole-course bulk ZIP with mtimes intact, materially faster than
+   the current download phase for the same files. *Counts as a loss:* a
+   size cap, missing mtimes at scale, or no net speed gain once unzip +
+   per-file mtime-diff is included.
+2. **Selection cost at scale.** `select-all-header=1` in the trace run but
+   the full-probe's own selector reported `hasSelectAll=false` - a selector
+   mismatch, not absence (2026-08-12 also saw "Alle sichtbaren Einträge
+   auswählen"). Pin down the real "select all" control so scale test #1
+   isn't 48-210 individual `.click()` calls.
+3. **The `"Tabelle herunterladen"` link.** Seen next to the button as
+   `<a href=".../Part-3?842-...-downloadTableContainer-btn&antiCache=1">` -
+   a bare GET. If it returns the whole folder (or a manifest of it) with no
+   checkbox selection, it may be simpler than the bulk-download button. One
+   `page.ExpectDownload` on that href answers it.
+4. **Integration design.** Does a bulk-ZIP path replace the whole download
+   phase, or only the ~21.5s/file browser-fallback subset (Question 44's
+   HTML-instead-of-bytes cluster + the 7 signal-less verify files)? A
+   per-section "navigate → select all → download ZIP → unzip → diff by
+   mtime" loop is a real change to `internal/syncer` + `internal/scraper`;
+   sketch it once the scale number (#1) says it's worth it.
 
 ### 36. ~~Can the hybrid's phase 1 be seeded from `initial_data` instead of from a full browser tree walk?~~ Closed 2026-08-11 (decision round): yes — shipped as `OPAL_HTTP_DISCOVERY=2`, now the production default
 
@@ -3156,7 +3210,74 @@ this run (nothing to correlate) - that is exactly where 2026-08-12 left it
 and recording "still can't characterize the trigger" is the honest result,
 not a guess at one.
 
-**Result:** _pending - probe written, run next._
+**Result: the 2026-08-12 flake did NOT reproduce, and its likely cause is
+the probe's own code, not OPAL. Prediction's core hypothesis (a periodic
+Wicket timer XHR) is refuted. Question 43 Step B is now unblocked and its
+kill criterion PASSED - the bulk ZIP preserves per-file timestamps.**
+
+Two live runs against `Softwaretechnologie/Part-3` (visible browser,
+`SetDeveloperMode(true)`, session fresh from that morning's scheduled
+sync):
+
+1. **Network trace (30s post-settle).** `request events=0 response
+   events=0` - the page loaded 42 resources and then went **completely
+   silent** for 30s. No periodic request of any kind, so no
+   self-updating-timer behaviour to lose a race with. The row-selection
+   column was **present and byte-stable the entire window**: `row-checkboxes=20
+   select-all-header=1 all-checkboxes=26` at poll 1 (509ms) and identical
+   at every one of 60 polls through 30390ms. Zero transitions.
+2. **Full Step B (select 5 rows, click "Gewählte Dateien herunterladen.",
+   inspect the zip).** Ran clean in **4.91s total**. `checkbox column
+   stabilized at 20 row(s) (calm=true)`. Selected 5 rows with 5 checkbox
+   clicks, one button click triggered a real browser download:
+   `folder_2026-09-02__09-29-39__935.zip`, a genuine ZIP, **5 entries, 5 of
+   5 carrying real per-file modification timestamps** (`2026-02-16T10:11:56+01:00`,
+   `2026-06-22T10:22:39+02:00`, ...), none at the 1980 zip epoch. Bulk
+   fetch of 5 files: **413ms (~83ms/file)** at this batch size.
+
+**Why the flake didn't reproduce - the probe was measuring itself wrong.**
+`playwright-go` returns a JS integer `.length` / counter as Go `int`, not
+`float64` (proven this cycle: `%T` on a `.length` result printed `int`).
+Three sites in `bulkzip_probe_test.go` asserted `v.(float64)` on a count -
+`waitForStableCheckboxCount` (always returned 0), step 2's
+`selected.(float64)` (always saw 0 rows selected → "REFUTED as a bulk
+mechanism"), and step 1's page-summary read. On 2026-08-12 those bugs made
+every read via the probe's own helpers report zero checkboxes; the "one
+diagnostic read [that] found genuine `<input type=checkbox>` elements" used
+a different ad-hoc path. Not proven that *all* of 2026-08-12's 10-navigation
+grind was this bug (genuine Wicket render timing may have contributed on
+some reads), but the corrected probe found the column solid on two
+consecutive runs a few minutes apart, which the "renders unreliably across
+10 navigations" framing does not survive. All three sites fixed
+(`toInt` helper), plus a cleanup bug (`os.Remove` failing on a still-open
+`zip.Reader` handle) found and fixed in passing.
+
+**Prediction scorecard.** ~55% "periodic timer request + column flips
+correlate" → **refuted** (0 requests). ~30% "flips track my own Evaluate
+calls" → **refuted** (0 flips). ~15% "no request, column never stabilizes
+from automation" → **half right** (0 requests) **/ half wrong** (column was
+rock-stable). The cycle's real output is the explanation - the flake was an
+instrument artifact - which the pre-registered prediction did *not*
+anticipate (it assumed the DOM behaviour was real and hunted for its
+trigger). Logged as a prediction miss whose diagnosis stands.
+
+**What this leaves open for Question 43 (see its entry below for the
+ranked list):** the kill criterion is passed and the mechanism is
+confirmed viable on a read-only participant account, but the n=5 batch
+does not answer (a) whole-section / whole-course scale - does selecting
+all 48 in Part-3, or all 210 in the course, still return one timestamped
+ZIP, and how does that time against today's HTTP-first discovery + per-file
+download; (b) whether "select all" is one click or N (`select-all-header=1`
+was seen in the trace run but the full-probe run reported
+`hasSelectAll=false` - selector mismatch, not absence); (c) the
+`"Tabelle herunterladen"` `<a href=...?842-...downloadTableContainer-btn>`
+link seen alongside the button - a bare GET that might need no checkbox
+selection at all; (d) the integration-design question - does a bulk-ZIP
+path replace the whole download phase, or just the ~21.5s/file
+browser-fallback subset, and how does per-section unzip-and-diff-by-mtime
+fit `internal/syncer`.
+
+**Result:** _done - see above and Question 43's updated entry._
 
 ---
 

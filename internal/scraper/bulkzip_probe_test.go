@@ -309,7 +309,17 @@ func TestBulkZipProbe(t *testing.T) {
 			"what FolderZipMediaResource was expected to return, or this deployment serves something else.", zipPath, zerr)
 		return
 	}
-	defer r.Close()
+	// Close explicitly before the os.Remove at the end of this function - a
+	// still-open reader keeps a Windows lock on the file and the cleanup
+	// silently fails (seen 2026-09-02: "cannot access ... used by another
+	// process"). defer as a panic backstop; closeReader is idempotent.
+	closeReader := func() {
+		if r != nil {
+			_ = r.Close()
+			r = nil
+		}
+	}
+	defer closeReader()
 
 	t.Logf("STEP 2 zip contents: %d entries", len(r.File))
 	usableTimestamps := 0
@@ -341,6 +351,7 @@ func TestBulkZipProbe(t *testing.T) {
 			(bulkElapsed / time.Duration(max(n, 1))).Round(time.Millisecond))
 	}
 
+	closeReader()
 	if rmErr := os.Remove(zipPath); rmErr != nil {
 		t.Logf("cleanup: could not remove %s: %v", zipPath, rmErr)
 	}

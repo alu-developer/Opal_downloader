@@ -101,13 +101,25 @@ silently frozen change detection before
 Full design: `docs/sync-speed-model.md` Question 45 + "Next experiment"
 (cycle 2026-09-01, third cycle).
 
-**Question 43** (bulk-download-as-ZIP) sits second, still stalled on a
-DOM-flakiness finding from 2026-08-12's Step B — two untried directions are
-named in its own entry in `docs/sync-speed-model.md`. It is the top item
-**not** waiting on the maintainer (Question 45 above now is). Question 39 is
-decided and built, and Question 5 is fully closed (see
-`docs/BACKLOG-archive.md`). Nothing further is planned on the course-level
-HTTP concurrency thread — Question 41 closed 2026-08-11 as a no-go.
+**Question 43** (bulk-download-as-ZIP) is the top item **not** waiting on
+the maintainer (Question 45 above now is), and it moved forward hard on
+2026-09-02 (autopilot). The 2026-08-12 "rendering flake" that blocked
+Step B was largely the probe's own `v.(float64)` bug (`playwright-go`
+returns a JS `.length` as Go `int`) - fixed. The corrected live probe
+**passed Step B's kill criterion**: the bulk "Gewählte Dateien
+herunterladen." control returns a real ZIP on a read-only participant
+account, and every entry carries its real per-file modification timestamp
+(5/5 at n=5), which `internal/syncer`'s incremental skip needs. Bulk fetch
+was ~83ms/file at n=5 vs the browser-fallback path's ~21.5s/file. **Four
+ranked follow-ups, none needing the maintainer**, in
+`docs/sync-speed-model.md` Question 43: (1) whole-section/whole-course
+scale + a real timing comparison against today's discovery+download - the
+number that decides if this is worth building; (2) pin the real "select
+all" control; (3) probe the bare `"Tabelle herunterladen"` GET link; (4)
+sketch the `internal/syncer` integration. Question 39 is decided and
+built, and Question 5 is fully closed (see `docs/BACKLOG-archive.md`).
+Nothing further is planned on the course-level HTTP concurrency thread —
+Question 41 closed 2026-08-11 as a no-go.
 
 **Maintainer decision, 2026-08-19 (`/decide` round): keep going, resume the
 version/fork cause hunt** (deprioritized since 2026-08-17, unblocked now

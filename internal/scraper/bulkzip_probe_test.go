@@ -243,9 +243,14 @@ func TestBulkZipProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate step 2 selection: %v", err)
 	}
-	n, _ := selected.(float64)
-	t.Logf("STEP 2: selected %d row(s)", int(n))
-	if int(n) == 0 {
+	// playwright-go returns a JS integer .length / counter as Go int, not
+	// float64 - a v.(float64) assertion here silently yields 0. This exact
+	// bug (three sites in this file) is most of what the 2026-08-12 cycle saw
+	// as "the row-selection column renders unreliably": the DOM was fine, the
+	// probe's own reads were broken. Use toInt everywhere a count comes back.
+	n := toInt(selected)
+	t.Logf("STEP 2: selected %d row(s)", n)
+	if n == 0 {
 		t.Log("RESULT: checkboxes were counted but none were clickable at selection time - REFUTED as a bulk mechanism on this page.")
 		return
 	}
@@ -294,7 +299,7 @@ func TestBulkZipProbe(t *testing.T) {
 		t.Fatalf("save download: %v", saveErr)
 	}
 	t.Logf("STEP 2 result: bulk download of %d selected row(s) took %s, suggested filename %q",
-		int(n), bulkElapsed.Round(time.Millisecond), download.SuggestedFilename())
+		n, bulkElapsed.Round(time.Millisecond), download.SuggestedFilename())
 
 	// Inspect what came back: is it a real zip, and do entries carry usable
 	// per-file modification timestamps? This is Question 43's kill criterion.
@@ -332,8 +337,8 @@ func TestBulkZipProbe(t *testing.T) {
 			"'select all' shortcut used in this run (hasSelectAll=%v). Bulk download of %d files took %s "+
 			"(~%s/file at this batch size - not directly comparable to a 210-file whole-section run without a "+
 			"same-scale trial).",
-			usableTimestamps, len(r.File), int(n), hasSelectAll, int(n), bulkElapsed.Round(time.Millisecond),
-			(bulkElapsed / time.Duration(max(int(n), 1))).Round(time.Millisecond))
+			usableTimestamps, len(r.File), n, hasSelectAll, n, bulkElapsed.Round(time.Millisecond),
+			(bulkElapsed / time.Duration(max(n, 1))).Round(time.Millisecond))
 	}
 
 	if rmErr := os.Remove(zipPath); rmErr != nil {
@@ -552,11 +557,11 @@ func waitForStableCheckboxCount(t *testing.T, page playwright.Page) int {
 			t.Logf("checkbox poll %d: evaluate error: %v", i, err)
 			continue
 		}
-		count, _ := v.(float64)
-		if int(count) == last && last > 0 {
+		count := toInt(v)
+		if count == last && last > 0 {
 			return last
 		}
-		last = int(count)
+		last = count
 	}
 	if last < 0 {
 		return 0

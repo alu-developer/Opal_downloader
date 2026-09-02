@@ -32,6 +32,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,6 +117,18 @@ func TestBulkZipProbe(t *testing.T) {
 	if _, cerr := sc.waitForStableSectionContent(page, calm); cerr != nil {
 		t.Logf("waitForStableSectionContent: %v (continuing - this only affects the file-link extraction this probe does not use)", cerr)
 	}
+
+	// Question 43 direction (a), cycle 2026-09-02: trace-only mode. Instead of
+	// selecting rows and clicking, attach request/response listeners and poll
+	// the row-selection column's presence every 500ms for 30s, logging both on
+	// one timeline. The question this answers: does a periodic Wicket XHR
+	// (a self-updating timer behavior) correlate with the checkbox column
+	// appearing/disappearing - the flake that blocked Step B on 2026-08-12?
+	if os.Getenv("OPAL_BULKZIP_NETTRACE") != "" {
+		runSelectionColumnNetTrace(t, page)
+		return
+	}
+
 	checkboxCount := waitForStableCheckboxCount(t, page)
 	t.Logf("checkbox column stabilized at %d row(s) (calm=%v)", checkboxCount, calm)
 
@@ -325,6 +339,159 @@ func TestBulkZipProbe(t *testing.T) {
 	if rmErr := os.Remove(zipPath); rmErr != nil {
 		t.Logf("cleanup: could not remove %s: %v", zipPath, rmErr)
 	}
+}
+
+// traceEvent is one entry on the correlation timeline: a network request/
+// response, or a change in the row-selection column's DOM presence.
+type traceEvent struct {
+	ms   int64
+	kind string // "REQ", "RESP", "COL"
+	text string
+}
+
+// runSelectionColumnNetTrace is Question 43 direction (a): with the folder-
+// browser page already navigated and settled, watch for a periodic Wicket XHR
+// and poll the row-selection column's presence, then print both on one
+// timeline so a reader can see whether the column's appear/disappear tracks a
+// timer request, tracks this probe's own DOM reads, or tracks nothing.
+func runSelectionColumnNetTrace(t *testing.T, page playwright.Page) {
+	t.Helper()
+
+	var (
+		mu     sync.Mutex
+		events []traceEvent
+		start  = time.Now()
+	)
+	add := func(kind, text string) {
+		mu.Lock()
+		events = append(events, traceEvent{ms: time.Since(start).Milliseconds(), kind: kind, text: text})
+		mu.Unlock()
+	}
+
+	// Wicket's own AJAX calls and heartbeat go through XHR/fetch; static asset
+	// GETs (js/css/png) are noise for this question. Keep everything but label
+	// the likely-Wicket ones so the summary can focus.
+	page.On("request", func(req playwright.Request) {
+		add("REQ", fmt.Sprintf("%s %s [%s]", req.Method(), truncURL(req.URL()), req.ResourceType()))
+	})
+	page.On("response", func(resp playwright.Response) {
+		add("RESP", fmt.Sprintf("%d %s", resp.Status(), truncURL(resp.URL())))
+	})
+
+	const (
+		pollInterval = 500 * time.Millisecond
+		budget       = 30 * time.Second
+	)
+	lastRows, lastSelAll := -1, -1
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+		v, err := page.Evaluate(`() => ({
+			rows: document.querySelectorAll('tbody td:first-child input[type=checkbox]').length,
+			selAll: document.querySelector('th [class*="table-select"], thead [class*="table-select"]') ? 1 : 0,
+			rowsAll: document.querySelectorAll('input[type=checkbox]').length,
+		})`)
+		if err != nil {
+			add("COL", fmt.Sprintf("poll evaluate error: %v", err))
+			continue
+		}
+		m, _ := v.(map[string]interface{})
+		rows := toInt(m["rows"])
+		selAll := toInt(m["selAll"])
+		rowsAll := toInt(m["rowsAll"])
+		if rows != lastRows || selAll != lastSelAll {
+			add("COL", fmt.Sprintf("row-checkboxes=%d select-all-header=%d (all checkboxes on page=%d)", rows, selAll, rowsAll))
+			lastRows, lastSelAll = rows, selAll
+		}
+	}
+
+	// Detach listeners before analysis so nothing appends mid-print.
+	mu.Lock()
+	defer mu.Unlock()
+	sort.SliceStable(events, func(i, j int) bool { return events[i].ms < events[j].ms })
+
+	t.Logf("=== TIMELINE (%d events, ms since nav-settle) ===", len(events))
+	for _, e := range events {
+		t.Logf("  %6dms  %-4s  %s", e.ms, e.kind, e.text)
+	}
+
+	// Analysis 1: repeated request URLs and their inter-arrival gaps - a
+	// roughly-fixed gap is the signature of a self-updating timer behavior.
+	reqTimes := map[string][]int64{}
+	for _, e := range events {
+		if e.kind != "REQ" {
+			continue
+		}
+		reqTimes[e.text] = append(reqTimes[e.text], e.ms)
+	}
+	t.Log("=== repeated requests (2+ hits) ===")
+	anyRepeated := false
+	for url, ts := range reqTimes {
+		if len(ts) < 2 {
+			continue
+		}
+		anyRepeated = true
+		gaps := make([]int64, 0, len(ts)-1)
+		for i := 1; i < len(ts); i++ {
+			gaps = append(gaps, ts[i]-ts[i-1])
+		}
+		t.Logf("  %dx  gaps=%vms  %s", len(ts), gaps, url)
+	}
+	if !anyRepeated {
+		t.Log("  (none - no request URL fired more than once in the 30s window)")
+	}
+
+	// Analysis 2: for each column-state transition, the nearest preceding
+	// network event within 2s. If transitions consistently trail a RESP, the
+	// column is re-rendered on that response. If they trail nothing, the
+	// trigger is not network.
+	t.Log("=== column transitions vs nearest preceding network event (<=2s) ===")
+	anyCol := false
+	for i, e := range events {
+		if e.kind != "COL" {
+			continue
+		}
+		anyCol = true
+		var near string
+		for j := i - 1; j >= 0; j-- {
+			if events[j].kind == "COL" {
+				continue
+			}
+			if e.ms-events[j].ms > 2000 {
+				break
+			}
+			near = fmt.Sprintf("%dms earlier: %s %s", e.ms-events[j].ms, events[j].kind, events[j].text)
+			break
+		}
+		if near == "" {
+			near = "(no network event within 2s before it)"
+		}
+		t.Logf("  transition @%dms [%s]  <-  %s", e.ms, e.text, near)
+	}
+	if !anyCol {
+		t.Log("  (no column-state transition observed in 30s - the column never changed state this run)")
+	}
+
+	t.Log("RESULT: read the three blocks above against the cycle's registered prediction " +
+		"(docs/sync-speed-model.md 'Next experiment', 2026-09-02). World 1 = a repeated request " +
+		"with ~fixed gaps AND transitions trailing its RESPs. World 2 = transitions with no " +
+		"network event before them (this probe's own Evaluate calls are the trigger). World 3 = " +
+		"no repeated request and no transitions / no pattern (direction (b), human observation, is all that's left).")
+}
+
+func truncURL(u string) string {
+	const max = 140
+	if len(u) <= max {
+		return u
+	}
+	return u[:max] + "…"
+}
+
+func toInt(v interface{}) int {
+	if f, ok := v.(float64); ok {
+		return int(f)
+	}
+	return -1
 }
 
 // waitForStableCheckboxCount polls the row-selection column's checkbox count

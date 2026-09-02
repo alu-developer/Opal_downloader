@@ -32,3 +32,10 @@ and read the timeline, then diagnose per the kill criterion.
 
 Phase 1 (Walk 18 config bloat) and Phase 2 (Walk 19 CLI course-selector
 friction) already committed + pushed this run.
+
+**2026-09-02 08:58: a real scheduled sync (`main.exe sync --scheduled`, pid
+31220) started and holds `~/.opal-downloader/sync.lock`.** The probe can't
+run until it releases (one-crawl-at-a-time). Waiting on it in a background
+poll; run the probe command above the moment the lock is gone. If this run
+is killed before that: re-check the lock, then run the probe; the code and
+prediction are already committed and pushed (dc11c63).

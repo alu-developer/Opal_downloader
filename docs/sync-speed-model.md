@@ -3200,6 +3200,87 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-02 (autopilot, later run): Question 45 option D verification,
+parts 1 (universality) + 3 (column-C-populated). Does every folder page that
+carries files, across all 6 courses, render a "Tabelle herunterladen" control,
+and is its column C ("Zuletzt geändert") populated on every data row?**
+
+**Why this cycle.** Option D (make discovery parse the per-section XLSX so the
+~37 signal-less files gain a `Modified` and stop costing ~21.5s/sync each) is
+the top unblocked speed item and the one route around Question 45's maintainer
+product call. It rests on a 3-part verification. Part 2 (date fidelity vs a
+byte-verify) needs the env-flag sync + 345-file byte-diff - the expensive,
+kill-risky path. Parts 1 and 3 are answerable by a read-only probe in one run,
+and they gate part 2: if the control is not universal, or column C is empty
+exactly for the signal-less files, option D is a partial fix or dead and we
+fall to option A without spending the byte-diff.
+
+**Note on the count.** Prior cycles said "7 signal-less files" from a fresh
+scratch-manifest run. The maintainer's *real* accumulated manifest
+(`C:/Users/alois/OneDrive/.opal-sync.manifest.json`, 612 entries) has **37**
+entries with `size == null && modified == null` - all in two courses:
+**So26 Programmieren** (`Woche 05`..`Woche 13`, `Copy of Woche 06` - the `Uxx.pdf`
+exercise sheets and a few `.ipynb`) and **2026 LA20** (`Übungen` - `U01.pdf`..`U14.pdf`,
+`Kapitel5.pdf`). Some are dup keys across the raw-course-name vs
+`course_folders`-remapped path (`.../Woche 06/U06.pdf` and
+`_2. Semester/Ma-Prog/Downloads/U06.pdf` are one file), so the distinct file
+count is lower, but every one sits in an `Übungen`/`Woche` folder - i.e.
+Question 44's paginated-section cluster, as expected.
+
+**Design, written before running, per Rule 1.** New probe mode
+`OPAL_TABLEDL_UNIVERSAL=1` / `TestTableDownloadUniversality` in
+`internal/scraper/bulkzip_probe_test.go`. Input: `tmp/sections-with-files.json`
+- 58 folder sections that carried files on the real `.opal-visit-log.json`'s
+most recent scheduled-sync run (deduped by `section_url`, `files_found > 0`,
+all 6 courses). For each section: full `OpalScraper` (session reuse +
+TU-Fast auto-login, same as `TestBulkZipProbe`), `gotoPolitely` +
+`waitForInteractiveLinks`, look for an `<a>`/`<button>` whose text contains
+"tabelle herunterladen"; if present, `page.ExpectDownload` the click, save the
+XLSX, hand-parse it (`xl/worksheets/sheet1.xml` + `xl/sharedStrings.xml` via
+`archive/zip` + `encoding/xml` - no new dependency; dates in column C are
+numeric so they are inline `<v>` values, no shared-string lookup needed).
+Report per section: control present y/n, data-row count, column-C-populated
+count, column-A filenames. **Write one JSONL line per section to
+`tmp/tabledl-universality-results.jsonl` as it goes** so a usage-limit kill
+leaves analysable partial data. Read-only against the account, ~58 small GETs,
+no writes, `-timeout 30m`.
+
+**Prediction (Rule 1 + Rule 2 named cause).**
+- **~70%:** all 58 sections render the control and column C is populated on
+  every data row. Named cause: "Tabelle herunterladen" is OpenOLAT's stock
+  FlexiTable Excel export bound to the folder browser's table model for every
+  `BCCourseNode` - the same component the follow-up-#3 cycle already saw on
+  Softwaretechnologie/Part-3, not a per-section opt-in. Column C is the folder
+  VFS's own last-modified, which every file in a VFS container has, so an empty
+  C would need a file with no stored timestamp at all. If this holds, part 2
+  becomes the next cycle and option D is on track to ship.
+- **~20%:** control is universal but column C is empty for *some* rows -
+  and the ones that matter are the rows for the 37 signal-less files. If a
+  file is signal-less precisely because OPAL exposes no date for it anywhere,
+  the XLSX will not have one either. That kills option D for that subset →
+  fall back to option A for those files.
+- **~10%:** the control is missing on some section type - the bare
+  `/CourseNode/<id>` collection pages with no `/Part-N` sub-path (the
+  follow-up-#3 cycle already noted one such page has no file table), or a
+  course whose folder uses a non-`BCCourseNode` module. Makes option D a
+  partial fix needing a fallback for the gaps.
+
+**Kill criterion.** Success = a per-section table for all 58 stating control
+present y/n and column-C-populated ratio, with an explicit call-out of any
+section whose rows for the *known signal-less files* (So26 Programmieren
+`Woche *`, 2026 LA20 `Übungen`) have an empty C. Stays **open with the hole
+named** if >10% of navigations fail to load/settle (a session/rendering
+problem, not a real answer) - re-run from the JSONL rather than guessing.
+
+**Explicitly not tested this cycle:** part 2, date fidelity - whether XLSX
+column C, decoded to a datetime and written into `remote.Modified`, is treated
+as unchanged by a byte-verify against the 345-file ground truth. That is the
+next cycle if parts 1+3 hold.
+
+**Result:** _pending - probe written, prediction committed, run next._
+
+---
+
 **Cycle, 2026-09-02 (autopilot, 2nd cycle this run): Question 43 follow-up
 #3. What does the "Tabelle herunterladen" link next to the bulk-download
 button actually return - folder contents, or just a listing?**

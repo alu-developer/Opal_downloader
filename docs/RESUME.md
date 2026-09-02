@@ -18,4 +18,20 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-_Nothing in flight._
+**In flight (2026-09-02 autopilot): Question 45 option D verification, parts 1
+(universality) + 3 (column-C-populated).**
+
+- Prediction written into `docs/sync-speed-model.md` "Next experiment" and
+  committed before the run.
+- New probe mode `OPAL_TABLEDL_UNIVERSAL=1` /
+  `TestTableDownloadUniversality` in `internal/scraper/bulkzip_probe_test.go`.
+  Reads `tmp/sections-with-files.json` (58 folder sections with files, from
+  the real `.opal-visit-log.json`'s most recent scheduled run), navigates
+  each, checks for the "Tabelle herunterladen" control, downloads + hand-parses
+  the XLSX, writes one JSONL line per section to
+  `tmp/tabledl-universality-results.jsonl` as it goes (survives a kill).
+- If killed mid-run: `tmp/tabledl-universality-results.jsonl` holds partial
+  data. Re-run skips sections already in it, or just analyse what landed.
+- Parts 1+3 only. Part 2 (date fidelity vs a 345-file byte-diff) is the next
+  cycle if these hold; if column C is empty for the signal-less files, fall
+  back to Question 45 option A.

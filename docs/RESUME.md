@@ -18,20 +18,30 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-**In flight (2026-09-02 autopilot): Question 45 option D verification, parts 1
-(universality) + 3 (column-C-populated).**
+**In flight (2026-09-11 autopilot, continuing the 2026-09-02 prediction):
+Question 45 option D verification, parts 1 (universality) + 3
+(column-C-populated).**
 
-- Prediction written into `docs/sync-speed-model.md` "Next experiment" and
-  committed before the run.
-- New probe mode `OPAL_TABLEDL_UNIVERSAL=1` /
-  `TestTableDownloadUniversality` in `internal/scraper/bulkzip_probe_test.go`.
-  Reads `tmp/sections-with-files.json` (58 folder sections with files, from
-  the real `.opal-visit-log.json`'s most recent scheduled run), navigates
-  each, checks for the "Tabelle herunterladen" control, downloads + hand-parses
-  the XLSX, writes one JSONL line per section to
-  `tmp/tabledl-universality-results.jsonl` as it goes (survives a kill).
+- Prediction was written into `docs/sync-speed-model.md` "Next experiment"
+  and committed 2026-09-02, but the probe code was never written that run -
+  it moved to a Phase 2 walk instead. Written now: `OPAL_TABLEDL_UNIVERSAL=1`
+  / `TestTableDownloadUniversality` in
+  `internal/scraper/bulkzip_probe_test.go` (commit 7424fc7, pushed).
+- `tmp/sections-with-files.json` built from the real
+  `C:/Users/alois/OneDrive/.opal-visit-log.json`'s most recent scheduled-sync
+  run (2026-09-11 13:44-13:47, the first sync since 2026-09-02 - a 9-day gap
+  worth a separate look if it recurs): 58 folder sections with
+  `files_found > 0`, deduped by `section_url`, across all 6 courses -
+  matches the design doc's expected count exactly.
+- Worktree has its own `config.yaml` (copied from the main checkout) and the
+  probe resolves its repo root via `runtime.Caller` rather than a hardcoded
+  path, so it runs correctly from here.
+- Next step: run
+  `OPAL_TABLEDL_UNIVERSAL=1 go test ./internal/scraper/ -run TestTableDownloadUniversality -count=1 -v -timeout 30m`
+  live against the real account.
 - If killed mid-run: `tmp/tabledl-universality-results.jsonl` holds partial
-  data. Re-run skips sections already in it, or just analyse what landed.
+  data (not checked in - rebuild `tmp/sections-with-files.json` the same way
+  if a fresh worktree needs it). Re-run skips sections already in it.
 - Parts 1+3 only. Part 2 (date fidelity vs a 345-file byte-diff) is the next
   cycle if these hold; if column C is empty for the signal-less files, fall
   back to Question 45 option A.

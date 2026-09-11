@@ -29,10 +29,15 @@ package scraper
 //	OPAL_BULKZIP_SECTION_URL=<full CourseNode URL>
 import (
 	"archive/zip"
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -678,6 +683,341 @@ func toInt(v interface{}) int {
 	default:
 		return -1
 	}
+}
+
+// tableDownloadSection is one row of tmp/sections-with-files.json - the
+// folder sections that carried files on the real .opal-visit-log.json's
+// most recent scheduled-sync run, deduped by section_url. Built outside this
+// package (the visit log lives under the maintainer's real download_path,
+// not in the repo).
+type tableDownloadSection struct {
+	Course       string `json:"course"`
+	SectionTitle string `json:"section_title"`
+	SectionURL   string `json:"section_url"`
+	FilesFound   int    `json:"files_found"`
+}
+
+// tableDownloadUniversalityResult is one JSONL line in
+// tmp/tabledl-universality-results.jsonl - written as each section finishes
+// so a usage-limit kill mid-run leaves analysable partial data.
+type tableDownloadUniversalityResult struct {
+	Course           string   `json:"course"`
+	SectionTitle     string   `json:"section_title"`
+	SectionURL       string   `json:"section_url"`
+	ControlPresent   bool     `json:"control_present"`
+	DataRows         int      `json:"data_rows"`
+	ColumnCPopulated int      `json:"column_c_populated"`
+	EmptyCNames      []string `json:"empty_c_names,omitempty"`
+	Error            string   `json:"error,omitempty"`
+	ElapsedMs        int64    `json:"elapsed_ms"`
+}
+
+// TestTableDownloadUniversality is Question 45 option D verification, parts
+// 1 (universality) + 3 (column-C-populated) - docs/sync-speed-model.md "Next
+// experiment", cycle 2026-09-02. Does every folder section that carries
+// files render the "Tabelle herunterladen" control, and is its column C
+// ("Zuletzt geändert") populated on every data row?
+//
+// Usage:
+//
+//	OPAL_TABLEDL_UNIVERSAL=1 go test ./internal/scraper/ -run TestTableDownloadUniversality -count=1 -v -timeout 30m
+//
+// Input: tmp/sections-with-files.json (a list of tableDownloadSection - not
+// checked in, tmp/ is gitignored). Output: tmp/tabledl-universality-results.jsonl,
+// one line per section, appended as the run goes. Re-running skips sections
+// already in that file, so a kill loses at most the one section in flight.
+func TestTableDownloadUniversality(t *testing.T) {
+	if os.Getenv("OPAL_TABLEDL_UNIVERSAL") == "" {
+		t.Skip("set OPAL_TABLEDL_UNIVERSAL=1 to run (needs tmp/sections-with-files.json - see docs/sync-speed-model.md 'Next experiment')")
+	}
+	beginLiveProbe(t)
+
+	repo := repoRootForTest(t)
+	tmpDir := filepath.Join(repo, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Fatalf("mkdir tmp: %v", err)
+	}
+
+	sectionsPath := filepath.Join(tmpDir, "sections-with-files.json")
+	raw, err := os.ReadFile(sectionsPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", sectionsPath, err)
+	}
+	var sections []tableDownloadSection
+	if uerr := json.Unmarshal(raw, &sections); uerr != nil {
+		t.Fatalf("parse %s: %v", sectionsPath, uerr)
+	}
+	t.Logf("loaded %d sections to probe", len(sections))
+
+	resultsPath := filepath.Join(tmpDir, "tabledl-universality-results.jsonl")
+	done := map[string]bool{}
+	if existing, rerr := os.ReadFile(resultsPath); rerr == nil {
+		for _, line := range strings.Split(string(existing), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			var r tableDownloadUniversalityResult
+			if jerr := json.Unmarshal([]byte(line), &r); jerr == nil {
+				done[r.SectionURL] = true
+			}
+		}
+		t.Logf("resuming: %d sections already have a result in %s", len(done), resultsPath)
+	}
+
+	out, operr := os.OpenFile(resultsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if operr != nil {
+		t.Fatalf("open %s for append: %v", resultsPath, operr)
+	}
+	defer out.Close()
+
+	loaded, cerr := config.Load(filepath.Join(repo, "config.yaml"))
+	if cerr != nil {
+		t.Fatalf("load config: %v", cerr)
+	}
+	sc := New(loaded.Credentials.URL, loaded.Credentials.StateFile)
+	defer sc.Close()
+	if serr := sc.ensureSession(false); serr != nil {
+		t.Fatalf("ensure session: %v", serr)
+	}
+	page := sc.getPage()
+	if page == nil {
+		t.Fatalf("ensureSession succeeded but no page is available")
+	}
+
+	xlsxPath := filepath.Join(tmpDir, "tabledl-universality-probe.xlsx")
+
+	processed, controlMissing, cEmptyAnywhere, errored := 0, 0, 0, 0
+	for i, sec := range sections {
+		if done[sec.SectionURL] {
+			continue
+		}
+		t.Logf("[%d/%d] %s / %s", i+1, len(sections), sec.Course, sec.SectionTitle)
+		result := probeOneSectionTableDownload(t, sc, page, xlsxPath, sec)
+		processed++
+		if result.Error != "" {
+			errored++
+		} else if !result.ControlPresent {
+			controlMissing++
+		}
+		if len(result.EmptyCNames) > 0 {
+			cEmptyAnywhere++
+		}
+		line, merr := json.Marshal(result)
+		if merr != nil {
+			t.Fatalf("marshal result for %s: %v", sec.SectionURL, merr)
+		}
+		line = append(line, '\n')
+		if _, werr := out.Write(line); werr != nil {
+			t.Fatalf("append result for %s: %v", sec.SectionURL, werr)
+		}
+		if serr := out.Sync(); serr != nil {
+			t.Logf("  sync results file: %v", serr)
+		}
+	}
+
+	t.Logf("RESULT: processed %d section(s) this run (%d already done from a prior run). "+
+		"control missing on %d, errored on %d, column C empty for at least one row on %d section(s). "+
+		"Full per-section data in %s.", processed, len(done), controlMissing, errored, cEmptyAnywhere, resultsPath)
+}
+
+// probeOneSectionTableDownload navigates to one section, looks for the
+// "Tabelle herunterladen" control, downloads and hand-parses the XLSX it
+// returns, and reports whether column C ("Zuletzt geändert") is populated
+// for every data row. Never fails the test on a per-section problem - the
+// error, if any, goes into the result so the JSONL stays complete.
+func probeOneSectionTableDownload(t *testing.T, sc *OpalScraper, page playwright.Page, xlsxPath string, sec tableDownloadSection) tableDownloadUniversalityResult {
+	t.Helper()
+	result := tableDownloadUniversalityResult{Course: sec.Course, SectionTitle: sec.SectionTitle, SectionURL: sec.SectionURL}
+	start := time.Now()
+	defer func() { result.ElapsedMs = time.Since(start).Milliseconds() }()
+
+	if _, gerr := sc.gotoPolitely(page, sec.SectionURL, playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+		Timeout:   playwright.Float(30000),
+	}); gerr != nil {
+		result.Error = fmt.Sprintf("goto: %v", gerr)
+		return result
+	}
+	_, calm := sc.waitForInteractiveLinks(page, contentFallbackWaitMs)
+	if _, cerr := sc.waitForStableSectionContent(page, calm); cerr != nil {
+		t.Logf("  waitForStableSectionContent: %v (continuing)", cerr)
+	}
+
+	info, everr := page.Evaluate(`() => {
+		for (const el of document.querySelectorAll('a, button')) {
+			if ((el.textContent || '').trim().toLowerCase().includes('tabelle herunterladen')) return true;
+		}
+		return false;
+	}`)
+	if everr != nil {
+		result.Error = fmt.Sprintf("evaluate control presence: %v", everr)
+		return result
+	}
+	found, _ := info.(bool)
+	result.ControlPresent = found
+	if !found {
+		return result
+	}
+
+	download, derr := page.ExpectDownload(func() error {
+		_, e := page.Evaluate(`() => {
+			for (const el of document.querySelectorAll('a, button')) {
+				if ((el.textContent || '').trim().toLowerCase().includes('tabelle herunterladen')) { el.click(); return true; }
+			}
+			return false;
+		}`)
+		return e
+	}, playwright.PageExpectDownloadOptions{Timeout: playwright.Float(30000)})
+	if derr != nil {
+		result.Error = fmt.Sprintf("click did not trigger a download within 30s: %v", derr)
+		return result
+	}
+	if saveErr := download.SaveAs(xlsxPath); saveErr != nil {
+		result.Error = fmt.Sprintf("save download: %v", saveErr)
+		return result
+	}
+
+	rows, perr := parseTableDownloadXLSX(xlsxPath)
+	_ = os.Remove(xlsxPath)
+	if perr != nil {
+		result.Error = fmt.Sprintf("parse xlsx: %v", perr)
+		return result
+	}
+	result.DataRows = len(rows)
+	for _, r := range rows {
+		if strings.TrimSpace(r.modified) != "" {
+			result.ColumnCPopulated++
+		} else {
+			result.EmptyCNames = append(result.EmptyCNames, r.name)
+		}
+	}
+	return result
+}
+
+// tableDownloadRow is one data row of the "Tabelle herunterladen" export:
+// column A (Name), C (Zuletzt geändert - an Excel serial datetime, kept as
+// the raw numeric string since only "populated or not" matters here, not
+// its decoded value).
+type tableDownloadRow struct {
+	name     string
+	modified string
+}
+
+// parseTableDownloadXLSX hand-parses the "Tabelle herunterladen" export
+// (xl/worksheets/sheet1.xml + xl/sharedStrings.xml inside the xlsx zip) per
+// docs/sync-speed-model.md's design for this cycle - no xlsx library
+// dependency, the sheet is a simple flat table and column C's dates are
+// inline numeric <v> values needing no shared-string lookup.
+func parseTableDownloadXLSX(path string) ([]tableDownloadRow, error) {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, fmt.Errorf("open as zip: %w", err)
+	}
+	defer zr.Close()
+
+	var sheetBytes, sstBytes []byte
+	for _, f := range zr.File {
+		switch f.Name {
+		case "xl/worksheets/sheet1.xml":
+			if sheetBytes, err = readZipFileBytes(f); err != nil {
+				return nil, fmt.Errorf("read sheet1.xml: %w", err)
+			}
+		case "xl/sharedStrings.xml":
+			if sstBytes, err = readZipFileBytes(f); err != nil {
+				return nil, fmt.Errorf("read sharedStrings.xml: %w", err)
+			}
+		}
+	}
+	if sheetBytes == nil {
+		return nil, fmt.Errorf("xl/worksheets/sheet1.xml not present - not the expected xlsx shape")
+	}
+
+	var sst struct {
+		SI []struct {
+			T string `xml:"t"`
+		} `xml:"si"`
+	}
+	if sstBytes != nil {
+		if xerr := xml.Unmarshal(sstBytes, &sst); xerr != nil {
+			return nil, fmt.Errorf("parse sharedStrings.xml: %w", xerr)
+		}
+	}
+
+	var sheet struct {
+		SheetData struct {
+			Row []struct {
+				C []struct {
+					R string `xml:"r,attr"`
+					T string `xml:"t,attr"`
+					V string `xml:"v"`
+				} `xml:"c"`
+			} `xml:"row"`
+		} `xml:"sheetData"`
+	}
+	if xerr := xml.Unmarshal(sheetBytes, &sheet); xerr != nil {
+		return nil, fmt.Errorf("parse sheet1.xml: %w", xerr)
+	}
+
+	var rows []tableDownloadRow
+	for i, row := range sheet.SheetData.Row {
+		if i == 0 {
+			continue // header row (Name / Größe / Zuletzt geändert / Lizenz)
+		}
+		vals := make([]string, 4)
+		for _, c := range row.C {
+			ci := cellColumnIndex(c.R)
+			if ci < 0 || ci >= len(vals) {
+				continue
+			}
+			val := c.V
+			if c.T == "s" {
+				if idx, aerr := strconv.Atoi(c.V); aerr == nil && idx >= 0 && idx < len(sst.SI) {
+					val = sst.SI[idx].T
+				}
+			}
+			vals[ci] = val
+		}
+		rows = append(rows, tableDownloadRow{name: vals[0], modified: vals[2]})
+	}
+	return rows, nil
+}
+
+// cellColumnIndex turns a cell reference like "C15" into a 0-based column
+// index (2), by reading the leading letters only.
+func cellColumnIndex(cellRef string) int {
+	idx := 0
+	for _, ch := range cellRef {
+		if ch < 'A' || ch > 'Z' {
+			break
+		}
+		idx = idx*26 + int(ch-'A'+1)
+	}
+	return idx - 1
+}
+
+func readZipFileBytes(f *zip.File) ([]byte, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(rc)
+}
+
+// repoRootForTest resolves the repository root from this test file's own
+// compiled path via runtime.Caller, rather than a hardcoded absolute path -
+// so it resolves correctly whether this package builds from the main
+// checkout or a worktree under .claude/worktrees/ (project CLAUDE.md:
+// everything that writes works in its own worktree).
+func repoRootForTest(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatalf("runtime.Caller could not resolve this test file's own path")
+	}
+	// this file lives at <repo>/internal/scraper/bulkzip_probe_test.go
+	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
 // waitForStableCheckboxCount polls the row-selection column's checkbox count

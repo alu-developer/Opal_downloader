@@ -99,24 +99,27 @@ frozen change detection before (`project_filechanged_nil_guard_trap`), and
 A/B blocked on the maintainer answering whether up-to-a-week staleness is
 acceptable.
 
-**But 2026-09-02 (autopilot) found option D, which may make the product
-call moot.** Question 43 follow-up #3 turned up the per-section "Tabelle
-herunterladen" control: one ~195ms GET returns `table.xlsx` with a real
-per-file modification datetime (precise to the second, verified to match
-the file's own mtime) for *every* file in the section - including the
-signal-less ones. A file is only signal-less because discovery recorded no
-size and no date for it; if discovery parsed this XLSX, those 7 files would
-gain a `Modified`, `needsContentVerification` would go false, and the
-~151s/sync would drop to ~0 with **no staleness tradeoff and no maintainer
-call** (the date is a real remote signal, not a cached assumption). Not yet
-proven - one verification cycle gates it: (1) does every folder page across
-all 6 courses have the control; (2) does the XLSX date match a byte-verify
-for the 7 actual signal-less files (one flagged `sync`, byte-diffed against
-the 345-file ground truth); (3) is column C ever empty. If all hold, D
-ships behind a flag then as default (2026-08-03 decision) and Question 45
-closes without the maintainer. If (2) fails, fall back to A. **This
-verification cycle is now the top unblocked speed item.** Full design:
-`docs/sync-speed-model.md` Question 45 option D + Question 43 follow-up #3.
+**2026-09-02 (autopilot) found option D**, the per-section "Tabelle
+herunterladen" XLSX export carrying a real per-file modification date for
+every file in a folder section - a way to make signal-less files stop being
+signal-less, with no staleness tradeoff. **Parts 1+3 of its verification ran
+live 2026-09-11 (autopilot; the probe code itself had sat unwritten for 9
+days, see `docs/BACKLOG-archive.md`/`docs/RESUME.md`), and the result is a
+partial win, not the full replacement for Question 45 it might have been.**
+Part 3 (column C populated) held cleanly on all 358 data rows checked. Part 1
+(universality) did not: the control is present on 48/58 probed sections but
+missing on exactly the 10 `Woche 05`..`13` sections in So26 Programmieren -
+precisely the cluster this question most needs to fix - because those pages
+are not folder-browser pages at all (0 checkboxes, 0 download controls of
+any kind; low file count was checked and ruled out as the explanation).
+**So option D can still ship for the signal-less files it does cover
+(`2026 LA20/Übungen`, pending Part 2's byte-diff) without a maintainer call,
+but Question 45's A/B/C options are still needed for the Woche-cluster
+files - just a smaller scope than before.** An open, unresolved-this-cycle
+question (what course-node type the Woche sections actually are) and Part 2
+itself are the next unblocked speed items. Full detail: `docs/sync-speed-
+model.md` Question 45 (option D + the 2026-09-11 result) and "Next
+experiment".
 
 **Question 43** (bulk-download-as-ZIP) is the top item **not** waiting on
 the maintainer (Question 45 above now is), and it moved forward hard on

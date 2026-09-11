@@ -826,9 +826,9 @@ func TestTableDownloadUniversality(t *testing.T) {
 // returns, and reports whether column C ("Zuletzt geändert") is populated
 // for every data row. Never fails the test on a per-section problem - the
 // error, if any, goes into the result so the JSONL stays complete.
-func probeOneSectionTableDownload(t *testing.T, sc *OpalScraper, page playwright.Page, xlsxPath string, sec tableDownloadSection) tableDownloadUniversalityResult {
+func probeOneSectionTableDownload(t *testing.T, sc *OpalScraper, page playwright.Page, xlsxPath string, sec tableDownloadSection) (result tableDownloadUniversalityResult) {
 	t.Helper()
-	result := tableDownloadUniversalityResult{Course: sec.Course, SectionTitle: sec.SectionTitle, SectionURL: sec.SectionURL}
+	result = tableDownloadUniversalityResult{Course: sec.Course, SectionTitle: sec.SectionTitle, SectionURL: sec.SectionURL}
 	start := time.Now()
 	defer func() { result.ElapsedMs = time.Since(start).Milliseconds() }()
 

@@ -568,6 +568,52 @@ If all three hold, option D ships (behind the flag, byte-diff first, then
 default per the 2026-08-03 decision) and Question 45 closes without the
 maintainer call. If date fidelity fails (2), fall back to option A.
 
+**Parts 1+3 run live 2026-09-11 (autopilot, continuing the 2026-09-02
+prediction whose probe code had never actually been written).** 58 sections,
+all 6 courses, `OPAL_TABLEDL_UNIVERSAL=1 TestTableDownloadUniversality`
+(`internal/scraper/bulkzip_probe_test.go`), 0 navigation errors. **Part 3
+(populated-always) fully HELD:** of the 48 sections that render the control,
+every one of 358 data rows had a non-empty column C - zero exceptions. **Part
+1 (universality) REFUTED, but sharply and usefully:** the control is missing
+on exactly 10 of the 58 sections, and those 10 are exactly **So26
+Programmieren's `Woche 05`..`Woche 13` + `Copy of Woche 06`** - precisely the
+paginated cluster this question exists to fix. A diagnostic follow-up
+(`OPAL_BULKZIP_PROBE=1 OPAL_BULKZIP_SECTION_URL=<Woche 05 URL>`) found 0
+checkboxes and 0 download/zip-labeled controls of *any* kind on that page -
+not just the table export missing, the whole folder-browser toolbar is
+absent, so this is not a folder-browser page (`BCCourseNode`) at all.
+**Ruled out low file count as the cause**, not just assumed: 12 *other*
+probed sections have the same 1-2 `files_found` as the Woche cluster
+(including two in the same So26 Programmieren course - `Probeklausur`,
+`Klausurinformationen`) and every one of them *does* render the control.
+The variable is the node, not the file count or the course.
+
+**What this means for option D: it is a partial fix, not the full replacement
+for Question 45 this cycle hoped for.** The ~15 signal-less files living in
+`2026 LA20/Übungen` (which does have the control, populated) are still on
+track - option D can close Question 45 *for that subset*, pending Part 2
+(date fidelity). But the files in the `Woche 05`..`13` cluster have no table
+to parse; there is no URL-based route to a `Modified` for them via this
+mechanism, so **Question 45's original maintainer call (options A/B/C) is
+not moot for that subset** - it is now scoped down to specifically the
+Woche-cluster files rather than all ~37.
+
+**New open question, ranked above Part 2:** what course-node type are
+`Woche 05`..`13` actually built from, if not `BCCourseNode`? **Tried once
+this cycle and inconclusive - stays open.** A throwaway page-HTML dump
+(`Woche 05` vs. `Klausurinformationen`, same course) guessed at
+`.o_course_run` / `#o_main_container` as the content-area selector; neither
+exists on this deployment, so both dumps fell back to `document.body` and
+returned generic page chrome (search box, header), not the course-node
+content itself - no signal either way. Worth a second attempt with the
+selector found by inspecting a real page's DOM tree first (dev-mode browser,
+visible, `read_page`-style inspection) rather than guessing a class name
+blind. If it turns out to be a single-file "document" node type, that would
+also explain, retroactively, why HTTP-first discovery could never get one of
+these into the paginated-section HTTP path (Question 44) - the same
+structural fact showing up on two separate questions would be worth writing
+down as a corollary.
+
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, but Step B's kill criterion PASSED 2026-09-02: the bulk ZIP is real, needs only read access, and preserves per-file timestamps. The 2026-08-12 "rendering flake" was largely the probe's own `v.(float64)` bug, not OPAL. What remains is a scale + integration-design pass. Now the top-ranked *unblocked* speed item (Question 45, #1 overall, is blocked on a maintainer call).
 
 **Why this is a live lever and not old ground.** Every question on this list so
@@ -3277,7 +3323,29 @@ column C, decoded to a datetime and written into `remote.Modified`, is treated
 as unchanged by a byte-verify against the 345-file ground truth. That is the
 next cycle if parts 1+3 hold.
 
-**Result:** _pending - probe written, prediction committed, run next._
+**Result: prediction scorecard - the ~10% branch hit, but sharper than
+predicted.** Probe code was actually written and run 2026-09-11 (this
+run had sat as a registered-but-uncoded prediction for 9 days - see
+`docs/RESUME.md`). 58/58 sections navigated cleanly, 0 errors.
+
+- **Part 3 (column C populated): HELD, cleanly.** 358/358 data rows across
+  the 48 sections that have the control had a populated column C. Zero
+  exceptions anywhere, not just on the known signal-less files.
+- **Part 1 (universality): REFUTED for exactly the cluster that matters.**
+  Control present on 48/58; missing on exactly the 10 `Woche 05`..`13` /
+  `Copy of Woche 06` sections in So26 Programmieren. A follow-up probe on
+  `Woche 05` found the entire folder-browser toolbar absent (0 checkboxes,
+  0 download-labeled controls of any kind) - not a missing button, a
+  different page type. Low file count was checked and ruled out as a
+  confound: 12 other 1-2-file sections, including two in the same course,
+  all have the control.
+
+Full reasoning and the new ranked question (what node type are the `Woche`
+sections actually built from) now live on Question 45's entry above, since
+the result changes that question's status, not just this cycle's log.
+**Net: option D ships for the `2026 LA20/Übungen` subset pending Part 2;
+Question 45's maintainer call still stands, now scoped down to just the
+Woche cluster's files.**
 
 ---
 

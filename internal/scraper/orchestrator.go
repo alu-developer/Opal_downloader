@@ -214,7 +214,7 @@ func (s *OpalScraper) scrapeCoursesHybrid(ctx context.Context, courseFilter []st
 		}
 		missingTotal += len(missing)
 		extraTotal += len(extra)
-		logging.User("OPAL_HTTP_DISCOVERY diff [%s]: browser=%d http=%d missing=%d extra=%d",
+		logging.User("Discovery diff [%s]: browser=%d http=%d missing=%d extra=%d",
 			course, len(browserSet), len(httpSet), len(missing), len(extra))
 		if len(missing) > 0 && len(missing) <= 20 {
 			for _, m := range missing {
@@ -222,7 +222,7 @@ func (s *OpalScraper) scrapeCoursesHybrid(ctx context.Context, courseFilter []st
 			}
 		}
 	}
-	logging.User("OPAL_HTTP_DISCOVERY summary: %d sections, %d HTTP requests, HTTP phase %s; total missing=%d extra=%d",
+	logging.User("Discovery summary: %d sections, %d HTTP requests, HTTP phase %s; total missing=%d extra=%d",
 		len(sections), httpRequests, httpElapsed.Round(time.Millisecond), missingTotal, extraTotal)
 
 	// verify mode returns the trusted browser result (so a verification run can
@@ -233,7 +233,7 @@ func (s *OpalScraper) scrapeCoursesHybrid(ctx context.Context, courseFilter []st
 	// already names exactly what was missing, so the fallback is never silent.
 	if mode == "1" {
 		if missingTotal == 0 {
-			logging.User("OPAL_HTTP_DISCOVERY: returning HTTP result (diff=0 verified)")
+			logging.User("Discovery: returning HTTP result (diff=0 verified)")
 			return convertFileRefsToRemoteFiles(httpFiles), nil
 		}
 		logging.Warn("OPAL_HTTP_DISCOVERY: HTTP missing %d file(s) the browser found; returning trusted browser result (see diff above)", missingTotal)
@@ -296,7 +296,7 @@ func (s *OpalScraper) scrapeCoursesHTTPFirst(ctx context.Context, courseFilter [
 	remoteFiles := collectCourseFilesConcurrently(ctx, courses, httpFirstCourseConcurrency(),
 		s.newHTTPCourseFileCollector(fetch, len(courses), &totalRequests), s.mergeDownloadCandidates)
 	httpElapsed := httpTimer.Elapsed()
-	logging.User("OPAL_HTTP_DISCOVERY=2 summary: %d courses, %d HTTP requests, %s",
+	logging.User("Discovery summary: %d courses, %d HTTP requests, %s",
 		len(courses), atomic.LoadInt64(&totalRequests), httpElapsed)
 	logging.User("Discovered %d remote files", len(remoteFiles))
 

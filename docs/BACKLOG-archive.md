@@ -585,6 +585,44 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Weekly review Part B's `printNextSteps` simplification, done (2026-09-14,
+  autopilot).** Its `startAt int` parameter existed to let callers start the
+  numbered list at something other than 1, but both call sites (`runInit`,
+  `runSetup`) always passed 1 - speculative flexibility with no actual user.
+  Dropped the parameter, hardcoded 1-4 in `cmd/opal-downloader/root.go`.
+  Verified with a scratch `init` run - output byte-identical to before.
+- **Walk 20's GUI open question answered and fixed (2026-09-14,
+  autopilot).** Walk 20 (`printNextSteps` CLI fix) left open whether the
+  GUI Settings-save path - the README's "primary, recommended" first-run
+  route - has its own "what next" text and whether it says to sync. Read
+  through: `handleSettings`'s POST branch (`internal/gui/settings.go:409`)
+  sets `view.Saved = true` and re-renders `/settings` in place - no
+  redirect, no next-step text at all, just a bare "Saved." banner
+  (`internal/gui/settings_page.go:85`). So the GUI path was not a second
+  drifted copy of the checklist, it had no checklist - confirming the cause
+  really is "no single first-run-checklist source". Fixed by adding a link
+  to the banner: `Saved. <a href="/">Go run a sync</a>` - the home page
+  already has the "Sync now" CTA (`internal/gui/gui.go:398`), so this just
+  points there rather than duplicating the CLI's numbered steps. Separately
+  confirmed the GUI's live progress view (`internal/gui/sync.go`) is
+  structurally unrelated to `logging.User` output - it is built entirely
+  from `scraper.DiscoveryProgress`/`syncer.Event` published over SSE as its
+  own `jobEvent` types - so Walk 21's console-log rename (below) had no GUI
+  counterpart to fix; the only place raw log lines reach the GUI at all is
+  the opt-in `/logs` diagnostic page, which now shows the renamed text for
+  free. `go test ./internal/gui/...` green.
+- **Walk 21's `OPAL_HTTP_DISCOVERY=2` jargon leak, fixed (2026-09-14,
+  autopilot).** All four `logging.User("OPAL_HTTP_DISCOVERY...")` call
+  sites in `internal/scraper/orchestrator.go` (the default HTTP-first
+  discovery path's summary at :299, plus the `verify`/mode=1 comparison
+  path's three at :217/:225/:236) renamed to plain language ("Discovery
+  summary: ...", "Discovery diff [...]: ...", "Discovery: returning HTTP
+  result ..."), dropping the internal env-var name a normal `list`/`sync`
+  user has no way to interpret. Kept at `logging.User` (still visible by
+  default) rather than demoted to `--verbose` - the summary itself (course
+  count, request count, elapsed time) is real information a user watching
+  a slow sync wants, the jargon was the only actual problem. `go build
+  ./...` clean; grepped for any test asserting the old wording (none).
 - **Walk 18's `config.example.yaml` advanced-key-comment bloat, fixed
   (2026-09-02, autopilot).** `init`/`setup` copy `config.example.yaml`
   verbatim as the user's starter `config.yaml`; its `course_concurrency`

@@ -289,16 +289,16 @@ func exitCodeForError(err error) int {
 // printNextSteps prints the shared "Next steps:" epilogue for init and
 // setup. Both used to hand-roll their own copy; they drifted, and setup's
 // copy silently dropped the `sync` step (docs/friction-campaign.md Walk 20).
-func printNextSteps(configPath string, startAt int) {
+func printNextSteps(configPath string) {
 	flagSuffix := configFlagSuffix(configPath)
 	fmt.Println("Next steps:")
-	fmt.Printf("  %d. Edit %s with your download path and course patterns\n", startAt, configPath)
-	fmt.Printf("  %d. Optional but recommended: install TU-Fast for automatic 2FA on every\n", startAt+1)
+	fmt.Printf("  1. Edit %s with your download path and course patterns\n", configPath)
+	fmt.Println("  2. Optional but recommended: install TU-Fast for automatic 2FA on every")
 	fmt.Println("     login (one-time, one click) - open the GUI's Settings -> \"Set up TU-Fast\"")
 	fmt.Println("     (/tufast-setup) page, or see docs/browser-profile-strategy.md. Skipping")
 	fmt.Println("     this is fine too - login just needs manual 2FA each time instead.")
-	fmt.Printf("  %d. Run: opal-downloader login%s\n", startAt+2, flagSuffix)
-	fmt.Printf("  %d. Run: opal-downloader sync%s\n", startAt+3, flagSuffix)
+	fmt.Printf("  3. Run: opal-downloader login%s\n", flagSuffix)
+	fmt.Printf("  4. Run: opal-downloader sync%s\n", flagSuffix)
 }
 
 func runInit(args []string) error {
@@ -326,7 +326,7 @@ func runInit(args []string) error {
 		fmt.Printf("created: %s\n", configPath)
 	}
 	fmt.Println()
-	printNextSteps(configPath, 1)
+	printNextSteps(configPath)
 	return nil
 }
 
@@ -377,7 +377,7 @@ func runSetup(args []string) error {
 	fmt.Println("  go build -o opal-downloader.exe .   (Windows)")
 	fmt.Println("  go build -o opal-downloader .        (Linux/macOS)")
 	fmt.Println()
-	printNextSteps(configPath, 1)
+	printNextSteps(configPath)
 	return nil
 }
 

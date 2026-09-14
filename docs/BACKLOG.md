@@ -168,13 +168,6 @@ constraint, independent of how the rest resolves — **one slow file's
 resolution must never block anything else in the sync.** Detail in the
 same section, "Maintainer decision, 2026-08-19".
 
-**Weekly review, 2026-09-14 (Part B): minor simplification, `printNextSteps`
-(`cmd/opal-downloader/root.go:292`).** Its `startAt int` parameter exists to
-let callers start the numbered list at something other than 1, but both call
-sites (`runInit`, `runSetup`) always pass 1 — speculative flexibility with no
-current user. Drop the parameter and hardcode the numbers 1-4 in the function
-body.
-
 ---
 
 ## Open findings
@@ -186,45 +179,6 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15, 17, 19 & 21, first-run walks 3, 7, 10, 12, 14, 16, 18 & 20)
 
-- **friction — an internal env-flag name, `OPAL_HTTP_DISCOVERY=2`, leaks into
-  a plain `list`/`sync` run's default console output with no flags set.**
-  Walk 21, 2026-09-14 (CLI everyday use). Persona: a student running `list`
-  the way they would on an ordinary day. Live scratch-config run printed
-  `OPAL_HTTP_DISCOVERY=2 summary: 8 courses, 315 HTTP requests, 2m5.095966s`
-  with no `--verbose`/`--debug-clicks`/`--profile` set - a normal user has
-  never set that variable (it's in no config example, no README section, no
-  documented flag) and has no way to know what "=2" means or whether their
-  setup is wrong. **Named cause:** `internal/scraper/orchestrator.go:299`
-  (`scrapeCoursesHTTPFirst`, the production default discovery path since
-  HTTP-first shipped as default) calls `logging.User("OPAL_HTTP_DISCOVERY=2
-  summary: ...")` - `logging.User` being the always-shown audience level,
-  not a diagnostic one. Left over from when the message was written to
-  identify the feature while it was still an opt-in experiment; never
-  relabelled once the flag it names became the permanent default.
-  **Prediction, checked cheap:** grep for `logging.User(".*OPAL_` across
-  `internal/` found exactly three more instances, all in the same file's
-  `scrapeCoursesHybrid` verify-mode path (`orchestrator.go:217`, `:225`,
-  `:236`, the monthly `verify` spot-check) - same pattern, lower frequency,
-  arguably more defensible for a diagnostic command but still meaningless
-  jargon to whoever reads it. **Fix:** rename all four to plain-language
-  messages ("Discovery summary: 8 courses, ...") and move the
-  `OPAL_HTTP_DISCOVERY` detail to `logging.Detail`/`--verbose` if it's worth
-  keeping at all. **Open question (needs a GUI walk or `internal/gui`
-  source read):** does the GUI's progress view show these same messages, or
-  does it filter `logging.User` output differently by surface? Full detail:
-  `docs/friction-campaign.md` Walk 21.
-
-- **Fixed 2026-09-14 (autopilot): `setup`'s epilogue now prints the `sync`
-  step.** `runInit` and `runSetup` (`cmd/opal-downloader/root.go`) both now
-  call a shared `printNextSteps` helper instead of hand-rolling their own
-  copy, so `setup` can no longer silently drop the last line the way it did
-  when the two drifted. Verified with a scratch `init` run — output
-  byte-identical to before. **Still open (needs a GUI walk or `internal/gui`
-  source read):** does the GUI Settings-save path - the README's "primary,
-  recommended" first-run route - print its own third "what next" text, and
-  does *it* say to sync? If all three differ, the cause is "no single
-  first-run-checklist source" and the GUI path would need the same
-  treatment. Full detail: `docs/friction-campaign.md` Walk 20.
 - **friction — no per-invocation course selector on `sync` or `list`, so
   "grab just this one course right now" forces a persistent `config.yaml`
   edit.** Walk 19, 2026-09-02 (CLI everyday use). Persona: a student who

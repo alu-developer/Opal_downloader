@@ -82,7 +82,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 	<h1>Settings</h1>
 
 	{{if .Error}}<div class="error"><strong>Could not save:</strong> {{.Error}}</div>{{end}}
-	{{if .Saved}}<div class="success">Saved.</div>{{end}}
+	{{if .Saved}}<div class="success">Saved. <a href="/">Go run a sync</a></div>{{end}}
 	{{if .Warnings}}
 	<div class="warning">
 		<strong>Heads up:</strong>

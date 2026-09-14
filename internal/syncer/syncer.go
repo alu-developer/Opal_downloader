@@ -551,6 +551,7 @@ func runBulkVerifyGroups(jobs []downloadJob, bulk bulkVerifyDownloader, manifest
 			wantLocalPaths[filepath.Base(jobs[i].localPath)] = tempPath
 		}
 
+		logging.Detail("bulk verify: attempting section %s (%d signal-less file(s))", sectionURL, len(idxs))
 		modifiedByName, err := bulk.DownloadFilesBulk(sectionURL, wantLocalPaths)
 		if err != nil {
 			logging.Warn("bulk verify fetch for section %s failed, falling back to per-file verification for %d file(s): %v", sectionURL, len(idxs), err)
@@ -559,6 +560,7 @@ func runBulkVerifyGroups(jobs []downloadJob, bulk bulkVerifyDownloader, manifest
 			}
 			continue
 		}
+		logging.Detail("bulk verify: section %s returned %d/%d requested file(s)", sectionURL, len(modifiedByName), len(idxs))
 
 		for _, i := range idxs {
 			job := jobs[i]
@@ -603,6 +605,7 @@ func runBulkVerifyGroups(jobs []downloadJob, bulk bulkVerifyDownloader, manifest
 					manifest.Files[targetKey] = rec
 				}
 				stats.Skipped++
+				logging.Detail("bulk verify: %s unchanged (verified via bulk fetch)", targetKey)
 				progress(Event{Type: EventFileSkipped, Course: job.remoteFile.Course, File: targetKey})
 				continue
 			}

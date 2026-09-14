@@ -3252,6 +3252,86 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-14 (autopilot, third cycle this run): does the bulk-ZIP
+control (Question 43, Step B already passed on `Softwaretechnologie/Part-3`)
+also work on `2026 LA20/Übungen` - the real, live section that is Question
+45's still-open subset - at whole-section scale, with real per-file
+timestamps for the known `Uxx.pdf`/`Kapitel5.pdf` files?**
+
+**Why this cycle.** Both open threads converge on the same live section.
+Question 43 Step B passed at n=5 on a different course and still needs (1)
+whole-section scale timing and (2) pinning the "select all" control - this
+cycle does both in one navigation, cheaper than two separate probes.
+Question 45's `2026 LA20/Übungen` subset (15 files, all `Size==nil &&
+Modified==nil` under the `course_folders`-remapped manifest key, confirmed
+via `grep` against the real manifest before writing this) is still open
+pending its own "Part 2" byte-diff of option D (the per-section XLSX route).
+If bulk-ZIP also serves this exact section with real timestamps, it would be
+a **better fix than option D**: one bulk fetch replaces N browser-fallback
+downloads outright, rather than merely giving `fileChanged` a date to skip
+re-fetching unchanged files - and it needs no maintainer call either, same
+as option D.
+
+**Design, written before running, per Rule 1.** New probe,
+`OPAL_BULKZIP_LA20=1 TestBulkZipLA20Uebungen` in a new
+`internal/scraper/bulkzip_la20_probe_test.go`. Steps: `ensureSession`,
+`discoverCourseLinks(["2026 LA20"])`, one `httpDiscoveryFetcher().Get()` on
+the course root, `ParseCourseTreeNodes` to find the node titled "Übungen"
+(routing around DOM-guessing the same way this run's first cycle did for
+course-node type - no reason to trust a URL guess when the tree payload
+already has it), then a normal browser navigation to that node's URL with
+the production `waitForInteractiveLinks`/`waitForStableSectionContent`
+waits. Click the header's "select all visible entries" control
+(`th [class*="table-select"]`, the one control every prior cycle found
+reliable) rather than clicking each row - this doubles as follow-up #2
+(pin the select-all control) by construction, since a working select-all
+click is required for the scale test to mean anything. Trigger the
+download button inside `page.ExpectDownload`, time it, save to
+`tmp/bulkzip-la20-uebungen.zip`, parse as a zip, report every entry's name,
+size, and modified timestamp, and cross-check the known filenames (`U01.pdf`
+.. `U14.pdf`, `Kapitel5.pdf`) are present with a non-zip-epoch date. No
+account writes, no config/manifest touched, no new download-path code path -
+same read-only probe shape as every prior Question 43/45 cycle.
+
+**Prediction (Rule 1 + Rule 2 named cause).**
+- **~65%: the control is present, select-all selects every row, and the zip
+  carries real per-file timestamps for all ~15 files, total bulk time under
+  10s.** Named cause: `2026 LA20/Übungen` already renders the "Tabelle
+  herunterladen" XLSX control (2026-09-11's Part 1 universality probe found
+  it present here, only the `Woche` cluster lacked it) - both controls come
+  from the same `FolderController`/`BCCourseNode` rendering path per
+  Question 43's own source read, so a page that has one almost certainly has
+  the other. At n=5 on a different section the rate was ~83ms/file; even at
+  3-5x that per-file rate for larger PDFs, 15 files stays under 10s - dwarfed
+  by today's 15 × ~21.5s ≈ 322s browser-fallback cost for this exact
+  cluster. If this holds, the next step is a small `internal/syncer`
+  integration design (follow-up #4), not a maintainer call.
+- **~20%: the control and select-all work, but 1+ of the known files is
+  missing from the zip or lacks a real timestamp** - e.g. a file whose OPAL
+  metadata is genuinely absent even from the folder's own VFS listing, the
+  same "no date attached anywhere server-side" shape this run's first cycle
+  found for the `Woche` cluster's links. Would mean bulk-ZIP fixes most but
+  not all of this subset, and the remainder still needs Question 45's
+  original A/B/C call.
+- **~15%: the select-all control does not select reliably or the download
+  never triggers on this specific section**, mirroring 2026-08-12's original
+  flake even though the 2026-09-02 cycle traced that flake to the probe's
+  own `float64` bug rather than real DOM instability - a different section,
+  different course, so not guaranteed to behave identically. If so, this
+  closes as "works on Softwaretechnologie, unconfirmed here" and Question
+  45's A/B/C call stands unchanged.
+
+**Kill criterion.** Success = a definitive per-file timestamp report for
+this exact section, stated plainly against the three branches above. Stays
+**open with the hole named** if the "Übungen" node cannot be resolved from
+the course tree at all (naming mismatch - the manifest path segment is
+`Übungen` but the live node title could differ), or if the session/login
+fails outright (unattended TU-Fast auto-login is expected to handle this per
+`CLAUDE.md`, so a login failure here would itself be a separate, reportable
+finding).
+
+---
+
 **Cycle, 2026-09-14 (autopilot, second cycle this run): does a `node-st`
 page's raw HTML carry an inline per-file date next to its file links, the
 way a `node-bc` folder page's HTML does - a possible cheaper "option E" for

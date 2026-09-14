@@ -113,20 +113,27 @@ Walk 20 first-run-from-zero again (offline only - a second live autopilot
 held the crawl; one **friction** finding - the README's recommended "Fast
 path: `setup`" prints a "Next steps:" checklist that stops at `login` and
 never says to run `sync`, where `init`'s otherwise-identical checklist does)
-— CLI ten, first-run-from-zero seven, GUI still four.
+— CLI ten, first-run-from-zero seven, GUI still four. Walk 21 the CLI again
+(everyday use; one **friction** finding - an internal env-flag name,
+`OPAL_HTTP_DISCOVERY=2`, leaks into a plain `list` run's default output
+with no flags set, because the production HTTP-first discovery path's own
+instrumentation message was never relabelled after the flag it names
+became the permanent default; three more instances of the same pattern
+found in the same file's verify-mode path) — CLI eleven, first-run-from-zero
+seven, GUI still four.
 
 **But an unattended autopilot session cannot do a GUI walk at all** (found
 walk 9, 2026-08-18): `preview_start` refuses to launch a dev server from a
 scheduled-task/unattended session outright - "nobody is present to approve
 the command" - so there is no browser tool available to drive one, full
-stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, and 20
+stop, regardless of rotation. Walks 6, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 20, and 21
 all landed on CLI or first-run-from-zero instead for this same reason,
 whether or not they said so explicitly at the time. An unattended run
 should treat CLI/first-run as the only two surfaces actually in rotation
-for it and pick whichever of those is due (of the two, CLI is due next:
-last touched walk 19, 2026-09-02, vs first-run-from-zero's walk 20, same
-day but later) - the GUI slot stays reserved for a session with an
-interactive browser tool
+for it and pick whichever of those is due (of the two, first-run-from-zero
+is due next: last touched walk 20, 2026-09-02, vs CLI's walk 21, 2026-09-14)
+- the GUI slot stays reserved for a session with an interactive browser
+tool
 (or a human) to pick up - it is not skipped, just not reachable from here.
 Keep this line current at the end of every walk — it is what an unattended run
 reads to avoid walking the same surface twice, which is the cheapest way for
@@ -2734,3 +2741,86 @@ needs a GUI walk or a source read of `internal/gui`'s settings-save handler.
 was just walked here as walk 20 (2026-09-02); of the two surfaces an
 unattended run can reach, CLI is now due (last walked walk 19, 2026-09-02,
 earlier same day). GUI slot still reserved for an interactive session.
+
+### Walk 21 — 2026-09-14, CLI everyday use (autopilot, phase 2)
+
+CLI was due (last walked walk 19, 2026-09-02; first-run walked more
+recently as walk 20, same day). Scratch environment built fresh per the
+"Breaking things safely" recipe: `tmp/friction/config.yaml` copied from the
+real config with `download_path`/`session_state_file` redirected and every
+absolute `course_folders`/`default_course_folder`/`subfolder_destinations`
+entry rewritten relative (checked all three, per the walk-8/walk-19
+near-miss this file already warns about); `tmp/friction/state.json` copied
+from the real session state; `tmp/friction/opal-downloader.exe` built fresh
+in this worktree. `tmp/` confirmed still gitignored before copying the
+session token.
+
+**Persona:** a student who already has the tool set up, running it the way
+they would on an ordinary day - not a first-run, not hunting for a bug.
+
+**Expectation, `status`:** a quick sanity check before doing anything else -
+config parses, session still valid, nothing alarming.
+**Result:** matched exactly - clean three-line report plus a plain-English
+session countdown. No finding.
+
+**Expectation, `list`:** the everyday "did anything new show up" check -
+per-course file counts, readable, nothing a normal user would need
+`docs/` or the source to interpret.
+**Result:** mostly matched (course names, counts, and a clean "Total: Xs"
+summary) but one line broke the expectation outright:
+
+```
+OPAL_HTTP_DISCOVERY=2 summary: 8 courses, 315 HTTP requests, 2m5.095966s
+```
+
+printed on an **ordinary `list` run, no flags at all** - not `--verbose`,
+not `--debug-clicks`, not `--profile`. A normal user has never set
+`OPAL_HTTP_DISCOVERY` (it isn't in `config.example.yaml`, isn't mentioned
+in the README, and isn't a documented flag) and has no way to know what
+"=2" means or whether they are supposed to have configured it. It reads
+like a leaked debug print, not a status line - the kind of thing that makes
+a user wonder if something is misconfigured on their end.
+
+**Persona break, to diagnose (not to find) this - Rule 4:** grepped
+`internal/` for the pattern once the line was already in hand.
+**Named cause:** `internal/scraper/orchestrator.go:299`, inside
+`scrapeCoursesHTTPFirst` - the production default discovery path since
+HTTP-first shipped as the default (`docs/BACKLOG.md`,
+`project_http_first_discovery_default`) - calls
+`logging.User("OPAL_HTTP_DISCOVERY=2 summary: ...")`. `logging.User` is the
+audience level shown to every user by default (confirmed live: this printed
+with zero flags set), not a diagnostic level gated behind `--verbose`. The
+message was written during the campaign that built and validated
+HTTP-first discovery, labelled by its own env-flag name because that is how
+the feature was identified while still experimental - and was never
+relabelled once `OPAL_HTTP_DISCOVERY=2` became the permanent, undocumented-
+because-no-longer-optional default. **Prediction, checked cheap:** the same
+shape predicts more instances of "instrumentation message named after its
+own feature flag, never demoted after the flag became permanent" - a grep
+for `logging.User(".*OPAL_` across `internal/` found exactly three more,
+all in the same file: the verify-mode diff/summary lines
+(`orchestrator.go:217`, `:225`, `:236`) inside `scrapeCoursesHybrid`'s
+`mode="1"` path (the monthly `verify` spot-check, Question 39). Those are
+lower-frequency and arguably more defensible for a diagnostic-flavored
+command, but they carry the identical env-var-name-as-user-message pattern
+and the identical fix would apply.
+
+**Fix, not yet made (this is a survey walk, not a fix pass):** rename these
+four messages to describe what happened in plain terms (e.g. "Discovery
+summary: 8 courses, 315 HTTP requests, 2m5s") with the `OPAL_HTTP_DISCOVERY`
+detail, if worth keeping at all, moved to `logging.Detail`/`--verbose`
+where a normal run never sees it.
+
+#### New question this walk leaves (Rule 3)
+
+Does the GUI's sync/list progress view show these same messages, or does it
+filter `logging.User` output differently by surface - meaning the leak is
+CLI-console-only, or a GUI-visible one too? Not checkable from an
+unattended session (no browser tool, same gap walk 9 and walk 20 already
+named) - needs a GUI walk or a source read of how `internal/gui` consumes
+the logging package's audience levels.
+
+**Next surface: first-run-from-zero for an unattended run** - CLI was just
+walked here as walk 21 (2026-09-14); of the two surfaces an unattended run
+can reach, first-run-from-zero is now due (last walked walk 20, 2026-09-02).
+GUI slot still reserved for an interactive session.

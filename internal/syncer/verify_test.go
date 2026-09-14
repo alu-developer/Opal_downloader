@@ -52,7 +52,7 @@ func TestProcessRemoteFilesVerifiesSignallessFilesAndLeavesIdenticalOnesAlone(t 
 		return os.WriteFile(target, []byte("same-bytes"), 0o644)
 	}
 
-	stats := processRemoteFiles(context.Background(), remote, manifest, cfg, false, downloadFn, nil)
+	stats := processRemoteFiles(context.Background(), remote, manifest, cfg, false, downloadFn, nil, nil)
 
 	if fetched != 1 {
 		t.Fatalf("expected the signalless file to be re-fetched for verification, got %d fetches", fetched)
@@ -84,7 +84,7 @@ func TestProcessRemoteFilesVerifiesSignallessFilesAndReplacesChangedOnes(t *test
 		return os.WriteFile(target, []byte("NEW-content-is-longer"), 0o644)
 	}
 
-	stats := processRemoteFiles(context.Background(), remote, manifest, cfg, false, downloadFn, nil)
+	stats := processRemoteFiles(context.Background(), remote, manifest, cfg, false, downloadFn, nil, nil)
 
 	if stats.Downloaded != 1 || stats.Skipped != 0 {
 		t.Fatalf("changed content must count as downloaded, got %+v", stats)
@@ -117,7 +117,7 @@ func TestProcessRemoteFilesDoesNotVerifyFilesThatCarryASignal(t *testing.T) {
 		return nil
 	}
 
-	stats := processRemoteFiles(context.Background(), remote, manifest, cfg, false, downloadFn, nil)
+	stats := processRemoteFiles(context.Background(), remote, manifest, cfg, false, downloadFn, nil, nil)
 	if fetched != 0 {
 		t.Fatalf("a file with matching size/date must not be re-fetched, got %d fetches", fetched)
 	}

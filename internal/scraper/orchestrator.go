@@ -665,6 +665,7 @@ func convertFileRefsToRemoteFiles(items []FileRef) []RemoteFile {
 			URL:          item.URL,
 			Course:       item.CourseTitle,
 			SectionTitle: item.SectionTitle,
+			SectionURL:   item.SectionURL,
 			Path:         item.Path,
 			Size:         item.Size,
 			Modified:     item.Modified,

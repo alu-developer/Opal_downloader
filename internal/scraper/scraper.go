@@ -21,9 +21,15 @@ type RemoteFile struct {
 	URL          string
 	Course       string
 	SectionTitle string
-	Path         string
-	Size         *int64
-	Modified     *string
+	// SectionURL is the page this file was found on - see FileRef.SectionURL,
+	// which this is copied from in convertFileRefsToRemoteFiles. Needed to
+	// navigate to a section for a bulk-ZIP fetch (Question 43,
+	// docs/sync-speed-model.md); SectionTitle alone is not usable for that,
+	// same reason it is not usable as an identity elsewhere.
+	SectionURL string
+	Path       string
+	Size       *int64
+	Modified   *string
 }
 
 type downloadCandidate struct {

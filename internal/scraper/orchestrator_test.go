@@ -17,6 +17,7 @@ func TestConvertFileRefsToRemoteFiles(t *testing.T) {
 			CourseRepoID: "123",
 			CourseTitle:  "Programmierung 1",
 			SectionTitle: "Materialien",
+			SectionURL:   "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/2",
 			Name:         "Folien.pdf",
 			URL:          "https://bildungsportal.sachsen.de/opal/goto.php?target=file_55&cmd=sendfile",
 			Path:         "Programmierung 1/Folien.pdf",
@@ -32,6 +33,9 @@ func TestConvertFileRefsToRemoteFiles(t *testing.T) {
 	}
 	if remoteFiles[0].SectionTitle != "Materialien" {
 		t.Fatalf("expected SectionTitle to be carried over from FileRef, got %q", remoteFiles[0].SectionTitle)
+	}
+	if remoteFiles[0].SectionURL != "https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/1/CourseNode/2" {
+		t.Fatalf("expected SectionURL to be carried over from FileRef, got %q", remoteFiles[0].SectionURL)
 	}
 	if remoteFiles[0].Path != "Programmierung 1/Folien.pdf" {
 		t.Fatalf("unexpected remote file path: %#v", remoteFiles[0])

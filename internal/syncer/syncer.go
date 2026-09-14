@@ -451,22 +451,187 @@ func runVerifyJob(job downloadJob, downloadFn func(url, localPath string) error)
 	if err := downloadFn(job.remoteFile.URL, tempPath); err != nil {
 		return false, err
 	}
-	if sameFileContents(tempPath, job.localPath) {
+	return finishVerifyFromTemp(tempPath, job.localPath)
+}
+
+// finishVerifyFromTemp compares an already-fetched tempPath against
+// job.localPath and replaces the target only when the bytes differ. Split
+// out of runVerifyJob so runBulkVerifyGroups can reuse the exact same
+// compare-and-replace logic for a file a bulk ZIP fetch already wrote to
+// tempPath, instead of a second, easy-to-drift copy of it.
+func finishVerifyFromTemp(tempPath, localPath string) (unchanged bool, err error) {
+	if sameFileContents(tempPath, localPath) {
 		return true, nil
 	}
 	// os.Rename over an existing file is allowed on both Windows and POSIX,
 	// but the target may be open/locked (OneDrive, a PDF viewer), so fall
 	// back to a copy rather than failing the whole file.
-	if err := os.Rename(tempPath, job.localPath); err != nil {
+	if err := os.Rename(tempPath, localPath); err != nil {
 		data, readErr := os.ReadFile(tempPath)
 		if readErr != nil {
 			return false, readErr
 		}
-		if writeErr := os.WriteFile(job.localPath, data, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(localPath, data, 0o644); writeErr != nil {
 			return false, writeErr
 		}
 	}
 	return false, nil
+}
+
+// bulkVerifyDownloader is *scraper.OpalScraper's DownloadFilesBulk, declared
+// as its own optional interface - the same pattern discoveryProgressReporter
+// below uses - so the fake Downloaders this package's own tests use keep
+// satisfying Downloader unchanged. Question 43 (docs/sync-speed-model.md,
+// live-proven at whole-section scale 2026-09-14): a signal-less file's
+// verify job can be answered by one per-section bulk ZIP fetch instead of N
+// individual browser-fallback downloads.
+type bulkVerifyDownloader interface {
+	DownloadFilesBulk(sectionURL string, wantLocalPaths map[string]string) (map[string]time.Time, error)
+}
+
+// Compile-time check that *scraper.OpalScraper still satisfies this
+// interface - the sc.(bulkVerifyDownloader) assertion in
+// SyncCoursesWithProgress fails silently (bulk == nil, quietly falling back
+// to the per-file path forever) if the two signatures ever drift apart.
+var _ bulkVerifyDownloader = (*scraper.OpalScraper)(nil)
+
+// bulkVerifyDownloadEnvVar gates this integration off by default, per this
+// campaign's own non-negotiable rule: every speed experiment ships behind a
+// flag, and changing a default needs a byte-for-byte diff against the
+// 345-file ground truth first (docs/sync-speed-model.md, "Standing work").
+// The bulk-ZIP *mechanism* has that evidence at the probe level (Question
+// 43's 2026-09-14 live run); this integration on top of it does not yet.
+const bulkVerifyDownloadEnvVar = "OPAL_BULK_VERIFY_DOWNLOAD"
+
+// bulkVerifyMinGroupSize is the smallest signal-less-file group per section
+// worth a bulk fetch over today's per-file path - see
+// docs/sync-speed-model.md Question 43's integration sketch. Every cluster
+// this campaign measured a real cost in (So26 Programmieren's Woche
+// sections, 2026 LA20's Übungen) has many signal-less files per section; a
+// single-file section was never the measured problem, and stays on today's
+// path.
+const bulkVerifyMinGroupSize = 2
+
+// runBulkVerifyGroups pulls every signal-less verify job whose section has
+// bulkVerifyMinGroupSize or more such jobs out of jobs, attempts one bulk
+// ZIP fetch per section via bulk, and returns the jobs that still need the
+// normal per-file path - either because they were never part of a
+// bulk-eligible group, or because that section's bulk fetch failed outright
+// or the zip did not contain them. A whole-section bulk failure falls every
+// job in that group back to the per-file path rather than erroring the
+// sync, per the maintainer's 2026-08-19 hard constraint that one slow/failed
+// file's resolution must never block anything else
+// (docs/sync-speed-model.md).
+//
+// Manifest/stats mutations for files the bulk fetch did resolve happen
+// here, directly, mirroring the per-file result loop in processRemoteFiles
+// below rather than routing through its worker/channel machinery - there is
+// nothing to parallelize, since one navigation per section already fetched
+// every file in the group.
+func runBulkVerifyGroups(jobs []downloadJob, bulk bulkVerifyDownloader, manifest *Manifest, stats *Stats, progress ProgressFunc) []downloadJob {
+	groups := map[string][]int{} // sectionURL -> indexes into jobs
+	for i, job := range jobs {
+		if !job.verify || job.remoteFile.SectionURL == "" {
+			continue
+		}
+		groups[job.remoteFile.SectionURL] = append(groups[job.remoteFile.SectionURL], i)
+	}
+
+	handled := make(map[int]bool)
+	for sectionURL, idxs := range groups {
+		if len(idxs) < bulkVerifyMinGroupSize {
+			continue
+		}
+
+		wantLocalPaths := make(map[string]string, len(idxs))
+		tempPaths := make(map[int]string, len(idxs))
+		for _, i := range idxs {
+			tempPath := verificationTempPath(jobs[i].localPath)
+			tempPaths[i] = tempPath
+			wantLocalPaths[filepath.Base(jobs[i].localPath)] = tempPath
+		}
+
+		modifiedByName, err := bulk.DownloadFilesBulk(sectionURL, wantLocalPaths)
+		if err != nil {
+			logging.Warn("bulk verify fetch for section %s failed, falling back to per-file verification for %d file(s): %v", sectionURL, len(idxs), err)
+			for _, path := range tempPaths {
+				_ = os.Remove(path)
+			}
+			continue
+		}
+
+		for _, i := range idxs {
+			job := jobs[i]
+			name := filepath.Base(job.localPath)
+			tempPath := tempPaths[i]
+			modified, ok := modifiedByName[name]
+			if !ok {
+				// Not in this section's zip (a name mismatch, or a file this
+				// section's control did not cover) - leave it for the normal
+				// per-file path, same as any other bulk miss.
+				_ = os.Remove(tempPath)
+				continue
+			}
+
+			unchanged, verr := finishVerifyFromTemp(tempPath, job.localPath)
+			_ = os.Remove(tempPath) // no-op if finishVerifyFromTemp already renamed it away
+			handled[i] = true
+			targetKey := job.targetKey
+			modStr := modified.UTC().Format(time.RFC3339)
+
+			if verr != nil {
+				stats.Errors++
+				printSyncError(targetKey, verr)
+				recordDownloadFailure(manifest, targetKey)
+				progress(Event{Type: EventError, Course: job.remoteFile.Course, File: targetKey, Err: verr})
+				continue
+			}
+			if unchanged {
+				// Nothing was written to disk, so this is a skip - but the
+				// bulk fetch still observed a real modification time where
+				// discovery could not, so record it: a later code path that
+				// starts trusting a manifest-recorded Modified (rather than
+				// only ever re-deriving it from that sync's own discovery)
+				// benefits, and a human reading the manifest sees a real
+				// date instead of null. It does not, by itself, stop this
+				// file being queued as a verify job again next sync -
+				// needsContentVerification decides that from *this* sync's
+				// fresh discovery result, which still reports no
+				// size/date for this file class.
+				if rec, ok := manifest.Files[targetKey]; ok {
+					rec.Modified = &modStr
+					manifest.Files[targetKey] = rec
+				}
+				stats.Skipped++
+				progress(Event{Type: EventFileSkipped, Course: job.remoteFile.Course, File: targetKey})
+				continue
+			}
+
+			// A verify job that came back changed is a real download, same
+			// as the per-file path's equivalent branch - except
+			// stats.Downloads.Record is deliberately skipped here: it wants
+			// a meaningful per-file elapsed, and one shared bulk-section
+			// fetch has no such thing to report.
+			manifest.Files[targetKey] = FileRecord{
+				Size:     job.remoteFile.Size,
+				Modified: &modStr,
+			}
+			stats.Downloaded++
+			fmt.Printf("  downloaded: %s (bulk)\n", targetKey)
+			progress(Event{Type: EventFileDownloaded, Course: job.remoteFile.Course, File: targetKey})
+		}
+	}
+
+	if len(handled) == 0 {
+		return jobs
+	}
+	remaining := make([]downloadJob, 0, len(jobs)-len(handled))
+	for i, job := range jobs {
+		if !handled[i] {
+			remaining = append(remaining, job)
+		}
+	}
+	return remaining
 }
 
 // SyncCourses runs a sync with no progress callback; CLI output is
@@ -544,7 +709,12 @@ func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App,
 		return Stats{}, err
 	}
 
-	return syncRemoteFiles(ctx, remoteFiles, manifest, cfg, force, sc.DownloadFile, progress)
+	// Declared as its own optional interface (bulkVerifyDownloader's own doc
+	// comment) rather than added to Downloader, so the fake downloaders this
+	// package's tests use keep satisfying Downloader unchanged.
+	bulk, _ := sc.(bulkVerifyDownloader)
+
+	return syncRemoteFiles(ctx, remoteFiles, manifest, cfg, force, sc.DownloadFile, progress, bulk)
 }
 
 // syncRemoteFiles runs the manifest-diff-and-download phase of a sync given
@@ -553,7 +723,7 @@ func SyncCoursesWithProgress(ctx context.Context, sc Downloader, cfg config.App,
 // must exclude discovery/crawl time, which happens before this function is
 // ever called) can be exercised in tests with a fake downloadFn, without
 // needing a real *scraper.OpalScraper/browser.
-func syncRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error, progress ProgressFunc) (Stats, error) {
+func syncRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(url, localPath string) error, progress ProgressFunc, bulk bulkVerifyDownloader) (Stats, error) {
 	if progress == nil {
 		progress = func(Event) {}
 	}
@@ -575,7 +745,7 @@ func syncRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, mani
 		}
 	}
 
-	stats := processRemoteFiles(ctx, remoteFiles, manifest, cfg, force, downloadFn, progress)
+	stats := processRemoteFiles(ctx, remoteFiles, manifest, cfg, force, downloadFn, progress, bulk)
 
 	if err := manifest.Save(); err != nil {
 		return stats, err
@@ -665,7 +835,7 @@ func printSyncError(targetKey string, err error) {
 	}
 }
 
-func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc) Stats {
+func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, manifest *Manifest, cfg config.App, force bool, downloadFn func(fileURL, localPath string) error, progress ProgressFunc, bulk bulkVerifyDownloader) Stats {
 	// Guarded here as well as in syncRemoteFiles: this is called directly by
 	// tests, and an unguarded nil callback panics deep inside the result loop
 	// rather than at the call site.
@@ -769,6 +939,10 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 		}
 
 		jobs = append(jobs, downloadJob{targetKey: targetKey, localPath: localPath, remoteFile: remoteFile, verify: verify})
+	}
+
+	if bulk != nil && os.Getenv(bulkVerifyDownloadEnvVar) != "" {
+		jobs = runBulkVerifyGroups(jobs, bulk, manifest, &stats, progress)
 	}
 
 	concurrency := cfg.DownloadConcurrency

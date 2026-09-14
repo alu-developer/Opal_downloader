@@ -689,7 +689,7 @@ func TestSyncRemoteFilesDurationExcludesDiscovery(t *testing.T) {
 		return writePlaceholderFile(localPath)
 	}
 
-	stats, err := syncRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, nil)
+	stats, err := syncRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, nil, nil)
 	if err != nil {
 		t.Fatalf("syncRemoteFiles returned error: %v", err)
 	}
@@ -945,7 +945,7 @@ func TestProcessRemoteFilesFiresExpectedEvents(t *testing.T) {
 
 	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(e Event) {
 		events = append(events, e)
-	})
+	}, nil)
 
 	if stats.Downloaded != 2 || stats.Errors != 1 || stats.Skipped != 0 {
 		t.Fatalf("unexpected stats: %+v", stats)
@@ -1019,7 +1019,7 @@ func TestProcessRemoteFilesBacksOffAfterRepeatedFailure(t *testing.T) {
 		return nil
 	}
 
-	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {}, nil)
 
 	if downloadCalled {
 		t.Fatal("expected downloadFn not to be called while a recent failure is still backing off")
@@ -1053,7 +1053,7 @@ func TestProcessRemoteFilesRetriesOnceBackoffExpires(t *testing.T) {
 		return os.WriteFile(localPath, []byte("data"), 0o644)
 	}
 
-	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {}, nil)
 
 	if stats.Downloaded != 1 || stats.SkippedFailing != 0 {
 		t.Fatalf("expected the file to be retried and succeed once backoff expired, got %+v", stats)
@@ -1088,7 +1088,7 @@ func TestProcessRemoteFilesForceBypassesBackoff(t *testing.T) {
 		return os.WriteFile(localPath, []byte("data"), 0o644)
 	}
 
-	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, true /* force */, downloadFn, func(Event) {})
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, true /* force */, downloadFn, func(Event) {}, nil)
 
 	if !downloadCalled {
 		t.Fatal("expected force to bypass an active backoff and call downloadFn")
@@ -1156,7 +1156,7 @@ func TestProcessRemoteFilesSkipsUnchangedFiles(t *testing.T) {
 
 	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(e Event) {
 		events = append(events, e)
-	})
+	}, nil)
 
 	if downloadCalled {
 		t.Fatal("expected downloadFn not to be called for an unchanged, already-present file")
@@ -1199,7 +1199,7 @@ func TestProcessRemoteFilesDedupesCollidingTargetPaths(t *testing.T) {
 		return os.WriteFile(localPath, []byte("data"), 0o644)
 	}
 
-	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {}, nil)
 
 	if stats.Downloaded != 1 {
 		t.Fatalf("expected exactly 1 download despite 2 colliding remote files, got %+v", stats)
@@ -1226,7 +1226,7 @@ func TestSyncCoursesWithProgressNilCallbackDoesNotPanic(t *testing.T) {
 
 	// processRemoteFiles is exercised directly with a nil-safe wrapper the
 	// same way SyncCourses wraps SyncCoursesWithProgress with progress=nil.
-	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {})
+	stats := processRemoteFiles(context.Background(), remoteFiles, manifest, cfg, false, downloadFn, func(Event) {}, nil)
 	if stats.Downloaded != 1 {
 		t.Fatalf("expected 1 downloaded, got %+v", stats)
 	}

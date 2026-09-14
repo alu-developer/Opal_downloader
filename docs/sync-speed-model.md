@@ -3246,6 +3246,68 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-14 (autopilot, second cycle this run): does a `node-st`
+page's raw HTML carry an inline per-file date next to its file links, the
+way a `node-bc` folder page's HTML does - a possible cheaper "option E" for
+the Woche cluster with no maintainer call needed?**
+
+**Why this cycle.** Direct follow-up to this run's first cycle (below),
+which found `Woche 05`..`13` are `node-st` (Structure) pages, not
+`BCCourseNode` folders - structurally why there's no "Tabelle herunterladen"
+XLSX to parse for them (option D's route). But `node-st` pages are already
+confirmed (`section_type.go`, 2026-07-13 live dump) to carry real
+downloadable files through some other rendering path, and this project's
+generic `extractSectionContentCandidates` link-scan is presumably how the
+crawl finds them today. The open question this cycle answers: does that
+same page's raw HTML happen to carry a per-file date already, just not
+through the `FolderController` table markup HTTP-first discovery knows how
+to parse - i.e. is there a signal sitting in bytes already fetched.
+
+**Design, written before running, per Rule 1.** Cheapest possible version,
+exactly as prescribed by the last cycle's own "next step": one more
+`httpDiscoveryFetcher().Get()` (same authenticated request context, no new
+navigation, no new login) on the `Woche 05` URL this run's first cycle
+already resolved
+(`https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53722382336/CourseNode/1778121512916852005`),
+save the raw HTML to `tmp/woche05-raw.html`, then grep it by hand for the
+known filename `U05.pdf` (per Question 45's manifest data - `2026 LA20`'s
+sibling cluster is `Uxx.pdf` exercise sheets) and inspect the surrounding
+~300 characters for anything date-shaped (`\d{1,2}\.\d{1,2}\.\d{2,4}`,
+`\d{4}-\d{2}-\d{2}`, or an Excel-serial-looking bare number as column C
+turned out to be). No parser written yet, per the instruction that gated
+this cycle - just answering yes/no before investing in one.
+
+**Prediction (Rule 1 + Rule 2 named cause).**
+- **~60%: no date-shaped string within 300 characters of any file link.**
+  Named cause: a generic content-candidate link scan (this project's own
+  `extractSectionContentCandidates`, used because there's no
+  `FolderController` to special-case) typically extracts only an `<a
+  href>`/title pair, not a metadata row - which is exactly the "signal-less"
+  shape Question 45 exists to fix, just confirmed at the HTML level instead
+  of inferred from the crawl's own recorded `nil`/`nil`. If this holds,
+  option E is dead on arrival and Question 45's original maintainer call
+  (options A/B/C) is the only path for this cluster, full stop.
+- **~25%: a date-shaped string exists on the page but not tied to the
+  specific file** - e.g. a page-level "zuletzt geändert" course-wide
+  timestamp, or a date belonging to a different file/element that happens
+  to sit nearby in the markup. Counts as a **false positive**, not a real
+  per-file signal - would need a second live check on a different Woche
+  section to rule out coincidence before building anything on it.
+- **~15%: a genuine per-file date sits next to `U05.pdf`'s link.** Would
+  make this a real option E - worth a small parser and the standard
+  byte-diff gate before shipping, same as option D would have needed.
+
+**Kill criterion.** Success = a definitive yes/no on "does a date-shaped
+string sit within ~300 characters of the known file's link", stated plainly.
+Stays **open with the hole named** if `U05.pdf` (or any recognizable
+filename) does not appear in the raw HTML at all - that would mean this
+particular file isn't even linked from this page directly (perhaps nested
+one level deeper, under a child course node this run's tree walk did not
+expand into), a different and bigger gap than what this cycle is designed
+to answer.
+
+---
+
 **Cycle, 2026-09-14 (autopilot): what course-node type are `Woche 05`..`13`
 (So26 Programmieren) actually built from, if not `BCCourseNode`?**
 

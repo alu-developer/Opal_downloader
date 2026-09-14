@@ -42,148 +42,43 @@ to `docs/BACKLOG-archive.md`._
 
 ## Next
 
-`docs/sync-speed-model.md` holds the ranked list, re-ranked 2026-08-12 when
-the maintainer redefined the speed target from "discovery" to "the whole
-sync, start to `Done.`"
+`docs/sync-speed-model.md` holds the ranked list and the full history (it is
+the permanent record - nothing below duplicates it, this is a pointer plus
+current state). Re-ranked 2026-08-12 when the maintainer redefined the speed
+target from "discovery" to "the whole sync, start to `Done.`". Steady-state
+baseline (2026-09-01, real account, all 6 courses, no-op sync): **223.2s**
+against a ~30s target, of which 151.3s (~68%) was, at the time, 7
+"signal-less" files each paying a ~21.5s browser-fallback cost every sync
+(`needsContentVerification`, `internal/syncer/syncer.go:376`) - that
+cost-concentration is Question 45. Question 44 (the discovery-phase
+version/fork investigation) and Question 41 (course-level HTTP concurrency)
+are both closed for good - see `docs/BACKLOG-archive.md`'s "Settled" and
+`docs/sync-speed-model.md`'s own entries for either.
 
-**Question 44 CLOSED 2026-09-01 (autopilot), both halves.** Policy half
-shipped 2026-08-18 (a failed download now backs off instead of retrying
-forever - see `docs/BACKLOG-archive.md` for the shipped mechanism). Cause
-half closed 2026-09-01 by a genuinely different approach than the four prior
-GitHub-source-reading passes: OPAL's own login page names its release
-("OPAL 2026.08.2"), and a single web search on that turned up OPAL's
-documented history - **it's an independently-developed proprietary fork BPS
-split from OLAT 7.1 in 2011, not any version of `OpenOLAT/OpenOLAT`** (the
-only repo this campaign ever read). No public OPAL source exists to read,
-so this class of investigation is closed for good, not just deferred - see
-`docs/BACKLOG-archive.md`'s "Settled" for the full finding and
-`docs/sync-speed-model.md`'s Question 44 entry.
+**Question 45** (why signal-less files pay the browser-fallback cost every
+sync) is down to one open subset. The `So26 Programmieren` `Woche` cluster
+is closed to a maintainer call, confirmed 2026-09-14: these are `node-st`
+pages whose files are plain links in lecturer-authored free text, with no
+server-side metadata anywhere to route around - options A (7-day
+`VerifiedAt` TTL cache, recommended), B (non-blocking only, no TTL) or C
+(accept the cost), detailed in `docs/sync-speed-model.md` Question 45, need
+the maintainer's staleness call. The `2026 LA20/Übungen` subset is resolved
+**without** a maintainer call - it rides on Question 43's bulk-ZIP result
+below instead of needing its own fix. One loose end: `Kapitel5.pdf`
+(signal-less, same course) is not actually in `Übungen` - which section it's
+really in is still unfound.
 
-**End-to-end re-measurement done 2026-09-01 (autopilot):** a steady-state
-no-op sync against a fresh scratch manifest, real account, all 6 courses -
-`downloaded=0 skipped=349 errors=0 backing_off=49`, **Total 223.2s**. Below
-the maintainer's own "~300s before this campaign started" recollection for
-the first time this campaign has had a real number to check it against, but
-still well above the ~30s target: **151.3s of that 223.2s comes from just 7
-signal-less files** (`needsContentVerification` -
-`internal/syncer/syncer.go:376`) whose byte-level verify has no direct link
-and hits the same ~21.5s browser-fallback path as a failed download (7 ×
-~21.5s ≈ 150.5s, matching the phase almost exactly) - the other 342 skip in
-a fraction of a second each. Live-sizes the "signal-less-file verify path"
-cost flagged as an open question 2026-08-18 and never picked up since, and
-unlike the backed-off cluster this cost can't be reduced by backoff (these
-files must be re-checked every sync, by definition). At ~68% of a no-op
-sync from 2% of the files, **that cost is now the top-ranked item**, above
-Question 43. Full numbers and the new question's exact framing:
-`docs/sync-speed-model.md`'s "Next experiment".
-
-**Diagnosed 2026-09-01 (autopilot, source-read cycle) - now Question 45,
-and it needs a maintainer product call.** Traced the full path: the verify
-job already calls the same `DownloadFile` a normal download does (so
-HTTP-first, counter-refresh, and conditional-header shortcuts are all
-already attempted and already ruled out across three cycles), and these 7
-files are structurally in Question 44's paginated-section cluster whose
-bytes HTTP simply cannot serve. So there is **no URL-based way** to make
-the fetch cheap - the only lever left is *not fetching every sync*.
-`syncer.go:839-843` currently re-verifies a byte-identical signal-less file
-on every run by explicit choice, made before the ~151s cost was measured.
-Proposed fix (**option A, recommended**): persist a `VerifiedAt` field on
-the manifest entry, gate the verify job behind a 7-day TTL, and run any due
-verify jobs only after the sync prints `Done.` so they never block the
-reported wall clock. Cost: an upstream edit to one of these ~7
-already-poorly-tracked files is noticed up to 7 days late - same risk class
-as the 2026-08-18 backoff policy the maintainer already approved. Options B
-(visibility/non-blocking only, no TTL) and C (accept the 151s) are the
-fallbacks. Options A/B/C touch `internal/syncer`, a path that has silently
-frozen change detection before (`project_filechanged_nil_guard_trap`), and
-A/B blocked on the maintainer answering whether up-to-a-week staleness is
-acceptable.
-
-**2026-09-02 (autopilot) found option D**, the per-section "Tabelle
-herunterladen" XLSX export carrying a real per-file modification date for
-every file in a folder section - a way to make signal-less files stop being
-signal-less, with no staleness tradeoff. **Parts 1+3 of its verification ran
-live 2026-09-11 (autopilot; the probe code itself had sat unwritten for 9
-days, see `docs/BACKLOG-archive.md`/`docs/RESUME.md`), and the result is a
-partial win, not the full replacement for Question 45 it might have been.**
-Part 3 (column C populated) held cleanly on all 358 data rows checked. Part 1
-(universality) did not: the control is present on 48/58 probed sections but
-missing on exactly the 10 `Woche 05`..`13` sections in So26 Programmieren -
-precisely the cluster this question most needs to fix - because those pages
-are not folder-browser pages at all (0 checkboxes, 0 download controls of
-any kind; low file count was checked and ruled out as the explanation).
-**So option D can still ship for the signal-less files it does cover
-(`2026 LA20/Übungen`, pending Part 2's byte-diff) without a maintainer call,
-but Question 45's A/B/C options are still needed for the Woche-cluster
-files - just a smaller scope than before.**
-
-**2026-09-14 (autopilot, two cycles): the Woche-cluster question is now
-fully closed, not just still open.** The sections are `node-st` (Structure)
-pages, not folders - found by reading the course-node type straight out of
-the course root's own tree payload (one HTTP GET, no DOM guessing). A
-direct follow-up fetched one such page's raw HTML and found its files are
-plain links inside lecturer-authored free text ("Aufgaben:" paragraphs), not
-entries in any kind of listing - no date, no size, no metadata anywhere on
-the server side to begin with. There is no further URL-based route to try
-for this cluster; **Question 45's A/B/C maintainer call is now the only
-remaining path for it, confirmed rather than merely the leading guess.**
-Part 2 (the `2026 LA20/Übungen` byte-diff for option D) turned out to be
-**superseded rather than needed**: a same-run follow-up cycle tested
-Question 43's bulk-ZIP mechanism directly against the real
-`2026 LA20/Übungen` section (not a different course's section as a stand-in)
-and it passed cleanly at full section scale - 15 files, 1.586s total
-(~106ms/file), 15/15 with real per-file timestamps matching the manifest,
-~200x today's ~322s browser-fallback cost for this cluster. That is a
-**better** fix than option D (replaces the slow downloads outright, rather
-than just giving `fileChanged` a date to skip re-fetching unchanged ones)
-and needs no byte-diff of option D's XLSX-date-parsing path, since that path
-is no longer the plan for this subset. **So Question 45 is now fully
-resolved except for the maintainer's A/B/C call on the `Woche` cluster
-specifically** - `2026 LA20/Übungen`'s files ride on Question 43's own
-integration work instead. One loose end: `Kapitel5.pdf`, signal-less and in
-the same course, is not actually in `Übungen` (checked against the real
-manifest) - which section it *is* in is still unfound. Full detail:
-`docs/sync-speed-model.md` Question 45 and "Next experiment", cycles
-2026-09-14.
-
-**Question 43** (bulk-download-as-ZIP) is the top unblocked speed item, and
-a same-day live run (2026-09-14, autopilot) took it from "proven at n=5 on
-one section" to "proven at whole-section scale (n=15) on a second, real
-section, with the exact selection mechanism pinned." The header "select
-all" control turned out to be a false friend - it visually checks every row
-but does not fire the per-row AJAX callback the download button's enabled
-state depends on, diagnosed live via a DOM dump rather than guessed;
-clicking each row checkbox individually (Step B's original n=5 approach,
-now confirmed at scale too) is what actually works. Of the four follow-ups
-this moved forward: (1) whole-section scale - **done**, 15/15 real
-timestamps, ~106ms/file; (2) pin the "select all" control - **done**,
-answered "N individual clicks, not the header shortcut"; (3) the bare
-`"Tabelle herunterladen"` GET link - **done 2026-09-02**, it is a
-per-section XLSX listing export, not a bulk-content path (this became
-option D above). **What remains: (4) sketch the `internal/syncer`
+**Question 43** (bulk-download-as-ZIP) is the top unblocked speed item.
+Proven at whole-section scale on a real account (2026-09-14: 15 files,
+1.586s total, 15/15 real per-file timestamps, ~200x today's per-file
+browser-fallback cost for that cluster), with the selection mechanism
+pinned: click each row checkbox individually - the header "select all"
+control visually works but does not fire the AJAX callback the download
+button's enabled state needs. **What remains: sketch the `internal/syncer`
 integration** - when to trigger a bulk fetch vs. per-file downloads, how a
 zip entry's mtime maps onto `remote.Modified`, and the byte-diff that would
-be needed before shipping it even behind a flag. Question 39 is decided and
-built, and Question 5 is fully closed (see `docs/BACKLOG-archive.md`).
-Nothing further is planned on the course-level HTTP concurrency thread —
-Question 41 closed 2026-08-11 as a no-go.
-
-**Maintainer decision, 2026-08-19 (`/decide` round): keep going, resume the
-version/fork cause hunt** (deprioritized since 2026-08-17, unblocked now
-that the policy half above shipped), **and the next cycle should try a
-genuinely new approach**, not another pass of the same source-reading shape
-that already spent 16 commits without shipping. Full reasoning and the
-maintainer's own "~300s before this campaign started" recollection —
-already close to recent numbers, worth an explicit end-to-end
-re-measurement early next cycle — in `docs/sync-speed-model.md`'s "Next
-experiment" section. Same round also decided the shape of the
-retry-budget/slow-file question that cycle left open: look first for a
-cheap way to skip the expensive browser-fallback chain entirely for
-unchanged files (rather than shrinking its retry budget), communicate
-clearly when a file genuinely needs the slow path, and — a hard
-constraint, independent of how the rest resolves — **one slow file's
-resolution must never block anything else in the sync.** Detail in the
-same section, "Maintainer decision, 2026-08-19".
+be needed before shipping it even behind a flag. Full ranked history:
+`docs/sync-speed-model.md` Questions 43 and 45.
 
 ---
 

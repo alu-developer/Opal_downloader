@@ -3409,6 +3409,101 @@ per an unrelated manifest key seen in passing this cycle) so it gets the
 same fix rather than being silently left out of a future integration's
 scope.
 
+**Design sketch, 2026-09-14 (autopilot, same run, follow-up #4): how
+`internal/syncer` would actually drive a bulk-ZIP fetch.** Source read only
+(`internal/syncer/syncer.go`, `internal/scraper/scraper.go`,
+`internal/scraper/download.go`) - a design document, not a live
+experiment, so it carries no prediction/kill-criterion of its own; it exists
+to turn "sketch the integration" from an open question into a concrete plan
+the next cycle can implement and byte-diff, per this campaign's own rule
+that correctness evidence (not a plausible argument) is what lets an
+experiment ship.
+
+1. **Trigger point: `processRemoteFiles`, where `verify` jobs are already
+   identified (`syncer.go:748-762`).** Today every job with
+   `needsContentVerification(remoteFile, ok)` true is queued individually
+   (`downloadJob{verify: true}`) and fetched one at a time via
+   `runVerifyJob` → the single-file `downloadFn` → browser-fallback click.
+   The natural seam is a pre-pass over the built `jobs` slice: group the
+   `verify == true` jobs by section, and for any group with **2+ members**,
+   pull them out of the normal per-file dispatch and hand them to a new
+   bulk path instead. The 2+ threshold matches this cycle's own evidence
+   (single-file sections were never the measured cost - the `Woche`/
+   `Übungen` clusters that dominate the 151s figure all have many
+   signal-less files per section) and keeps the change narrow rather than
+   also touching sections this campaign never measured a problem in.
+
+2. **Gap found while sketching this, not before: `scraper.RemoteFile`
+   (`scraper.go:19-27`) has no section URL, only `SectionTitle` (a display
+   name).** A bulk fetch needs to *navigate* to the section's page - the
+   same URL `TestBulkZipLA20Uebungen` resolved via `ParseCourseTreeNodes`
+   this cycle - which nothing downstream of discovery currently carries.
+   This is plumbing, not new capability: `discoverSectionsHTTP`
+   (`httpdiscovery_seed.go`) already has the section URL in scope exactly
+   where it builds each file's `RemoteFile`, so adding a `SectionURL` field
+   and populating it there (and in the browser-crawl path,
+   `crawl.go`, which visits the same URL to extract files) is a small,
+   mechanical change - but it is a real one, and the first thing any
+   implementation cycle has to do before a bulk fetch can even be attempted.
+
+3. **New capability on `Downloader`, added as an optional interface - the
+   same pattern `discoveryProgressReporter` (`syncer.go:530`) already
+   uses** so the package's fake downloaders in tests keep compiling
+   unchanged: something like
+   `BulkDownloadSection(sectionURL string, wantFilenames map[string]string) (map[string]bulkFileResult, error)`
+   - `wantFilenames` maps the file's expected name to its `targetKey`/
+   `localPath` (the group being fetched, not necessarily every file in the
+   section), `bulkFileResult` carries the extracted local path plus the
+   zip entry's `Modified` time. `OpalScraper`'s implementation is exactly
+   this cycle's proven mechanism: `gotoPolitely` + the production content
+   waits, click each row checkbox whose filename matches `wantFilenames`
+   (not "select all" - a real sync should fetch only the files it decided
+   need fetching, and per-row clicking was already proven to work),
+   `page.ExpectDownload` the trigger click, `zip.OpenReader`, extract each
+   matched entry to its target path. **Must hold `s.browserDownloadMu`
+   across the whole operation** (`download.go:139-148` already serializes
+   every browser-fallback interaction on the one shared page; a bulk fetch
+   drives that same page and needs the same lock, not a new one).
+
+4. **The zip entry's `Modified` is the real prize, not just this sync's
+   speed.** Writing it into the manifest's `Modified` field the same way a
+   normal successful download does - not merely using it once to decide
+   "unchanged, skip" - converts a signal-less file into a normally-signaled
+   one **going forward**: every future sync's `fileChanged` comparison then
+   has a real date to check, and these files stop being permanent
+   `needsContentVerification` candidates entirely. If this holds across the
+   byte-diff, it makes Question 45's option A (a `VerifiedAt` TTL cache)
+   unnecessary for any file bulk-ZIP can reach - a TTL cache accepts
+   staleness by design, this does not.
+
+5. **Fallback is not optional, per the maintainer's 2026-08-19 hard
+   constraint** ("one slow file's resolution must never block anything else
+   in the sync" - `docs/sync-speed-model.md`'s "Maintainer decision,
+   2026-08-19" entry, still governing): if the section navigation fails, the
+   download/table control is absent (a course without the folder browser -
+   exactly what this run's first cycle found for the `Woche` cluster), or
+   the returned zip is missing an expected entry, every affected job in that
+   group must fall back to today's existing single-file `runVerifyJob` path
+   rather than failing the group or the sync. This makes the feature
+   strictly additive: sections it cannot help are no worse off than today.
+
+6. **Before this can ship, even behind a flag: the standard
+   byte-for-byte diff against the 345-file ground truth**
+   (`scripts/compare-visit-runs.ps1`), run with the new path enabled via an
+   env flag (e.g. `OPAL_BULK_VERIFY_DOWNLOAD=1`) - this campaign's own
+   non-negotiable, unmet by anything in this sketch or the live probe that
+   preceded it. The probe confirmed the *mechanism*; it did not touch
+   `internal/syncer` or run a real sync, so no correctness evidence exists
+   yet for the integrated path.
+
+**What this sketch does and does not settle.** Settles: where the trigger
+goes, what new field discovery needs, the shape of the new `Downloader`
+capability, why the zip mtime should be written permanently rather than
+used once, and the fallback and byte-diff gates it must clear. Does not
+settle: implementation. That is the next cycle - build steps 1-3 behind
+`OPAL_BULK_VERIFY_DOWNLOAD`, wire the fallback (step 5), then run the
+byte-diff (step 6) before anything here can move from sketch to shipped.
+
 ---
 
 **Cycle, 2026-09-14 (autopilot, second cycle this run): does a `node-st`

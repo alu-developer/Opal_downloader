@@ -74,11 +74,14 @@ Proven at whole-section scale on a real account (2026-09-14: 15 files,
 browser-fallback cost for that cluster), with the selection mechanism
 pinned: click each row checkbox individually - the header "select all"
 control visually works but does not fire the AJAX callback the download
-button's enabled state needs. **What remains: sketch the `internal/syncer`
-integration** - when to trigger a bulk fetch vs. per-file downloads, how a
-zip entry's mtime maps onto `remote.Modified`, and the byte-diff that would
-be needed before shipping it even behind a flag. Full ranked history:
-`docs/sync-speed-model.md` Questions 43 and 45.
+button's enabled state needs. **The `internal/syncer` integration is now
+sketched** (2026-09-14): trigger point, a missing `RemoteFile.SectionURL`
+field discovery needs to add, the new `Downloader` capability's shape, and
+why the zip mtime should be written into the manifest permanently rather
+than used once. **What remains is building it** behind
+`OPAL_BULK_VERIFY_DOWNLOAD` and clearing the standard byte-diff before it
+can ship. Full sketch and ranked history: `docs/sync-speed-model.md`
+Questions 43 and 45.
 
 ---
 

@@ -3246,6 +3246,70 @@ the same shape 2026-07-26 saw.
 
 ## Next experiment
 
+**Cycle, 2026-09-14 (autopilot): what course-node type are `Woche 05`..`13`
+(So26 Programmieren) actually built from, if not `BCCourseNode`?**
+
+**Why this cycle.** This is Question 45's own "new open question, ranked
+above Part 2" (see that question's entry above): the 2026-09-11 cycle found
+the "Tabelle herunterladen" control - and the whole folder-browser toolbar -
+completely absent on exactly the 10 `Woche 05`..`13`/`Copy of Woche 06`
+sections, and a follow-up DOM-inspection attempt that cycle was
+inconclusive (guessed at `.o_course_run`/`#o_main_container` as the content
+selector; neither exists on this deployment, both fell back to
+`document.body` and got page chrome, not node content - no signal).
+
+**Design, written before running, per Rule 1.** Route around the DOM-guessing
+problem entirely instead of trying a third selector guess. `internal/scraper/
+coursetree.go`'s `ParseCourseTreeNodes` already reads the course-node type
+straight out of the course root page's own `initial_data` JSON payload - the
+`class="node-<type>"` marker `isNonFileSectionType` (`section_type.go`) tests
+- with **no browser rendering and no DOM at all**, just one HTTP GET of the
+course root and a regex+JSON parse (this is exactly how `coursetree_test.go`
+already proves `node-bc`/`node-sp`/`node-info` come through). New probe
+`OPAL_COURSENODE_TYPE=1 TestCourseNodeType` in a new
+`internal/scraper/coursenodetype_probe_test.go`: `ensureSession(false)`,
+`discoverCourseLinks` for the exact configured title ("So26 Programmieren -
+Weiterführende Konzepte (Math-Ba-PR20)"), one `httpDiscoveryFetcher().Get()`
+on that course's root URL, `ParseCourseTreeNodes` on the body, then report
+`Class`/`Title`/`URL` for every node whose title contains "Woche" plus two
+control nodes from the same course ("Klausurinformationen",
+"Probeklausur" - confirmed `node-bc` and reachable on 2026-09-11) for
+contrast. Read-only, one live navigation-equivalent (an HTTP GET through the
+authenticated Playwright request context), no downloads, no account writes.
+Report written to `tmp/coursenode-type-woche.txt`.
+
+**Prediction (Rule 1 + Rule 2 named cause).**
+- **~55%: `node-sp` (single page).** Named cause: a weekly page that shows an
+  agenda/description with inline links rather than a browsable folder is
+  OpenOLAT's classic "Einzelseite" course element; the previous cycle's live
+  probe already found zero checkboxes and zero folder-browser controls of
+  any kind on `Woche 05`, which matches a single-page node rendering
+  arbitrary HTML instead of `FolderController`'s file-table view. If this
+  holds, it retroactively explains why HTTP-first discovery's paginated-
+  section path (Question 44) never had a `Woche` page to enumerate either -
+  the same structural fact on two questions, worth writing down as a
+  corollary per the "Next, ranked" note in Question 45.
+- **~25%: `node-ta` (task) or `node-en`/another gated container.** Named
+  cause: "Woche" pages in a programming course commonly bundle an exercise
+  submission widget, which OpenOLAT models as a task/assignment node type
+  distinct from a plain folder - would explain the missing toolbar as a
+  permissions/workflow gate rather than a content-shape difference.
+- **~20%: something else entirely, or the tree returns 0 nodes / no `Woche`
+  titles at all** - a parsing or naming mismatch, in which case this cycle's
+  real output is diagnosing *that* gap, not the node type.
+
+**Kill criterion.** Success = a recorded `class="node-<type>"` value for at
+least 8 of the 10 `Woche` sections (duplicate manifest keys across
+raw-course-name vs `course_folders`-remapped paths, noted in Question 45's
+entry, may collapse the distinct-URL count below 10) plus both control
+sections, with zero HTTP/parse errors. Stays **open with the hole named** if
+the course root's `initial_data` payload is empty or missing the `Woche`
+titles altogether - that would mean the tree itself doesn't cover this
+course the way `coursetree_probe_test.go` already confirmed for
+Softwaretechnologie, a bigger and separate finding.
+
+---
+
 **Cycle, 2026-09-02 (autopilot, later run): Question 45 option D verification,
 parts 1 (universality) + 3 (column-C-populated). Does every folder page that
 carries files, across all 6 courses, render a "Tabelle herunterladen" control,

@@ -115,11 +115,21 @@ any kind; low file count was checked and ruled out as the explanation).
 **So option D can still ship for the signal-less files it does cover
 (`2026 LA20/Übungen`, pending Part 2's byte-diff) without a maintainer call,
 but Question 45's A/B/C options are still needed for the Woche-cluster
-files - just a smaller scope than before.** An open, unresolved-this-cycle
-question (what course-node type the Woche sections actually are) and Part 2
-itself are the next unblocked speed items. Full detail: `docs/sync-speed-
-model.md` Question 45 (option D + the 2026-09-11 result) and "Next
-experiment".
+files - just a smaller scope than before.**
+
+**2026-09-14 (autopilot, two cycles): the Woche-cluster question is now
+fully closed, not just still open.** The sections are `node-st` (Structure)
+pages, not folders - found by reading the course-node type straight out of
+the course root's own tree payload (one HTTP GET, no DOM guessing). A
+direct follow-up fetched one such page's raw HTML and found its files are
+plain links inside lecturer-authored free text ("Aufgaben:" paragraphs), not
+entries in any kind of listing - no date, no size, no metadata anywhere on
+the server side to begin with. There is no further URL-based route to try
+for this cluster; **Question 45's A/B/C maintainer call is now the only
+remaining path for it, confirmed rather than merely the leading guess.**
+Part 2 (the `2026 LA20/Übungen` byte-diff, unaffected by this) is the next
+unblocked speed item. Full detail: `docs/sync-speed-model.md` Question 45
+and "Next experiment", cycle 2026-09-14.
 
 **Question 43** (bulk-download-as-ZIP) is the top item **not** waiting on
 the maintainer (Question 45 above now is), and it moved forward hard on

@@ -509,7 +509,7 @@ the cause above. A negative-manifest-entry-with-backoff would cap that cost
 regardless of whether the cause is ever found, and does not need to wait for
 it.
 
-### 45. Should signal-less re-verification be gated by a manifest-persisted cadence instead of running every sync? — OPEN, top of the ranked list. **2026-09-02: a possible route that avoids the maintainer product call entirely - the per-section "Tabelle herunterladen" XLSX carries a real modification date for every file, including the signal-less ones. If that date is trustworthy and the control is universal, discovery can stop producing signal-less files at all. Needs one verification cycle before it displaces option A.**
+### 45. Should signal-less re-verification be gated by a manifest-persisted cadence instead of running every sync? — OPEN for the `2026 LA20/Übungen` subset (pending Part 2's byte-diff, no maintainer call needed); **CLOSED to the maintainer's options A/B/C for the So26 Programmieren `Woche` cluster, 2026-09-14** - that cluster's files are plain links embedded in free-text HTML with no metadata anywhere on the server side, so there is no URL-based route left to try for them, confirmed rather than merely still-suspected.
 
 The single largest measured component of a steady-state no-op sync:
 `downloaded=0 skipped=349` still costs `Total: 223.2s`, and ~151s of that
@@ -598,21 +598,27 @@ mechanism, so **Question 45's original maintainer call (options A/B/C) is
 not moot for that subset** - it is now scoped down to specifically the
 Woche-cluster files rather than all ~37.
 
-**Node-type question ANSWERED 2026-09-14 (autopilot):** `Woche 01`..`14` /
-`Copy of Woche 06` are `node-st` (Structure) - a pure organizational
-container, not `BCCourseNode`, which is structurally why there is no
-folder-browser toolbar (no `FolderController` behind the page at all). Found
-by reading the class straight out of the course root's own `initial_data`
-tree payload (one HTTP GET, no browser DOM guessing) instead of the prior
-cycle's failed CSS-selector approach. `node-st` pages are confirmed (this
-project's own `section_type.go` comment, live-dumped 2026-07-13) to carry
-real downloadable files through some other rendering path - so this is a
-container-type difference, not a permissions gate or a dead end. Full
-prediction/result: `docs/sync-speed-model.md`'s "Next experiment", cycle
-2026-09-14. **New question this opens, ranked below Part 2:** does a
-`node-st` page's raw HTML carry inline per-file dates the way a `node-bc`
-page's does, which would be a cheaper option E for exactly this cluster? See
-that cycle's entry for the concrete next step.
+**Node-type question ANSWERED, and closed all the way, 2026-09-14
+(autopilot, two cycles).** First cycle: `Woche 01`..`14` / `Copy of Woche
+06` are `node-st` (Structure) - a pure organizational container, not
+`BCCourseNode` - found by reading the class straight out of the course
+root's own `initial_data` tree payload (one HTTP GET, no browser DOM
+guessing), which is structurally why there is no folder-browser toolbar (no
+`FolderController` behind the page at all). Second cycle, direct follow-up:
+fetched the `Woche 05` page's raw HTML and found the file link
+(`U05.pdf`) sitting inside a plain rich-text block ("Aufgaben:" / a
+lecturer-authored `<p>`/`<strong>` paragraph), not any kind of structured
+listing - no date, no size, no metadata of any kind within 600 characters
+either side. **These files are references embedded in free text, not
+entries in a file listing of any kind - there was never a per-file date
+attached anywhere on the server side to begin with**, which is the real
+reason nothing this campaign has tried (browser crawl, HTTP-first
+discovery, the bulk-ZIP and table-export mechanisms Questions 43/45 already
+built) has ever found one. Option E is dead on arrival. **This closes the
+Woche cluster's fate for good: options A/B/C (the maintainer product call)
+are the only remaining route, confirmed rather than merely still the
+leading guess.** Full prediction/result for both cycles:
+`docs/sync-speed-model.md`'s "Next experiment", cycle 2026-09-14.
 
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, but Step B's kill criterion PASSED 2026-09-02: the bulk ZIP is real, needs only read access, and preserves per-file timestamps. The 2026-08-12 "rendering flake" was largely the probe's own `v.(float64)` bug, not OPAL. What remains is a scale + integration-design pass. Now the top-ranked *unblocked* speed item (Question 45, #1 overall, is blocked on a maintainer call).
 
@@ -3305,6 +3311,62 @@ particular file isn't even linked from this page directly (perhaps nested
 one level deeper, under a child course node this run's tree walk did not
 expand into), a different and bigger gap than what this cycle is designed
 to answer.
+
+**Result: kill criterion PASSED, ~60% branch confirmed cleanly - no date
+anywhere, and the finding is sharper than the prediction expected.**
+`TestWocheRawHTML` fetched the Woche 05 page (68706 bytes, one GET, 0
+errors); `U05.pdf` appears exactly once. Its full context:
+
+```
+<p><strong>Aufgaben:</strong></p>
+<p><a href="https://.../PEEK_VIEW_WRAPPER--50870943748--...--..._global/material/U05.pdf">U05</a></p>
+<p><strong>Material:</strong></p>
+<p><a href="https://.../material/in_poly_template.jl">in_poly_template.jl</a></p>
+<p><a href="https://.../material/check_point_in_polygon.ipynb">check_point_in_polygon.ipynb</a></p>
+```
+
+No date, no size, no metadata of any kind - not even a `title` attribute -
+within 600 characters either side. The link sits inside a plain
+`<p>`/`<strong>` rich-text block ("Allgemeine Informationen" / "Aufgaben:" /
+"Material:" headings), the same shape a lecturer's WYSIWYG editor produces
+when they paste file links into free text. **This is not a
+metadata-omission gap to route around - it's a different content model
+entirely: these files are references embedded in prose, not entries in any
+kind of file listing (folder table, structured task, or otherwise).** That
+also explains, more sharply than "node-st lacks a folder view", why nothing
+upstream of this - not the browser crawl, not HTTP-first discovery, not the
+bulk-ZIP or table-export mechanisms Questions 43/45 already tried - has ever
+had a date or size to find for these specific files: there was never one
+attached to the link in the first place, anywhere on the server side this
+page exposes.
+
+**Prediction scorecard: ~60% branch - hit, cleanly, no false-positive date
+found (~25% branch) and no genuine per-file date (~15% branch).** Rule 2
+corollary, and a useful one going forward: this project's own
+`section_type.go` comment says `node-st` pages "held the actual downloadable
+material" - true, but this cycle shows that comment was about *whether
+files are reachable at all*, not about *what metadata comes with them*, and
+the two questions turned out to have different answers for the same node
+type. Worth remembering the next time a "this node type carries files"
+finding gets reused for a metadata question - carrying files and carrying
+file metadata are not the same property, and this cluster is proof they can
+split.
+
+**Question 45 closed for good on this cluster - option E is dead, options
+A/B/C are confirmed the only path, not just the leading guess.** Nothing
+under discovery's control can give the Woche-cluster files a `Modified` or
+`Size`; the maintainer product call this question has been blocked on since
+2026-08-19 is now the *only* remaining route for these specific files, with
+no further "maybe there's a cheaper way" cycles worth spending here. The
+`2026 LA20/Übungen` subset is unaffected and still just needs Part 2 (the
+date-fidelity byte-diff) to ship option D for that half.
+
+**No further open question from this cycle** - this run's real finding is a
+closed door, worth recording as such rather than manufacturing a new
+question to satisfy Rule 3. The next unblocked speed item is Question 45's
+Part 2 byte-diff (the `2026 LA20/Übungen` subset) or Question 43's ranked
+follow-ups (#1 whole-course scale, #2 pin the select-all control) - both
+already queued above, neither opened by this cycle.
 
 ---
 

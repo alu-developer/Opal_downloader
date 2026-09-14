@@ -18,12 +18,4 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-Phase 3 sync-speed cycle in flight, 2026-09-14 (autopilot, second cycle this
-run). Prediction registered in `docs/sync-speed-model.md`'s "Next
-experiment" (top entry): does a `node-st` page's raw HTML (Woche 05) carry
-an inline per-file date next to `U05.pdf`'s link, a possible cheaper
-"option E" for Question 45's Woche cluster. Plan: one
-`httpDiscoveryFetcher().Get()` on the Woche 05 URL already resolved last
-cycle, save to `tmp/woche05-raw.html`, grep by hand for `U05.pdf` and a
-date-shaped string nearby - no parser yet. Next step: run it, record the
-result in `docs/sync-speed-model.md`, clear this file.
+_Nothing in flight._

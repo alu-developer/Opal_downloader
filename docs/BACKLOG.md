@@ -75,13 +75,16 @@ browser-fallback cost for that cluster), with the selection mechanism
 pinned: click each row checkbox individually - the header "select all"
 control visually works but does not fire the AJAX callback the download
 button's enabled state needs. **The `internal/syncer` integration is now
-sketched** (2026-09-14): trigger point, a missing `RemoteFile.SectionURL`
-field discovery needs to add, the new `Downloader` capability's shape, and
-why the zip mtime should be written into the manifest permanently rather
-than used once. **What remains is building it** behind
-`OPAL_BULK_VERIFY_DOWNLOAD` and clearing the standard byte-diff before it
-can ship. Full sketch and ranked history: `docs/sync-speed-model.md`
-Questions 43 and 45.
+built**, behind `OPAL_BULK_VERIFY_DOWNLOAD` (default off):
+`OpalScraper.DownloadFilesBulk` (`internal/scraper/bulkdownload.go`) plus
+`runBulkVerifyGroups` (`internal/syncer/syncer.go`), which groups
+signal-less verify jobs by section and falls any failure - a whole
+section's fetch, or one missing file - back to today's per-file path
+rather than blocking the sync. Five new tests, full suite green. **What
+remains: the standard byte-diff against the 345-file ground truth** -
+required before this can change any default, not before it can land
+behind a flag (which it already has). Full detail and ranked history:
+`docs/sync-speed-model.md` Questions 43 and 45.
 
 ---
 

@@ -3504,6 +3504,50 @@ settle: implementation. That is the next cycle - build steps 1-3 behind
 `OPAL_BULK_VERIFY_DOWNLOAD`, wire the fallback (step 5), then run the
 byte-diff (step 6) before anything here can move from sketch to shipped.
 
+**Implementation, 2026-09-14 (autopilot, same run): steps 1, 2, 3 and 5
+built behind `OPAL_BULK_VERIFY_DOWNLOAD`, step 6 (the byte-diff) still to
+run.** `RemoteFile.SectionURL` (step 2) turned out cheaper than sketched -
+`FileRef.SectionURL` was already populated at every discovery site, so the
+gap was only in `convertFileRefsToRemoteFiles` not copying it, a one-line
+fix rather than new plumbing through the crawl/HTTP-discovery paths.
+`OpalScraper.DownloadFilesBulk` (step 3, `internal/scraper/
+bulkdownload.go`) is this cycle's proven mechanism turned into a method:
+navigate, click every row checkbox individually (not the header shortcut,
+per the live diagnosis), trigger the download, extract the zip entries the
+caller asked for by filename, holding `browserDownloadMu` throughout.
+`runBulkVerifyGroups` (`internal/syncer/syncer.go`) is the trigger point
+(step 1) and fallback (step 5): groups signal-less verify jobs by section,
+bulk-fetches groups of `bulkVerifyMinGroupSize` (2) or more, and on any
+failure - the whole section's fetch, or one file missing from the
+returned zip - falls that job (or the whole group) back to the existing
+per-file path rather than failing the sync. Five new tests
+(`internal/syncer/bulkverify_test.go`) exercise the grouped-fetch, both
+fallback shapes, the single-file-section exclusion, and the flag defaulting
+off; `go test ./... -short` is green with every pre-existing test's
+behavior unchanged.
+
+**One correction to the sketch's own item 4, caught while implementing,
+not after:** writing the zip's mtime into the manifest does **not** stop a
+file being queued as a verify job on a later sync, the way the sketch's
+wording implied ("stops being a permanent candidate"). `needsContentVerification`
+decides purely from *that sync's own fresh discovery result* (`remote.Size`/
+`remote.Modified`), never from what a previous sync wrote to the manifest -
+and discovery still reports neither for this file class, regardless of what
+the manifest holds. So the manifest write is still worth doing (a real date
+where there was none, and forward-compatible if discovery is ever fixed to
+report one) but the actual win stays exactly what it always was: the same
+verification cadence, at ~1/200th the cost, not a lower cadence. Corrected
+here rather than left standing, per Rule 2.
+
+**Next: the byte-diff (step 6) is the only thing between this and a
+default-changing decision**, per this campaign's own non-negotiable. Run
+`OPAL_BULK_VERIFY_DOWNLOAD=1` against a fresh scratch manifest + real
+account, all 6 courses, and diff the result against the 345-file ground
+truth with `scripts/compare-visit-runs.ps1` - plus a live sanity check that
+`2026 LA20/Übungen`'s files actually take the bulk path (a debug log line
+or a temporary print would confirm the group was found and used, not just
+that the sync as a whole still produced the right files).
+
 ---
 
 **Cycle, 2026-09-14 (autopilot, second cycle this run): does a `node-st`

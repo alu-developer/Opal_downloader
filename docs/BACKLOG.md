@@ -168,6 +168,13 @@ constraint, independent of how the rest resolves — **one slow file's
 resolution must never block anything else in the sync.** Detail in the
 same section, "Maintainer decision, 2026-08-19".
 
+**Weekly review, 2026-09-14 (Part B): minor simplification, `printNextSteps`
+(`cmd/opal-downloader/root.go:292`).** Its `startAt int` parameter exists to
+let callers start the numbered list at something other than 1, but both call
+sites (`runInit`, `runSetup`) always pass 1 — speculative flexibility with no
+current user. Drop the parameter and hardcode the numbers 1-4 in the function
+body.
+
 ---
 
 ## Open findings

@@ -1,1 +1,1 @@
-2026-08-13T13:56Z — attempted, failed: sync.lock held by PID 14804 for 5.5+ hours (see docs/BACKLOG.md Now). No diff data produced.
+2026-09-14 — ran clean: 289 sections, 294 HTTP requests, 6 courses with files, total missing=0 extra=0. HTTP-first and browser crawl agree.

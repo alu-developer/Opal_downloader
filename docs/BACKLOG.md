@@ -169,32 +169,17 @@ maintainer. Walk detail, expectations and named causes:
 
 ### Friction campaign (GUI walks 1, 4, 5 & 7, CLI walks 2, 6, 8, 9, 11, 13, 15, 17 & 19, first-run walks 3, 7, 10, 12, 14, 16, 18 & 20)
 
-- **friction — the README's recommended "Fast path: `setup`" prints a
-  first-run checklist that stops at `login` and never tells the user to
-  run `sync`.** Walk 20, 2026-09-02 (first-run-from-zero, offline). Persona:
-  a build-from-source student following the README's own "### Fast path:
-  `setup`", billed as the one-command way in. `setup`'s "Next steps:" is
-  three items (edit config / optional TU-Fast / `Run: opal-downloader
-  login`) and then stops - so a user who follows it literally logs in and
-  is left with zero files and no printed instruction to go further.
-  `init`'s otherwise-byte-identical checklist has a 4th line, `Run:
-  opal-downloader sync`. **Named cause:** `runInit`
-  (`cmd/opal-downloader/root.go:314-321`) and `runSetup` (`root.go:372-378`)
-  each hand-roll their own copy of the "Next steps:" epilogue instead of
-  sharing one helper; they drifted, and the drift landed on the most
-  important line. **Predictions, checked cheap:** grep confirms exactly two
-  multi-step epilogues exist and they have drifted on the `sync` step; all
-  other onward-pointers are single lines and individually correct
-  (`root.go:442`, `:507`, `:577`, `scraper/profile.go:197`). The gap is
-  *recoverable* - `login`'s own success message (`root.go:577`: "You can now
-  run: opal-downloader sync") prints the missing step - which is why this is
-  friction, not a blocker: you get unstuck only because a different command
-  covers for `setup`. **Fix:** one shared epilogue helper for both commands.
-  **Open question (needs a GUI walk or `internal/gui` source read):** does
-  the GUI Settings-save path - the README's "primary, recommended" first-run
-  route - print its own third "what next" text, and does *it* say to sync?
-  If all three differ, the cause is "no single first-run-checklist source".
-  Full detail: `docs/friction-campaign.md` Walk 20.
+- **Fixed 2026-09-14 (autopilot): `setup`'s epilogue now prints the `sync`
+  step.** `runInit` and `runSetup` (`cmd/opal-downloader/root.go`) both now
+  call a shared `printNextSteps` helper instead of hand-rolling their own
+  copy, so `setup` can no longer silently drop the last line the way it did
+  when the two drifted. Verified with a scratch `init` run — output
+  byte-identical to before. **Still open (needs a GUI walk or `internal/gui`
+  source read):** does the GUI Settings-save path - the README's "primary,
+  recommended" first-run route - print its own third "what next" text, and
+  does *it* say to sync? If all three differ, the cause is "no single
+  first-run-checklist source" and the GUI path would need the same
+  treatment. Full detail: `docs/friction-campaign.md` Walk 20.
 - **friction — no per-invocation course selector on `sync` or `list`, so
   "grab just this one course right now" forces a persistent `config.yaml`
   edit.** Walk 19, 2026-09-02 (CLI everyday use). Persona: a student who

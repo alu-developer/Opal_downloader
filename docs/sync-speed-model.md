@@ -598,21 +598,21 @@ mechanism, so **Question 45's original maintainer call (options A/B/C) is
 not moot for that subset** - it is now scoped down to specifically the
 Woche-cluster files rather than all ~37.
 
-**New open question, ranked above Part 2:** what course-node type are
-`Woche 05`..`13` actually built from, if not `BCCourseNode`? **Tried once
-this cycle and inconclusive - stays open.** A throwaway page-HTML dump
-(`Woche 05` vs. `Klausurinformationen`, same course) guessed at
-`.o_course_run` / `#o_main_container` as the content-area selector; neither
-exists on this deployment, so both dumps fell back to `document.body` and
-returned generic page chrome (search box, header), not the course-node
-content itself - no signal either way. Worth a second attempt with the
-selector found by inspecting a real page's DOM tree first (dev-mode browser,
-visible, `read_page`-style inspection) rather than guessing a class name
-blind. If it turns out to be a single-file "document" node type, that would
-also explain, retroactively, why HTTP-first discovery could never get one of
-these into the paginated-section HTTP path (Question 44) - the same
-structural fact showing up on two separate questions would be worth writing
-down as a corollary.
+**Node-type question ANSWERED 2026-09-14 (autopilot):** `Woche 01`..`14` /
+`Copy of Woche 06` are `node-st` (Structure) - a pure organizational
+container, not `BCCourseNode`, which is structurally why there is no
+folder-browser toolbar (no `FolderController` behind the page at all). Found
+by reading the class straight out of the course root's own `initial_data`
+tree payload (one HTTP GET, no browser DOM guessing) instead of the prior
+cycle's failed CSS-selector approach. `node-st` pages are confirmed (this
+project's own `section_type.go` comment, live-dumped 2026-07-13) to carry
+real downloadable files through some other rendering path - so this is a
+container-type difference, not a permissions gate or a dead end. Full
+prediction/result: `docs/sync-speed-model.md`'s "Next experiment", cycle
+2026-09-14. **New question this opens, ranked below Part 2:** does a
+`node-st` page's raw HTML carry inline per-file dates the way a `node-bc`
+page's does, which would be a cheaper option E for exactly this cluster? See
+that cycle's entry for the concrete next step.
 
 ### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, but Step B's kill criterion PASSED 2026-09-02: the bulk ZIP is real, needs only read access, and preserves per-file timestamps. The 2026-08-12 "rendering flake" was largely the probe's own `v.(float64)` bug, not OPAL. What remains is a scale + integration-design pass. Now the top-ranked *unblocked* speed item (Question 45, #1 overall, is blocked on a maintainer call).
 
@@ -3307,6 +3307,70 @@ the course root's `initial_data` payload is empty or missing the `Woche`
 titles altogether - that would mean the tree itself doesn't cover this
 course the way `coursetree_probe_test.go` already confirmed for
 Softwaretechnologie, a bigger and separate finding.
+
+**Result: kill criterion PASSED, decisively - `Woche 01`..`14` and `Copy of
+Woche 06` are `node-st` (Structure), none of the three predicted branches
+called it by name.** Live run 2026-09-14, `TestCourseNodeType`, 0 HTTP/parse
+errors, one GET of the course root (38 tree nodes total). All 15 `Woche`-
+titled nodes - not just the 10 with the missing toolbar, the cluster is
+actually bigger - read `class="node-st"`. The control node
+(`Klausurinformationen`) read `class="node-bc"` exactly as expected, proving
+the probe correctly tells the two apart; `Probeklausur` wasn't found in this
+course's tree at all (title likely lives in a different course or differs
+slightly from the earlier probe's paraphrase) - a minor miss against the
+kill criterion's letter (1 of 2 controls, not 2 of 2) that doesn't touch the
+result, since the one control that *was* found already demonstrates the
+method works.
+
+**Prediction scorecard - all three named branches missed, but the ~20%
+catch-all "something else" bucket technically fired.** Not `node-sp`
+(~55%, refuted) and not `node-ta`/`node-en` (~25%, refuted) - `node-st` was
+never named as a candidate at all, which is a real miss on Rule 2's "name
+the cause sharply" bar, not a save. The reason it's a miss rather than a
+lucky guess: `node-st` was sitting in this project's own source the whole
+time - `internal/scraper/section_type.go`'s `nonFileSectionTypeClasses` doc
+comment (written 2026-07-13, a year-old live dump of this exact account)
+already states "`node-bc`/`node-st`, which held the actual downloadable
+material" - i.e. this codebase already knew `node-st` sections carry real
+files, and this cycle's prediction should have checked that comment before
+guessing blind. **Corollary for next time: grep this project's own source
+for the thing being predicted before writing a percentage on it** - the
+sync-speed campaign has hit this exact miss shape before (Rule 2's "unchecked
+reuse" note on Question 24) and this is the same failure at one step
+earlier, on a *first* guess rather than a copied one.
+
+**What this settles and what it opens.** Settled: `node-st` is a Structure
+element - an organizational container OLAT nests other course nodes under -
+not `BCCourseNode`, which is exactly why the folder-browser toolbar
+(checkboxes, bulk-download button, "Tabelle herunterladen") is structurally
+absent; there is no `FolderController` behind this page at all, so there was
+never a table to render one, consistent with the 2026-09-11 finding of zero
+controls of any kind. It is *not* a dead end for content, though -
+`section_type.go`'s own comment confirms `node-st` pages do carry real
+downloadable files (this project's crawl already discovers the `Uxx.pdf`
+files living under these very nodes, which is *why* Question 45 cares about
+them), just through some other rendering path than a folder table - almost
+certainly the generic `extractSectionContentCandidates` link-scan this
+project's browser crawl already runs on every page, structure pages
+included, rather than anything folder-specific.
+
+**New question, ranked below Part 2 (Question 45's LA20/Übungen date-fidelity
+byte-diff is unaffected by this and stays the next cycle if parts 1+3 hold):
+does a `node-st` structure page's raw HTTP response carry the same kind of
+inline per-file metadata (size, modified date) that `discoverSectionsHTTP`
+already parses out of a `node-bc` folder page's HTML - or does it only carry
+bare file links with no size/date attributes, the same signal-less shape the
+browser crawl already gets?** If the HTML has the dates inline (OLAT
+sometimes renders a "zuletzt geändert" span next to a structure-page file
+link the way it does elsewhere), that is a second, cheaper-than-XLSX route
+to close Question 45 for the Woche cluster without a maintainer call -
+option E, in effect. If not, this cluster's fate is unchanged: Question 45's
+original maintainer call (options A/B/C) is confirmed the only path, not
+just "still open" pending more digging. Cheapest next step: fetch one
+`Woche 05`-shaped `node-st` page's raw HTML via the same
+`httpDiscoveryFetcher()` this cycle already used and grep it by hand for a
+date-shaped string near a known filename (`U05.pdf`) before writing any
+parser.
 
 ---
 

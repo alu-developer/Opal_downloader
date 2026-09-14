@@ -18,13 +18,4 @@ here sends an unattended run after work that is already done. Clear it.
 
 ---
 
-Phase 3 sync-speed cycle in flight, 2026-09-14 (autopilot). Prediction
-registered in `docs/sync-speed-model.md`'s "Next experiment" (top entry):
-what course-node type are `Woche 05`..`13` (So26 Programmieren) built from,
-since the 2026-09-11 cycle found the folder-browser toolbar entirely absent
-on those 10 sections. Plan: new `internal/scraper/coursenodetype_probe_test.go`,
-`OPAL_COURSENODE_TYPE=1`, one HTTP GET of the course root via the existing
-`ParseCourseTreeNodes`/`initial_data` machinery (no DOM guessing this time),
-report the `node-<type>` class for every `Woche` title plus two `node-bc`
-controls. Next step: write the probe, run it live, record the result in
-`docs/sync-speed-model.md`, clear this file.
+_Nothing in flight._

@@ -127,26 +127,43 @@ entries in any kind of listing - no date, no size, no metadata anywhere on
 the server side to begin with. There is no further URL-based route to try
 for this cluster; **Question 45's A/B/C maintainer call is now the only
 remaining path for it, confirmed rather than merely the leading guess.**
-Part 2 (the `2026 LA20/Übungen` byte-diff, unaffected by this) is the next
-unblocked speed item. Full detail: `docs/sync-speed-model.md` Question 45
-and "Next experiment", cycle 2026-09-14.
+Part 2 (the `2026 LA20/Übungen` byte-diff for option D) turned out to be
+**superseded rather than needed**: a same-run follow-up cycle tested
+Question 43's bulk-ZIP mechanism directly against the real
+`2026 LA20/Übungen` section (not a different course's section as a stand-in)
+and it passed cleanly at full section scale - 15 files, 1.586s total
+(~106ms/file), 15/15 with real per-file timestamps matching the manifest,
+~200x today's ~322s browser-fallback cost for this cluster. That is a
+**better** fix than option D (replaces the slow downloads outright, rather
+than just giving `fileChanged` a date to skip re-fetching unchanged ones)
+and needs no byte-diff of option D's XLSX-date-parsing path, since that path
+is no longer the plan for this subset. **So Question 45 is now fully
+resolved except for the maintainer's A/B/C call on the `Woche` cluster
+specifically** - `2026 LA20/Übungen`'s files ride on Question 43's own
+integration work instead. One loose end: `Kapitel5.pdf`, signal-less and in
+the same course, is not actually in `Übungen` (checked against the real
+manifest) - which section it *is* in is still unfound. Full detail:
+`docs/sync-speed-model.md` Question 45 and "Next experiment", cycles
+2026-09-14.
 
-**Question 43** (bulk-download-as-ZIP) is the top item **not** waiting on
-the maintainer (Question 45 above now is), and it moved forward hard on
-2026-09-02 (autopilot). The 2026-08-12 "rendering flake" that blocked
-Step B was largely the probe's own `v.(float64)` bug (`playwright-go`
-returns a JS `.length` as Go `int`) - fixed. The corrected live probe
-**passed Step B's kill criterion**: the bulk "Gewählte Dateien
-herunterladen." control returns a real ZIP on a read-only participant
-account, and every entry carries its real per-file modification timestamp
-(5/5 at n=5), which `internal/syncer`'s incremental skip needs. Bulk fetch
-was ~83ms/file at n=5 vs the browser-fallback path's ~21.5s/file. **Four
-ranked follow-ups, none needing the maintainer**, in
-`docs/sync-speed-model.md` Question 43: (1) whole-section/whole-course
-scale + a real timing comparison against today's discovery+download - the
-number that decides if this is worth building; (2) pin the real "select
-all" control; (3) probe the bare `"Tabelle herunterladen"` GET link; (4)
-sketch the `internal/syncer` integration. Question 39 is decided and
+**Question 43** (bulk-download-as-ZIP) is the top unblocked speed item, and
+a same-day live run (2026-09-14, autopilot) took it from "proven at n=5 on
+one section" to "proven at whole-section scale (n=15) on a second, real
+section, with the exact selection mechanism pinned." The header "select
+all" control turned out to be a false friend - it visually checks every row
+but does not fire the per-row AJAX callback the download button's enabled
+state depends on, diagnosed live via a DOM dump rather than guessed;
+clicking each row checkbox individually (Step B's original n=5 approach,
+now confirmed at scale too) is what actually works. Of the four follow-ups
+this moved forward: (1) whole-section scale - **done**, 15/15 real
+timestamps, ~106ms/file; (2) pin the "select all" control - **done**,
+answered "N individual clicks, not the header shortcut"; (3) the bare
+`"Tabelle herunterladen"` GET link - **done 2026-09-02**, it is a
+per-section XLSX listing export, not a bulk-content path (this became
+option D above). **What remains: (4) sketch the `internal/syncer`
+integration** - when to trigger a bulk fetch vs. per-file downloads, how a
+zip entry's mtime maps onto `remote.Modified`, and the byte-diff that would
+be needed before shipping it even behind a flag. Question 39 is decided and
 built, and Question 5 is fully closed (see `docs/BACKLOG-archive.md`).
 Nothing further is planned on the course-level HTTP concurrency thread —
 Question 41 closed 2026-08-11 as a no-go.

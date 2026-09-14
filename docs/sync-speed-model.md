@@ -509,7 +509,7 @@ the cause above. A negative-manifest-entry-with-backoff would cap that cost
 regardless of whether the cause is ever found, and does not need to wait for
 it.
 
-### 45. Should signal-less re-verification be gated by a manifest-persisted cadence instead of running every sync? — OPEN for the `2026 LA20/Übungen` subset (pending Part 2's byte-diff, no maintainer call needed); **CLOSED to the maintainer's options A/B/C for the So26 Programmieren `Woche` cluster, 2026-09-14** - that cluster's files are plain links embedded in free-text HTML with no metadata anywhere on the server side, so there is no URL-based route left to try for them, confirmed rather than merely still-suspected.
+### 45. Should signal-less re-verification be gated by a manifest-persisted cadence instead of running every sync? — **CLOSED to the maintainer's options A/B/C for the So26 Programmieren `Woche` cluster, 2026-09-14** - that cluster's files are plain links embedded in free-text HTML with no metadata anywhere on the server side, so there is no URL-based route left to try for them, confirmed rather than merely still-suspected. **`2026 LA20/Übungen`'s 14 files now have a better fix than option D, live-confirmed 2026-09-14: Question 43's bulk-ZIP mechanism, which replaces the browser-fallback downloads outright rather than just giving them a date to skip on** - see Question 43's entry and "Next experiment" for the live run. Still open: a `internal/syncer` integration design (no maintainer call needed), and finding which section `Kapitel5.pdf` (signal-less, same course, not in `Übungen`) actually lives in.
 
 The single largest measured component of a steady-state no-op sync:
 `downloaded=0 skipped=349` still costs `Total: 223.2s`, and ~151s of that
@@ -620,7 +620,7 @@ are the only remaining route, confirmed rather than merely still the
 leading guess.** Full prediction/result for both cycles:
 `docs/sync-speed-model.md`'s "Next experiment", cycle 2026-09-14.
 
-### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, but Step B's kill criterion PASSED 2026-09-02: the bulk ZIP is real, needs only read access, and preserves per-file timestamps. The 2026-08-12 "rendering flake" was largely the probe's own `v.(float64)` bug, not OPAL. What remains is a scale + integration-design pass. Now the top-ranked *unblocked* speed item (Question 45, #1 overall, is blocked on a maintainer call).
+### 43. Does OPAL's course folder UI expose a read-permission, no-edit-required bulk "download as ZIP" action that could replace N per-file downloads with one request per section? — OPEN, but Step B's kill criterion PASSED twice now: n=5 on Softwaretechnologie/Part-3 (2026-09-02) and **whole-section scale on the real `2026 LA20/Übungen` (n=15, 2026-09-14) - 1.586s total (~106ms/file) with 15/15 usable per-file timestamps, ~200x today's ~322s browser-fallback cost for that same cluster.** The 2026-09-14 run also pinned the selection mechanism for real: the header "select all" control visually checks every row but leaves the download button disabled (a diagnosed Wicket AJAX gap, not a flake) - only clicking each row checkbox individually enables it. What remains is the `internal/syncer` integration design + its byte-diff, not any more probing. Now the top-ranked *unblocked* speed item (Question 45, #1 overall, is blocked on a maintainer call only for the `Woche` cluster; its `Übungen` subset is unblocked and converges with this question).
 
 **Why this is a live lever and not old ground.** Every question on this list so
 far attacks *discovery* (finding out what files exist) - HTTP-first
@@ -3329,6 +3329,85 @@ the course tree at all (naming mismatch - the manifest path segment is
 fails outright (unattended TU-Fast auto-login is expected to handle this per
 `CLAUDE.md`, so a login failure here would itself be a separate, reportable
 finding).
+
+**Result: kill criterion PASSED, ~65% branch confirmed - and the diagnosis
+along the way answers follow-up #2 more precisely than the prediction
+framed it.** `TestBulkZipLA20Uebungen`, two live runs (`internal/scraper/
+bulkzip_la20_probe_test.go`), unattended TU-Fast auto-login fired cleanly on
+the first run (saved session had expired), the second reused it.
+`ParseCourseTreeNodes` resolved "Übungen" to `node-bc`,
+`.../CourseNode/102596740989686`, one HTTP GET, no DOM guessing.
+
+**Run 1 (header select-all): refuted, but diagnosed rather than a dead
+end.** The header's "select all visible entries" control visually checked
+all 15 row checkboxes (confirmed via the same stable-count poll Step B
+uses) but the "Gewählte Dateien herunterladen." button stayed
+**`disabled=true`** - a diagnostic dump of every download-labeled control's
+DOM state (added mid-cycle, one line of evaluate) showed this directly
+rather than requiring a guess. **Named cause:** the button's enabled state
+is driven by Wicket's own per-row AJAX selection-changed callback, which
+the header's bulk toggle does not fire per row - only an actual per-checkbox
+click event does. This answers **follow-up #2 ("is select-all one click or
+N?") for real: N, one click each** - the header control exists and visibly
+works but is cosmetic for this deployment's enablement logic, matching
+`select-all-header=1` being seen in earlier traces without ever being
+proven to actually drive the button.
+
+**Run 2 (per-row clicks, exactly Step B's original n=5 mechanism scaled to
+n=15): PASSED cleanly.** All 15 row checkboxes clicked individually →
+button `disabled=false` → bulk download triggered → **1.586s total for 15
+files (~106ms/file, in line with n=5's ~83ms/file)** → genuine ZIP, 15
+entries, **15/15 carry usable per-file timestamps**, and 14 of them are the
+exact `Uxx.pdf` filenames from the real manifest with modification
+timestamps matching the manifest's recorded values to the minute (e.g.
+`U01.pdf`: manifest `07.04.2026 um 16:35 Uhr`, zip
+`2026-04-07T16:35:41+02:00`). **Against today's cost for this cluster (15
+files × ~21.5s browser-fallback ≈ 322s), this is roughly 200x faster.**
+
+**One scope correction, not a coverage gap: `Kapitel5.pdf` was "missing"
+because it was never in this section to begin with.** It showed up as a
+predicted-but-absent file because Question 45's own prior entry listed it
+alongside the `Uxx.pdf` files as "2026 LA20 (Übungen ... Kapitel5.pdf)"; the
+real manifest has no `2026 LA20/Übungen/Kapitel5.pdf` key at all (checked:
+`grep Kapitel5.pdf` against the real manifest finds only the
+`course_folders`-remapped, signal-less entry, with no sibling raw-path
+entry the way every `Uxx.pdf` has one) - it is signal-less too, but lives in
+a *different* section of the same course, not `Übungen`. Also found one
+file the prediction's list did not name: `U07i.pdf`, present in the zip
+with a real timestamp, previously invisible to this campaign because
+nothing in `docs/sync-speed-model.md` had enumerated `Übungen`'s actual
+contents before this cycle.
+
+**Prediction scorecard: ~65% branch hit on substance (works, real
+timestamps, well under 10s) but not on mechanism (assumed the header
+control would suffice; it does not) - a partial miss worth recording.**
+Rule 2 corollary: a control being clickable and a control actually driving
+the feature it looks like it drives are not the same fact, and this
+project's own `select-all-header=1` trace data from an earlier cycle should
+have been read as "the checkbox visually reports selected" not "the
+selection mechanism the download button needs is satisfied".
+
+**What this closes and what it opens.** Closes: Question 43's Step B is now
+confirmed at real production scale (not just n=5 on a curated section), and
+the exact selection mechanism to use in a real integration is now known and
+proven (per-row clicks, not the header shortcut). Meaningfully advances
+Question 45: `2026 LA20/Übungen`'s 14 signal-less `Uxx.pdf` files (of the
+originally-cited 37) have a clean, maintainer-call-free fix path that is
+*better* than option D - bulk-ZIP replaces the N browser-fallback downloads
+outright rather than merely giving `fileChanged` a date to compare, and
+does not depend on option D's still-pending Part 2 date-fidelity byte-diff
+at all. **New question, ranked as the next speed cycle: sketch how
+`internal/syncer` would drive this** - when to trigger a bulk fetch instead
+of N single-file downloads (per verify-job batch? per section, proactively,
+whenever 2+ signal-less files share a section?), how the per-entry mtime
+written into the ZIP maps onto `remote.Modified` for `fileChanged`'s
+comparison, and what byte-diff evidence (Question 43/45's shared
+non-negotiable) would prove it lossless before it can ship even behind a
+flag. Separate, smaller open item: find which section `Kapitel5.pdf`
+actually lives in (probably `2026 LA20/Material aus dem Wintersemester`,
+per an unrelated manifest key seen in passing this cycle) so it gets the
+same fix rather than being silently left out of a future integration's
+scope.
 
 ---
 

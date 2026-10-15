@@ -105,6 +105,17 @@ type OpalScraper struct {
 	// request came from.
 	limiter *polite.Limiter
 
+	// downloadStats records where the download phase's time goes, split by
+	// step (see downloadstats.go). Always non-nil for a scraper built by
+	// New; nil-safe for the zero-value structs the tests build.
+	downloadStats *downloadPhaseStats
+
+	// sectionHTML memoizes each section page's HTML for the download phase,
+	// so a section's files share one Wicket page instance instead of
+	// minting one apiece. See sectionhtmlmemo.go - this is the fix for the
+	// beyond-page-1 download failures, not only a saved fetch.
+	sectionHTML *sectionHTMLMemo
+
 	// previewsBlocked/previewBytesSaved count what the inline-preview route
 	// discarded (previews.go). Accessed with sync/atomic because the route
 	// handler runs on Playwright's dispatch goroutine, not the crawl's.
@@ -462,6 +473,8 @@ func New(opalURL, stateFile string) *OpalScraper {
 		stateFile:          stateFile,
 		downloadCandidates: map[string]downloadCandidate{},
 		limiter:            polite.New(polite.DefaultMinInterval),
+		downloadStats:      newDownloadPhaseStats(),
+		sectionHTML:        newSectionHTMLMemo(),
 		stall:              &stallWatch{},
 		sectionTiming:      &sectionTiming{},
 	}
@@ -508,6 +521,12 @@ func (s *OpalScraper) ScrapeWithSavedSession(ctx context.Context, courseFilter [
 	if len(courseFilter) == 0 {
 		courseFilter = []string{"*"}
 	}
+	// A sync is discovery followed by its download phase, so the start of
+	// discovery is the one point that reliably begins a run. The GUI keeps a
+	// single scraper alive across syncs (internal/gui/job.go), and a section
+	// page cached during the previous run would hand this one a Wicket page
+	// instance the server dropped long ago.
+	s.sectionHTML.reset()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -607,6 +626,7 @@ func (s *OpalScraper) Close() error {
 	// requests the ceiling exists for. Close is the one point that sees a
 	// whole run.
 	s.LogRateLimitStats()
+	s.downloadStats.log()
 	s.reportBlockedPreviews()
 	s.sectionTiming.log()
 
@@ -649,13 +669,30 @@ func (s *OpalScraper) LogRateLimitStats() {
 // "how hard does this tool hit OPAL" is one question, and OPAL cannot tell a
 // page load from a file fetch.
 func (s *OpalScraper) getPolitely(reqCtx playwright.APIRequestContext, url string, opts ...playwright.APIRequestContextGetOptions) (playwright.APIResponse, error) {
+	return s.getPolitelyStep(reqCtx, "", url, opts...)
+}
+
+// getPolitelyStep is getPolitely with a label: when step is non-empty the
+// call's wall-clock time, and the share of it spent asleep in the politeness
+// limiter rather than waiting on OPAL, are recorded against that step name in
+// the download-phase breakdown (downloadstats.go). Every download-path
+// request carries one, which is what makes "the downloads are slow" an
+// answerable question rather than a single opaque per-file number.
+func (s *OpalScraper) getPolitelyStep(reqCtx playwright.APIRequestContext, step, url string, opts ...playwright.APIRequestContextGetOptions) (playwright.APIResponse, error) {
+	started := time.Now()
+	var waited time.Duration
 	if s != nil && s.limiter != nil {
+		waitStart := time.Now()
 		if err := s.limiter.Wait(context.Background()); err != nil {
 			return nil, err
 		}
+		waited = time.Since(waitStart)
 	}
 
 	resp, err := reqCtx.Get(url, opts...)
+	if step != "" && s != nil {
+		s.downloadStats.record(step, time.Since(started), waited)
+	}
 
 	if s != nil && s.limiter != nil {
 		status := 0

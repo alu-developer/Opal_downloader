@@ -373,6 +373,18 @@ type downloadJob struct {
 // Deliberately narrow. Files that do carry a size/date are untouched, so
 // the normal fast path is unaffected: on the maintainer's account this
 // covers 13 of 344 files (~4%).
+//
+// That ~4% held only while discovery actually read OPAL's size/date columns.
+// From 2026-08-11 to 2026-10-15 it did not: HTTP-first discovery became the
+// default and its rowText never spanned those columns, so *every* file came
+// back signal-less and this function returned true for the whole library -
+// measured 30 of 30 on a fresh one. A sync then re-downloaded everything, in
+// full, every single run. Fixed in httpdiscovery.go (httpCandidateWithRowText);
+// the number is back to being small, but the lesson is that this function's
+// cost is set entirely by how well discovery fills Size/Modified, and nothing
+// here notices when that silently stops working. If a sync ever gets slow
+// again, count the verify jobs first: `--profile` prints one "verified
+// unchanged" line each.
 func needsContentVerification(remote scraper.RemoteFile, hasPrevious bool) bool {
 	return hasPrevious && remote.Size == nil && remote.Modified == nil
 }

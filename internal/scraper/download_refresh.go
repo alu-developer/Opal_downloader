@@ -112,12 +112,12 @@ func refreshCounterURLPure(fetch wicketFetcher, opalURL, sectionURL, linkText st
 // tryCandidatePagesInOrder's existing, already-tested retry ordering (see
 // download.go) rather than duplicating that logic.
 func (s *OpalScraper) refreshCounterURL(reqCtx playwright.APIRequestContext, candidate downloadCandidate) (string, error) {
-	fetch := func(url string, headers map[string]string) (int, string, error) {
+	get := func(step, url string, headers map[string]string) (int, string, error) {
 		opts := playwright.APIRequestContextGetOptions{}
 		if len(headers) > 0 {
 			opts.Headers = headers
 		}
-		resp, err := s.getPolitely(reqCtx, url, opts)
+		resp, err := s.getPolitelyStep(reqCtx, step, url, opts)
 		if err != nil {
 			return 0, "", err
 		}
@@ -126,6 +126,25 @@ func (s *OpalScraper) refreshCounterURL(reqCtx playwright.APIRequestContext, can
 			return resp.Status(), "", bodyErr
 		}
 		return resp.Status(), string(body), nil
+	}
+
+	// usedMemo records whether this attempt's section HTML came out of the
+	// memo rather than off the wire, so a failure can be retried once
+	// against a fresh fetch (a cached Wicket page instance can be evicted
+	// server-side mid-run). The AJAX click is never memoized: it is the
+	// request that actually mints the one-time download URL.
+	usedMemo := false
+	fetch := func(url string, headers map[string]string) (int, string, error) {
+		if len(headers) > 0 {
+			return get("3-wicket-ajax-click", url, headers)
+		}
+		status, body, fresh, err := s.sectionHTML.get(url, func() (int, string, error) {
+			return get("2-section-page-refetch", url, nil)
+		})
+		if !fresh {
+			usedMemo = true
+		}
+		return status, body, err
 	}
 
 	// Note tryCandidatePagesInOrder also tries candidate.ExpandedPageURL, the
@@ -137,16 +156,38 @@ func (s *OpalScraper) refreshCounterURL(reqCtx playwright.APIRequestContext, can
 	// (6 of 36 in one real course) permanently missed this refresh and fell
 	// through to the slow serialized browser-click fallback.
 	var result string
-	err := tryCandidatePagesInOrder(candidate, func(sectionURL string) error {
-		url, refreshErr := refreshCounterURLPure(fetch, s.opalURL, sectionURL, candidate.LinkText)
-		if refreshErr != nil {
-			return refreshErr
-		}
-		result = url
-		return nil
-	})
-	if err != nil {
+	attempt := func() error {
+		return tryCandidatePagesInOrder(candidate, func(sectionURL string) error {
+			url, refreshErr := refreshCounterURLPure(fetch, s.opalURL, sectionURL, candidate.LinkText)
+			if refreshErr != nil {
+				return refreshErr
+			}
+			result = url
+			return nil
+		})
+	}
+
+	err := attempt()
+	if err == nil {
+		return result, nil
+	}
+
+	// Failed against memoized HTML: the cached page instance may simply have
+	// aged out server-side. Drop every page this candidate could have been
+	// looked up on and try once more off the wire, so a stale cache costs one
+	// extra fetch instead of sending the file down the serialized
+	// browser-click path. A failure on freshly fetched HTML is a real miss
+	// and is returned as-is.
+	if !usedMemo {
 		return "", err
+	}
+	for _, pageURL := range []string{candidate.SourceURL, candidate.ShowAllURL, candidate.ExpandedPageURL} {
+		if strings.TrimSpace(pageURL) != "" {
+			s.sectionHTML.invalidate(pageURL)
+		}
+	}
+	if retryErr := attempt(); retryErr != nil {
+		return "", retryErr
 	}
 	return result, nil
 }
@@ -262,6 +303,14 @@ func extractAjaxRedirectTarget(xmlBody string) string {
 // ajax-response. Wicket-Ajax-BaseURL must be the section URL's path relative
 // to opalURL (matching the `Wicket.Ajax.baseUrl="..."` value the section
 // page itself embeds).
+//
+// Measured 2026-10-15, live A/B against a real beyond-page-1 file: sending
+// the page's own embedded `Wicket.Ajax.baseUrl` here instead of the derived
+// value makes no difference - both forms return a valid
+// `downloadering?fibercode=…` URL, even when sectionURL is a show-all query
+// URL and the derived header therefore carries a whole Wicket query string.
+// Recorded so the next investigation does not spend a cycle on it: this
+// header is not why a paginated section's later files fail.
 func wicketAjaxHeaders(opalURL, sectionURL string) map[string]string {
 	return map[string]string{
 		"Wicket-Ajax":         "true",

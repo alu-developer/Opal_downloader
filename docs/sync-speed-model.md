@@ -102,6 +102,29 @@ No reason to stop — a solvable state. Fixed moves, in order:
 
 ### The whole sync (the number the target is about)
 
+**Superseded 2026-10-15 — Question 44 is CLOSED and the download phase is no
+longer the binding constraint.** Both causes were found in the bytes and fixed;
+see "2026-10-15: the download phase, solved" below. Current numbers, same
+method (real account, 6 courses, scratch `download_path`, `--profile`):
+
+| | before (this file's old model) | after |
+|---|---|---|
+| No-op sync, end to end | **31m21s and still unfinished** (stopped by hand at 214 of 279 files) | **64.1s** |
+| └ download phase, 0 files downloaded | the whole of it | **0.0s** |
+| └ errors | 80 and climbing | **0** |
+| First sync, everything to fetch | 267.7s for 279 files (1.0 files/s) | **169.7s for 297 files** (1.8 files/s) |
+| └ files needing the serialized browser click | 33 | **6** |
+| └ section-page re-fetches | 111 | **15** |
+
+Lossless: all 279 files the before-run produced are byte-for-byte identical in
+the after-run, which additionally fetched 18 files (a whole course) the
+before-run never reached.
+
+**The 30s target is now a discovery question again.** 64.1s of no-op sync is
+~64s of discovery and ~0s of downloads, which is the shape this file assumed
+back when it was measuring discovery alone — except the arithmetic finally
+supports it. The historical numbers below are kept as written.
+
 Measured 2026-08-12, 17:34-17:53, real account, real download folder, nothing to
 fetch — the first end-to-end no-op measurement this campaign has ever taken:
 
@@ -165,7 +188,7 @@ Re-ranked 2026-08-12 with the target redefined. Leverage now means *seconds off
 discovery-internal question below it — none of those can win more than the ~50s
 discovery costs in total.
 
-### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — **cause half CLOSED 2026-09-01: OPAL is not a version/branch of `OpenOLAT/OpenOLAT` at all, it's an independently-developed proprietary sibling fork with no public source to read.** Policy half already shipped 2026-08-18 (backoff). Opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); seven live experiments on 2026-08-13 ruled out pagination, both concurrency axes, and discovery order, isolating the trigger to "which course pairs with Softwaretechnologie" specifically; three source-reading passes against `OpenOLAT/OpenOLAT` all found things true of current master but unconfirmed against the live account - explained now that the live-fingerprint cycle below found *why*.
+### 44. Why do 49 files answer with HTML instead of their bytes, and what should a sync do with a file it cannot download? — **FULLY CLOSED 2026-10-15. The cause is Wicket page-instance churn: the section page was re-fetched once per file, each fetch minting a new server-side page instance, and under concurrent download workers the instance a worker was about to invoke had already been evicted. Fixed by memoizing the section HTML for the download phase (one instance per section, as a browser does) — 33 serialized browser-click files became 6, errors 80→0. The mechanism and every observation it reconciles are written up in "2026-10-15: the download phase, solved" below; a second, independent cause (discovery never reading the size/date columns, so every file was re-downloaded every sync) is written up there too.** Earlier status, kept because its refutations still stand — **cause half CLOSED 2026-09-01: OPAL is not a version/branch of `OpenOLAT/OpenOLAT` at all, it's an independently-developed proprietary sibling fork with no public source to read.** Policy half already shipped 2026-08-18 (backoff). Opened 2026-08-12 by the first end-to-end measurement (96% of a no-op sync); seven live experiments on 2026-08-13 ruled out pagination, both concurrency axes, and discovery order, isolating the trigger to "which course pairs with Softwaretechnologie" specifically; three source-reading passes against `OpenOLAT/OpenOLAT` all found things true of current master but unconfirmed against the live account - explained now that the live-fingerprint cycle below found *why*.
 
 **The finding.** A no-op sync spends 1097.1s downloading zero files. All of it
 is 49 files failing the same way: the direct GET returns HTML, the browser
@@ -3249,6 +3272,123 @@ count from one paginated section, with `warnShowAllTruncated` in the run log —
 the same shape 2026-07-26 saw.
 
 ---
+
+## 2026-10-15: the download phase, solved
+
+Maintainer asked why a sync waits so long **when files are being downloaded**
+(explicitly not discovery). Two independent causes, both found by measuring
+rather than reasoning, both fixed, both verified live. Question 44 closes here.
+
+### Instrument first
+
+The download phase had no breakdown — that is why eight cycles of this campaign
+measured discovery instead. `internal/scraper/downloadstats.go` now splits the
+phase by step (plain GET, section re-fetch, Wicket click, fibercode GET,
+browser-fallback lock wait and hold), separating limiter sleep from time spent
+waiting on OPAL. It logs under `--verbose`. Every number below came out of it.
+
+### Cause 1: HTTP-first discovery never read the size/date columns
+
+`parseHTTPSectionCandidates` set each candidate's `rowText` to the **anchor's
+own inner text**, and a file row's size and date live in *sibling* `<td>`
+cells:
+
+```
+<td><a data-file-name="Analysis01.pdf">…</a></td>
+<td><span>223,7KB</span></td>
+<td><span>am 03.10.2025 um 11:07 Uhr</span></td>
+```
+
+So `parseRowSizeBytes`/`parseRowModified` could only ever see the file name and
+every HTTP-discovered file came back `Size==nil, Modified==nil`. The browser
+path never had this bug — its `rowText` is `el.closest('tr, …').textContent`.
+When HTTP-first became the default (2026-08-11) it silently took change
+detection with it: `syncer.needsContentVerification` fires on exactly "no size
+and no date", so those files become verify jobs and are **re-downloaded in full
+on every sync** to discover nothing changed. That function's own doc comment
+still said the case covers "13 of 344 files (~4%)"; measured 2026-10-15 it was
+**30 of 30** on a fresh library, and every file downloaded since 2026-08-11
+enters the state permanently (a successful download writes the nil straight
+back into the manifest).
+
+Fixed by scoping `rowText` to the enclosing `<tr>` — but only for rows holding
+exactly one file anchor. A row with two cannot say whose size it is, and a
+*wrong* signal is worse than none: it would make a genuinely changed file look
+unchanged forever, where nil only costs a re-download. After: **279 of 279
+files carry both signals**, manifest entries are real numbers, verify jobs
+drop to 0.
+
+### Cause 2: the section page was re-fetched once per file, and Wicket noticed
+
+The counter-refresh re-fetches a file's section page to find its click
+behaviour. Once per *file* — so a 48-file section was fetched 48 times in
+seconds, and **every fetch makes OPAL mint a new server-side Wicket page
+instance** (the `?36` in `.../Part-3?36-2.1-…`). The extracted click URL is
+bound to its instance, OPAL keeps only a bounded number per session, and under
+3 download workers the instance a worker is about to invoke can already have
+been evicted by its neighbours' fetches. The invoke then returns no download
+target, the refresh reports a miss, and the file drops into the serialized
+browser-click path at ~6.4s of held mutex plus ~9.1s of other workers blocked
+behind it.
+
+This explains every observation Question 44 collected and could not reconcile:
+sequential replay of all 48 Part-3 files never failed (one worker cannot outrun
+its own instance); 3 workers on that one section in isolation never failed (too
+few instances to evict); only the full 6-course run failed, always with the
+same distribution; and the audit trail's "section URL re-fetched under
+different Wicket container ids (`?1065` then `?1109`) within ~20s, then the
+earlier container's click fails" was this mechanism, written down two months
+before it was understood.
+
+Fixed with `internal/scraper/sectionhtmlmemo.go`: one fetch per section for the
+length of a download phase, shared by every file in it, exactly as a browser
+does. Concurrent arrivals at an uncached section wait on one fetch rather than
+starting their own. A memoized page can still age out, so a lookup that fails
+against cached HTML invalidates and retries once off the wire — a stale cache
+costs one extra fetch instead of a new failure class.
+
+### Refuted on the way (Rule 3)
+
+**`Wicket-Ajax-BaseURL` is not the problem.** Beyond-page-1 candidates record
+`SourceURL` as the section's `pager-showAllLink` *query* URL, so the derived
+header carries a whole Wicket query string instead of the page's own
+`Wicket.Ajax.baseUrl`. That looked like an obvious culprit. Live A/B on a real
+failing file: **both header forms return a valid `downloadering?fibercode=…`
+URL.** Recorded in `wicketAjaxHeaders`' doc comment so the next investigation
+does not spend a cycle on it.
+
+**And the show-all URL does not go stale.** Replaying a recorded
+`pager-showAllLink` URL later in the same process still returned all 57
+anchors, with the wanted file's click behaviour present. Also not the cause.
+
+Both of these were written down as predictions before the runs that killed
+them, which is the only reason they cost one probe each instead of a cycle.
+
+### Result
+
+| | before | after |
+|---|---|---|
+| No-op sync | 31m21s, **unfinished** (stopped at 214/279) | **64.1s** |
+| └ download phase | all of it | **0.0s** |
+| └ errors | 80 and climbing | **0** |
+| First sync | 267.7s / 279 files | **169.7s / 297 files** |
+| └ serialized browser clicks | 33 | **6** |
+| └ section-page re-fetches | 111 | **15** |
+
+Lossless: 279/279 byte-identical, plus 18 files (a whole course) the
+before-run never reached. Logs in `docs/measurements/download-phase-*`.
+
+### Still open
+
+- **6 files still take the serialized browser path** on a first sync (down from
+  33). Not diagnosed — the memo removed the bulk of the instance churn, not all
+  of it.
+- **The politeness limiter is now the largest single component of a first
+  sync**: 2m09s of limiter sleep inside a 169.7s download phase (`--verbose`'s
+  "rate ceiling" line). That is `polite.DefaultMinInterval` doing exactly its
+  job, and raising it is a server-load decision for the maintainer, not a
+  performance bug. See `docs/server-load.md`.
+- **Discovery is the binding constraint again** at ~64s against a 30s target.
 
 ## Next experiment
 

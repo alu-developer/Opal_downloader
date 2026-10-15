@@ -1,0 +1,659 @@
+Download path: C:/Users/alois/AppData/Local/Temp/claude/opal-bench/full-after
+Course patterns: 2026 LA20, Algorithmen und Datenstrukturen, So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20), Analysis, Softwaretechnologie (SoSe 26), TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+Default course folder: C:/Users/alois/AppData/Local/Temp/claude/opal-bench/full-after/Default_downloads
+
+Blocking inline file previews on new page (default on; OPAL_BLOCK_FILE_PREVIEWS=0 to disable)
+Saved session state expired. Interactive login required.
+Launching persistent browser profile: userDataDir=C:\Users\alois\.opal-downloader\login-profile
+Blocking inline file previews on new page (default on; OPAL_BLOCK_FILE_PREVIEWS=0 to disable)
+Opening OPAL at https://bildungsportal.sachsen.de/opal/
+Please complete login in the opened browser window (TU-Fast/2FA supported).
+Saved session state to: C:\Users\alois\.opal_storage_state.json
+Blocking inline file previews on new page (default on; OPAL_BLOCK_FILE_PREVIEWS=0 to disable)
+Found 4 course links
+Discovery: 4.4s (4 courses)
+  Found 4 course(s) - starting to scan them
+Processing: 2026 LA20
+  Scanning course 1 of 4: 2026 LA20
+Skipping section "Einschreibung zum Kurs" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/102408704615627): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung in die Übungsgruppen" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/1709609352182565009): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished 2026 LA20 - found 39 file(s)
+  Scanning course 2 of 4: Analysis
+  [profile] course "2026 LA20": 11.3574169s (39 files)
+  2026 LA20: 39 files (11.4s)
+Processing: Analysis
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431705760008): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung Übung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431727257008): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished Analysis - found 30 file(s)
+  Scanning course 3 of 4: Softwaretechnologie (SoSe 26)
+  [profile] course "Analysis": 7.8191194s (30 files)
+  Analysis: 30 files (7.8s)
+Processing: Softwaretechnologie (SoSe 26)
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1615951726359860007): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung für Probeklausur" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1785724693373635010): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished Softwaretechnologie (SoSe 26) - found 210 file(s)
+  Scanning course 4 of 4: TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+Processing: TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+  [profile] course "Softwaretechnologie (SoSe 26)": 43.2994995s (210 files)
+  Softwaretechnologie (SoSe 26): 210 files (43.3s)
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53769273345/CourseNode/1695781921370673006): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren - found 18 file(s)
+  [profile] course "TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren": 3.28267s (18 files)
+  TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren: 18 files (3.3s)
+Discovery summary: 4 courses, 259 HTTP requests, 1m5.7587058s
+Discovered 297 remote files
+Discovered 297 remote files. Comparing against local manifest...
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/Kapitel3.pdf in 247.7124ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/Kapitel3.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/Kapitel1.pdf in 474.1466ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/Kapitel1.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/Kapitel2.pdf in 738.4369ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/Kapitel2.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/Kapitel4.pdf in 708.5722ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/Kapitel4.pdf
+  [profile] downloaded 2026 LA20/Vorlesung/Kapitel5-update-ohneKommentare.pdf in 829.6987ms
+  downloaded: 2026 LA20/Vorlesung/Kapitel5-update-ohneKommentare.pdf
+  [profile] downloaded 2026 LA20/Vorlesung/Kapitel6-ohne-Kommentare.pdf in 813.1185ms
+  downloaded: 2026 LA20/Vorlesung/Kapitel6-ohne-Kommentare.pdf
+  [profile] downloaded 2026 LA20/Vorlesung/Kapitel7--ohne-Kommentare.pdf in 700.6351ms
+  downloaded: 2026 LA20/Vorlesung/Kapitel7--ohne-Kommentare.pdf
+  [profile] downloaded 2026 LA20/Vorlesung/Kapitel8-ohne-Kommentare.pdf in 615.0953ms
+  downloaded: 2026 LA20/Vorlesung/Kapitel8-ohne-Kommentare.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U00.pdf in 677.5168ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U00.pdf
+  [profile] downloaded 2026 LA20/Übungen/U01.pdf in 860.7806ms
+  downloaded: 2026 LA20/Übungen/U01.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U01.pdf in 803.1735ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U01.pdf
+  [profile] downloaded 2026 LA20/Übungen/U02.pdf in 706.4406ms
+  downloaded: 2026 LA20/Übungen/U02.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U02.pdf in 678.7611ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U02.pdf
+  [profile] downloaded 2026 LA20/Übungen/U03.pdf in 759.0331ms
+  downloaded: 2026 LA20/Übungen/U03.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U03.pdf in 718.3949ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U03.pdf
+  [profile] downloaded 2026 LA20/Übungen/U04.pdf in 733.4924ms
+  downloaded: 2026 LA20/Übungen/U04.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U04.pdf in 677.0991ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U04.pdf
+  [profile] downloaded 2026 LA20/Übungen/U05.pdf in 822.3868ms
+  downloaded: 2026 LA20/Übungen/U05.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U05.pdf in 763.3628ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U05.pdf
+  [profile] downloaded 2026 LA20/Übungen/U06.pdf in 768.2909ms
+  downloaded: 2026 LA20/Übungen/U06.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U06.pdf in 677.1646ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U06.pdf
+  [profile] downloaded 2026 LA20/Übungen/U07.pdf in 708.3175ms
+  downloaded: 2026 LA20/Übungen/U07.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U07.pdf in 728.6499ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U07.pdf
+  [profile] downloaded 2026 LA20/Übungen/U07i.pdf in 736.1649ms
+  downloaded: 2026 LA20/Übungen/U07i.pdf
+  [profile] downloaded 2026 LA20/Übungen/U08.pdf in 798.6363ms
+  downloaded: 2026 LA20/Übungen/U08.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U08.pdf in 867.237ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U08.pdf
+  [profile] downloaded 2026 LA20/Übungen/U09.pdf in 830.3115ms
+  downloaded: 2026 LA20/Übungen/U09.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U09.pdf in 712.1239ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U09.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U10.pdf in 645.1208ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U10.pdf
+  [profile] downloaded 2026 LA20/Übungen/U10.pdf in 708.5658ms
+  downloaded: 2026 LA20/Übungen/U10.pdf
+  [profile] downloaded 2026 LA20/Übungen/U11.pdf in 755.0417ms
+  downloaded: 2026 LA20/Übungen/U11.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U11.pdf in 737.7672ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U11.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U12.pdf in 755.2162ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U12.pdf
+  [profile] downloaded 2026 LA20/Übungen/U12.pdf in 752.3976ms
+  downloaded: 2026 LA20/Übungen/U12.pdf
+  [profile] downloaded 2026 LA20/Übungen/U13.pdf in 771.2203ms
+  downloaded: 2026 LA20/Übungen/U13.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U13.pdf in 731.0902ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U13.pdf
+  [profile] downloaded 2026 LA20/Übungen/U14.pdf in 758.32ms
+  downloaded: 2026 LA20/Übungen/U14.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/U14.pdf in 736.8881ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/U14.pdf
+  [profile] downloaded 2026 LA20/Material aus dem Wintersemester/Zusammenfassung_LA10.pdf in 754.5261ms
+  downloaded: 2026 LA20/Material aus dem Wintersemester/Zusammenfassung_LA10.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis01.pdf in 848.3713ms
+  downloaded: Analysis/Übungsblätter/Analysis01.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis02.pdf in 789.577ms
+  downloaded: Analysis/Übungsblätter/Analysis02.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis03.pdf in 821.0665ms
+  downloaded: Analysis/Übungsblätter/Analysis03.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis04.pdf in 727.7449ms
+  downloaded: Analysis/Übungsblätter/Analysis04.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis05.pdf in 734.0191ms
+  downloaded: Analysis/Übungsblätter/Analysis05.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis06.pdf in 744.1265ms
+  downloaded: Analysis/Übungsblätter/Analysis06.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis07.pdf in 662.8468ms
+  downloaded: Analysis/Übungsblätter/Analysis07.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis08.pdf in 736.1989ms
+  downloaded: Analysis/Übungsblätter/Analysis08.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis09.pdf in 764.0186ms
+  downloaded: Analysis/Übungsblätter/Analysis09.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis10.pdf in 758.1736ms
+  downloaded: Analysis/Übungsblätter/Analysis10.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis11.pdf in 786.7149ms
+  downloaded: Analysis/Übungsblätter/Analysis11.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis12.pdf in 685.995ms
+  downloaded: Analysis/Übungsblätter/Analysis12.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis13.pdf in 764.6418ms
+  downloaded: Analysis/Übungsblätter/Analysis13.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis14.pdf in 712.1596ms
+  downloaded: Analysis/Übungsblätter/Analysis14.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis15.pdf in 864.7278ms
+  downloaded: Analysis/Übungsblätter/Analysis15.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis16.pdf in 841.7255ms
+  downloaded: Analysis/Übungsblätter/Analysis16.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis17.pdf in 789.0289ms
+  downloaded: Analysis/Übungsblätter/Analysis17.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis18.pdf in 694.1979ms
+  downloaded: Analysis/Übungsblätter/Analysis18.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis19.pdf in 823.1643ms
+  downloaded: Analysis/Übungsblätter/Analysis19.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis20.pdf in 774.3577ms
+  downloaded: Analysis/Übungsblätter/Analysis20.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis21.pdf in 727.8151ms
+  downloaded: Analysis/Übungsblätter/Analysis21.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis22.pdf in 584.9272ms
+  downloaded: Analysis/Übungsblätter/Analysis22.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis23.pdf in 860.6489ms
+  downloaded: Analysis/Übungsblätter/Analysis23.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis24.pdf in 781.9512ms
+  downloaded: Analysis/Übungsblätter/Analysis24.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis25.pdf in 770.3257ms
+  downloaded: Analysis/Übungsblätter/Analysis25.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis26.pdf in 598.2153ms
+  downloaded: Analysis/Übungsblätter/Analysis26.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis27.pdf in 712.6324ms
+  downloaded: Analysis/Übungsblätter/Analysis27.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis28.pdf in 723.5777ms
+  downloaded: Analysis/Übungsblätter/Analysis28.pdf
+  [profile] downloaded Analysis/Übungsblätter/Analysis29.pdf in 730.9393ms
+  downloaded: Analysis/Übungsblätter/Analysis29.pdf
+  [profile] downloaded Analysis/Material/AnalysisSkriptChill.pdf in 937.8739ms
+  downloaded: Analysis/Material/AnalysisSkriptChill.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Vorlesungsfolien und -materialien (Sammlung)/00-st-announcements.pdf in 958.495ms
+  downloaded: Softwaretechnologie (SoSe 26)/Vorlesungsfolien und -materialien (Sammlung)/00-st-announcements.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Vorlesungsfolien und -materialien (Sammlung)/00-st-announcements_notes.pdf in 897.2696ms
+  downloaded: Softwaretechnologie (SoSe 26)/Vorlesungsfolien und -materialien (Sammlung)/00-st-announcements_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Vorlesungsfolien und -materialien (Sammlung)/00-st-announcements_slides.pdf in 704.3715ms
+  downloaded: Softwaretechnologie (SoSe 26)/Vorlesungsfolien und -materialien (Sammlung)/00-st-announcements_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/02.Übung-Oliver-Geisel.pdf in 1.1612711s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/02.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/05.Übung-Oliver-Geisel.pdf in 896.6071ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/05.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U04 - Generics und Collections-Framework (I)/04.Übung-Oliver-Geisel.pdf in 2.1058501s
+  downloaded: Softwaretechnologie (SoSe 26)/U04 - Generics und Collections-Framework (I)/04.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/03.Übung-Oliver-Geisel.pdf in 2.4343866s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/03.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/06.Übung-Oliver-Geisel.pdf in 971.9272ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/06.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/08.Übung-Oliver-Geisel.pdf in 1.5059064s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/08.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/09.Übung-Oliver-Geisel.pdf in 1.1354024s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/09.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/07.Übung-Oliver-Geisel.pdf in 1.6854866s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/07.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/10-ObjekteUndKlassen.zip in 1.820205s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/10-ObjekteUndKlassen.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/10-st-object-orientation.pdf in 2.4840827s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/10-st-object-orientation.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/10-st-object-orientation_notes.pdf in 2.7134313s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/10-st-object-orientation_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/10.Übung-Oliver-Geisel.pdf in 833.1438ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/10.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/10-st-object-orientation_slides.pdf in 2.2895237s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/10-st-object-orientation_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/11-Inheritance.zip in 1.4809122s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/11-Inheritance.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/11-st-inheritance-polymorphism.pdf in 2.1789994s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/11-st-inheritance-polymorphism.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/11-st-inheritance-polymorphism_notes.pdf in 2.681314s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/11-st-inheritance-polymorphism_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/11.Übung-Oliver-Geisel.pdf in 1.3401596s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/11.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/11-st-inheritance-polymorphism_slides.pdf in 2.6907344s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/11-st-inheritance-polymorphism_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/11b-plantuml-uml-cd.pdf in 1.4269658s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/11b-plantuml-uml-cd.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/11b-plantuml-uml-cd_notes.pdf in 1.7441036s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/11b-plantuml-uml-cd_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/11b-plantuml-uml-cd_slides.pdf in 2.2131279s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/11b-plantuml-uml-cd_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/12-st-crc-analysis.pdf in 2.2144903s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/12-st-crc-analysis.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/12-st-crc-analysis_notes.pdf in 2.272365s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/12-st-crc-analysis_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/12-st-crc-analysis_slides.pdf in 2.353225s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/12-st-crc-analysis_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/12.Übung-Oliver-Geisel.pdf in 1.5310745s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/12.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/13-Test.zip in 2.4298572s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/13-Test.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/13-st-testing.pdf in 2.7187663s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/13-st-testing.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/13.Übung-Oliver-Geisel.pdf in 1.0330449s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/13.Übung-Oliver-Geisel.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/13-st-testing_notes.pdf in 3.4628563s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/13-st-testing_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/13-st-testing_slides.pdf in 2.6984386s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/13-st-testing_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/14-st-programmieren-mit-loechern.pdf in 903.6276ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/14-st-programmieren-mit-loechern.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/14-st-programmieren-mit-loechern_notes.pdf in 2.0670429s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/14-st-programmieren-mit-loechern_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/14-st-programmieren-mit-loechern_slides.pdf in 2.0953582s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/14-st-programmieren-mit-loechern_slides.pdf
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-after\Default_downloads\Softwaretechnologie (SoSe 26)\Part-2\20-st-overview-refinement-object-nets.pdf is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/14.Übung-Oliver-Geisl.pdf in 2.7743617s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/14.Übung-Oliver-Geisl.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/20-st-overview-refinement-object-nets_slides.pdf in 2.0183225s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/20-st-overview-refinement-object-nets_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/21-Bestellung-Listen.zip in 711.6841ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/21-Bestellung-Listen.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/21-Katalog-Mit-Abbildung.zip in 757.975ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/21-Katalog-Mit-Abbildung.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/21-Warengruppe-Mengen.zip in 744.0341ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/21-Warengruppe-Mengen.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/21-st-collections.pdf in 1.0620809s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/21-st-collections.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/21-st-collections_notes.pdf in 809.9566ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/21-st-collections_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/21-st-collections_slides.pdf in 878.9131ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/21-st-collections_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/22-st-design-patterns.pdf in 656.9684ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/22-st-design-patterns.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/22-st-design-patterns_notes.pdf in 776.2076ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/22-st-design-patterns_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/22-st-design-patterns_slides.pdf in 726.4244ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/22-st-design-patterns_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/23-st-connectors-iterators-channels.pdf in 933.7214ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/23-st-connectors-iterators-channels.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/23-st-connectors-iterators-channels_notes.pdf in 1.0447891s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/23-st-connectors-iterators-channels_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/23-st-connectors-iterators-channels_slides.pdf in 998.2802ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/23-st-connectors-iterators-channels_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/24-st-product-line-design-patterns.pdf in 736.9612ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/24-st-product-line-design-patterns.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/24-st-product-line-design-patterns_notes.pdf in 750.1316ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/24-st-product-line-design-patterns_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/24-st-product-line-design-patterns_slides.pdf in 775.6506ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/24-st-product-line-design-patterns_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/25-Graphs.zip in 809.0438ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/25-Graphs.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/25-st-graphs.pdf in 964.4155ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/25-st-graphs.pdf
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-after\Default_downloads\Softwaretechnologie (SoSe 26)\Part-2\20-st-overview-refinement-object-nets_notes.pdf is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/20-st-overview-refinement-object-nets.pdf in 18.0553288s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/20-st-overview-refinement-object-nets.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/25-st-graphs_notes.pdf in 871.8858ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/25-st-graphs_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/25-st-graphs_slides.pdf in 1.9616162s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/25-st-graphs_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis-2x1.pdf in 2.0407682s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis-2x2.pdf in 1.3881842s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis.pdf in 1.5364933s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_notes-2x1.pdf in 1.4328445s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_notes-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_notes-2x2.pdf in 1.4848765s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_notes-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_notes.pdf in 1.5190058s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_slides-2x1.pdf in 1.4948469s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_slides-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_slides-2x2.pdf in 1.4824169s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_slides-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_slides.pdf in 1.5443663s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/30-st-overview-analysis_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-1/31-Terminverwaltung.zip in 1.4079003s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-1/31-Terminverwaltung.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis-2x1.pdf in 2.3023745s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis-2x2.pdf in 2.1674674s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis.pdf in 880.2048ms
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_notes-2x1.pdf in 1.7647937s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_notes-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_notes-2x2.pdf in 1.7126088s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_notes-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_notes.pdf in 1.5295517s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_slides-2x1.pdf in 1.4304783s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_slides-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_slides-2x2.pdf in 1.3958698s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_slides-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_slides.pdf in 1.8372967s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/31-st-structure-driven-analysis_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-2/20-st-overview-refinement-object-nets_notes.pdf in 34.2253518s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-2/20-st-overview-refinement-object-nets_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects-2x1.pdf in 2.5037939s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects.pdf in 2.5808687s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects-2x2.pdf in 2.8373086s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_notes-2x1.pdf in 2.4790416s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_notes-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_notes-2x2.pdf in 2.0720292s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_notes-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_notes.pdf in 2.3616562s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_slides-2x1.pdf in 1.555484s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_slides-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_slides-2x2.pdf in 2.4068855s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_slides-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_slides.pdf in 2.5527949s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/32-st-complex-objects_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features-2x1.pdf in 2.1135221s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features-2x2.pdf in 1.9774201s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features.pdf in 1.8172342s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_notes-2x1.pdf in 2.1043356s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_notes-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_notes-2x2.pdf in 2.2677145s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_notes-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_notes.pdf in 2.2659918s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_slides-2x1.pdf in 2.219571s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_slides-2x1.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_slides-2x2.pdf in 2.2231743s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_slides-2x2.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_slides.pdf in 2.2462131s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/33-st-context-model-features_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/34-st-state-machines.pdf in 2.4728151s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/34-st-state-machines.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/34-st-state-machines_notes.pdf in 2.4490907s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/34-st-state-machines_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/34-st-state-machines_slides.pdf in 2.3749903s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/34-st-state-machines_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/35-st-analysis-lifecycles.pdf in 1.830703s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/35-st-analysis-lifecycles.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/35-st-analysis-lifecycles_notes.pdf in 2.2770899s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/35-st-analysis-lifecycles_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/35-st-analysis-lifecycles_slides.pdf in 2.0395818s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/35-st-analysis-lifecycles_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/36-st-scenario-analysis-use-cases.pdf in 2.3724351s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/36-st-scenario-analysis-use-cases.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/36-st-scenario-analysis-use-cases_notes.pdf in 2.4173588s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/36-st-scenario-analysis-use-cases_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example.pdf in 2.0868497s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/36-st-scenario-analysis-use-cases_slides.pdf in 2.6297446s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/36-st-scenario-analysis-use-cases_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_notes.pdf in 2.0684564s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf in 1.9452553s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-3/37-st-analysis-eu-rent-example_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/40-st-oo-design-by-refinement.pdf in 3.1324733s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/40-st-oo-design-by-refinement.pdf
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-after\Default_downloads\Softwaretechnologie (SoSe 26)\Part-4\40-st-oo-design-by-refinement_notes.pdf is not available as a direct link - resolving it the slow way (this can take a minute or two)
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-after\Default_downloads\Softwaretechnologie (SoSe 26)\Part-4\40-st-oo-design-by-refinement_slides.pdf is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/40-st-oo-design-by-refinement_notes.pdf in 19.4790198s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/40-st-oo-design-by-refinement_notes.pdf
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-after\Default_downloads\Softwaretechnologie (SoSe 26)\Part-4\41-st-overview-architecture.pdf is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/40-st-oo-design-by-refinement_slides.pdf in 35.5436564s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/40-st-oo-design-by-refinement_slides.pdf
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-after\Default_downloads\Softwaretechnologie (SoSe 26)\Part-4\41-st-overview-architecture_notes.pdf is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/41-st-overview-architecture.pdf in 35.5682503s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/41-st-overview-architecture.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/41-st-overview-architecture_slides.pdf in 1.8293369s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/41-st-overview-architecture_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/41-st-overview-architecture_notes.pdf in 18.1506037s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/41-st-overview-architecture_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/42-st-platform-connectors.pdf in 1.7561077s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/42-st-platform-connectors.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/42-st-platform-connectors_notes.pdf in 1.9110545s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/42-st-platform-connectors_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/42-st-platform-connectors_slides.pdf in 2.0768538s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/42-st-platform-connectors_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/43-GUI.zip in 2.0459063s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/43-GUI.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/43-st-architecture-interactive-systems.pdf in 2.0605521s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/43-st-architecture-interactive-systems.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/43-st-architecture-interactive-systems_notes.pdf in 2.461582s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/43-st-architecture-interactive-systems_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-4/43-st-architecture-interactive-systems_slides.pdf in 2.4924964s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-4/43-st-architecture-interactive-systems_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-5/50-st-projekt-management_notes.pdf in 2.3187782s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-5/50-st-projekt-management_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-5/50-st-projekt-management.pdf in 3.3590462s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-5/50-st-projekt-management.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-5/50-st-projekt-management_slides.pdf in 2.1710391s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-5/50-st-projekt-management_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-5/51-st-engineering-large-systems.pdf in 1.9408709s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-5/51-st-engineering-large-systems.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/Abweichung.zip in 521.958ms
+  downloaded: Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/Abweichung.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-5/51-st-engineering-large-systems_notes.pdf in 2.6287981s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-5/51-st-engineering-large-systems_notes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Aktien_und_Investoren.zip in 774.5816ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Aktien_und_Investoren.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Part-5/51-st-engineering-large-systems_slides.pdf in 2.2092517s
+  downloaded: Softwaretechnologie (SoSe 26)/Part-5/51-st-engineering-large-systems_slides.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U08 - Buildsysteme und Objektnetztests/Aktien_und_Investoren.zip in 437.0282ms
+  downloaded: Softwaretechnologie (SoSe 26)/U08 - Buildsysteme und Objektnetztests/Aktien_und_Investoren.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/Arbeiten_mit_JUnit_3.8.pdf in 627.4161ms
+  downloaded: Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/Arbeiten_mit_JUnit_3.8.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/AudioClipManager.zip in 795.5989ms
+  downloaded: Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/AudioClipManager.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Bauteil.zip in 754.3824ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Bauteil.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/Bauteil.zip in 613.6958ms
+  downloaded: Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/Bauteil.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/Bestellung.zip in 667.4466ms
+  downloaded: Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/Bestellung.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Bestellung.zip in 718.9202ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Bestellung.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/Bibliothek.zip in 747.3194ms
+  downloaded: Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/Bibliothek.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Bibliothek_Liste.zip in 748.5769ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Bibliothek_Liste.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Bibliothek_Map.zip in 749.2529ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Bibliothek_Map.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Bibliothek_Set.zip in 740.6829ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Bibliothek_Set.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Bottle.zip in 772.536ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Bottle.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Dokumente/Debuggin mit IDEs-Manuskript-25.pdf in 1.328769s
+  downloaded: Softwaretechnologie (SoSe 26)/Dokumente/Debuggin mit IDEs-Manuskript-25.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/FirstStepsInJava.pdf in 1.1274293s
+  downloaded: Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/FirstStepsInJava.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/GarageDoor.zip in 181.2294ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/GarageDoor.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Dokumente/Debuggen mit IDEs-Notizen-25.pdf in 1.7786057s
+  downloaded: Softwaretechnologie (SoSe 26)/Dokumente/Debuggen mit IDEs-Notizen-25.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/HelloLibrary.zip in 318.8944ms
+  downloaded: Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/HelloLibrary.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/HelloLibrary.zip in 439.4685ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/HelloLibrary.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/HelloLibraryII.zip in 686.3301ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/HelloLibraryII.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U14 - Konsultation/Klausur_WS2019.pdf in 802.0644ms
+  downloaded: Softwaretechnologie (SoSe 26)/U14 - Konsultation/Klausur_WS2019.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U02 - Einführung in Java II/Koenigreich.zip in 759.1799ms
+  downloaded: Softwaretechnologie (SoSe 26)/U02 - Einführung in Java II/Koenigreich.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/Koenigreich.zip in 749.6949ms
+  downloaded: Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/Koenigreich.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Koenigreich.zip in 697.4326ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Koenigreich.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/KoenigreichTests_JUnit3.zip in 740.5656ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/KoenigreichTests_JUnit3.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/KoenigreichTests_JUnit4_BlueJ.zip in 839.1696ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/KoenigreichTests_JUnit4_BlueJ.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Editor Plugin/Plugin_Eclipse_Model_Editor.zip in 856.9169ms
+  downloaded: Softwaretechnologie (SoSe 26)/Editor Plugin/Plugin_Eclipse_Model_Editor.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U09 - Objektorientierte Analyse (I)/Schaubild_OOA_Klassendiagramme.pdf in 755.4404ms
+  downloaded: Softwaretechnologie (SoSe 26)/U09 - Objektorientierte Analyse (I)/Schaubild_OOA_Klassendiagramme.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U11 - Objektorientierte Analyse (III)/Schaubild_OOA_Zustandsdiagramme.pdf in 671.7348ms
+  downloaded: Softwaretechnologie (SoSe 26)/U11 - Objektorientierte Analyse (III)/Schaubild_OOA_Zustandsdiagramme.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U14 - Konsultation/Uberblick_Diagrammrelationen.pdf in 810.2614ms
+  downloaded: Softwaretechnologie (SoSe 26)/U14 - Konsultation/Uberblick_Diagrammrelationen.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/VeranstaltungsApp.zip in 886.4478ms
+  downloaded: Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/VeranstaltungsApp.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_Analyse.pdf in 1.017479s
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_Analyse.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_Entwurfsmuster.pdf in 836.9719ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_Entwurfsmuster.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_HelloLibrary.pdf in 790.8349ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_HelloLibrary.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_JUnit.pdf in 574.1694ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_JUnit.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_OOSE.pdf in 626.2352ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_OOSE.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_OOSE_06.pdf in 771.3692ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_OOSE_06.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_Vererbung_Polymorphie.pdf in 980.7492ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/Zusatzmaterial_Vererbung_Polymorphie.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/junit3.8.2.zip in 802.2915ms
+  downloaded: Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/junit3.8.2.zip
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/u01-aufgabe.pdf in 586.3968ms
+  downloaded: Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/u01-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/u01-learning-outcomes.pdf in 431.651ms
+  downloaded: Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/u01-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u01-loesung.pdf in 593.498ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u01-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U02 - Einführung in Java II/u02-aufgabe.pdf in 742.9051ms
+  downloaded: Softwaretechnologie (SoSe 26)/U02 - Einführung in Java II/u02-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u02-hinweise.pdf in 754.5594ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u02-hinweise.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U02 - Einführung in Java II/u02-learning-outcomes.pdf in 757.4852ms
+  downloaded: Softwaretechnologie (SoSe 26)/U02 - Einführung in Java II/u02-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u02-loesung.pdf in 841.4724ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u02-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/u03-aufgabe.pdf in 742.4982ms
+  downloaded: Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/u03-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/u03-learning-outcomes.pdf in 728.9294ms
+  downloaded: Softwaretechnologie (SoSe 26)/U03 - Einführung in Java III_ Testen/u03-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u03-loesung.pdf in 991.6751ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u03-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U04 - Generics und Collections-Framework (I)/u04-aufgabe.pdf in 856.0115ms
+  downloaded: Softwaretechnologie (SoSe 26)/U04 - Generics und Collections-Framework (I)/u04-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U04 - Generics und Collections-Framework (I)/u04-learning-outcomes.pdf in 745.3106ms
+  downloaded: Softwaretechnologie (SoSe 26)/U04 - Generics und Collections-Framework (I)/u04-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u04-loesung.pdf in 652.2332ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u04-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U05 - Generics und Collections-Framework (II)/u05-aufgabe.pdf in 705.6276ms
+  downloaded: Softwaretechnologie (SoSe 26)/U05 - Generics und Collections-Framework (II)/u05-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U05 - Generics und Collections-Framework (II)/u05-learning-outcomes.pdf in 770.5857ms
+  downloaded: Softwaretechnologie (SoSe 26)/U05 - Generics und Collections-Framework (II)/u05-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u05-loesung.pdf in 710.7964ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u05-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/u06-aufgabe.pdf in 733.3376ms
+  downloaded: Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/u06-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/u06-learning-outcomes.pdf in 759.7167ms
+  downloaded: Softwaretechnologie (SoSe 26)/U06 - Entwurfsmuster (I)/u06-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u06-loesung.pdf in 861.6388ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u06-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/u07-aufgabe.pdf in 786.3399ms
+  downloaded: Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/u07-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/u07-learning-outcomes.pdf in 712.3591ms
+  downloaded: Softwaretechnologie (SoSe 26)/U07 - Entwurfsmuster (II)/u07-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u07-loesung.pdf in 657.5321ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u07-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U08 - Buildsysteme und Objektnetztests/u08-aufgabe.pdf in 691.231ms
+  downloaded: Softwaretechnologie (SoSe 26)/U08 - Buildsysteme und Objektnetztests/u08-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U08 - Buildsysteme und Objektnetztests/u08-learning-outcomes.pdf in 762.7272ms
+  downloaded: Softwaretechnologie (SoSe 26)/U08 - Buildsysteme und Objektnetztests/u08-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U09 - Objektorientierte Analyse (I)/u09-aufgabe.pdf in 825.9715ms
+  downloaded: Softwaretechnologie (SoSe 26)/U09 - Objektorientierte Analyse (I)/u09-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u08-loesung.pdf in 901.2883ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u08-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U09 - Objektorientierte Analyse (I)/u09-learning-outcomes.pdf in 783.6495ms
+  downloaded: Softwaretechnologie (SoSe 26)/U09 - Objektorientierte Analyse (I)/u09-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U10 - Objektorientierte Analyse (II)/u10-aufgabe.pdf in 744.6004ms
+  downloaded: Softwaretechnologie (SoSe 26)/U10 - Objektorientierte Analyse (II)/u10-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u09-loesung.pdf in 783.0266ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u09-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U10 - Objektorientierte Analyse (II)/u10-learning-outcomes.pdf in 713.3497ms
+  downloaded: Softwaretechnologie (SoSe 26)/U10 - Objektorientierte Analyse (II)/u10-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u10-loesung.pdf in 532.4356ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u10-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U11 - Objektorientierte Analyse (III)/u11-aufgabe.pdf in 675.3391ms
+  downloaded: Softwaretechnologie (SoSe 26)/U11 - Objektorientierte Analyse (III)/u11-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U11 - Objektorientierte Analyse (III)/u11-learning-outcomes.pdf in 762.9845ms
+  downloaded: Softwaretechnologie (SoSe 26)/U11 - Objektorientierte Analyse (III)/u11-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u11-loesung.pdf in 816.4652ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u11-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U12 - Objektorientierte Analyse (IV)/u12-aufgabe.pdf in 821.8566ms
+  downloaded: Softwaretechnologie (SoSe 26)/U12 - Objektorientierte Analyse (IV)/u12-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U12 - Objektorientierte Analyse (IV)/u12-learning-outcomes.pdf in 756.7972ms
+  downloaded: Softwaretechnologie (SoSe 26)/U12 - Objektorientierte Analyse (IV)/u12-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u12-loesung.pdf in 776.6699ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u12-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U13 - Objektorientierter Entwurf/u13-aufgabe.pdf in 756.3015ms
+  downloaded: Softwaretechnologie (SoSe 26)/U13 - Objektorientierter Entwurf/u13-aufgabe.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U13 - Objektorientierter Entwurf/u13-learning-outcomes.pdf in 742.0394ms
+  downloaded: Softwaretechnologie (SoSe 26)/U13 - Objektorientierter Entwurf/u13-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/U14 - Konsultation/u14-learning-outcomes.pdf in 668.5154ms
+  downloaded: Softwaretechnologie (SoSe 26)/U14 - Konsultation/u14-learning-outcomes.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u13-loesung.pdf in 798.1481ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u13-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Musterlösung/u14-loesung.pdf in 865.9468ms
+  downloaded: Softwaretechnologie (SoSe 26)/Musterlösung/u14-loesung.pdf
+  [profile] downloaded Softwaretechnologie (SoSe 26)/Dokumente/Übersicht zum Thema Debugging.pdf in 516.8274ms
+  downloaded: Softwaretechnologie (SoSe 26)/Dokumente/Übersicht zum Thema Debugging.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Vorlesung/NM20-2026.pdf in 941.9271ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Vorlesung/NM20-2026.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe01_nm20-so26.pdf in 692.5046ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe01_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe02_nm20-so26.pdf in 788.0513ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe02_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe03_nm20-so26.pdf in 594.2632ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe03_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe04_nm20-so26.pdf in 759.1462ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe04_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe05_nm20-so26.pdf in 716.2985ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe05_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe06_nm20-so26.pdf in 784.5091ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe06_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe_modulbegleitende_aufgaben.pdf in 718.344ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/loe_modulbegleitende_aufgaben.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/modulbegleitende_aufgaben.pdf in 733.2868ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/modulbegleitende_aufgaben.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Programmierung/p1_sparsematrix.py in 609.3885ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Programmierung/p1_sparsematrix.py
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Programmierung/prog_solvers.py in 686.5402ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Programmierung/prog_solvers.py
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Programmierung/prog_sparse_matrix.py in 696.3021ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Programmierung/prog_sparse_matrix.py
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue01_nm20-so26.pdf in 866.9631ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue01_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue02_nm20-so26.pdf in 819.1804ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue02_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue03_nm20-so26.pdf in 810.9784ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue03_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue04_nm20-so26.pdf in 674.7634ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue04_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue05_nm20-so26.pdf in 830.2064ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue05_nm20-so26.pdf
+  [profile] downloaded TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue06_nm20-so26.pdf in 764.3752ms
+  downloaded: TUDMATH SoSe2026 Modul Math-Ba-NM20_ Numerische Mathematik - Iterationsverfahren/Übung mit modulbegleitenden Aufgaben/ue06_nm20-so26.pdf
+
+Done. downloaded=297 skipped=0 errors=0
+
+Download:  169.7s (297 files, 1.8 files/sec, 1.3 MB/sec)
+Total:     250.7s
+rate ceiling: 546 navigation(s), 509 delayed, 3m51.938957s held in total
+download phase breakdown (sum of per-worker time, 9m14.8736989s across 7 steps):
+  1-plain-file-url-get           297 x,  3m26.337s total (37.2%),    695ms avg, 2m9.415s of it limiter wait
+  4-fibercode-file-get           105 x,  1m28.174s total (15.9%),    840ms avg, 55.214s of it limiter wait
+  5-browser-fallback-lock-wait     6 x,  1m20.488s total (14.5%),  13.415s avg, 0s of it limiter wait
+  6-browser-fallback-hold          6 x,   1m8.499s total (12.3%),  11.417s avg, 0s of it limiter wait
+  0-counter-refresh-total        111 x,    56.946s total (10.3%),    513ms avg, 0s of it limiter wait
+  3-wicket-ajax-click            118 x,    46.072s total ( 8.3%),    390ms avg, 40.448s of it limiter wait
+  2-section-page-refetch          15 x,     8.358s total ( 1.5%),    557ms avg, 5.083s of it limiter wait

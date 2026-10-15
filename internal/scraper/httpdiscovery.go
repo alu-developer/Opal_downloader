@@ -76,19 +76,43 @@ var httpTagStripRe = regexp.MustCompile(`(?is)<[^>]*>`)
 // looksLikeFileLink/deriveFileName/isFileURLAllowedForCourse path rather than
 // re-deriving it for HTTP.
 func httpCandidate(tag, innerText string) map[string]string {
+	return httpCandidateWithRowText(tag, innerText, "")
+}
+
+// httpCandidateWithRowText is httpCandidate with the enclosing table row's
+// text supplied by the caller (see parseHTTPSectionCandidates). rowText falls
+// back to the anchor's own text when no enclosing row was found, which is
+// what this function used to do unconditionally.
+//
+// Why the row matters (live-measured 2026-10-15, the whole reason the
+// download phase was slow): rowText is the only input
+// parseRowSizeBytes/parseRowModified get, and a file row's size and "zuletzt
+// geändert" date live in *sibling* <td> cells, never inside the anchor:
+//
+//	<td><a data-file-name="Analysis01.pdf">…</a></td>
+//	<td><span>223,7KB</span></td>
+//	<td><span>am 03.10.2025 um 11:07 Uhr</span></td>
+//
+// So approximating rowText with the anchor's inner text could only ever
+// yield the bare file name, and every file discovered over HTTP came back
+// with Size==nil and Modified==nil. The browser path never had this problem:
+// its rowText is `el.closest('tr, li, …').textContent`, which spans those
+// sibling cells. When HTTP-first discovery became the default (2026-08-11),
+// that silently took change detection with it - syncer.needsContentVerification
+// fires for exactly "no size and no date", so every file in every course
+// turned into a verify job and every sync re-downloaded the entire library
+// byte-for-byte to find out nothing had changed. Its doc comment still says
+// the case covers "13 of 344 files (~4%)"; measured here it was 30 of 30.
+func httpCandidateWithRowText(tag, innerText, rowText string) map[string]string {
 	attrs := map[string]string{}
 	for _, m := range httpAttrRe.FindAllStringSubmatch(tag, -1) {
 		attrs[strings.ToLower(m[1])] = m[2]
 	}
-	// rowText is the closest table-row/list-item ancestor's text. Over HTTP we
-	// do not have a DOM tree to walk up, so approximate it with the anchor's
-	// own inner text - enough for parseRowSizeBytes/parseRowModified to find a
-	// size/date in the same cell, which is all those parsers need. The browser
-	// path scopes rowText tighter (the <tr>), but a file row's size/date live
-	// in sibling <td> cells outside the anchor anyway, so neither source gets
-	// them from the anchor itself; both are best-effort.
 	text := strings.TrimSpace(httpTagStripRe.ReplaceAllString(innerText, " "))
 	text = strings.Join(strings.Fields(text), " ")
+	if rowText == "" {
+		rowText = text
+	}
 	return map[string]string{
 		"href":      attrs["href"],
 		"onclick":   attrs["onclick"],
@@ -96,9 +120,65 @@ func httpCandidate(tag, innerText string) map[string]string {
 		"dataUrl":   attrs["data-url"],
 		"title":     attrs["title"],
 		"text":      text,
-		"rowText":   text,
+		"rowText":   rowText,
 		"className": attrs["class"],
 	}
+}
+
+// httpRowRe matches one file-table row of a section's server-rendered HTML.
+// Only <tr> - not the browser extractor's wider 'tr, li, .o_file, …' set -
+// because the size/date columns this exists to reach are a table's <td>
+// cells, and a regex widened to generic containers would start pulling an
+// unrelated neighbour's numbers into a file's row text. Non-greedy, and <tr>
+// cannot nest, so each match is exactly one row.
+var httpRowRe = regexp.MustCompile(`(?is)<tr[^>]*>.*?</tr>`)
+
+// httpRowFileAnchorRe counts the file anchors in a row, so a row carrying
+// more than one cannot hand the same size and date to both of them.
+var httpRowFileAnchorRe = regexp.MustCompile(`(?i)data-file-name\s*=\s*"`)
+
+// httpRowSpan is one <tr> of the section HTML: where it sits in the source,
+// and its visible text with the tags stripped.
+type httpRowSpan struct {
+	start, end int
+	text       string
+}
+
+// httpRowSpans finds the file-table rows of html that hold exactly one file
+// anchor, which are the rows whose size/date columns can be attributed to a
+// specific file without ambiguity. Rows with none are skipped (nothing to
+// attribute), and so are rows with several: a row holding two file anchors
+// would otherwise give both the same size and date, which is worse than the
+// nil those files get today, because a wrong signal makes a genuinely
+// changed file look unchanged forever. Falling back to nil only costs the
+// re-download that already happens.
+func httpRowSpans(html string) []httpRowSpan {
+	var spans []httpRowSpan
+	for _, loc := range httpRowRe.FindAllStringIndex(html, -1) {
+		row := html[loc[0]:loc[1]]
+		if len(httpRowFileAnchorRe.FindAllString(row, -1)) != 1 {
+			continue
+		}
+		text := strings.TrimSpace(httpTagStripRe.ReplaceAllString(row, " "))
+		spans = append(spans, httpRowSpan{start: loc[0], end: loc[1], text: strings.Join(strings.Fields(text), " ")})
+	}
+	return spans
+}
+
+// rowTextAt returns the text of the row containing offset, or "" when the
+// offset falls outside every row. spans are in source order and do not
+// overlap (<tr> cannot nest), so a linear scan that stops once a row starts
+// past the offset is enough.
+func rowTextAt(spans []httpRowSpan, offset int) string {
+	for _, span := range spans {
+		if span.start > offset {
+			return ""
+		}
+		if offset < span.end {
+			return span.text
+		}
+	}
+	return ""
 }
 
 // parseHTTPSectionCandidates extracts the link candidates a section's
@@ -109,8 +189,9 @@ func httpCandidate(tag, innerText string) map[string]string {
 func parseHTTPSectionCandidates(html string) []map[string]string {
 	var out []map[string]string
 	seen := map[string]bool{}
-	for _, m := range httpAnchorRe.FindAllStringSubmatch(html, -1) {
-		c := httpCandidate(m[1], m[2])
+	rows := httpRowSpans(html)
+	for _, m := range httpAnchorRe.FindAllStringSubmatchIndex(html, -1) {
+		c := httpCandidateWithRowText(html[m[2]:m[3]], html[m[4]:m[5]], rowTextAt(rows, m[0]))
 		// Dedupe by the same JSON-ish key shape the browser extractor uses:
 		// the combination of attributes that identify a distinct link. A
 		// section's HTML can repeat the same anchor (OPAL's breadcrumb/nav

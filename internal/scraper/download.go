@@ -66,7 +66,7 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 
 	reqCtx := ctx.Request()
 
-	response, err := s.getPolitely(reqCtx, fileURL)
+	response, err := s.getPolitelyStep(reqCtx, "1-plain-file-url-get", fileURL)
 	if err == nil && response != nil && response.Status() == 200 {
 		headers := response.Headers()
 		contentType := strings.ToLower(headers["content-type"])
@@ -89,7 +89,10 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 	// concurrency-safe APIRequestContext (no browser tab), so it's free to
 	// run from every download worker just like the first attempt above.
 	if candidate, ok := s.downloadCandidates[fileURL]; ok {
-		if refreshedURL, refreshErr := s.refreshCounterURL(reqCtx, candidate); refreshErr == nil {
+		refreshStart := time.Now()
+		refreshedURL, refreshErr := s.refreshCounterURL(reqCtx, candidate)
+		s.downloadStats.record("0-counter-refresh-total", time.Since(refreshStart), 0)
+		if refreshErr == nil {
 			if handled, dlErr := s.attemptDirectDownload(reqCtx, refreshedURL, localPath); handled {
 				if s.debugClicks {
 					s.auditLog("fast-path-refresh-hit", nil, fileURL, fmt.Sprintf("counter-refresh retry succeeded via %s", refreshedURL))
@@ -141,7 +144,9 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 		s.auditLog("browser-fallback-lock-wait", nil, fileURL, fmt.Sprintf("waited %s for browserDownloadMu", wait))
 	}
 	holdStart := time.Now()
+	s.downloadStats.record("5-browser-fallback-lock-wait", time.Since(waitStart), 0)
 	defer func() {
+		s.downloadStats.record("6-browser-fallback-hold", time.Since(holdStart), 0)
 		if s.debugClicks {
 			s.auditLog("browser-fallback-lock-hold", nil, fileURL, fmt.Sprintf("held browserDownloadMu for %s", time.Since(holdStart)))
 		}
@@ -161,7 +166,7 @@ func (s *OpalScraper) DownloadFile(fileURL, localPath string) error {
 // retry (which GETs a different, refreshed URL) can share it exactly rather
 // than duplicating slightly-different logic.
 func (s *OpalScraper) attemptDirectDownload(reqCtx playwright.APIRequestContext, requestURL, localPath string) (handled bool, err error) {
-	response, reqErr := s.getPolitely(reqCtx, requestURL)
+	response, reqErr := s.getPolitelyStep(reqCtx, "4-fibercode-file-get", requestURL)
 	if reqErr != nil || response == nil || response.Status() != 200 {
 		return false, nil
 	}

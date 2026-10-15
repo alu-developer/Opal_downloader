@@ -1,0 +1,45 @@
+Download path: C:/Users/alois/AppData/Local/Temp/claude/opal-bench/full-after
+Course patterns: 2026 LA20, Algorithmen und Datenstrukturen, So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20), Analysis, Softwaretechnologie (SoSe 26), TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+Default course folder: C:/Users/alois/AppData/Local/Temp/claude/opal-bench/full-after/Default_downloads
+
+Blocking inline file previews on new page (default on; OPAL_BLOCK_FILE_PREVIEWS=0 to disable)
+Using saved OPAL session state
+Found 4 course links
+Discovery: 3.7s (4 courses)
+  Found 4 course(s) - starting to scan them
+Processing: 2026 LA20
+  Scanning course 1 of 4: 2026 LA20
+Skipping section "Einschreibung zum Kurs" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/102408704615627): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung in die Übungsgruppen" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/1709609352182565009): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished 2026 LA20 - found 39 file(s)
+  Scanning course 2 of 4: Analysis
+Processing: Analysis
+  [profile] course "2026 LA20": 7.2165996s (39 files)
+  2026 LA20: 39 files (7.2s)
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431705760008): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung Übung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431727257008): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished Analysis - found 30 file(s)
+  Scanning course 3 of 4: Softwaretechnologie (SoSe 26)
+  [profile] course "Analysis": 7.10054s (30 files)
+  Analysis: 30 files (7.1s)
+Processing: Softwaretechnologie (SoSe 26)
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1615951726359860007): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung für Probeklausur" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1785724693373635010): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished Softwaretechnologie (SoSe 26) - found 206 file(s)
+  Scanning course 4 of 4: TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+  [profile] course "Softwaretechnologie (SoSe 26)": 40.5894182s (206 files)
+  Softwaretechnologie (SoSe 26): 206 files (40.6s)
+Processing: TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53769273345/CourseNode/1695781921370673006): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren - found 18 file(s)
+  [profile] course "TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren": 2.9220188s (18 files)
+  TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren: 18 files (2.9s)
+Discovery summary: 4 courses, 260 HTTP requests, 57.8264401s
+Discovered 293 remote files
+Discovered 293 remote files. Comparing against local manifest...
+
+Done. downloaded=0 skipped=293 errors=0
+
+Download:  0.0s (0 files)
+Total:     64.1s
+rate ceiling: 4 navigation(s), 0 delayed, 0s held in total

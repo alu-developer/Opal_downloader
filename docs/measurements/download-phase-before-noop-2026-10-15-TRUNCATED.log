@@ -1,0 +1,59 @@
+Download path: C:/Users/alois/AppData/Local/Temp/claude/opal-bench/full-before
+Course patterns: 2026 LA20, Algorithmen und Datenstrukturen, So26 Programmieren - Weiterführende Konzepte (Math-Ba-PR20), Analysis, Softwaretechnologie (SoSe 26), TUDMATH SoSe2026 Modul Math-Ba-NM20: Numerische Mathematik - Iterationsverfahren
+Default course folder: C:/Users/alois/AppData/Local/Temp/claude/opal-bench/full-before/Default_downloads
+
+Blocking inline file previews on new page (default on; OPAL_BLOCK_FILE_PREVIEWS=0 to disable)
+Using saved OPAL session state
+Found 3 course links
+Discovery: 3.9s (3 courses)
+  Found 3 course(s) - starting to scan them
+Processing: 2026 LA20
+  Scanning course 1 of 3: 2026 LA20
+Skipping section "Einschreibung zum Kurs" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/102408704615627): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung in die Übungsgruppen" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50696421377/CourseNode/1709609352182565009): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished 2026 LA20 - found 39 file(s)
+  Scanning course 2 of 3: Analysis
+  [profile] course "2026 LA20": 7.6706647s (39 files)
+  2026 LA20: 39 files (7.7s)
+Processing: Analysis
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431705760008): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung Übung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/50999590912/CourseNode/1757385431727257008): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished Analysis - found 30 file(s)
+  Scanning course 3 of 3: Softwaretechnologie (SoSe 26)
+  [profile] course "Analysis": 6.9254093s (30 files)
+  Analysis: 30 files (6.9s)
+Processing: Softwaretechnologie (SoSe 26)
+Skipping section "Einschreibung" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1615951726359860007): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+Skipping section "Einschreibung für Probeklausur" (https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1785724693373635010): structurally cannot hold files (OPAL enrollment/Einschreibung course-node)
+  Finished Softwaretechnologie (SoSe 26) - found 210 file(s)
+  [profile] course "Softwaretechnologie (SoSe 26)": 37.5815635s (210 files)
+  Softwaretechnologie (SoSe 26): 210 files (37.6s)
+
+[... run stopped by hand after 31m21s; it had processed 214 of 279 files:
+ 134 re-downloaded-and-byte-compared as 'verified unchanged', 80 hard failures.
+ It never reached 'Done.'. Full 136K log not kept; the pattern repeats.]
+  - waiting for getByText('Debuggen mit IDEs-Notizen-25.pdf').first() (page has no click-expandable pagination to retry))
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-before\Default_downloads\Softwaretechnologie (SoSe 26)\U01 - Einführung in Java\.FirstStepsInJava.opalverify.pdf is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  error: Softwaretechnologie (SoSe 26)/Dokumente/Debuggin mit IDEs-Manuskript-25.pdf (response is HTML, browser fallback click did not find a downloadable link after 2 attempts)
+download error detail for Softwaretechnologie (SoSe 26)/Dokumente/Debuggin mit IDEs-Manuskript-25.pdf: response is HTML, browser fallback click did not find a downloadable link after 2 attempts (technical detail: on https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1750819002074790007: downloadable link not found on page: href-match a[href*='/opal/auth/RepositoryEntry/53228666883/CourseNode/1750819002074790007/Debuggin+mit+IDEs-Manuskript-25.pdf']: playwright: timeout: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator('a[href*=\'/opal/auth/RepositoryEntry/53228666883/CourseNode/1750819002074790007/Debuggin+mit+IDEs-Manuskript-25.pdf\']').first()
+text-match "\x01Debuggin mit IDEs-Manuskript-25.pdf\x02": playwright: timeout: Timeout 5000ms exceeded.
+Call log:
+  - waiting for getByText('Debuggin mit IDEs-Manuskript-25.pdf').first() (page has no click-expandable pagination to retry))
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-before\Default_downloads\Softwaretechnologie (SoSe 26)\Musterlösung\.GarageDoor.opalverify.zip is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  error: Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/FirstStepsInJava.pdf (response is HTML, browser fallback click did not find a downloadable link after 2 attempts)
+download error detail for Softwaretechnologie (SoSe 26)/U01 - Einführung in Java/FirstStepsInJava.pdf: response is HTML, browser fallback click did not find a downloadable link after 2 attempts (technical detail: on https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1711510495221413010: downloadable link not found on page: href-match a[href*='/opal/auth/RepositoryEntry/53228666883/CourseNode/1711510495221413010/FirstStepsInJava.pdf']: playwright: timeout: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator('a[href*=\'/opal/auth/RepositoryEntry/53228666883/CourseNode/1711510495221413010/FirstStepsInJava.pdf\']').first()
+text-match "\x01FirstStepsInJava.pdf\x02": playwright: timeout: Timeout 5000ms exceeded.
+Call log:
+  - waiting for getByText('FirstStepsInJava.pdf').first() (page has no click-expandable pagination to retry))
+C:\Users\alois\AppData\Local\Temp\claude\opal-bench\full-before\Default_downloads\Softwaretechnologie (SoSe 26)\U01 - Einführung in Java\.HelloLibrary.opalverify.zip is not available as a direct link - resolving it the slow way (this can take a minute or two)
+  error: Softwaretechnologie (SoSe 26)/Musterlösung/GarageDoor.zip (response is HTML, browser fallback click did not find a downloadable link after 2 attempts)
+download error detail for Softwaretechnologie (SoSe 26)/Musterlösung/GarageDoor.zip: response is HTML, browser fallback click did not find a downloadable link after 2 attempts (technical detail: on https://bildungsportal.sachsen.de/opal/auth/RepositoryEntry/53228666883/CourseNode/1720146715149489010: downloadable link not found on page: href-match a[href*='/opal/auth/RepositoryEntry/53228666883/CourseNode/1720146715149489010/GarageDoor.zip']: playwright: timeout: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator('a[href*=\'/opal/auth/RepositoryEntry/53228666883/CourseNode/1720146715149489010/GarageDoor.zip\']').first()
+text-match "\x01GarageDoor.zip\x02": playwright: timeout: Timeout 5000ms exceeded.
+Call log:
+  - waiting for getByText('GarageDoor.zip').first() (page has no click-expandable pagination to retry))

@@ -9,10 +9,11 @@ import (
 	"testing"
 )
 
-// The /sync page is one link away from the landing page, which carefully
-// disables its "Sync now" button and explains why whenever a click would
-// fail (no config, or configured but not logged in). The /sync page's own
-// "Sync" button must be gated the same way instead of staying live.
+// The /sync page is one link away from the landing page, which disables its
+// "Sync now" button and explains why for the one case a click cannot work:
+// there is no usable config. The /sync page's own "Sync" button must be
+// gated the same way - neither stricter (a missing login is not a blocker,
+// sync logs in by itself) nor looser.
 
 func writeSyncPageConfig(t *testing.T, courses string) (configPath, stateFile string) {
 	t.Helper()
@@ -82,7 +83,7 @@ func TestSyncPageDisablesButtonWhenConfigMissing(t *testing.T) {
 	}
 }
 
-func TestSyncPageDisablesButtonWhenNotLoggedIn(t *testing.T) {
+func TestSyncPageKeepsButtonLiveWhenNotLoggedIn(t *testing.T) {
 	configPath, _ := writeSyncPageConfig(t, "\n  - Analysis")
 	srv := &server{configPath: configPath}
 	sp := newSyncPage(configPath, srv)
@@ -91,11 +92,11 @@ func TestSyncPageDisablesButtonWhenNotLoggedIn(t *testing.T) {
 	sp.handlePage(rec, httptest.NewRequest(http.MethodGet, "/sync", nil))
 	body := rec.Body.String()
 
-	if !strings.Contains(body, `id="btn-sync" disabled`) {
-		t.Fatalf("expected the Sync button disabled when not logged in, body was:\n%s", body)
+	if strings.Contains(body, `id="btn-sync" disabled`) {
+		t.Fatalf("a missing login must not disable Sync, body was:\n%s", body)
 	}
-	if !strings.Contains(body, "Not logged in") {
-		t.Fatalf("expected the login-specific reason on the page, body was:\n%s", body)
+	if strings.Contains(body, `class="status warn"`) {
+		t.Fatalf("a missing login is not a blocked state, body was:\n%s", body)
 	}
 }
 

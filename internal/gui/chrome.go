@@ -473,6 +473,5 @@ const pageStyle = `
 		text-decoration: none;
 	}
 	.cta:hover { background: #235d94; }
-	.cta.disabled { background: #b8b8b8; cursor: not-allowed; }
 	.cta-note { margin: 0.5rem 0 0; font-size: 0.9rem; color: #555; }
 `

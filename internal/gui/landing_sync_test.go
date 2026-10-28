@@ -29,19 +29,16 @@ session_state_file: ./state.json
 	return configPath
 }
 
-func TestApplySyncReadinessReadyWhenConfiguredAndLoggedIn(t *testing.T) {
+func TestApplySyncReadinessCountsConfiguredCourses(t *testing.T) {
 	s := &server{configPath: writeLandingConfig(t, "\n  - Analysis\n  - Numerik")}
 	data := landingData{LoggedIn: true}
 	s.applySyncReadiness(&data)
 
-	if !data.SyncReady {
-		t.Fatalf("expected sync to be ready, blocked reason was %q", data.SyncBlockedReason)
+	if data.SetupNeeded {
+		t.Fatal("a readable config is not a setup problem")
 	}
 	if data.CourseCount != 2 {
 		t.Fatalf("expected 2 courses, got %d", data.CourseCount)
-	}
-	if data.SyncBlockedReason != "" {
-		t.Fatalf("expected no blocked reason when ready, got %q", data.SyncBlockedReason)
 	}
 }
 
@@ -53,9 +50,6 @@ func TestApplySyncReadinessTreatsEmptyCourseListAsAllCourses(t *testing.T) {
 	data := landingData{LoggedIn: true}
 	s.applySyncReadiness(&data)
 
-	if !data.SyncReady {
-		t.Fatalf("expected sync to be ready with the wildcard filter, blocked reason was %q", data.SyncBlockedReason)
-	}
 	if !data.SyncAllCourses {
 		t.Fatal("expected SyncAllCourses for an empty course list, which config.Load expands to the * wildcard")
 	}
@@ -81,48 +75,30 @@ func TestApplySyncReadinessNamedCoursesAreNotWildcard(t *testing.T) {
 	}
 }
 
-func TestApplySyncReadinessBlockedWhenNotLoggedIn(t *testing.T) {
-	s := &server{configPath: writeLandingConfig(t, "\n  - Analysis")}
-	data := landingData{LoggedIn: false}
-	s.applySyncReadiness(&data)
-
-	if data.SyncReady {
-		t.Fatal("expected sync to be blocked when not logged in")
-	}
-	if !strings.Contains(data.SyncBlockedReason, "Not logged in") {
-		t.Fatalf("expected a login-specific reason, got %q", data.SyncBlockedReason)
-	}
-}
-
-// No usable config is the one blocked state the user can act on immediately,
-// so it has to be distinguishable from "configured but not logged in" - the
-// landing page turns it into a live setup button rather than a dead one.
-func TestApplySyncReadinessBlockedWhenConfigMissing(t *testing.T) {
-	s := &server{configPath: filepath.Join(t.TempDir(), "does-not-exist.yaml")}
-	data := landingData{LoggedIn: true}
-	s.applySyncReadiness(&data)
-
-	if data.SyncReady {
-		t.Fatal("expected sync to be blocked when the config cannot be loaded")
-	}
-	if !data.SetupNeeded {
-		t.Fatal("expected SetupNeeded so the page offers setup instead of a dead sync button")
-	}
-	if strings.TrimSpace(data.SyncBlockedReason) == "" {
-		t.Fatal("expected the blocked state to explain itself")
-	}
-}
-
-// The not-logged-in case must NOT claim setup is needed: pointing a
-// first-time-setup button at Settings when the config is already fine sends
-// the user somewhere that cannot help them.
-func TestApplySyncReadinessNotLoggedInIsNotASetupProblem(t *testing.T) {
+// Having no saved session must not block anything: sync's own ensureSession
+// logs in via TU-Fast, 2FA included, without anyone at the machine. The old
+// gate here turned that few-second detour into a dead button plus "run the
+// login step first", which is the one thing the user cannot usefully do
+// about it.
+func TestApplySyncReadinessStillOffersSyncWhenNotLoggedIn(t *testing.T) {
 	s := &server{configPath: writeLandingConfig(t, "\n  - Analysis")}
 	data := landingData{LoggedIn: false}
 	s.applySyncReadiness(&data)
 
 	if data.SetupNeeded {
 		t.Fatal("a valid config that just needs a login is not a setup problem")
+	}
+}
+
+// No usable config is the only state that stops a sync, and the landing page
+// turns it into a live setup button rather than a dead one.
+func TestApplySyncReadinessBlockedWhenConfigMissing(t *testing.T) {
+	s := &server{configPath: filepath.Join(t.TempDir(), "does-not-exist.yaml")}
+	data := landingData{LoggedIn: true}
+	s.applySyncReadiness(&data)
+
+	if !data.SetupNeeded {
+		t.Fatal("expected SetupNeeded so the page offers setup instead of a dead sync button")
 	}
 }
 
@@ -166,17 +142,17 @@ func TestLandingPageRendersPrimarySyncAction(t *testing.T) {
 	s.handleLanding(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	body := rec.Body.String()
-	// Not logged in in this test, so the button must render disabled rather
-	// than linking somewhere that would fail.
-	if !strings.Contains(body, `class="cta disabled"`) {
-		t.Fatalf("expected a disabled CTA when not logged in, body was:\n%s", body)
+	// Not logged in in this test, and that is no reason to withhold the
+	// button - the sync it starts logs in by itself.
+	if strings.Contains(body, `class="cta disabled"`) {
+		t.Fatalf("expected a live CTA when only the login is missing, body was:\n%s", body)
 	}
 	// Scoped to the CTA element: "/sync?autostart=1" also legitimately
 	// appears in the scheduled-status banner's script (gui.go's
 	// bannerChrome), which every page carries, so asserting against the whole
 	// body would fail for the wrong reason.
-	if strings.Contains(body, `<a class="cta" href="/sync?autostart=1"`) {
-		t.Fatal("a blocked sync must not render an enabled autostart CTA")
+	if !strings.Contains(body, `<a class="cta" href="/sync?autostart=1"`) {
+		t.Fatalf("expected the autostart CTA, body was:\n%s", body)
 	}
 	// `list`/`dump-links` are developer tools and should no longer be
 	// advertised by name on the landing page.

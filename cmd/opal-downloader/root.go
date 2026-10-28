@@ -421,7 +421,7 @@ func runStatus(args []string) error {
 	checkLoginProfileHealth(configPath)
 
 	fmt.Println()
-	printLoginStatus(loaded.Credentials.StateFile, configPath)
+	printLoginStatus(loaded.Credentials.StateFile)
 	return nil
 }
 
@@ -437,11 +437,11 @@ func runStatus(args []string) error {
 // design) since 2026-08-03. Phrasing mirrors the GUI's four states
 // (internal/gui/gui.go's status div) so the two front ends read as one
 // product rather than two separately-worded tools.
-func printLoginStatus(stateFile string, configPath string) {
+func printLoginStatus(stateFile string) {
 	sess := sessionstate.Inspect(stateFile)
 	switch {
 	case !sess.Present:
-		fmt.Printf("Not logged in yet. Run: opal-downloader login%s\n", configFlagSuffix(configPath))
+		fmt.Println("Not logged in yet. Nothing to do about it: the next sync logs in on its own.")
 	case !sess.KnownExpiry:
 		fmt.Printf("Logged in: session saved %s. How long it stays valid could not be read from the saved session.\n",
 			sess.Saved.Local().Format("Mon 2 Jan, 15:04"))

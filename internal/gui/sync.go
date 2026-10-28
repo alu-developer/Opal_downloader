@@ -370,14 +370,11 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 }
 
 // syncPageData drives the /sync page's own readiness gate. It mirrors the
-// landing page's SyncReady/SetupNeeded/SyncBlockedReason (see gui.go's
-// applySyncReadiness) so the same click that the landing page carefully
-// disables and explains isn't left live one link away, on the page that
-// actually performs it.
+// landing page's SetupNeeded (see gui.go's applySyncReadiness) so the same
+// click that the landing page disables and explains isn't left live one link
+// away, on the page that actually performs it.
 type syncPageData struct {
-	SyncReady         bool
-	SetupNeeded       bool
-	SyncBlockedReason string
+	SetupNeeded bool
 }
 
 func (sp *syncPage) handlePage(w http.ResponseWriter, r *http.Request) {
@@ -385,13 +382,11 @@ func (sp *syncPage) handlePage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	data := syncPageData{SyncReady: true}
+	var data syncPageData
 	if sp.srv != nil {
 		landing := sp.srv.sessionStatus()
 		sp.srv.applySyncReadiness(&landing)
-		data.SyncReady = landing.SyncReady
 		data.SetupNeeded = landing.SetupNeeded
-		data.SyncBlockedReason = landing.SyncBlockedReason
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = syncTemplate.Execute(w, data)
@@ -430,16 +425,16 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 	` + bannerChrome + `
 	<h1>Sync</h1>
 
-	{{if not .SyncReady}}
+	{{if .SetupNeeded}}
 	<div class="status warn">
-		{{.SyncBlockedReason}}
-		{{if .SetupNeeded}}<p style="margin: 0.5rem 0 0;"><a href="/settings">Set up opal-downloader</a></p>{{end}}
+		` + setupNeededNote + `
+		<p style="margin: 0.5rem 0 0;"><a href="/settings">Set up opal-downloader</a></p>
 	</div>
 	{{end}}
 
 	<div class="actions">
-		<button class="primary" id="btn-sync"{{if not .SyncReady}} disabled{{end}}>Sync</button>
-		<button id="btn-list"{{if not .SyncReady}} disabled{{end}}>Preview sync (no download)</button>
+		<button class="primary" id="btn-sync"{{if .SetupNeeded}} disabled{{end}}>Sync</button>
+		<button id="btn-list"{{if .SetupNeeded}} disabled{{end}}>Preview sync (no download)</button>
 		<button class="stop" id="btn-cancel" disabled>Cancel</button>
 	</div>
 
@@ -467,7 +462,7 @@ var syncTemplate = template.Must(template.New("sync").Parse(`<!DOCTYPE html>
 		var btnSync = document.getElementById('btn-sync');
 		var btnList = document.getElementById('btn-list');
 		var btnCancel = document.getElementById('btn-cancel');
-		var syncBlocked = {{if .SyncReady}}false{{else}}true{{end}};
+		var syncBlocked = {{if .SetupNeeded}}true{{else}}false{{end}};
 
 		function setRunning(running) {
 			btnSync.disabled = running || syncBlocked;

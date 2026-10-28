@@ -518,7 +518,7 @@ func TestRunStatus_NotLoggedInWhenNoStateFile(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(out, "Not logged in yet. Run: opal-downloader login") {
+	if !strings.Contains(out, "Not logged in yet. Nothing to do about it") {
 		t.Fatalf("expected the not-logged-in message, got:\n%s", out)
 	}
 }

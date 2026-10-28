@@ -359,9 +359,9 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 	` + disclaimerHTML + `
 
 	{{if not .SetupNeeded}}
-	<div class="status {{if not .LoggedIn}}warn{{else if .SessionStale}}neutral{{else}}ok{{end}}">
+	<div class="status {{if not .LoggedIn}}neutral{{else if .SessionStale}}neutral{{else}}ok{{end}}">
 		{{if not .LoggedIn}}
-			Not logged in yet.
+			Not logged in yet &ndash; the next sync just logs in on its own.
 		{{else if not .SessionKnown}}
 			Logged in (session saved {{if .StateModified}}{{.StateModified}}{{else}}earlier{{end}}). How long it stays valid could not be read from the saved session.
 		{{else if .SessionStale}}
@@ -394,15 +394,12 @@ var landingTemplate = template.Must(template.New("landing").Parse(`<!DOCTYPE htm
 		{{if .SyncRunning}}
 			<a class="cta" href="/sync">Sync running &ndash; show progress</a>
 			<p class="cta-note">A sync is already in flight. Following it here won't start a second one.</p>
-		{{else if .SyncReady}}
-			<a class="cta" href="/sync?autostart=1">Sync now</a>
-			<p class="cta-note">Downloads new and updated files for {{if .SyncAllCourses}}all your courses{{else}}your {{.CourseCount}} selected course{{if ne .CourseCount 1}}s{{end}}{{end}}. Takes several minutes.</p>
 		{{else if .SetupNeeded}}
 			<a class="cta" href="/settings">Set up opal-downloader</a>
-			<p class="cta-note">{{.SyncBlockedReason}}</p>
+			<p class="cta-note">` + setupNeededNote + `</p>
 		{{else}}
-			<span class="cta disabled" aria-disabled="true">Sync now</span>
-			<p class="cta-note">{{.SyncBlockedReason}}</p>
+			<a class="cta" href="/sync?autostart=1">Sync now</a>
+			<p class="cta-note">Downloads new and updated files for {{if .SyncAllCourses}}all your courses{{else}}your {{.CourseCount}} selected course{{if ne .CourseCount 1}}s{{end}}{{end}}. Takes several minutes.{{if not .LoggedIn}} It logs in first, on its own.{{end}}</p>
 		{{end}}
 		{{if .LastSyncKnown}}
 			<p class="cta-note last-sync">Last sync: {{.LastSyncWhen}}{{if .LastSyncDetail}} &ndash; {{.LastSyncDetail}}{{end}}</p>
@@ -443,29 +440,24 @@ type landingData struct {
 	SessionExpiry string
 	SessionLeft   string
 
-	// CourseCount/SyncAllCourses/SyncReady/SyncBlockedReason drive the
-	// landing page's primary "Sync now" action. SyncReady is false whenever
-	// starting a sync would fail (config missing/unreadable, not logged in
-	// yet), in which case SyncBlockedReason says which of those it is and the
-	// button renders disabled - the point is to explain the situation on the
-	// page the user is already looking at, instead of letting them click
-	// through to a failure.
+	// CourseCount/SyncAllCourses describe what the primary "Sync now" action
+	// would download. There is no "logged in?" gate here: a missing or
+	// expired session costs a sync one automated TU-Fast login (see
+	// sessionStatus), so the only thing that can stop one is having no
+	// usable config at all - SetupNeeded below.
 	//
 	// SyncAllCourses reflects the wildcard course filter. config.Load turns
 	// an empty courses list into []string{"*"} meaning "every course", so a
 	// zero count never reaches here and a naive len() would render a wildcard
 	// config as the plainly wrong "your 1 selected course".
-	CourseCount       int
-	SyncAllCourses    bool
-	SyncReady         bool
-	SyncBlockedReason string
+	CourseCount    int
+	SyncAllCourses bool
 
-	// SetupNeeded marks the one blocked case the user can act on right here:
-	// there is no usable config yet. A first run then leads with a live
-	// "Set up opal-downloader" button instead of a dead grey "Sync now" and a
+	// SetupNeeded marks the one case that stops a sync: there is no usable
+	// config yet. A first run then leads with a live "Set up
+	// opal-downloader" button instead of a dead grey "Sync now" and a
 	// sentence telling them to go find Settings among five equal-weight
-	// links. The other blocked case (configured but not logged in) keeps the
-	// disabled button, because logging in is not a page you fill in.
+	// links.
 	SetupNeeded bool
 
 	// SyncRunning reports that a sync/list job is already in flight, so the
@@ -604,15 +596,18 @@ func humanizeSince(now, ts time.Time) string {
 }
 
 // applySyncReadiness fills in the landing page's "Sync now" state: how many
-// courses are configured, whether a sync can usefully be started right now,
-// and whether one is already running.
+// courses are configured, whether there is a config at all, and whether a
+// sync is already running.
 //
-// The checks are deliberately ordered cheapest-and-most-fundamental first
-// (can we even read a config? does it select any courses? are we logged
-// in?), so the reason shown is the first thing the user actually has to fix
-// rather than whichever check happened to run last. Like sessionStatus, this
-// stays a config/filesystem-only inspection - it must never launch a browser
-// or touch the network, because it runs on every load of the landing page.
+// It deliberately does not ask whether a session is saved. It used to, and
+// that disabled the button on every install whose saved session was missing
+// - including the self-inflicted case of a Settings save pointing
+// session_state_file at a file that did not exist yet - telling the user to
+// "run the login step first" for something sync does by itself via TU-Fast
+// in a few seconds. The one thing sync cannot do for itself is invent a
+// config, so that is the one thing left here. Like sessionStatus, this stays
+// a config/filesystem-only inspection - it must never launch a browser or
+// touch the network, because it runs on every load of the landing page.
 func (s *server) applySyncReadiness(data *landingData) {
 	if s.syncJob != nil {
 		running, _ := s.syncJob.isRunning()
@@ -622,7 +617,6 @@ func (s *server) applySyncReadiness(data *landingData) {
 	loaded, err := config.Load(s.configPath)
 	if err != nil {
 		data.SetupNeeded = true
-		data.SyncBlockedReason = "First time here? This sets your download folder and picks the courses to sync."
 		return
 	}
 
@@ -633,14 +627,11 @@ func (s *server) applySyncReadiness(data *landingData) {
 			break
 		}
 	}
-
-	if !data.LoggedIn {
-		data.SyncBlockedReason = "Not logged in yet - run the login step first so a sync has a session to use."
-		return
-	}
-
-	data.SyncReady = true
 }
+
+// setupNeededNote is the one "a sync cannot start yet" sentence left in the
+// GUI, shared by the landing page and /sync so the two read as one product.
+const setupNeededNote = "First time here? This sets your download folder and picks the courses to sync."
 
 // sessionStatus reports what the saved session state file says: whether one
 // exists for the configured credentials, when it was written, and - from
@@ -649,13 +640,12 @@ func (s *server) applySyncReadiness(data *landingData) {
 // session against OPAL. See internal/sessionstate for what the marker can and
 // cannot establish.
 //
-// LoggedIn deliberately stays "a saved session exists" and is NOT ANDed with
-// "not expired". LoggedIn is what gates the Sync button in
-// applySyncReadiness, and an expired session is not a reason to stop someone
-// syncing: TU-Fast completes login and 2FA unattended, so a stale session
-// costs a sync one extra automated login, not a failure. Blocking the button
-// on it would reintroduce exactly the "expired session = blocker" belief
-// CLAUDE.md records as false. The expiry is display only.
+// Everything here is display only - it gates nothing. TU-Fast completes
+// login and 2FA unattended, so neither a missing nor an expired session is a
+// reason to stop someone syncing: it costs one extra automated login, not a
+// failure. applySyncReadiness used to gate the Sync button on LoggedIn,
+// which reintroduced exactly the "no session = blocker" belief CLAUDE.md
+// records as false; it no longer does.
 func (s *server) sessionStatus() landingData {
 	credentials, err := config.LoadCredentials(s.configPath)
 	stateFile := config.PerInstallStateFile(s.configPath)

@@ -2,6 +2,12 @@
 config.yaml
 config.yaml.*
 
+# Saved OPAL session cookies. config.PerInstallStateFile puts these in the
+# config.yaml's own directory - which for this repo and every worktree of it
+# is the checkout root - so the default path for a session is a file inside
+# the working tree. Untracked and never committed: it is a live credential.
+.opal_storage_state*.json
+
 # Downloaded files and sync state
 .downloads/
 *.manifest.json
@@ -34,6 +40,9 @@ installer/output/
 # Local task queue
 .claude/queue/
 .claude/settings.local.json
+
+# Codex CLI hook config, local tooling like .claude/ above
+.codex/
 
 # Scratch dumps from manual scraping/debug runs
 tmp/

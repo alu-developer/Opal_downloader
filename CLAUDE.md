@@ -54,3 +54,6 @@ without a live run". Just run it. Write the prediction down first, then run.
 
 **Don't leave technical details to me**
 You should decide for your own, what is better. You can ask me about product-questions, but decide the rest for yourself. 
+
+**If you fix something: rather make something old that is bad new/change it, then just adding something new**
+I want to try to reduce slop and complexity-building. 

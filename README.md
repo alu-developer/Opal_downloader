@@ -223,7 +223,7 @@ including while a scheduled sync is in progress.
 | `course_folders` | Mapping of course-name patterns to target folders; first match wins |
 | `use_section_subfolders` | Optional, default `false`. When `true`, files are placed in a subfolder per OPAL section (e.g. `<course>/<section>/<file>`) instead of flat `<course>/<file>`. Off by default; output is unchanged unless this is enabled. Changing this (or any other folder-layout setting) after you have already synced changes where every file belongs: the next sync detects the old layout in `.opal-sync.manifest.json`, moves already-downloaded files to their new locations instead of re-downloading them, and prints a warning listing anything it could not match so you can move or delete it yourself. Nothing is ever deleted automatically. |
 | `section_folder_names` | Optional mapping of OPAL section-name patterns to a custom subfolder name (e.g. rename `"Exercises"` to `"Übungen"`). Only used when `use_section_subfolders` is `true`. Unmatched sections fall back to OPAL's own (sanitized) section name. |
-| `subfolder_destinations` | Optional mapping of `"<course pattern>/<subfolder pattern>": "<destination path>"` to redirect a specific course's specific section to an arbitrary destination path, which may be outside `download_path` entirely. Both halves are matched with the same pattern rules as `course_folders`. Only used when `use_section_subfolders` is `true`. |
+| `subfolder_destinations` | Optional mapping of `"<course pattern>/<subfolder pattern>": "<destination path>"` to redirect a specific course's specific section to an arbitrary destination path, which may be outside `download_path` entirely. Both halves are matched with the same pattern rules as `course_folders`. Only used when `use_section_subfolders` is `true`. A key may carry a third component, `/{blatt}`, which restricts that entry to files whose **name** carries an Übungsblatt number and expands `{blatt}` in the destination to `Blatt01`, `Blatt02`, ... - see [per-sheet routing](#per-sheet-ubungsblatt-routing). |
 | `courses` | List of exact course names to sync (case-insensitive); use `"*"` to match every course. Partial/glob patterns are not matched. |
 | `sync` | Keep for compatibility (`true` by default) |
 | `opal_url` | Optional OPAL base URL override |
@@ -259,6 +259,8 @@ section_folder_names:
 # Only applies when use_section_subfolders is true.
 subfolder_destinations:
   "*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides"
+  # Per-sheet routing: only files whose name carries a sheet number.
+  "*Analysis*/*Uebungen*/{blatt}": "D:/Elsewhere/Analysis/Blaetter/{blatt}"
 
 courses:
   - "Lineare Algebra 2"
@@ -268,6 +270,49 @@ sync: true
 opal_url: "https://bildungsportal.sachsen.de/opal/"
 session_state_file: "~/.opal_storage_state.json"
 ```
+
+### Per-sheet (Übungsblatt) routing
+
+OPAL usually serves a whole semester of exercise sheets from a *single* section, so
+section-based routing can only ever drop them flat into one folder. A
+`subfolder_destinations` key ending in `/{blatt}` routes by **file name** instead, into
+one folder per sheet:
+
+```yaml
+use_section_subfolders: true
+subfolder_destinations:
+  # AL10's "Material" section holds chapter scripts AND exercise sheets.
+  "*AL10*/Material": "C:/OneDrive/_3. Semester/AL10/Material"
+  "*AL10*/Material/{blatt}": "C:/OneDrive/_3. Semester/AL10/Blaetter/{blatt}"
+```
+
+With that, `Blatt1_A10.pdf` lands in `AL10/Blaetter/Blatt01`, `Blatt2_AL10.pdf` in
+`AL10/Blaetter/Blatt02`, while `Kapitel1.pdf` and `LA.I.pdf` from the same section keep
+going to `AL10/Material`.
+
+- **Opt-in is per entry.** A section without a `/{blatt}` key is never split, so a
+  section full of numbered file names that are *not* sheets (`01_Intro.ipynb`,
+  `04_1_InputOutput.ipynb`) is left alone.
+- **No sheet number in the name, no change.** Such a file keeps exactly the destination
+  it had before: the plain entry for that section, or - if there is none - the normal
+  course folder.
+- **The folder name is fixed**: `Blatt` plus the two-digit, zero-padded sheet number.
+  `{blatt}` in the destination says *where* those folders go; the destination may also
+  omit it, which sends all sheet files of that section to one folder, flat.
+- **Recognised names.** The number must follow a sheet marker at a word boundary:
+  `blatt`, `bl`, `uebung`/`übung`, `ue`, `ub`, `loesung`/`lösung`, `loe`, `lsg`, `serie`,
+  `sheet` (optionally separated by `_`, `-`, `.` or a space), or - only when none of
+  those appears in the name - a bare `u`, `p`, `a` or `h` immediately followed by digits.
+  One or two digits only, so years and module codes (`wi26-27`, `nm10`, `ws2026`) are not
+  mistaken for sheet numbers. Matched: `ue01_nm10_wi26-27.pdf`, `loe01_...`, `p01.py`,
+  `Blatt1_A10.pdf`, `U06.pdf`. Not matched: `Kapitel1.pdf`, `LA.III.pdf`,
+  `nm10_Programmierstil.pdf`, `01_Intro.ipynb`.
+- **Switching it on costs no re-download.** Per-sheet routing changes only where a file
+  lands, never its manifest key, so there is no history to migrate. Files already
+  downloaded into the old flat location are moved into their sheet folder on the next
+  sync; where you had already filed a copy there by hand, your copy is kept and the flat
+  duplicate is listed in the sync output for you to delete. Nothing is ever deleted
+  automatically.
 
 ### TU-Fast Setup
 

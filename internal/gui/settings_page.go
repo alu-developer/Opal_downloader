@@ -203,7 +203,7 @@ var settingsTemplate = template.Must(template.New("settings").Funcs(settingsTemp
 
 	<div class="field">
 		<label>Subfolder destination overrides</label>
-		<p class="hint">Sends one course's specific section to a different destination path. Key is <code>&lt;course pattern&gt;/&lt;subfolder pattern&gt;</code>, e.g. <code>*Analysis*/*Vorlesung*</code>.</p>
+		<p class="hint">Sends one course's specific section to a different destination path. Key is <code>&lt;course pattern&gt;/&lt;subfolder pattern&gt;</code>, e.g. <code>*Analysis*/*Vorlesung*</code>. Add <code>/{blatt}</code> to the key to route only the files whose name carries an Übungsblatt number (<code>ue01_...</code>, <code>Blatt1_...</code>, <code>p01.py</code>) and write <code>{blatt}</code> in the destination for a folder per sheet (<code>Blatt01</code>, <code>Blatt02</code>, ...); keep a second entry without it for that section's other files.</p>
 		<table class="folders" id="subfolder-dest-table">
 			<thead><tr><th>Course pattern / subfolder pattern</th><th>Destination path</th><th></th></tr></thead>
 			<tbody>

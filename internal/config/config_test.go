@@ -85,17 +85,17 @@ func TestResolveSubfolderDestinationMatch(t *testing.T) {
 			"*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides",
 		},
 	}
-	dest, ok := ResolveSubfolderDestination(cfg, "Analysis I", "Vorlesung")
+	dest, ok := ResolveSubfolderDestination(cfg, "Analysis I", "Vorlesung", "slides.pdf")
 	if !ok || dest != "D:/Elsewhere/AnalysisSlides" {
 		t.Fatalf("expected override destination match, got (%q, %v)", dest, ok)
 	}
 
-	_, ok = ResolveSubfolderDestination(cfg, "Analysis I", "Uebungen")
+	_, ok = ResolveSubfolderDestination(cfg, "Analysis I", "Uebungen", "slides.pdf")
 	if ok {
 		t.Fatal("expected no match for non-matching subfolder pattern")
 	}
 
-	_, ok = ResolveSubfolderDestination(cfg, "Programmierung", "Vorlesung")
+	_, ok = ResolveSubfolderDestination(cfg, "Programmierung", "Vorlesung", "slides.pdf")
 	if ok {
 		t.Fatal("expected no match for non-matching course pattern")
 	}

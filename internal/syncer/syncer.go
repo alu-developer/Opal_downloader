@@ -806,6 +806,16 @@ func syncRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, mani
 		}
 	}
 
+	// Per-sheet routing leaves the manifest keys alone, so it has no entries
+	// to salvage - only files sitting in the flat location they landed in
+	// before the "/{blatt}" entry existed (see relocateSheetRoutedFiles).
+	if report := relocateSheetRoutedFiles(manifest, cfg, remoteFiles); report.Changed() {
+		for _, line := range report.Lines() {
+			fmt.Println(line)
+			progress(Event{Type: EventMigration, Message: line})
+		}
+	}
+
 	stats := processRemoteFiles(ctx, remoteFiles, manifest, cfg, force, downloadFn, progress, bulk)
 
 	if err := manifest.Save(); err != nil {
@@ -1182,7 +1192,7 @@ type resolvedTarget struct {
 func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) resolvedTarget {
 	sectionName := strings.TrimSpace(remoteFile.SectionTitle)
 	if cfg.UseSectionSubfolders && sectionName != "" {
-		if destination, ok := config.ResolveSubfolderDestination(cfg, remoteFile.Course, sectionName); ok {
+		if destination, ok := config.ResolveSubfolderDestination(cfg, remoteFile.Course, sectionName, remoteFile.Name); ok {
 			// Override destinations bypass the normal course folder entirely and
 			// may point outside download_path (e.g. an absolute path elsewhere on
 			// disk), so LocalPath is built directly from destination rather than
@@ -1190,6 +1200,19 @@ func resolveRemoteTargetPath(cfg config.App, remoteFile scraper.RemoteFile) reso
 			// this file under its normal course/subfolder-relative location so
 			// change detection stays stable even though the file physically lives
 			// elsewhere.
+			//
+			// Per-sheet routing (a "/{blatt}" entry, see
+			// config.SheetPlaceholder) rides on exactly that property: it
+			// changes only where the file lands, never its manifest key, so
+			// turning it on re-keys nothing. No migration runs, no entry goes
+			// stale and no file is re-downloaded for having moved - the file
+			// at the new path is found by the os.Stat check in
+			// processRemoteFiles and skipped like any unchanged file, and a
+			// copy the maintainer had already hand-filed there is simply the
+			// file that was looked for. What IS left behind is the old flat
+			// copy, which this code never deletes; it is reported by the
+			// sheet-routing leftover sweep (reportSheetRoutingLeftovers)
+			// instead of being guessed at.
 			_, manifestBase := resolveCourseSubfolderBase(cfg, remoteFile.Course, sectionName)
 			manifestKey := filepath.Join(manifestBase, remoteFile.Name)
 			return resolvedTarget{

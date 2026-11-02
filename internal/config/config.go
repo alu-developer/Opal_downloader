@@ -752,33 +752,70 @@ func ResolveSectionFolderName(cfg App, sectionName string) string {
 }
 
 // ResolveSubfolderDestination looks up subfolder_destinations for an override
-// destination path matching both courseName and sectionName. Entries are keyed
-// as "<course pattern>/<subfolder pattern>"; both halves are matched using the
-// same pattern-matching rules as course_folders (CourseMatches). It returns the
+// destination path matching courseName, sectionName and fileName. Entries are
+// keyed as "<course pattern>/<subfolder pattern>", optionally followed by
+// "/{blatt}"; the course and subfolder halves are matched using the same
+// pattern-matching rules as course_folders (CourseMatches). It returns the
 // configured destination path and true on a match, or ("", false) otherwise.
-func ResolveSubfolderDestination(cfg App, courseName, sectionName string) (destination string, ok bool) {
+//
+// fileName is what adds per-sheet (Übungsblatt) routing to this lever rather
+// than beside it. A "/{blatt}" entry is sheet-only: it is consulted just for
+// files whose name carries a sheet number (SheetNumber), and SheetPlaceholder
+// in its destination is replaced by the sheet folder name ("Blatt01"). A
+// sheet-only entry wins over a plain entry matching the same course/section,
+// so the two can sit side by side - which is the whole point, since OPAL
+// serves sheet and non-sheet material from one section. A file whose name
+// carries no sheet number can never match a sheet-only entry, so it keeps
+// exactly the destination it had before this existed.
+func ResolveSubfolderDestination(cfg App, courseName, sectionName, fileName string) (destination string, ok bool) {
+	sheet, hasSheet := SheetNumber(fileName)
+
+	// Sheet-only entries are returned immediately while plain entries are
+	// only remembered, so precedence does not depend on Go's randomized map
+	// iteration order.
+	plain := ""
+	hasPlain := false
 	for key, dest := range cfg.SubfolderDestinations {
-		coursePattern, subfolderPattern, valid := splitSubfolderDestinationKey(key)
+		coursePattern, subfolderPattern, sheetOnly, valid := splitSubfolderDestinationKey(key)
 		if !valid {
 			continue
 		}
-		if CourseMatches(courseName, []string{coursePattern}) && CourseMatches(sectionName, []string{subfolderPattern}) {
-			return dest, true
+		if !CourseMatches(courseName, []string{coursePattern}) || !CourseMatches(sectionName, []string{subfolderPattern}) {
+			continue
 		}
+		if sheetOnly {
+			if !hasSheet {
+				continue
+			}
+			return expandSheetPlaceholder(dest, sheet), true
+		}
+		plain, hasPlain = dest, true
 	}
-	return "", false
+	return plain, hasPlain
 }
 
 // splitSubfolderDestinationKey splits a subfolder_destinations key of the form
 // "<course pattern>/<subfolder pattern>" on the last "/" so that course
 // patterns themselves may contain "/" (e.g. nested folder-style names) while
 // the subfolder pattern remains a single path component.
-func splitSubfolderDestinationKey(key string) (coursePattern, subfolderPattern string, ok bool) {
-	idx := strings.LastIndex(key, "/")
-	if idx <= 0 || idx >= len(key)-1 {
-		return "", "", false
+//
+// A key may carry one further trailing component, SheetPlaceholder, which is
+// stripped before that split and reported as sheetOnly. It is taken off
+// first precisely because the split is on the LAST "/": without this,
+// "<course>/<section>/{blatt}" would parse as the course pattern
+// "<course>/<section>" with the subfolder pattern "{blatt}".
+func splitSubfolderDestinationKey(key string) (coursePattern, subfolderPattern string, sheetOnly bool, ok bool) {
+	trimmed := strings.TrimSpace(key)
+	if idx := strings.LastIndex(strings.ToLower(trimmed), "/"+SheetPlaceholder); idx > 0 && idx+1+len(SheetPlaceholder) == len(trimmed) {
+		trimmed = strings.TrimSpace(trimmed[:idx])
+		sheetOnly = true
 	}
-	return strings.TrimSpace(key[:idx]), strings.TrimSpace(key[idx+1:]), true
+
+	idx := strings.LastIndex(trimmed, "/")
+	if idx <= 0 || idx >= len(trimmed)-1 {
+		return "", "", sheetOnly, false
+	}
+	return strings.TrimSpace(trimmed[:idx]), strings.TrimSpace(trimmed[idx+1:]), sheetOnly, true
 }
 
 func CourseMatches(name string, patterns []string) bool {
@@ -883,11 +920,20 @@ func Validate(cfg Loaded) error {
 		}
 	}
 	for key, dest := range cfg.App.SubfolderDestinations {
-		if _, _, valid := splitSubfolderDestinationKey(key); !valid {
-			return fmt.Errorf("subfolder_destinations key %q must be in the form \"<course pattern>/<subfolder pattern>\"", key)
+		_, _, sheetOnly, valid := splitSubfolderDestinationKey(key)
+		if !valid {
+			return fmt.Errorf("subfolder_destinations key %q must be in the form \"<course pattern>/<subfolder pattern>\" (optionally followed by \"/%s\" for per-sheet routing)", key, SheetPlaceholder)
 		}
 		if strings.TrimSpace(dest) == "" {
 			return fmt.Errorf("subfolder_destinations[%q] must not be empty", key)
+		}
+		// "{}" are legal in a Windows path component, so a placeholder on a
+		// key that is not sheet-only would silently create a folder named
+		// literally "{blatt}" instead of per-sheet folders. That is always a
+		// typo for the "/{blatt}" key suffix, so it is refused rather than
+		// honoured.
+		if containsSheetPlaceholder(dest) && !sheetOnly {
+			return fmt.Errorf("subfolder_destinations[%q] uses %s, which only expands for a key ending in \"/%s\"", key, SheetPlaceholder, SheetPlaceholder)
 		}
 	}
 	return nil

@@ -35,6 +35,17 @@ use_section_subfolders: false
 # section_folder_names above.
 # subfolder_destinations:
 #   "*Analysis*/*Vorlesung*": "D:/Elsewhere/AnalysisSlides"
+#
+# A key may end in "/{blatt}" to route only the files whose NAME carries an
+# Uebungsblatt number (ue01_..., loe01_..., p01.py, Blatt1_..., U06.pdf) into a
+# per-sheet folder; "{blatt}" in the destination becomes "Blatt01", "Blatt02",
+# ... Files in the same section with no sheet number in their name keep the
+# destination of the plain entry (or, with no plain entry, the normal course
+# folder). That is how one OPAL section can hold both sheets and chapter
+# material and still split two ways:
+# subfolder_destinations:
+#   "*AL10*/Material": "D:/Studium/AL10/Material"
+#   "*AL10*/Material/{blatt}": "D:/Studium/AL10/Blaetter/{blatt}"
 
 # Exact course names to sync (case-insensitive). Partial/glob patterns are NOT
 # matched here - unlike course_folders above, this list requires the full course

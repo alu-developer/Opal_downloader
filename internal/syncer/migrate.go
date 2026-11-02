@@ -266,6 +266,153 @@ func migrateManifestKeys(manifest *Manifest, cfg config.App, remoteFiles []scrap
 	return report
 }
 
+// SheetRoutingReport describes what the per-sheet leftover sweep did. Like
+// MigrationReport it is purely informational, and like it nothing is ever
+// deleted: Left is the list of duplicates only the maintainer can decide
+// about.
+type SheetRoutingReport struct {
+	// Moved holds the already-downloaded files that were carried from their
+	// old flat location into their per-sheet folder, as "old -> new" pairs.
+	Moved [][2]string
+
+	// Left holds absolute paths of flat copies that were NOT moved because a
+	// file already sits at the per-sheet path (typically one the maintainer
+	// hand-filed there). Both copies are left exactly as they are.
+	Left []string
+
+	// Unverified counts the manifest entries flagged because the file now at
+	// their sheet path is not the download they describe. See
+	// FileRecord.Unverified.
+	Unverified int
+}
+
+func (r *SheetRoutingReport) Changed() bool {
+	return r != nil && (len(r.Moved) > 0 || len(r.Left) > 0)
+}
+
+func (r *SheetRoutingReport) Lines() []string {
+	if !r.Changed() {
+		return nil
+	}
+
+	lines := []string{"Per-sheet routing is active for at least one subfolder_destinations entry:"}
+	if len(r.Moved) > 0 {
+		lines = append(lines, fmt.Sprintf("  Moved %d already-downloaded files into their sheet folder (not re-downloaded):", len(r.Moved)))
+		for _, pair := range r.Moved {
+			lines = append(lines, "    moved: "+pair[0]+" -> "+pair[1])
+		}
+	}
+	if len(r.Left) > 0 {
+		lines = append(lines, fmt.Sprintf("  WARNING: %d older copies are still sitting in the flat location because the sheet folder already holds a file of that name. Nothing was deleted - delete the flat copy yourself if you don't want the duplicate:", len(r.Left)))
+		for _, leftover := range r.Left {
+			lines = append(lines, "    duplicate left behind: "+leftover)
+		}
+	}
+	if r.Unverified > 0 {
+		lines = append(lines, fmt.Sprintf("  %d of those sheet folders hold a file this sync never wrote there, so its content is checked against OPAL instead of being trusted.", r.Unverified))
+	}
+	return lines
+}
+
+// relocateSheetRoutedFiles carries already-downloaded files from the flat
+// location they used to land in into the per-sheet folder they land in now,
+// so switching a subfolder_destinations entry to "/{blatt}" costs no
+// re-download and leaves no silent duplicate.
+//
+// It is deliberately NOT a manifest migration: per-sheet routing changes only
+// resolvedTarget.LocalPath, never the manifest key (see
+// resolveRemoteTargetPath), so there is nothing to re-key and
+// migrateManifestKeys' name-matching gate would never fire for it anyway. The
+// only thing left to reconcile is the file on disk, and here the pairing is a
+// fact rather than a guess: both paths are computed by this code from the
+// same remote file.
+//
+// A sheet folder that already holds a file of that name is never written
+// over - the maintainer's own hand-filed copy may well be the current one,
+// and overwriting it blind would destroy whichever of the two it is. Instead
+// both copies are left alone, the flat one is reported, and the manifest
+// entry is flagged Unverified for exactly the reason remapOne flags one: its
+// recorded Size/Modified describe the download that went to the FLAT path,
+// so trusting them against the file sitting at the sheet path is the
+// 2026-11-02 failure again (a hand-filed 5-page Kapitel1.pdf reported
+// "skipped" while OPAL served a 7-page one). The flag routes it through the
+// byte-compare verify path instead, and clears once compared.
+//
+// That flagging recurs for as long as the duplicate exists - one verification
+// per affected file per sync - because with two copies on disk and only one
+// record there is no way to tell which is current. The reported duplicate is
+// the way out, and deleting it ends both the warning and the verification.
+//
+// The one case left trusting plain os.Stat is a sheet folder that holds a
+// file while the flat original is already gone: that is indistinguishable
+// from a file an earlier sync moved there itself, so it is adopted exactly as
+// any existing file at a target path has always been adopted.
+func relocateSheetRoutedFiles(manifest *Manifest, cfg config.App, remoteFiles []scraper.RemoteFile) *SheetRoutingReport {
+	if !config.HasSheetRoutedDestination(cfg) {
+		return nil
+	}
+
+	report := &SheetRoutingReport{}
+	for _, remoteFile := range remoteFiles {
+		resolved := resolveRemoteTargetPath(cfg, remoteFile)
+		newPath := resolved.LocalPath
+		oldPath := sheetUnroutedLocalPath(cfg, remoteFile)
+		if oldPath == newPath || !fileExists(oldPath) {
+			continue
+		}
+
+		if fileExists(newPath) {
+			report.Left = append(report.Left, displayPath(oldPath))
+			if flagUnverified(manifest, filepath.ToSlash(resolved.ManifestKey)) {
+				report.Unverified++
+			}
+			continue
+		}
+		if err := relocateFile(oldPath, newPath); err != nil {
+			report.Left = append(report.Left, displayPath(oldPath))
+			continue
+		}
+		report.Moved = append(report.Moved, [2]string{displayPath(oldPath), displayPath(newPath)})
+	}
+
+	sort.Strings(report.Left)
+	sort.Slice(report.Moved, func(i, j int) bool { return report.Moved[i][0] < report.Moved[j][0] })
+	return report
+}
+
+// flagUnverified marks a stored entry as describing a download this sync
+// cannot place at the path it now points at, reporting whether it changed
+// anything. Nothing to flag when the file has no history: processRemoteFiles
+// downloads it as usual.
+func flagUnverified(manifest *Manifest, key string) bool {
+	if manifest == nil {
+		return false
+	}
+	record, ok := manifest.Files[key]
+	if !ok || record.Unverified {
+		return false
+	}
+	record.Unverified = true
+	manifest.Files[key] = record
+	return true
+}
+
+// sheetUnroutedLocalPath is where a file would land with per-sheet routing
+// out of the picture - i.e. where it used to land before the "/{blatt}" entry
+// was added.
+//
+// It gets that by resolving the same remote file with an empty Name: a name
+// carries no sheet number, so ResolveSubfolderDestination falls back to the
+// plain entry for that course/section, and LocalPath comes back as the
+// destination directory on its own. The real name is then joined on. This
+// borrows the one resolver instead of keeping a second copy of the
+// destination logic in step with it.
+func sheetUnroutedLocalPath(cfg config.App, remoteFile scraper.RemoteFile) string {
+	unrouted := remoteFile
+	unrouted.Name = ""
+	return filepath.Join(resolveRemoteTargetPath(cfg, unrouted).LocalPath, remoteFile.Name)
+}
+
 // remapOne re-keys a single stale manifest entry onto newKey and, when the
 // already-downloaded file is still sitting under the old layout, physically
 // moves it so the sync skips it instead of re-fetching it. Anything it

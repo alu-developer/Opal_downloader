@@ -30,6 +30,12 @@ type KeyRemap struct {
 	Relocated bool
 	OldPath   string
 	NewPath   string
+
+	// Unverified is true when the entry was re-pointed at a path that
+	// already held a file this tool did not put there, so its carried
+	// Size/Modified cannot be trusted against it and the next sync has to
+	// check the bytes instead. See FileRecord.Unverified.
+	Unverified bool
 }
 
 // MigrationReport describes what a key-scheme migration pass did (or
@@ -82,9 +88,13 @@ func (r *MigrationReport) Lines() []string {
 	}
 
 	relocated := 0
+	unverified := 0
 	for _, remap := range r.Remapped {
 		if remap.Relocated {
 			relocated++
+		}
+		if remap.Unverified {
+			unverified++
 		}
 	}
 
@@ -95,6 +105,10 @@ func (r *MigrationReport) Lines() []string {
 	if len(r.Remapped) > 0 {
 		lines = append(lines, fmt.Sprintf("  Re-keyed %d entries to the new layout (%d already-downloaded files moved to their new location, so they are not re-downloaded).",
 			len(r.Remapped), relocated))
+	}
+	if unverified > 0 {
+		lines = append(lines, fmt.Sprintf("  %d of them point at a file that was already at the new location and was not put there by this tool, so their recorded size/date proves nothing about it: each is fetched once and compared byte-for-byte, and the local copy is only replaced if it really differs.",
+			unverified))
 	}
 	if len(r.Ambiguous) > 0 {
 		lines = append(lines, fmt.Sprintf("  WARNING: %d stored entries could not be matched to exactly one current file and were left alone. Those files will be re-downloaded and the old copies stay where they are:", len(r.Ambiguous)))
@@ -256,6 +270,12 @@ func migrateManifestKeys(manifest *Manifest, cfg config.App, remoteFiles []scrap
 // already-downloaded file is still sitting under the old layout, physically
 // moves it so the sync skips it instead of re-fetching it. Anything it
 // declines to move is reported as an orphan; nothing is ever deleted.
+//
+// An entry is only left trusting its recorded Size/Modified when this
+// function can say where the described download is: still at the new path
+// already, or moved there by its own relocation. Everything else gets
+// FileRecord.Unverified - see the flag's doc comment for the live failure
+// that buys.
 func remapOne(manifest *Manifest, cfg config.App, report *MigrationReport, currentTargets map[string]resolvedTarget, oldKey, newKey string) {
 	record := manifest.Files[oldKey]
 	delete(manifest.Files, oldKey)
@@ -264,12 +284,20 @@ func remapOne(manifest *Manifest, cfg config.App, report *MigrationReport, curre
 	remap := KeyRemap{OldKey: oldKey, NewKey: newKey, NewPath: currentTargets[newKey].LocalPath}
 	oldPath, exists := existingOldPath(cfg, oldKey)
 	remap.OldPath = oldPath
+
+	// placed means the file the record was written from is, verifiably, the
+	// file now at NewPath.
+	placed := false
 	switch {
-	case !exists || oldPath == remap.NewPath:
-		// Nothing on disk under the old layout (or it is already in the
-		// right place): re-keying the history entry is all there is to do.
-		// If the file is genuinely missing, processRemoteFiles' own os.Stat
-		// check downloads it as usual.
+	case exists && oldPath == remap.NewPath:
+		// Already in the right place; re-keying the history entry is all
+		// there is to do.
+		placed = true
+	case !exists:
+		// Nothing on disk under the old layout. If NewPath is empty too the
+		// file is genuinely missing and processRemoteFiles' own os.Stat
+		// check downloads it as usual; if something is there, it is not
+		// this record's download - see below.
 	case fileExists(remap.NewPath):
 		// A file is already sitting at the new location; moving onto it
 		// would destroy whichever copy is the real one. Report instead.
@@ -279,7 +307,20 @@ func remapOne(manifest *Manifest, cfg config.App, report *MigrationReport, curre
 			report.Orphans = append(report.Orphans, displayPath(oldPath))
 		} else {
 			remap.Relocated = true
+			placed = true
 		}
+	}
+
+	// A file at the new path that this migration did not place there is not
+	// provably the download the record describes - it can be an older copy
+	// somebody filed by hand, which is exactly the 2026-11-02 live failure.
+	// Flag it rather than clear its Size/Modified: that keeps the next sync
+	// on the content-verification path (one fetch, byte compare, write only
+	// if they differ) instead of an unconditional re-download.
+	if !placed && fileExists(remap.NewPath) {
+		record.Unverified = true
+		manifest.Files[newKey] = record
+		remap.Unverified = true
 	}
 
 	report.Remapped = append(report.Remapped, remap)

@@ -179,6 +179,34 @@ type FileRecord struct {
 	// separate "reset on success" code needed.
 	FailCount int     `json:"fail_count,omitempty"`
 	FailedAt  *string `json:"failed_at,omitempty"`
+
+	// Unverified marks an entry whose Size/Modified describe a file this
+	// tool has never written to the path the entry now points at, so they
+	// must not be trusted on their own.
+	//
+	// Exactly one thing sets it: a key-scheme migration (migrate.go) that
+	// re-pointed a stored entry onto a new key whose path already held a
+	// file the migration did not place there. The recorded values were read
+	// from OPAL for the file this tool downloaded *somewhere else*, so
+	// comparing them against OPAL says only "OPAL has not changed since we
+	// last downloaded it" - never "the file at this path is that download".
+	// Found live 2026-11-02 re-pointing AL10 to a Material subfolder: a
+	// hand-filed older Kapitel1.pdf sat at the new path, fileChanged said
+	// unchanged, os.Stat said present, and the sync skipped it while the
+	// manifest asserted it was current.
+	//
+	// The values are deliberately kept rather than cleared: dropping them
+	// would make fileChanged answer "changed" and re-download the file
+	// outright, rewriting a byte-identical copy inside OneDrive. Keeping
+	// them plus this flag routes the entry through the content-verification
+	// path instead (needsContentVerification), which fetches the bytes once
+	// and only writes when they actually differ. Cleared the moment that
+	// check passes or a real download replaces the record, so it costs one
+	// verification per affected file, once.
+	//
+	// omitempty so a manifest with nothing flagged round-trips
+	// byte-identical to one written before this field existed.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 // downloadRetryBackoff is how long a file that failed to download is left
@@ -356,13 +384,21 @@ type downloadJob struct {
 // comparison considered unchanged must nonetheless be re-fetched to find
 // out.
 //
-// It applies to exactly one case: OPAL reports neither a size nor a
-// modified date for the file, so there is no signal to compare and
-// fileChanged can only ever answer "unchanged". Such a file is invisible to
-// change detection forever - an upstream edit is silently never picked up.
-// Measured live (2026-07-22): 13 of 14 files in "So26 Programmieren
-// (Math-Ba-PR20)" are in this state, every one of them in a Woche 05-13
-// section, so it tracks a section layout rather than a file type.
+// It applies to two cases, both of them "the metadata cannot settle this":
+//
+// The first is OPAL reporting neither a size nor a modified date for the
+// file, so there is no signal to compare and fileChanged can only ever
+// answer "unchanged". Such a file is invisible to change detection forever -
+// an upstream edit is silently never picked up. Measured live (2026-07-22):
+// 13 of 14 files in "So26 Programmieren (Math-Ba-PR20)" are in this state,
+// every one of them in a Woche 05-13 section, so it tracks a section layout
+// rather than a file type.
+//
+// The second is an entry a key-scheme migration re-pointed at a file this
+// tool never wrote (FileRecord.Unverified). There the signals exist and
+// match perfectly - they were just read from a file at a different path, so
+// matching says nothing about the one on disk now. Same answer: only the
+// bytes settle it.
 //
 // Note this is NOT solvable by recording the downloaded file's own on-disk
 // size in the manifest, which is the obvious-looking fix: the local file
@@ -385,8 +421,14 @@ type downloadJob struct {
 // here notices when that silently stops working. If a sync ever gets slow
 // again, count the verify jobs first: `--profile` prints one "verified
 // unchanged" line each.
-func needsContentVerification(remote scraper.RemoteFile, hasPrevious bool) bool {
-	return hasPrevious && remote.Size == nil && remote.Modified == nil
+func needsContentVerification(remote scraper.RemoteFile, hasPrevious bool, previous FileRecord) bool {
+	if !hasPrevious {
+		return false
+	}
+	if previous.Unverified {
+		return true
+	}
+	return remote.Size == nil && remote.Modified == nil
 }
 
 // verificationTempPath returns a scratch path next to target for a verify
@@ -612,8 +654,12 @@ func runBulkVerifyGroups(jobs []downloadJob, bulk bulkVerifyDownloader, manifest
 				// needsContentVerification decides that from *this* sync's
 				// fresh discovery result, which still reports no
 				// size/date for this file class.
+				// Unverified is cleared for the same reason as in the
+				// per-file path below: the bytes have now been compared, so
+				// the record describes the file at this path.
 				if rec, ok := manifest.Files[targetKey]; ok {
 					rec.Modified = &modStr
+					rec.Unverified = false
 					manifest.Files[targetKey] = rec
 				}
 				stats.Skipped++
@@ -933,11 +979,13 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 		verify := false
 		if !changed {
 			if _, err := os.Stat(localPath); err == nil {
-				// A file OPAL reports no size/date for cannot be judged from
-				// metadata at all, so "unchanged" here is an assumption, not a
-				// finding. Queue it as a verify job instead of skipping it
-				// outright - see needsContentVerification.
-				if !needsContentVerification(remoteFile, ok) {
+				// A file OPAL reports no size/date for, or one whose record
+				// a migration re-pointed at a file this tool never wrote,
+				// cannot be judged from metadata at all - so "unchanged"
+				// here is an assumption, not a finding. Queue it as a verify
+				// job instead of skipping it outright - see
+				// needsContentVerification.
+				if !needsContentVerification(remoteFile, ok, previous) {
 					stats.Skipped++
 					progress(Event{Type: EventFileSkipped, Course: remoteFile.Course, File: targetKey})
 					continue
@@ -1030,6 +1078,16 @@ func processRemoteFiles(ctx context.Context, remoteFiles []scraper.RemoteFile, m
 				// this is a skip. The manifest entry is deliberately left as
 				// it is - there is still no remote signal to record, so it
 				// stays a verify candidate next run.
+				//
+				// The one thing written back is clearing Unverified: that
+				// entry's size/date are now known to describe the file
+				// actually sitting at this path, so the next sync can go
+				// back to the fast metadata skip. Leaving it set would
+				// re-fetch the file on every run forever.
+				if rec, found := manifest.Files[targetKey]; found && rec.Unverified {
+					rec.Unverified = false
+					manifest.Files[targetKey] = rec
+				}
 				stats.Skipped++
 				timing.PrintProfileLine("verified unchanged %s in %s", targetKey, result.elapsed)
 				progress(Event{Type: EventFileSkipped, Course: result.job.remoteFile.Course, File: targetKey})

@@ -585,6 +585,21 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **A migrated manifest key is no longer trusted against a file the syncer
+  never wrote (2026-11-02).** Re-pointing a course to an
+  already-populated destination carried the entry's recorded size/date onto
+  the new key; the next sync compared them against OPAL, said "unchanged",
+  confirmed with `os.Stat` that *something* was there, and skipped - leaving
+  an older copy in place while the manifest asserted it was current. Only
+  `sync --force` repaired it. The migration now flags exactly those entries
+  (`FileRecord.Unverified`) and they go through the existing content
+  verification path: one fetch, byte compare, local file replaced only if it
+  really differs, flag cleared afterwards. Entries the migration relocates
+  itself stay trusted and are still metadata-skipped. Live-verified on a
+  scratch copy of one course against the real account: pre-fix binary
+  reported 6 skips and left the planted stale file alone, fixed binary
+  corrected it (downloaded=1 skipped=5), the five identical files kept their
+  mtimes, and the following run fetched nothing.
 - **Weekly review Part B's `printNextSteps` simplification, done (2026-09-14,
   autopilot).** Its `startAt int` parameter existed to let callers start the
   numbered list at something other than 1, but both call sites (`runInit`,

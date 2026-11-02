@@ -130,11 +130,24 @@ func TestProcessRemoteFilesDoesNotVerifyFilesThatCarryASignal(t *testing.T) {
 // there is nothing on disk to compare against.
 func TestNeedsContentVerificationRequiresAPreviousEntry(t *testing.T) {
 	signalless := scraper.RemoteFile{Name: "x.pdf"}
-	if needsContentVerification(signalless, false) {
+	if needsContentVerification(signalless, false, FileRecord{}) {
 		t.Fatal("a file with no previous manifest entry must be a plain download")
 	}
-	if !needsContentVerification(signalless, true) {
+	if !needsContentVerification(signalless, true, FileRecord{}) {
 		t.Fatal("a known file with no remote signal must be verified")
+	}
+
+	// A record with both signals present is the fast path - unless a
+	// migration flagged it as describing a file this tool never wrote.
+	signalled := scraper.RemoteFile{Name: "x.pdf", Size: sizePtr(10), Modified: strPtr("01.10.2026")}
+	trusted := FileRecord{Size: sizePtr(10), Modified: strPtr("01.10.2026")}
+	if needsContentVerification(signalled, true, trusted) {
+		t.Fatal("a file with matching signals on both sides must not be verified")
+	}
+	flagged := trusted
+	flagged.Unverified = true
+	if !needsContentVerification(signalled, true, flagged) {
+		t.Fatal("a migrated entry pointing at a file this tool never wrote must be verified")
 	}
 }
 

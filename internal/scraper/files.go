@@ -124,10 +124,22 @@ func appendSectionFiles(existing []FileRef, fileSeen map[string]struct{}, candid
 			downloadCandidates[absURL] = downloadCandidate{SourceURL: sourceURL, ShowAllURL: showAllURL, ExpandedPageURL: expandedPageURL, ShowAllViaClick: showAllViaClick, LinkText: strings.TrimSpace(defaultString(candidate["title"], candidate["text"])), LinkTarget: linkTarget}
 		}
 		rowText := candidate["rowText"]
+		// CourseTitle/SectionTitle carry OPAL's titles verbatim, NOT the
+		// path-safe forms. They are what config's course_folders,
+		// section_folder_names and subfolder_destinations patterns are
+		// matched against, and those patterns are written by a human from
+		// the title OPAL shows ("TUDMATH WS2026/27 Modul Math-Ba-AL10:
+		// Algebra - ..."). Handing the matcher the sanitized form instead
+		// ("TUDMATH WS2026_27 Modul Math-Ba-AL10_ Algebra - ...") meant any
+		// course whose title contains / : " < > | ? * could never match its
+		// own mapping, and silently landed in default_course_folder forever
+		// (found live 2026-11-02 on the maintainer's AL10 and NM10 courses).
+		// Sanitizing is the job of the path-building side - Path below, and
+		// config.SanitizePathComponent in the syncer - not of discovery.
 		files = append(files, FileRef{
 			CourseRepoID: course.RepoID,
-			CourseTitle:  safeCourse,
-			SectionTitle: sanitizeFilename(section.Title),
+			CourseTitle:  strings.TrimSpace(course.Title),
+			SectionTitle: strings.TrimSpace(section.Title),
 			SectionURL:   section.URL,
 			Name:         safeName,
 			URL:          absURL,

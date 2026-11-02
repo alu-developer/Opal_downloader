@@ -14,12 +14,16 @@ type SectionRef struct {
 
 type FileRef struct {
 	CourseRepoID string
+	// CourseTitle and SectionTitle are OPAL's titles verbatim, not path-safe
+	// forms: they feed config's course_folders / section_folder_names /
+	// subfolder_destinations matching, whose patterns a human copies from the
+	// title OPAL displays. Path below holds the sanitized shape; see the
+	// comment at the FileRef literal in files.go.
 	CourseTitle  string
 	SectionTitle string
 	// SectionURL is the page this file was found on. Titles are not usable as
-	// an identity - two sections can share one, and they are sanitised for the
-	// filesystem - so anything keyed per section (the change-detection cache in
-	// internal/sectioncache) needs the URL.
+	// an identity - two sections can share one - so anything keyed per section
+	// (the change-detection cache in internal/sectioncache) needs the URL.
 	SectionURL string
 	Name       string
 	URL        string

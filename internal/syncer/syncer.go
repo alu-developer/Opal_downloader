@@ -1177,7 +1177,12 @@ func resolveCourseSubfolderBase(cfg config.App, courseName, sectionName string) 
 	if explicit {
 		base = folder
 	} else if cfg.DefaultCourseFolder != "" {
-		base = filepath.Join(folder, courseName)
+		// courseName is OPAL's verbatim title and may contain characters no
+		// path component can hold (": " and "/" are common in TU Dresden
+		// course titles), so it has to be sanitized before it becomes a
+		// directory name - a raw "/" would otherwise silently split into two
+		// nested folders and a raw ":" is rejected outright on Windows.
+		base = filepath.Join(folder, config.SanitizePathComponent(courseName))
 	} else {
 		base = folder
 	}

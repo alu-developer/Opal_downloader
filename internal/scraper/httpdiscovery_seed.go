@@ -80,6 +80,15 @@ func extractSectionFiles(existing []FileRef, fileSeen map[string]struct{}, cours
 // top doc comment for why that must happen here rather than in a second
 // pass).
 //
+// It also reaches the two places a course keeps files that are not in any
+// file table, because neither is a course node and so neither can be found
+// by the walk above: a section's own prose, rendered in an iframe by an OPAL
+// "Einzelne Seite" (embeddedpage.go), and a learning group's Ordner, listed
+// in the course root's own groups payload (groupfolders.go). Both are
+// documented in docs/architecture.md under "Where files actually live"; each
+// costs one fetch per thing that exists, and nothing when a course has
+// neither.
+//
 // skipNonFileSections mirrors appendSectionFolderTargets's own parameter and
 // is applied twice: once here, directly against the tree seed's own node
 // class, and once inside appendSectionFolderTargets during expansion. The
@@ -161,6 +170,16 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 	fileSeen := map[string]struct{}{}
 	downloadCandidates := map[string]downloadCandidate{}
 
+	// Learning-group Ordner files, read off the same root body the section
+	// seed above came from - see groupfolders.go for why a course's groups
+	// are listed there and why they are not reachable as course nodes at
+	// all. Done before the section loop so a group file and a section file
+	// of the same name dedupe in a stable order rather than depending on how
+	// far the queue had got.
+	groupFiles, groupRequests := appendGroupFolderFiles(files, fileSeen, fetch, course, rootBody, opalURL, downloadCandidates, onSectionError)
+	files = groupFiles
+	requests += groupRequests
+
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
@@ -203,6 +222,20 @@ func discoverSectionsHTTP(fetch httpFetcher, course CourseRef, opalURL string, s
 
 		filesBefore := len(files)
 		files = extractSectionFiles(files, fileSeen, course, section, candidates, showAllCandidates, showAllURL, opalURL, downloadCandidates)
+
+		// Files written into the section's own prose rather than listed in a
+		// file table: an OPAL "Einzelne Seite" node renders its content in an
+		// iframe, so the body fetched above holds the wrapper and none of the
+		// links. See embeddedpage.go - this is the whole of the maintainer's
+		// AN30 course, which reported 0 files until this existed. Fed to
+		// appendSectionFiles only, never to the folder-target expansion
+		// below: a prose page links wherever the author pleased, and that is
+		// not course structure to crawl.
+		embedded, embeddedRequests := fetchEmbeddedPages(fetch, body, opalURL, onSectionError)
+		requests += embeddedRequests
+		for _, page := range embedded {
+			files = appendSectionFiles(files, fileSeen, page.Candidates, course, section, page.URL, "", "", false, opalURL, downloadCandidates)
+		}
 
 		expandCandidates := candidates
 		if showAllCandidates != nil {

@@ -1,9 +1,34 @@
 package scraper
 
 import (
+	"html"
 	"regexp"
 	"strings"
 )
+
+// unescapeHTMLText turns the HTML entities OPAL's renderer emits into the
+// characters they stand for, for every attribute value and every piece of
+// visible text this package reads out of a response's bytes.
+//
+// Not cosmetic: a file whose name contains "&" is served as
+// data-file-name="Proj Dev &amp; Admin - DESCRIPTION 26.docx" with the same
+// escaping in the anchor's own text, so without this the file was saved
+// under the literal name "Proj Dev &amp; Admin - DESCRIPTION 26.docx" -
+// which is both wrong and a second copy next to any correctly-named one the
+// maintainer already had (found 2026-11-04 on the English group's Ordner).
+// Attribute values get the same treatment because an escaped "&" in an href
+// query ("...&amp;antiCache=...") is likewise not part of the real URL.
+//
+// Safe to apply to names already recorded in the manifest: checked against
+// the maintainer's real manifest the day this landed, 0 of 631 keys contained
+// an "&" at all, so no existing entry's key can change shape and nothing is
+// re-downloaded for having been renamed.
+func unescapeHTMLText(value string) string {
+	if !strings.ContainsRune(value, '&') {
+		return value
+	}
+	return html.UnescapeString(value)
+}
 
 // This file implements the HTTP leaf-table extraction half of the serial
 // hybrid discovery path (option A in docs/RESUME.md). The diagnosis behind it
@@ -106,10 +131,10 @@ func httpCandidate(tag, innerText string) map[string]string {
 func httpCandidateWithRowText(tag, innerText, rowText string) map[string]string {
 	attrs := map[string]string{}
 	for _, m := range httpAttrRe.FindAllStringSubmatch(tag, -1) {
-		attrs[strings.ToLower(m[1])] = m[2]
+		attrs[strings.ToLower(m[1])] = unescapeHTMLText(m[2])
 	}
 	text := strings.TrimSpace(httpTagStripRe.ReplaceAllString(innerText, " "))
-	text = strings.Join(strings.Fields(text), " ")
+	text = strings.Join(strings.Fields(unescapeHTMLText(text)), " ")
 	if rowText == "" {
 		rowText = text
 	}
@@ -160,7 +185,7 @@ func httpRowSpans(html string) []httpRowSpan {
 			continue
 		}
 		text := strings.TrimSpace(httpTagStripRe.ReplaceAllString(row, " "))
-		spans = append(spans, httpRowSpan{start: loc[0], end: loc[1], text: strings.Join(strings.Fields(text), " ")})
+		spans = append(spans, httpRowSpan{start: loc[0], end: loc[1], text: strings.Join(strings.Fields(unescapeHTMLText(text)), " ")})
 	}
 	return spans
 }

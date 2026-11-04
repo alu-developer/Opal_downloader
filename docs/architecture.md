@@ -42,7 +42,10 @@ scripting/automation.
   `crawl.go`/`navigation.go` (walk sections/subfolders within a course),
   `files.go` (extract downloadable file links per section), `download.go`
   (fetch a file), `course_filter.go` (match configured course names),
-  `orchestrator.go` (ties discovery+crawl+download into one call).
+  `orchestrator.go` (ties discovery+crawl+download into one call),
+  `embeddedpage.go` and `groupfolders.go` (the two places a course keeps
+  files that are not in any file table — see "Where files actually live"
+  below).
 - `internal/syncer/` — manifest-based incremental sync on top of
   `scraper.OpalScraper` (`SyncCourses`, `ListAvailableCourses`), diffing remote
   files against `.opal-sync.manifest.json`. Manifests carry a
@@ -61,6 +64,46 @@ scripting/automation.
   wired in via `gotoPolitely`. Policy lives in `docs/server-load.md`.
 - `internal/timing/` — instrumentation for the perf-benchmark work.
 - `internal/logging/` — see below.
+
+## Where files actually live
+
+A course's files are not all in file tables, and two of the three places they
+can be are invisible to anything that only walks the course-node tree. Both
+were found live on 2026-11-04, each in a course that had been reporting zero
+files since the day it was added.
+
+1. **File tables** — the ordinary case: a folder node renders a `<tr>` per
+   file with `data-file-name`, a size cell and a "zuletzt geändert" cell.
+   `httpdiscovery.go` parses it, and change detection gets real signals.
+
+2. **A section's prose** (`embeddedpage.go`) — an OPAL "Einzelne Seite"
+   (node-sp) renders none of its content into the section page. The section
+   page holds only `<iframe src="/opal/FolderResource/<repo>/<page>.html">`,
+   and the lecturer's links live in *that* document, relative to its own
+   directory. The maintainer's AN30 course is nothing but two such pages, so
+   this was not a missing file but a missing course. Two consequences worth
+   knowing: the link text on a prose page is a sentence, not a file name
+   ("Übungsblatt 0"), so the name is taken from the URL instead; and a prose
+   page has no size/date columns, so these files are signalless and get
+   byte-verified on every sync rather than compared by signal.
+
+3. **A learning group's Ordner** (`groupfolders.go`) — enrolling in a course
+   can put you in a *Lerngruppe* that has its own file area, which is not a
+   course node at all. The maintainer's English course has no file-bearing
+   node anywhere; all of its material is in one group. Enumeration is free:
+   every course page carries a second jstree payload (`"id":"idgroups"`)
+   listing this user's groups *for that course*, so the course root body
+   already in hand yields the group URLs, and the Ordner is that URL plus
+   `/menu/MENU_FOLDER`. A group with no Ordner answers 200 with an empty
+   table, so no probe is needed. The response is an ordinary file table, so
+   (1)'s parser, the size/date columns and the download path all apply
+   unchanged.
+
+This is also the correction to a conclusion recorded in `section_type.go`:
+skipping `node-en` enrollment nodes is still right, they really cannot hold
+files — but "the enrollment node has no files" never meant the course has
+none. The files are one level sideways, in the group the enrollment put you
+in.
 
 ## Logging
 

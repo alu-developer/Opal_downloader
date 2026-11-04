@@ -6,7 +6,9 @@ Built for TU Dresden students, but works with any Bildungsportal Sachsen OPAL in
 
 ## Features
 
-- Download files from your visible course pages
+- Download files from your visible course pages — including the two places
+  that are not file tables: files linked in a section's own text (an OPAL
+  "Einzelne Seite"), and files in a learning group's *Ordner*
 - Configurable course selection via exact course names in `config.yaml` (or `*` for all courses)
 - Incremental sync with local manifest (`.opal-sync.manifest.json`)
 - Hybrid auth flow with persisted session state:
@@ -351,6 +353,9 @@ browser.
 - Microsoft Playwright does not provide a first-party Go SDK.
 - The project is still evolving; selectors may require small adjustments if OPAL UI changes.
 - Only files visible through your OPAL web interface can be discovered.
+- Files linked in a section's own text have no size/date columns for OPAL to
+  report, so they are byte-verified on every sync instead of compared by
+  signal. They stay current; they just cost a small re-fetch each run.
 - Session state is sensitive data; keep the state file private.
 
 ## Long-Term Maintenance

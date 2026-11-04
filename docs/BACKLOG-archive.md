@@ -585,6 +585,55 @@ file was cut back to open work only.
 Newest first. Trimmed periodically — git history and PR bodies are the real
 record.
 
+- **Two whole courses reported zero files because their material is not in
+  any file table (2026-11-04).** Both reported by the maintainer the same
+  day, and they turned out to be two different gaps rather than one.
+  *(a)* An OPAL "Einzelne Seite" node renders none of its content into the
+  section page — that page holds only an `<iframe>` whose `src` is a stored
+  HTML document, and the lecturer's file links live in that document,
+  relative to its own directory. One course consists of nothing but two such
+  pages, so it had never produced a single file and its Übungsblätter were
+  being hand-downloaded as they appeared. `internal/scraper/embeddedpage.go`
+  fetches the embedded document (same host and an `.html`/`.htm` path only,
+  so a player or an external page is never fetched) and names each file from
+  its URL, not from the link text — the same PDF is linked once under its
+  file name and three times as prose ("Übungsblatt 0"), so the text decided
+  the saved name purely by dedupe order.
+  *(b)* Enrolling in a course can put you in a *Lerngruppe* whose own Ordner
+  is not a course node at all, so a tree crawl cannot reach it. A second
+  course has no file-bearing node anywhere and keeps everything in one group.
+  `internal/scraper/groupfolders.go` reads the groups off the second jstree
+  payload (`"id":"idgroups"`) every course page already carries — so
+  enumeration costs no extra request, and the group is pre-scoped to its
+  course, which is what decides where its files land. The Ordner is the group
+  URL plus `/menu/MENU_FOLDER`; a group without one answers 200 with an empty
+  table, so there is no probe. Its response is an ordinary file table, so the
+  existing parser, the size/date columns and the download path's
+  counter-refresh all applied unchanged (the refresh dance was checked live
+  against a group file and returned a `downloadering?fibercode=` URL exactly
+  as it does for a course file). This also corrects a conclusion in
+  `section_type.go`: skipping `node-en` is still right, but "the enrollment
+  node has no files" never meant the course has none.
+  Found alongside and fixed: every attribute value and every piece of visible
+  text read out of a response now goes through `html.UnescapeString`, because
+  a file named with an `&` was being discovered — and saved — as
+  `Proj Dev &amp; Admin - DESCRIPTION 26.docx`. Checked against the real
+  manifest first: 0 of 631 keys contained an `&` at all, so no existing entry
+  changed shape.
+  Live-verified against the real account, predictions written first and all
+  five hit exactly: the two courses went 0 → 4 and 0 → 6 files, the account
+  total 300 → 310, every other course unchanged (39/30/1/210/6/14), and 17 of
+  18 groups correctly have no Ordner. A real sync into a scratch directory
+  downloaded 30/30 with 0 errors, the bytes matched a direct fetch, a second
+  run was a clean no-op (`downloaded=0 skipped=30`), and tampering with one
+  signal-less file made exactly that one re-download. Cost: `list` (which
+  crawls all enrolled courses) went 174.8s → 232.2s back-to-back, almost all
+  of it one past-semester course's ~50 single-page nodes; a real `sync`, which
+  filters to the configured courses, pays about +6s.
+  Bears on **Question 45**: a prose page has no size/date columns, so its
+  files are signal-less by construction — but they do *not* pay the
+  browser-fallback cost that question is about. A `FolderResource` URL serves
+  the file on a plain GET, so verifying four of them took 0.9s.
 - **A migrated manifest key is no longer trusted against a file the syncer
   never wrote (2026-11-02).** Re-pointing a course to an
   already-populated destination carried the entry's recorded size/date onto

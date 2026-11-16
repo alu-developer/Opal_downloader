@@ -91,9 +91,12 @@ func scheduleIsDoomed(info scheduler.Info) bool {
 // idempotent (the repaired path is stable, so the next render finds nothing
 // to do), and it never happens silently - the page always reports it.
 //
-// Repair is skipped when the running executable is itself disposable:
-// swapping one doomed path for another would only reset the clock on the same
-// silent failure, and the user is better served by the warning.
+// Repair is skipped when the running executable is a DIFFERENT disposable
+// path than the registered one: swapping one doomed path for another would
+// only reset the clock on the same silent failure, and the user is better
+// served by the warning. Re-registering the same disposable path is allowed
+// and is how the maintainer's own task got its triggers fixed - see
+// scheduler.CanRegister.
 func repairDoomedSchedule(view settingsViewData, info scheduler.Info) settingsViewData {
 	doomed := scheduleIsDoomed(info)
 	if !doomed && !info.Outdated {
@@ -101,16 +104,24 @@ func repairDoomedSchedule(view settingsViewData, info scheduler.Info) settingsVi
 	}
 
 	exePath, err := exeForScheduleFunc()
-	if err == nil && scheduler.CheckExecutableStable(exePath) == nil {
+	if err == nil && scheduler.CanRegister(exePath, info) == nil {
 		if enableErr := scheduleEnableFunc(exePath, view.ScheduleTime); enableErr == nil {
-			if doomed {
-				view.ScheduleNotice = fmt.Sprintf(
-					"Your daily sync pointed at a program that would not have kept working (%s), so it has been repaired to run this copy (%s) at %s. Nothing else changed.",
-					info.ExecutablePath, exePath, view.ScheduleTime)
-			} else {
+			switch {
+			case !doomed:
 				view.ScheduleNotice = fmt.Sprintf(
 					"Your daily sync was registered without the retries that catch a missed run, so it skipped any day the machine was asleep at %s. It has been re-registered, same time, and now retries every 4 hours that day. Nothing else changed.",
 					view.ScheduleTime)
+			case scheduler.CheckExecutableStable(exePath) != nil:
+				// CanRegister let an unstable path through, which it only
+				// does for the path already registered: the triggers are
+				// fixed, the location is not, and both get said.
+				view.ScheduleNotice = fmt.Sprintf(
+					"Your daily sync has been re-registered at %s, so it runs with the retries that catch a missed run. It still points at %s, which is inside a git checkout - deleting or moving that folder would stop it, so install opal-downloader somewhere permanent when you get the chance.",
+					view.ScheduleTime, exePath)
+			default:
+				view.ScheduleNotice = fmt.Sprintf(
+					"Your daily sync pointed at a program that would not have kept working (%s), so it has been repaired to run this copy (%s) at %s. Nothing else changed.",
+					info.ExecutablePath, exePath, view.ScheduleTime)
 			}
 			return view
 		}

@@ -1446,14 +1446,24 @@ func runSchedule(args []string) error {
 		// build-cache binary, a temp directory) - the resulting task fails
 		// silently once that file is cleaned up, and the user has no reason
 		// to suspect their scheduled sync stopped. See
-		// scheduler.ErrEphemeralExecutable.
-		if err := scheduler.CheckExecutableStable(exePath); err != nil {
+		// scheduler.ErrEphemeralExecutable, and scheduler.CanRegister for
+		// the one case where such a path is written anyway: it is already
+		// the registered one, so refusing would only keep a working
+		// registration from getting working triggers.
+		info, statusErr := scheduler.Status()
+		if statusErr != nil {
+			info = scheduler.Info{}
+		}
+		if err := scheduler.CanRegister(exePath, info); err != nil {
 			return err
 		}
 		if err := scheduler.Enable(exePath, timeArg); err != nil {
 			return err
 		}
 		fmt.Printf("Scheduled daily sync enabled: Task Scheduler will run %q sync --scheduled every day at %s, retrying every 4 hours that day if the machine was off or asleep at that time (and once more at your next logon).\n", exePath, timeArg)
+		if locationErr := scheduler.CheckExecutableStable(exePath); locationErr != nil {
+			fmt.Printf("\nHeads-up, unchanged by this: %v\n", locationErr)
+		}
 		return nil
 
 	case "disable":

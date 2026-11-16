@@ -141,6 +141,39 @@ func TestWithExecutableStateTreatsUnknownPathAsNotMissing(t *testing.T) {
 	}
 }
 
+// CanRegister's exception, and its limits. The accepted case is the one
+// found live 2026-11-16: the task already runs this very binary, so refusing
+// to write it again only denies the task better triggers.
+func TestCanRegister(t *testing.T) {
+	const unstable = `C:\Users\someone\AppData\Local\go-build\1e\1ec79afd-d\opal-downloader.exe`
+	const otherUnstable = `C:\Users\someone\AppData\Local\Temp\x\opal-downloader.exe`
+	const stable = `C:\Program Files\opal-downloader\opal-downloader.exe`
+
+	cases := []struct {
+		name    string
+		exePath string
+		info    Info
+		wantErr bool
+	}{
+		{"stable path, nothing registered", stable, Info{}, false},
+		{"stable path over an unstable registration", stable, Info{Registered: true, ExecutablePath: unstable}, false},
+		{"unstable path, nothing registered", unstable, Info{}, true},
+		{"unstable path over a stable registration", unstable, Info{Registered: true, ExecutablePath: stable}, true},
+		{"unstable path over a different unstable one", unstable, Info{Registered: true, ExecutablePath: otherUnstable}, true},
+		{"the unstable path already registered", unstable, Info{Registered: true, ExecutablePath: unstable}, false},
+		{"the same path spelled differently", unstable, Info{Registered: true, ExecutablePath: strings.ToUpper(unstable)}, false},
+	}
+	for _, tc := range cases {
+		err := CanRegister(tc.exePath, tc.info)
+		if tc.wantErr && err == nil {
+			t.Errorf("%s: expected a refusal, got nil", tc.name)
+		}
+		if !tc.wantErr && err != nil {
+			t.Errorf("%s: expected nil, got %v", tc.name, err)
+		}
+	}
+}
+
 func TestWithExecutableStateDetectsMissingAndPresent(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "gone.exe")
 	if info := withExecutableState(Info{Registered: true}, missing); !info.ExecutableMissing {

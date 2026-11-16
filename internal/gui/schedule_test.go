@@ -155,6 +155,8 @@ func TestApplyScheduleStatusRepairsMissingExecutable(t *testing.T) {
 // Repairing a doomed path with another doomed path would just reset the clock
 // on the same silent failure, so the warning is the honest answer.
 func TestApplyScheduleStatusWarnsInsteadOfRepairingFromAnotherEphemeralBinary(t *testing.T) {
+	const otherEphemeralExe = `C:\Users\someone\AppData\Local\Temp\unzipped\opal-downloader.exe`
+
 	var enableCalled bool
 	withScheduleFakes(t,
 		func() (scheduler.Info, error) {
@@ -162,7 +164,7 @@ func TestApplyScheduleStatusWarnsInsteadOfRepairingFromAnotherEphemeralBinary(t 
 		},
 		func(string, string) error { enableCalled = true; return nil },
 		nil,
-		func() (string, error) { return ephemeralExe, nil },
+		func() (string, error) { return otherEphemeralExe, nil },
 	)
 
 	view := applyScheduleStatus(settingsViewData{})
@@ -219,28 +221,67 @@ func TestApplyScheduleStatusRepairsAGitCheckoutExecutable(t *testing.T) {
 // working copy) are both inside the git checkout. Nothing here can safely
 // repair anything - re-registering against the running copy would just
 // point at another binary `git clean -xfd` deletes just as easily - so this
-// must warn, not silently "fix" the schedule with the same doomed path.
-func TestApplyScheduleStatusWarnsWhenBothRegisteredAndRunningAreInAGitCheckout(t *testing.T) {
+// must be re-registered anyway, and told where it lives.
+//
+// Corrected 2026-11-16 (this test asserted the opposite until then, and was
+// measured wrong on the maintainer's machine - see scheduler.CanRegister):
+// the registered path and the running one are the SAME file here, so
+// refusing writes nothing, protects nothing, and leaves the task on whatever
+// triggers it was born with. That is how a task registered in July kept
+// missing roughly every other day through two separate fixes for it.
+func TestApplyScheduleStatusReRegistersTheSameGitCheckoutExecutable(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
 	inRepoExe := filepath.Join(wd, "opal-downloader.exe")
 
-	var enableCalled bool
+	var gotExe, gotTime string
 	withScheduleFakes(t,
 		func() (scheduler.Info, error) {
 			return scheduler.Info{Registered: true, Time: "06:00", ExecutablePath: inRepoExe}, nil
 		},
-		func(string, string) error { enableCalled = true; return nil },
+		func(exePath, hhmm string) error { gotExe, gotTime = exePath, hhmm; return nil },
 		nil,
 		func() (string, error) { return inRepoExe, nil },
 	)
 
 	view := applyScheduleStatus(settingsViewData{})
 
+	if gotExe != inRepoExe || gotTime != "06:00" {
+		t.Fatalf("expected the task re-registered at the same path and time, got %q at %q", gotExe, gotTime)
+	}
+	if view.ScheduleError != "" {
+		t.Errorf("a task that now has working triggers is not an error state, got %q", view.ScheduleError)
+	}
+	if !strings.Contains(view.ScheduleNotice, "git checkout") {
+		t.Errorf("the notice must still say where the binary lives, got %q", view.ScheduleNotice)
+	}
+}
+
+// The same correction, one level down: a different git-checkout path is
+// still refused, because writing it would swap one doomed location for
+// another instead of improving the one that is there.
+func TestApplyScheduleStatusWarnsWhenRunningFromADifferentGitCheckout(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var enableCalled bool
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "06:00", ExecutablePath: filepath.Join(wd, "old-opal-downloader.exe")}, nil
+		},
+		func(string, string) error { enableCalled = true; return nil },
+		nil,
+		func() (string, error) { return filepath.Join(wd, "opal-downloader.exe"), nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
 	if enableCalled {
-		t.Fatal("must not re-register a git-checkout task against another git-checkout binary")
+		t.Fatal("must not re-register a git-checkout task against a different git-checkout binary")
 	}
 	if view.ScheduleError == "" {
 		t.Error("expected the unrepairable git-checkout registration to be reported as an error")

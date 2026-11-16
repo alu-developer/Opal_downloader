@@ -120,6 +120,49 @@ func findGitWorkingTreeRoot(dir string) string {
 	return ""
 }
 
+// CanRegister reports whether exePath may be written into the registration
+// info describes - the question every caller of Enable actually has, and the
+// reason CheckExecutableStable is no longer asked directly.
+//
+// A stable path always may. An unstable one may only when it is the path
+// already registered, and that exception is the whole point of this
+// function. Refusing then protects nothing: the task is already pointing at
+// that binary, so the registration is no more doomed afterwards than before,
+// and the only thing the refusal actually prevents is the task getting
+// triggers that work. Found live 2026-11-16 on the maintainer's machine,
+// where everything runs from the git checkout: the task was registered in
+// July, two later fixes to its triggers could not be written, and both
+// `schedule enable` and the GUI's repair path answered "install it somewhere
+// permanent first" - i.e. the product refused to improve a registration
+// because the path it would write was exactly as bad as the one already
+// there.
+//
+// Callers must still SAY where the binary lives when this returns nil for an
+// unstable path (CheckExecutableStable answers that): "your schedule works
+// again, and it still points into a git checkout" is two true sentences, and
+// the second one is not a reason to withhold the first.
+func CanRegister(exePath string, info Info) error {
+	err := CheckExecutableStable(exePath)
+	if err == nil {
+		return nil
+	}
+	if info.Registered && samePath(info.ExecutablePath, exePath) {
+		return nil
+	}
+	return err
+}
+
+// samePath compares two executable paths the way Windows resolves them:
+// cleaned, and case-insensitively.
+func samePath(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
 // withExecutableState fills Info's ExecutablePath/ExecutableMissing. An
 // empty exePath (the task XML had no Exec Command, or could not be parsed)
 // leaves both untouched, so an unknown path is never reported as a missing

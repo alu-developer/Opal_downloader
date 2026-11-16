@@ -182,7 +182,7 @@ var schedulePageTemplate = template.Must(template.New("schedule").Parse(`<!DOCTY
 
 	<div class="field checkbox-row">
 		<input type="checkbox" id="schedule_enabled" name="schedule_enabled" {{if .Enabled}}checked{{end}}>
-		<label for="schedule_enabled">Sync once a day, on its own (catches up if the machine was off)</label>
+		<label for="schedule_enabled">Sync once a day, on its own (retries every 4 hours if the machine was off or asleep)</label>
 	</div>
 
 	<div class="field">

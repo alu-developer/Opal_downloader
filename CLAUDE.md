@@ -56,4 +56,23 @@ without a live run". Just run it. Write the prediction down first, then run.
 You should decide for your own, what is better. You can ask me about product-questions, but decide the rest for yourself. 
 
 **If you fix something: rather make something old that is bad new/change it, then just adding something new**
-I want to try to reduce slop and complexity-building. 
+I want to try to reduce slop and complexity-building.
+
+Concretely, every change is judged on what the codebase looks like afterwards,
+not on how small the diff was:
+
+- When the code you touch is old and already complicated, leave it **simpler**
+  than you found it. Reshaping or deleting what is in the way beats adding a
+  layer next to it, even when that means changing more lines than the fix
+  strictly needed. A bigger diff that removes a concept is cheaper than a
+  three-line diff that adds one.
+- Before adding a mechanism, look for the one that nearly does the job
+  already and extend it. Two mechanisms for one problem is the thing I am
+  trying to avoid — a new flag, knob, config key, file or abstraction for a
+  one-off is almost always the wrong answer.
+- Say in your report what you removed, merged or reshaped, not just what you
+  added. "Nothing to simplify here" is a fine answer when it is true; silence
+  about it is not.
+- If a feature cannot be made simple enough to be worth it, say so plainly
+  and offer to drop it instead of carrying it. I would rather lose a
+  nice-to-have than keep machinery nobody can hold in their head.

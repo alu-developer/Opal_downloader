@@ -260,6 +260,22 @@ rest of this section (why not password-based/LogonType=Password, why not
 `RunOnlyIfNetworkAvailable`, etc.) is unaffected and still describes what
 ships.
 
+**Corrected again 2026-11-16: two triggers were still not enough.** The
+2026-08-11 pair covers "machine off or user logged off at the fixed time",
+and leaves the case this machine is actually in most mornings: logged on the
+whole time, in Modern Standby (S0 Low Power Idle) at 08:00, nobody logging
+on again for a day. The fixed-time trigger is missed, STARTWHENAVAILABLE
+does not deliver, the LogonTrigger never fires, and Task Scheduler's answer
+for the day is "next run tomorrow". Measured that morning: last run the day
+before, two Übungsblätter sitting on OPAL unfetched, and the same shape on
+five other days that month. The CalendarTrigger now repeats every 4 hours
+for a day (`retryInterval`), which needs no new runtime machinery because
+`errAlreadySucceededToday` already makes a repeat on a day that succeeded a
+process start and an exit. The same commit added `scheduler.Info.Outdated`,
+because this correction and the one above both shipped as code that only
+takes effect when the schedule is enabled *again* - the maintainer's task
+had sat on the pre-2026-08-11 triggers for three months.
+
 **Recommendation (original, 2026-07-16 - see the correction above):
 Windows Task Scheduler, single task, fixed daily time trigger + "run as
 soon as possible after a missed scheduled start" enabled — not an "on

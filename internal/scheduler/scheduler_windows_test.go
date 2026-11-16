@@ -83,6 +83,63 @@ func TestBuildTaskXMLRegistersLogonTriggerAlongsideCalendarTrigger(t *testing.T)
 	}
 }
 
+// TestBuildTaskXMLRepeatsTheDailyTrigger covers the retry added 2026-11-16
+// (see retryInterval): the day the maintainer's machine slept through 08:00,
+// the fixed-time trigger was the only one that could have fired and nothing
+// retried it. Element order is asserted, not just presence - Task Scheduler's
+// schema wants Repetition ahead of StartBoundary, and a struct-field reorder
+// would silently produce XML schtasks refuses, which no unit test that only
+// greps for "<Repetition>" would catch.
+func TestBuildTaskXMLRepeatsTheDailyTrigger(t *testing.T) {
+	raw, err := buildTaskXML(`C:\fake\opal-downloader.exe`, "06:30")
+	if err != nil {
+		t.Fatalf("buildTaskXML: %v", err)
+	}
+	decoded, err := decodeMaybeUTF16(raw)
+	if err != nil {
+		t.Fatalf("decodeMaybeUTF16: %v", err)
+	}
+	xmlText := string(decoded)
+
+	for _, want := range []string{
+		"<Interval>" + retryInterval + "</Interval>",
+		"<Duration>" + retryDuration + "</Duration>",
+		"<StopAtDurationEnd>false</StopAtDurationEnd>",
+	} {
+		if !strings.Contains(xmlText, want) {
+			t.Errorf("expected task XML to contain %q, got:\n%s", want, xmlText)
+		}
+	}
+
+	repetition := strings.Index(xmlText, "<Repetition>")
+	boundary := strings.Index(xmlText, "<StartBoundary>")
+	if repetition < 0 || boundary < 0 || repetition > boundary {
+		t.Errorf("expected <Repetition> before <StartBoundary>, got Repetition at %d and StartBoundary at %d:\n%s", repetition, boundary, xmlText)
+	}
+}
+
+// TestParseRetryIntervalReportsAnOldRegistration is Info.Outdated's whole
+// point: the shape every task registered before 2026-11-16 has must come
+// back as "not the current interval", and a task this build wrote must come
+// back as current.
+func TestParseRetryIntervalReportsAnOldRegistration(t *testing.T) {
+	old := []byte(`<Task><Triggers><CalendarTrigger>` +
+		`<StartBoundary>2026-07-23T08:00:00</StartBoundary><Enabled>true</Enabled>` +
+		`<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>` +
+		`</CalendarTrigger></Triggers></Task>`)
+	if got := parseRetryInterval(old); got != "" {
+		t.Errorf("parseRetryInterval(pre-retry task) = %q, want \"\"", got)
+	}
+
+	current, err := buildTaskXML(`C:\fake\opal-downloader.exe`, "06:30")
+	if err != nil {
+		t.Fatalf("buildTaskXML: %v", err)
+	}
+	if got := parseRetryInterval(current); got != retryInterval {
+		t.Errorf("parseRetryInterval(current task) = %q, want %q", got, retryInterval)
+	}
+}
+
 func TestBuildTaskXMLRejectsInvalidTime(t *testing.T) {
 	if _, err := buildTaskXML(`C:\fake\opal-downloader.exe`, "not-a-time"); err == nil {
 		t.Fatal("expected buildTaskXML to reject an invalid time, got nil error")

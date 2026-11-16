@@ -128,4 +128,20 @@ type Info struct {
 	// reported as a missing one.
 	ExecutablePath    string
 	ExecutableMissing bool
+
+	// Outdated reports that the task is registered with triggers an older
+	// build wrote, so it is missing whatever has been learned about missed
+	// runs since. This is the same failure shape as ExecutableMissing and
+	// needs saying separately for the same reason: nothing about such a task
+	// looks wrong - it is enabled, it points at a real binary, Task
+	// Scheduler reports a next run - and it quietly skips days anyway. The
+	// maintainer's own task sat like that from 2026-08-11 (when the logon
+	// trigger was added) to 2026-11-16, missing roughly every other day,
+	// because the only thing that ever writes those triggers is enabling the
+	// schedule again. internal/gui re-registers an Outdated task the same
+	// way it repairs a doomed path.
+	//
+	// Always false when Registered is false, and on platforms where
+	// scheduling is unsupported.
+	Outdated bool
 }

@@ -1453,7 +1453,7 @@ func runSchedule(args []string) error {
 		if err := scheduler.Enable(exePath, timeArg); err != nil {
 			return err
 		}
-		fmt.Printf("Scheduled daily sync enabled: Task Scheduler will run %q sync --scheduled every day at %s (catches up automatically if the machine was off/asleep).\n", exePath, timeArg)
+		fmt.Printf("Scheduled daily sync enabled: Task Scheduler will run %q sync --scheduled every day at %s, retrying every 4 hours that day if the machine was off or asleep at that time (and once more at your next logon).\n", exePath, timeArg)
 		return nil
 
 	case "disable":

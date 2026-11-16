@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -286,6 +287,55 @@ func TestApplyScheduleStatusLeavesHealthyRegistrationAlone(t *testing.T) {
 	}
 	if view.ScheduleError != "" || view.ScheduleNotice != "" {
 		t.Errorf("expected a quiet page for a healthy schedule, got error %q notice %q", view.ScheduleError, view.ScheduleNotice)
+	}
+}
+
+// TestApplyScheduleStatusReRegistersAnOutdatedTask covers the state the
+// maintainer's own machine was in for three months: a task registered by an
+// older build, pointing at a perfectly good binary, enabled, with a next run
+// - and missing the triggers that keep it from skipping days.
+func TestApplyScheduleStatusReRegistersAnOutdatedTask(t *testing.T) {
+	var enabledAt string
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "07:30", ExecutablePath: stableExe, Outdated: true}, nil
+		},
+		func(_ string, at string) error { enabledAt = at; return nil },
+		nil,
+		func() (string, error) { return stableExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if enabledAt != "07:30" {
+		t.Fatalf("expected the outdated task to be re-registered at its own time, got %q", enabledAt)
+	}
+	if view.ScheduleNotice == "" {
+		t.Error("re-registering behind the user's back must be reported on the page")
+	}
+	if view.ScheduleError != "" {
+		t.Errorf("a repaired task is not an error state, got %q", view.ScheduleError)
+	}
+}
+
+// A failed re-registration leaves the task exactly as it was - running, on
+// the old triggers - so there is nothing to alarm the user with. Contrast
+// TestApplyScheduleStatusFallsBackToWarningWhenRepairFails, where the task is
+// about to stop running entirely.
+func TestApplyScheduleStatusStaysQuietWhenReRegisteringAnOutdatedTaskFails(t *testing.T) {
+	withScheduleFakes(t,
+		func() (scheduler.Info, error) {
+			return scheduler.Info{Registered: true, Time: "07:30", ExecutablePath: stableExe, Outdated: true}, nil
+		},
+		func(string, string) error { return errors.New("schtasks refused") },
+		nil,
+		func() (string, error) { return stableExe, nil },
+	)
+
+	view := applyScheduleStatus(settingsViewData{})
+
+	if view.ScheduleError != "" || view.ScheduleNotice != "" {
+		t.Errorf("expected a quiet page, got error %q notice %q", view.ScheduleError, view.ScheduleNotice)
 	}
 }
 

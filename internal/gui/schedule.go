@@ -75,8 +75,11 @@ func scheduleIsDoomed(info scheduler.Info) bool {
 	return errors.Is(scheduler.CheckExecutableStable(info.ExecutablePath), scheduler.ErrEphemeralExecutable)
 }
 
-// repairDoomedSchedule re-points a doomed registration at the running
-// executable, keeping its trigger time, and says so. Telling the user to
+// repairDoomedSchedule re-registers a registration that will not do its job -
+// one whose executable is doomed (scheduleIsDoomed) or whose triggers are an
+// older build's (scheduler.Info.Outdated) - at the running executable,
+// keeping its trigger time, and says which of the two it fixed. Telling the
+// user to
 // "re-enable the schedule to repair it" was the previous behaviour, and it
 // asks them to perform a repair they did not cause, do not understand, and
 // cannot verify - for a feature whose entire promise is that they never have
@@ -92,18 +95,34 @@ func scheduleIsDoomed(info scheduler.Info) bool {
 // swapping one doomed path for another would only reset the clock on the same
 // silent failure, and the user is better served by the warning.
 func repairDoomedSchedule(view settingsViewData, info scheduler.Info) settingsViewData {
-	if !scheduleIsDoomed(info) {
+	doomed := scheduleIsDoomed(info)
+	if !doomed && !info.Outdated {
 		return view
 	}
 
 	exePath, err := exeForScheduleFunc()
 	if err == nil && scheduler.CheckExecutableStable(exePath) == nil {
 		if enableErr := scheduleEnableFunc(exePath, view.ScheduleTime); enableErr == nil {
-			view.ScheduleNotice = fmt.Sprintf(
-				"Your daily sync pointed at a program that would not have kept working (%s), so it has been repaired to run this copy (%s) at %s. Nothing else changed.",
-				info.ExecutablePath, exePath, view.ScheduleTime)
+			if doomed {
+				view.ScheduleNotice = fmt.Sprintf(
+					"Your daily sync pointed at a program that would not have kept working (%s), so it has been repaired to run this copy (%s) at %s. Nothing else changed.",
+					info.ExecutablePath, exePath, view.ScheduleTime)
+			} else {
+				view.ScheduleNotice = fmt.Sprintf(
+					"Your daily sync was registered without the retries that catch a missed run, so it skipped any day the machine was asleep at %s. It has been re-registered, same time, and now retries every 4 hours that day. Nothing else changed.",
+					view.ScheduleTime)
+			}
 			return view
 		}
+	}
+
+	// An out-of-date task that could not be re-registered keeps running on
+	// its old triggers, which is the state it was already in - no worse for
+	// having been looked at, and nothing the user can act on from a copy of
+	// the program that is itself disposable. The doomed case below is
+	// different: that task is going to stop running entirely.
+	if !doomed {
+		return view
 	}
 
 	view.ScheduleError = fmt.Sprintf(

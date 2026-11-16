@@ -44,14 +44,49 @@ type triggers struct {
 }
 
 type calendarTrigger struct {
+	Repetition    repetition    `xml:"Repetition"`
 	StartBoundary string        `xml:"StartBoundary"`
 	Enabled       bool          `xml:"Enabled"`
 	ScheduleByDay scheduleByDay `xml:"ScheduleByDay"`
 }
 
+// repetition is the same-day retry on the daily trigger. Field order matters:
+// Task Scheduler's schema puts Repetition ahead of StartBoundary, and
+// encoding/xml emits the fields in the order they are declared here.
+type repetition struct {
+	Interval          string `xml:"Interval"`
+	Duration          string `xml:"Duration"`
+	StopAtDurationEnd bool   `xml:"StopAtDurationEnd"`
+}
+
 type scheduleByDay struct {
 	DaysInterval int `xml:"DaysInterval"`
 }
+
+// retryInterval/retryDuration repeat the daily trigger through the rest of
+// the day, so a fixed time the machine slept through costs a few no-op
+// process starts instead of a whole day's files.
+//
+// Measured on the maintainer's machine 2026-11-16, which is why this is not
+// left to STARTWHENAVAILABLE or the logon trigger: the task was registered
+// daily at 08:00 and had last run the morning before. The machine was logged
+// on and in Modern Standby (S0 Low Power Idle) at 08:00, so the trigger was
+// missed; nothing caught it up, nobody logged on again (24h uptime), and
+// Task Scheduler's own answer for the day was "next run tomorrow 08:00". The
+// scheduled-run history shows the same shape on Nov 5, 6, 8, 11 and 12 -
+// roughly every other day unsynced - and the cost that day was two
+// Uebungsblaetter that had been on OPAL since the morning.
+//
+// Four hours, not one: a repeat on a day that already succeeded is a process
+// start that reads one JSON file and exits (errAlreadySucceededToday in
+// cmd/opal-downloader/root.go), but a repeat after a FAILED run retries for
+// real, browser login included, and writes another failure status. Four
+// hours gives a slept-through morning four more chances before midnight, and
+// a genuinely broken day five retries rather than twenty-four.
+const (
+	retryInterval = "PT4H"
+	retryDuration = "P1D"
+)
 
 // logonTrigger is the catch-up trigger added alongside calendarTrigger - see
 // buildTaskXML's doc comment for why this project now registers both rather
@@ -99,13 +134,16 @@ type execAction struct {
 // scheduled-sync task, implementing every design decision in
 // docs/scheduled-sync-plan.md section 4:
 //
-//   - CalendarTrigger with ScheduleByDay/DaysInterval=1 (fixed daily time)
-//     PLUS a LogonTrigger as a catch-up backstop - see below for why both
-//     are now registered, correcting section 4's original single-trigger
-//     reasoning.
+//   - CalendarTrigger with ScheduleByDay/DaysInterval=1 (fixed daily time),
+//     repeating every retryInterval for retryDuration, PLUS a LogonTrigger
+//     as a catch-up backstop - see below and retryInterval for why none of
+//     the three alone was enough, correcting section 4's original
+//     single-trigger reasoning.
 //   - Settings.StartWhenAvailable=true (STARTWHENAVAILABLE): Task
 //     Scheduler's own built-in catch-up behavior for "machine was
-//     off/asleep at the scheduled time".
+//     off/asleep at the scheduled time". Registered because it costs
+//     nothing, but measured twice now not to deliver what its name
+//     promises - see the LogonTrigger paragraph below and retryInterval.
 //   - Principal LogonType=InteractiveToken, RunLevel=LeastPrivilege, and a
 //     UserId set to the current user: the task runs using this user's own
 //     already-logged-on interactive session token, i.e. only while they're
@@ -161,6 +199,14 @@ func buildTaskXML(exePath, hhmm string) ([]byte, error) {
 		},
 		Triggers: triggers{
 			CalendarTrigger: calendarTrigger{
+				Repetition: repetition{
+					Interval: retryInterval,
+					Duration: retryDuration,
+					// false: a repeat still running when the duration ends is
+					// left to finish. A sync killed mid-download is worse
+					// than a late one.
+					StopAtDurationEnd: false,
+				},
 				StartBoundary: startBoundary.Format("2006-01-02T15:04:05"),
 				Enabled:       true,
 				ScheduleByDay: scheduleByDay{DaysInterval: 1},
@@ -316,15 +362,39 @@ func Status() (Info, error) {
 	// indefinitely. See scheduler.ErrEphemeralExecutable.
 	exePath := parseTaskCommand(out)
 
+	// A task registered by an older build keeps running with the triggers
+	// that build wrote, forever, looking perfectly healthy - see
+	// Info.Outdated.
+	outdated := parseRetryInterval(out) != retryInterval
+
 	hhmm, parseErr := parseStartTime(out)
 	if parseErr != nil {
 		// Registered but its trigger time couldn't be parsed (e.g. someone
 		// hand-edited it in Task Scheduler's own UI into a shape this
 		// package doesn't recognize) - still report it as registered rather
 		// than claiming it doesn't exist.
-		return withExecutableState(Info{Registered: true}, exePath), nil
+		return withExecutableState(Info{Registered: true, Outdated: outdated}, exePath), nil
 	}
-	return withExecutableState(Info{Registered: true, Time: hhmm}, exePath), nil
+	return withExecutableState(Info{Registered: true, Time: hhmm, Outdated: outdated}, exePath), nil
+}
+
+// parseRetryInterval returns the repetition interval on the registered
+// task's daily trigger, or "" when it has none - which is what every task
+// registered before 2026-11-16 has, and what Info.Outdated is about.
+//
+// Reads the interval rather than merely testing that a Repetition element
+// exists, so that changing retryInterval later re-registers these tasks too
+// instead of leaving them on the old cadence.
+func parseRetryInterval(schtasksOutput []byte) string {
+	decoded, err := decodeMaybeUTF16(schtasksOutput)
+	if err != nil {
+		return ""
+	}
+	var task queriedTask
+	if err := xml.Unmarshal(stripXMLDeclaration(decoded), &task); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(task.Triggers.CalendarTrigger.RetryInterval)
 }
 
 // parseTaskCommand extracts the registered action's executable path from a
@@ -359,6 +429,9 @@ type queriedTask struct {
 	Triggers struct {
 		CalendarTrigger struct {
 			StartBoundary string `xml:"StartBoundary"`
+			// RetryInterval is read to answer Info.Outdated - see
+			// parseRetryInterval.
+			RetryInterval string `xml:"Repetition>Interval"`
 		} `xml:"CalendarTrigger"`
 	} `xml:"Triggers"`
 	Actions struct {
